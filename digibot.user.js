@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.9.2
+// @version      2.9.3
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -337,7 +337,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.9.2'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.9.3'}</span>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
       <button class="digibot__btn" data-act="min" title="Ein-/Ausklappen">–</button>
     </div>
@@ -1277,7 +1277,9 @@
   function onGroupMsg(m) {
     if (!m || typeof m !== 'object') return;
     if (m.type === 'state' && Number.isInteger(m.slot) && m.slot !== group.slot()) group.peers.set(m.slot, { ...m, seen: Date.now() });
-    if (m.type === 'stop' && group.active()) leaveGroup('Gruppe gestoppt (aus einem anderen Fenster)');
+    if (!group.active()) return;
+    if (m.type === 'start' && !bot.on) groupStartBot('Gruppe: Start aus dem Leader-Fenster');
+    if (m.type === 'stop') groupStopBot('Gruppe: Stopp aus dem Leader-Fenster');
   }
   const charName = (st) => st?.session?.characters?.find?.((c) => c.id === window.dmo?.net?.charId)?.name || null;
   function groupState(st, now) {
@@ -1517,12 +1519,7 @@
       group.worldAt ||= now;
       if (now - group.worldAt > 3000) {
         ss.set('digibot.go', null);
-        if (!bot.on) {
-          cfg.questMode = false; cfg.autopilot = true; cfg.farm = false;
-          loadWorld();
-          bot.toggle();
-          logEvent('bot', `Gruppe: Bot gestartet als ${group.role() === 'leader' ? 'Leader' : 'Mitläufer'}`);
-        }
+        if (!bot.on) groupStartBot(`Gruppe: Bot gestartet als ${group.role() === 'leader' ? 'Leader' : 'Mitläufer'}`);
       }
     } else if (st.screen !== 'world') group.worldAt = 0;
   }
@@ -1553,19 +1550,32 @@
     group.msg = blocked ? `${blocked} Fenster blockiert – bitte Pop-ups für diese Seite erlauben und nochmal starten.`
       : `Gruppe gestartet: ${order.length} Account(s), ${opened} Fenster geöffnet.`;
     logEvent('bot', group.msg);
+    groupSend('start'); // schon offene Gruppenfenster starten ihren Bot sofort
     groupTick();
     schedule();
   }
-  function leaveGroup(why) {
-    ss.set('digibot.group', null); ss.set('digibot.go', null);
-    group.msg = why;
-    if (bot.on) bot.toggle();
+  // Bot in diesem Gruppenfenster starten (Autopilot). Noch nicht in der Welt -> startet nach dem Einloggen.
+  function groupStartBot(why) {
+    const st = getStore()?.getState?.();
+    if (st?.screen !== 'world' || !st.me?.partner) { ss.set('digibot.go', '1'); group.worldAt = 0; return; }
+    cfg.questMode = false; cfg.autopilot = true; cfg.farm = false;
+    loadWorld();
+    if (!bot.on) bot.toggle();
     logEvent('bot', why);
     schedule();
   }
+  // Bot stoppen; das Fenster bleibt in der Gruppe (nächster Start geht wieder an alle)
+  function groupStopBot(why) {
+    ss.set('digibot.go', null);
+    group.msg = '';
+    if (bot.on) { bot.toggle(); logEvent('bot', why); }
+    schedule();
+  }
+  const groupSend = (type) => { try { group.bus?.postMessage({ type }); } catch { /* ignore */ } };
   function stopGroup() {
-    try { group.bus?.postMessage({ type: 'stop' }); } catch { /* ignore */ }
-    leaveGroup('Gruppe gestoppt');
+    groupSend('stop');
+    groupStopBot('Gruppe gestoppt');
+    group.msg = 'Alle Bots gestoppt.';
   }
 
   function controlled(st) {
@@ -2911,6 +2921,7 @@
       if (this.on) this.timer = setInterval(() => this.tick(), TICK_MS);
       this.status = this.on ? 'Bot läuft' : 'Bot aus';
       logEvent('bot', this.on ? `Bot gestartet${cfg.farm ? ' (Boss-Rotation)' : cfg.autopilot ? ' (Quest-Autopilot)' : cfg.questMode ? ' (Quest-Modus)' : ''}` : 'Bot gestoppt');
+      if (group.role() === 'leader') groupSend(this.on ? 'start' : 'stop');
       schedule();
     },
 

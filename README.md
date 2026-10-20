@@ -190,7 +190,12 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
   - Auf dem Weg kämpfen sie nicht.
 - **Erst kämpfen, dann abgeben (ab 2.9.2):** Solange ein Gruppenmitglied noch kämpft, geht der Leader nicht zum
   Abgeben/Annehmen los. Er hilft mit und wartet höchstens 2 min.
-- **■ Gruppe stoppen:** Stoppt die Bots in allen Gruppenfenstern. Die Fenster bleiben offen.
+- **■ Gruppe stoppen:** Stoppt die Bots in allen Gruppenfenstern. Die Fenster bleiben offen und in der Gruppe.
+- **Start/Stopp für alle (ab 2.9.3):** Diese Knöpfe wirken auf alle schon offenen Gruppenfenster:
+  - **▶ Gruppe starten** startet dort sofort die Bots.
+  - **▶ Start / ■ Stopp** oben im Leader-Fenster (oder **Alt+B**) startet bzw. stoppt alle Bots.
+  - Ist der Leader mit allen Quests fertig, stoppen auch die Mitläufer.
+  - Ein Fenster, das noch einloggt, startet direkt nach dem Betreten der Welt.
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
