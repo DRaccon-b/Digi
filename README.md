@@ -217,6 +217,14 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.12.4 – Gespräche gehen vor, kein Hängen im NPC-Dialog
+- Mitläufer prüfen offene Gespräche des Leaders (Nachmachen/Aufholen) jetzt **vor** dem Abwehren von Angreifern.
+  Vorher riss ihn z. B. ein Feldboss mitten aus einer Annehmen-/Abgeben-Folge, und danach bot der NPC das Gespräch
+  nicht mehr an.
+- Wurde „Annehmen“/„Abgeben“ schon zweimal gewählt und nichts passiert (das Fenster zeigt eine alte Seite, z. B. nach
+  einer Abgabe), schließt der Bot den Dialog und spricht den NPC frisch an, statt sechsmal dieselbe Auswahl zu klicken.
+- `chrome.bat`: startet Chrome mit eigenem Profil und ohne Hintergrund-Drosselung, damit verdeckte Fenster nicht bremsen.
+
 #### Neu in 2.12.2 – Keine sinnlosen Annahme-Versuche, fehlende Story-Quests nachholen
 - Ein Mitläufer macht ein Annehmen des Leaders nur noch nach, wenn der NPC ihm die Quest auch anbietet (Vorquests erledigt,
   Level reicht). Vorher versuchte er es ~15-mal und gab nach ~14 s auf. Der Leader wartete in der Zeit auf ihn.

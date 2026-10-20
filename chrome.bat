@@ -1,0 +1,2 @@
+@echo off
+start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" --user-data-dir="C:\DigiBotChrome" --disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows https://play.digimmo.com.br/
