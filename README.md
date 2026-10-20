@@ -205,7 +205,11 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Bewegungen spiegeln (ab 2.10, Haken im Reiter Accounts):** Du steuerst den Leader selbst, die anderen Fenster
   laufen ihm in kleiner Formation nach, auch über Maps und Kanäle.
   - Gilt nur in Fenstern, deren Bot aus ist.
-  - Gespiegelt werden nur die Bewegungen, nicht die Angriffe.
+  - **Angriffe spiegeln (ab 2.10.1, zweiter Haken, Standard an):** Greift das Digimon des Leaders ein Monster an,
+    greifen die anderen es sofort mit an.
+    - Dabei nutzen sie ihre Skills (Haken im Reiter Kampf) und Tränke (F1–F3).
+    - Sie weichen Warnkreisen aus und pausieren bei Spiegel/Reflexion.
+    - Ein bloß angeklicktes Monster zählt nicht, nur ein echter Angriff. Ist das Ziel tot, hören sie auf.
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.10.0
+// @version      2.10.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -264,12 +264,12 @@
   // sessionStorage des Fensters (Slot) – die Bot-Einstellungen in localStorage teilen sich ja alle Fenster.
   const ACC_KEY = 'digibot.accounts';
   const ACC_MAX = 5;
-  const accounts = { leader: 0, popup: true, mirror: false, list: [] };
+  const accounts = { leader: 0, popup: true, mirror: false, mirrorAtk: true, list: [] };
   function reloadAcc() {
     try {
       const a = JSON.parse(localStorage.getItem(ACC_KEY) || 'null');
       if (a && Array.isArray(a.list)) {
-        accounts.leader = Number(a.leader) || 0; accounts.popup = a.popup !== false; accounts.mirror = !!a.mirror;
+        accounts.leader = Number(a.leader) || 0; accounts.popup = a.popup !== false; accounts.mirror = !!a.mirror; accounts.mirrorAtk = a.mirrorAtk !== false;
         accounts.list = a.list.slice(0, ACC_MAX);
       }
     } catch {}
@@ -341,7 +341,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.10.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.10.1'}</span>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
       <button class="digibot__btn" data-act="min" title="Ein-/Ausklappen">–</button>
     </div>
@@ -457,7 +457,8 @@
         <div class="digibot__accwarn">Passwörter werden <b>unverschlüsselt</b> in diesem Browser gespeichert. Feld leer lassen = im Fenster selbst einloggen.</div>
         ${grp('accounts', 'Accounts (bis zu 5)', `<div data-f="acclist">${accRows()}</div>
           <label class="digibot__skill digibot__chk"><input type="checkbox" data-accpopup ${accounts.popup ? 'checked' : ''}><span>Als eigene Fenster nebeneinander öffnen (empfohlen)</span></label>
-          <label class="digibot__skill digibot__chk" title="Du steuerst den Leader selbst; die anderen Fenster laufen ihm nach (in kleiner Formation, auch über Maps und Kanäle). Gilt in Fenstern, deren Bot aus ist."><input type="checkbox" data-accmirror ${accounts.mirror ? 'checked' : ''}><span>Bewegungen des Leaders spiegeln (Mitläufer ohne Bot)</span></label>`, true,
+          <label class="digibot__skill digibot__chk" title="Du steuerst den Leader selbst; die anderen Fenster laufen ihm nach (in kleiner Formation, auch über Maps und Kanäle). Gilt in Fenstern, deren Bot aus ist."><input type="checkbox" data-accmirror ${accounts.mirror ? 'checked' : ''}><span>Bewegungen des Leaders spiegeln (Mitläufer ohne Bot)</span></label>
+          <label class="digibot__skill digibot__chk" title="Beim Spiegeln greifen die anderen das Ziel des Leaders mit an – mit ihren Skills (Reiter Kampf), Tränken und Ausweichen."><input type="checkbox" data-accmirroratk ${accounts.mirrorAtk ? 'checked' : ''}><span>… und Angriffe spiegeln (Ziel des Leaders mit angreifen)</span></label>`, true,
           '☑ = beim Gruppenstart dabei · ◉ = Leader. Der Leader fährt den Autopilot und sucht die Monster aus. Die anderen folgen ihm, helfen beim Kämpfen und nehmen dieselben Quests an und geben sie mit ab. Der Leader gibt erst ab, wenn alle so weit sind. Der Charaktername wird beim Einloggen gemerkt.')}
         <div class="digibot__grpbtns"><button class="digibot__btn" data-act="grp-login" title="Fehlende Fenster öffnen, alle Accounts einloggen und Charakter wählen">🔑 Alle einloggen</button></div>
         <div class="digibot__grpbtns"><button class="digibot__btn" data-act="grp-start" title="Bots in allen Gruppenfenstern starten">▶ Bots starten</button><button class="digibot__btn" data-act="grp-stop" title="Bots in allen Gruppenfenstern stoppen">■ Bots stoppen</button></div>
@@ -1595,10 +1596,13 @@
     if (group.role() === 'leader') { // Position melden, sobald sie sich ändert (sonst 1× pro Sekunde)
       const me = controlled(st), lp = group.lastPos;
       if (!me || !group.bus) return;
-      const moved = !lp || lp.mapId !== st.world?.mapId || Math.hypot(lp.x - me.x, lp.y - me.y) >= 2;
+      const ents = window.dmo?.net?.state?.entities;
+      const tid = ents?.get?.(st.me.partner?.entityId)?.targetId || ents?.get?.(st.me.tamerEntityId)?.targetId || null;
+      const tm = tid && ents.get(tid), atk = tm && tm.kind === KIND.Mob && tm.hp > 0 ? tid : null;
+      const moved = !lp || lp.mapId !== st.world?.mapId || lp.atk !== atk || Math.hypot(lp.x - me.x, lp.y - me.y) >= 2;
       if (!moved && now - lp.at < 1000) return;
-      group.lastPos = { mapId: st.world?.mapId, x: me.x, y: me.y, at: now };
-      try { group.bus.postMessage({ type: 'pos', slot: group.slot(), mapId: st.world?.mapId, channel: st.world?.channel ?? 1, x: me.x, y: me.y }); } catch { /* ignore */ }
+      group.lastPos = { mapId: st.world?.mapId, x: me.x, y: me.y, atk, at: now };
+      try { group.bus.postMessage({ type: 'pos', slot: group.slot(), mapId: st.world?.mapId, channel: st.world?.channel ?? 1, x: me.x, y: me.y, atk }); } catch { /* ignore */ }
       return;
     }
     if (bot.on) { if (group.mirroring) mirrorEnd(); return; } // läuft der Bot, folgt er selbst
@@ -1616,19 +1620,67 @@
       const r = farmSwitch(st, scan(st), P.mapId, content()?.maps?.[P.mapId]?.name || P.mapId, ch, now);
       if (!r.done) return set(`Spiegeln: ${r.status}`);
     }
+    let atk = null;
+    if (accounts.mirrorAtk) {
+      atk = mirrorAttack(st, P, now);
+      if (atk?.hold) return set(`Spiegeln: ${atk.text}`);
+    }
     const followers = accounts.list.map((a, i) => i).filter((i) => i !== accounts.leader && accounts.list[i].on);
     const [ox, oy] = MIRROR_OFFSETS[Math.max(0, followers.indexOf(group.slot())) % MIRROR_OFFSETS.length];
     const tx = P.x + ox, ty = P.y + oy, me = controlled(st);
     if (!me) return;
     const d = Math.hypot(me.x - tx, me.y - ty);
-    if (d < 6) { autopilot.nav = null; return set('Spiegeln: beim Leader'); }
+    if (d < 6) { autopilot.nav = null; return set(atk ? `Spiegeln: ${atk.text}` : 'Spiegeln: beim Leader'); }
     if (d > LONG_WALK) { walkTo(st, tx, ty, now); return set(`Spiegeln: laufe zum Leader (${Math.round(d)} px)`); }
     const lt = group.mirrorTap;
     if (!lt || Math.hypot(lt.x - tx, lt.y - ty) > 4 || now - lt.at > 700) {
       worldScene()?.tapGround?.(tx, ty);
       group.mirrorTap = { x: tx, y: ty, at: now };
     }
-    set('Spiegeln: folge dem Leader');
+    set(atk ? `Spiegeln: ${atk.text}` : 'Spiegeln: folge dem Leader');
+  }
+  // Angriff spiegeln: Ziel des Leaders anvisieren, mit 1 angreifen, Skills 2–6 (wie im Reiter Kampf), Tränke F1–F3,
+  // Warnkreisen ausweichen, bei Spiegel/Reflexion nicht angreifen. Liefert { text, hold } oder null (kein Ziel).
+  function mirrorAttack(st, P, now) {
+    const me = st.me, p = me?.partner;
+    if (!p || p.fainted) return null;
+    const potion = (fKey, below) => {
+      if (below && potionCount(me, fKey) > 0 && bot.can('F' + fKey, POT_COOLDOWN_MS, now)) {
+        bot.hit('F' + fKey, now);
+        logEvent('potion', `F${fKey}: Trank benutzt (Spiegeln)`);
+      }
+    };
+    potion(1, cfg.hpPot > 0 && pct(p.hp, p.maxHp) < cfg.hpPot);
+    potion(2, cfg.dsPot > 0 && pct(p.ds, p.maxDs) < cfg.dsPot);
+    potion(3, cfg.tdsPot > 0 && me.tamerMaxDs > 0 && pct(me.tamerDs, me.tamerMaxDs) < cfg.tdsPot);
+    const dg = dodge(st, now);
+    if (dg) { group.mirrorTap = null; return { text: dg, hold: true }; }
+    const ents = window.dmo?.net?.state?.entities;
+    const id = leaderTargetId(now) || P.atk;
+    const m = id && ents?.get?.(id);
+    if (!m || m.kind !== KIND.Mob || m.hp <= 0 || (m.flags & FLAG.Dead)) { group.mirrorAtkId = null; return null; }
+    const name = content()?.digimon?.[m.defId]?.name || m.defId;
+    if (st.target?.id !== id) {
+      if (bot.can('select', SELECT_GAP_MS, now)) { bot.lastPress.select = now; worldScene()?.select?.(id); }
+      return { text: `ziele auf ${name}` };
+    }
+    if (cfg.mirror && mirrorActive(id)) return { text: `${name} spiegelt Schaden – warte` };
+    if (group.mirrorAtkId !== id || bot.can('Digit1', ATTACK_REPEAT_MS, now)) { group.mirrorAtkId = id; bot.hit('Digit1', now); }
+    let text = `greife ${name} an`;
+    if (!p.evolving && bot.can('skill', SKILL_GAP_MS, now)) {
+      for (const k of SKILL_KEYS) {
+        if (!cfg.skills[k]) continue;
+        const sk = skillOnKey(st, k);
+        if (!sk || sk.cdLeft > 0 || sk.skill.unlocked === false || p.ds < (sk.skill.dsCost || 0)) continue;
+        if (!bot.can('Digit' + k, SKILL_GAP_MS * 2, now)) continue;
+        if (skillUnsafe(st, st.target, sk.skill, now, Number(String(sk.ref).slice(6)))) continue;
+        bot.lastPress.skill = now;
+        bot.hit('Digit' + k, now);
+        text += ` · Skill ${k}`;
+        break;
+      }
+    }
+    return { text };
   }
   function mirrorEnd() {
     group.mirroring = false; group.mirrorTap = null; autopilot.nav = null;
@@ -3790,6 +3842,11 @@
         return;
       }
       if (e.target.matches('[data-accpopup]')) { reloadAcc(); accounts.popup = e.target.checked; saveAcc(); e.target.blur(); return; }
+      if (e.target.matches('[data-accmirroratk]')) {
+        reloadAcc(); accounts.mirrorAtk = e.target.checked; saveAcc(); e.target.blur();
+        logEvent('bot', `Gruppe: Angriffe spiegeln ${accounts.mirrorAtk ? 'an' : 'aus'}`);
+        return;
+      }
       if (e.target.matches('[data-accmirror]')) {
         reloadAcc(); accounts.mirror = e.target.checked; saveAcc(); e.target.blur();
         logEvent('bot', `Gruppe: Bewegungen spiegeln ${accounts.mirror ? 'an' : 'aus'}`);
