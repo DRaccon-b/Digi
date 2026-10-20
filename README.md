@@ -217,6 +217,18 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.12.0 – Höchste Digitation, Skills je Form, Beute & Verbrauch
+- **Höchstmögliche Digitation:** In den Autopilot-Einstellungen unter „Digitation“ gibt es „⬆ höchstmögliche Digitation“.
+  Der Bot digitiert Schritt für Schritt bis zur höchsten freigeschalteten Form auf dem Ast des aktuellen Digimons,
+  z. B. Patamon → Angemon → MagnaAngemon. Gesperrte Äste werden übersprungen. Das gilt auch für Mitläufer.
+- **Skills und Heal je Digitationsform:** Haken und „Heal <x %“ im Reiter Kampf gelten jetzt nur für die aktuelle Form
+  (im Titel steht z. B. „· Angemon“). Nach einer Digitation liegt auf derselben Taste ein anderer Skill, deshalb hat
+  jede Form ihre eigene Einstellung. Eine alte Heal-Einstellung wird einmalig der aktuellen Form zugeordnet.
+- **Sitzung: Beute & Verbrauch** (Übersicht):
+  - EXP gesamt aus allen Quellen, Bits rein/raus und netto.
+  - Zwei Listen: welche Items seit Sitzungsbeginn dazukamen (Drops, Belohnungen) und welche weniger wurden
+    (Tränke, abgegebene Quest-Items). ↺ setzt alles zurück.
+
 #### Neu in 2.11.7 – Boss-Liste mit Suche
 - Im Reiter Bosse unter „Bosse auswählen“ gibt es ein **Suchfeld**, das nach Boss- oder Map-Namen filtert.
 - Die Liste hat eine **feste Höhe** und wird mit dem **Balken rechts** gescrollt. Das Panel wächst nicht mehr nach unten.

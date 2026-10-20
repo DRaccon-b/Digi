@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.11.7
+// @version      2.12.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -260,6 +260,17 @@
     .digibot__logf button.on{background:#26305a;border-color:#3fa0ff;color:#fff}
     .digibot__heal{margin-left:2px;background:#0b1020;color:#9aa5c4;border:1px solid #3a4670;border-radius:4px;font:10px system-ui;padding:0 1px;max-width:78px}
     .digibot__heal.on{border-color:#2ecc71;color:#7ee2a8}
+    .digibot__for{font-style:normal;font-weight:500;opacity:.7;font-size:10.5px}
+    .digibot__lootsum{font-size:11px;margin-bottom:5px;line-height:1.5}
+    .digibot__lootsum b{font-variant-numeric:tabular-nums}
+    .digibot__lootsum .in{color:#7ee2a8}.digibot__lootsum .out{color:#ff8a8a}
+    .digibot__loot{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+    .digibot__loot>div{background:#161c33;border:1px solid #222a48;border-radius:6px;padding:4px 5px;min-width:0}
+    .digibot__loot>div>b{display:block;font-size:10.5px;opacity:.8;margin-bottom:2px}
+    .digibot__loot [data-f]{max-height:120px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#3a4670 #0b1020}
+    .digibot__loot [data-f] div{display:flex;gap:4px;font-size:10.5px}
+    .digibot__loot [data-f] span{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .digibot__loot [data-f] em{font-style:normal;font-variant-numeric:tabular-nums;opacity:.85}
     .digibot__chk span{white-space:normal;line-height:1.3}
     .digibot__qsum:empty{display:none}
     .digibot__btnrow{display:flex;gap:4px;justify-content:flex-end;margin-bottom:4px}
@@ -281,7 +292,8 @@
   const cfg = {
     tab: 'data', lvlDiff: 5, radius: 300, hpPot: 40, dsPot: 20, tdsPot: 20,
     skills: { 2: true, 3: true, 4: true, 5: true, 6: true },
-    heal: {},       // { [Taste]: HP-% } – Heil-Skill: nur unter dieser HP-Grenze wirken, nicht im Angriff
+    heal: {},       // alt (vor 2.12): Heil-Skills je Taste – wird beim ersten Start in skillSets übernommen
+    skillSets: {},  // { [Digimon-Art]: { skills: { [Taste]: an/aus }, heal: { [Taste]: HP-% } } } – je Digitationsform
     logFilter: 'all',
     mobs: {}, // { [mapId]: { 'kunemon|elite': false, ... } } – nicht gesetzt = Standard (Bosse aus, Rest an)
     questMode: false, // nur Monster für offene Quest-Ziele jagen, danach Bot stoppen
@@ -312,7 +324,7 @@
   try {
     const saved = JSON.parse(localStorage.getItem(CFG_KEY) || '{}');
     Object.assign(cfg, saved, {
-      skills: { ...cfg.skills, ...saved.skills }, heal: { ...saved.heal }, mobs: { ...saved.mobs }, questOff: { ...saved.questOff },
+      skills: { ...cfg.skills, ...saved.skills }, heal: { ...saved.heal }, skillSets: { ...saved.skillSets }, mobs: { ...saved.mobs }, questOff: { ...saved.questOff },
     });
   } catch {}
   // Betriebsart (genau eine): Grinden, Quest-Jagd (Quest-Modus), Quest-Autopilot oder Bosse (Rotation/Named-Runde)
@@ -410,7 +422,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.11.7'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.12.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -444,6 +456,12 @@
             <div><b data-f="sfaint">0</b><small>Bewusstlos</small></div>
           </div>
           <div class="digibot__sesshead"><span>Sitzung: <b data-f="sess">–</b></span><button class="digibot__btn" data-act="reset" title="Sitzungswerte zurücksetzen">↺</button></div>`, true, 'Werte seit Sitzungsbeginn. Maus über EXP / Min oder Bits / Min zeigt die Hochrechnung pro Stunde. HP, DS und Ziel stehen oben.')}
+        ${grp('loot', 'Sitzung: Beute &amp; Verbrauch', `
+          <div class="digibot__lootsum" data-f="lootsum">–</div>
+          <div class="digibot__loot">
+            <div><b>Erhalten</b><div data-f="lootin"><i class="digibot__none">noch nichts</i></div></div>
+            <div><b>Verbraucht</b><div data-f="lootout"><i class="digibot__none">noch nichts</i></div></div>
+          </div>`, true, 'Alles seit Sitzungsbeginn (↺ oben setzt zurück): Items, die ins Inventar kamen (Drops, Belohnungen) und die weniger wurden (Tränke, abgegebene Quest-Items). EXP aus allen Quellen (Kämpfe, Quests) und Bits rein/raus.')}
         ${grp('queue', 'Als Nächstes', `<div class="digibot__queue" data-f="queue"><div class="digibot__none">–</div></div>`, true, 'Aktuelle Aufgabe (gelb) und die nächsten Schritte des Autopiloten.')}
         ${grp('tamer', 'Tamer', bar('tds', 'DS'), false)}
         ${grp('radar', '<span data-f="radar">Radar</span>', `
@@ -456,7 +474,7 @@
       </section>
 
       <section data-page="attack">
-        ${grp('skills', 'Skills (Tasten 2–6)', `<div class="digibot__skills">${SKILL_KEYS.map((k) => `
+        ${grp('skills', 'Skills (Tasten 2–6) <i class="digibot__for" data-f="skillsfor"></i>', `<div class="digibot__skills">${SKILL_KEYS.map((k) => `
           <label class="digibot__skill" data-skill="${k}">
             <input type="checkbox" data-skillcfg="${k}" ${cfg.skills[k] ? 'checked' : ''}>
             <kbd>${k}</kbd><span>–</span><em></em>
@@ -639,6 +657,42 @@
   // egal ob der Bot läuft oder du selbst spielst.
   const watchPrev = { map: null, level: null, quests: null, target: null, toasts: new Set() };
   const sess = { kills: 0, turnins: 0, faints: 0, wasFainted: false }; // Sitzungswerte für die Übersicht
+  // Beute & Verbrauch: Inventar laufend vergleichen – mehr = erhalten (Drops, Belohnungen), weniger = verbraucht
+  const loot = { inv: null, gained: new Map(), used: new Map(), bitsIn: 0, bitsOut: 0, lastBits: null, sig: '', at: 0 };
+  function trackLoot(st) {
+    const me = st?.me;
+    if (!me || st.screen !== 'world' || !Array.isArray(me.inventory)) return;
+    const cur = new Map();
+    for (const it of me.inventory) if (it?.itemId) cur.set(it.itemId, (cur.get(it.itemId) || 0) + (it.qty || 1));
+    const add = (m, id, n) => m.set(id, (m.get(id) || 0) + n);
+    if (loot.inv) {
+      for (const id of new Set([...cur.keys(), ...loot.inv.keys()])) {
+        const d = (cur.get(id) || 0) - (loot.inv.get(id) || 0);
+        if (d > 0) add(loot.gained, id, d); else if (d < 0) add(loot.used, id, -d);
+      }
+    }
+    loot.inv = cur;
+    if (typeof me.bits === 'number') {
+      if (loot.lastBits != null) { const d = me.bits - loot.lastBits; if (d > 0) loot.bitsIn += d; else loot.bitsOut -= d; }
+      loot.lastBits = me.bits;
+    }
+  }
+  function renderLoot() {
+    if (!panel.querySelector('[data-page="data"]').classList.contains('on')) return;
+    const now = Date.now();
+    if (now - loot.at < 1000) return;
+    loot.at = now;
+    const C = content(), esc = (x) => String(x ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    const list = (m) => [...m.entries()].sort((a, b) => b[1] - a[1])
+      .map(([id, n]) => `<div><span title="${esc(C?.items?.[id]?.name || id)}">${esc(C?.items?.[id]?.name || id)}</span><em>×${fmt(n)}</em></div>`).join('');
+    const sum = `EXP gesamt: <b>${fmt(exp.total)}</b> · Bits: <b class="in">+${fmt(loot.bitsIn)}</b> / <b class="out">−${fmt(loot.bitsOut)}</b> (netto ${loot.bitsIn - loot.bitsOut >= 0 ? '+' : '−'}${fmt(Math.abs(loot.bitsIn - loot.bitsOut))})`;
+    const sig = sum + [...loot.gained].join() + '|' + [...loot.used].join();
+    if (sig === loot.sig) return;
+    loot.sig = sig;
+    panel.querySelector('[data-f="lootsum"]').innerHTML = sum;
+    panel.querySelector('[data-f="lootin"]').innerHTML = list(loot.gained) || '<i class="digibot__none">noch nichts</i>';
+    panel.querySelector('[data-f="lootout"]').innerHTML = list(loot.used) || '<i class="digibot__none">noch nichts</i>';
+  }
   function watchGame(st) {
     // Meldungen des Spiels (z. B. „Du bist noch nicht bereit für diese Quest“) mitschreiben – erklärt Ablehnungen
     for (const tst of st?.toasts || []) {
@@ -1137,12 +1191,22 @@
   // Wie viele Stück des Items auf Hotbar-Taste F<n> liegen im Inventar? (F1 = Slot 9). null = dort liegt kein Item.
   // Heil-Skill: Skill auf einer Taste, für die „Heal <x %“ eingestellt ist, wirken, sobald die HP des Digimons unter x %
   // fallen – sofern bereit und genug DS da sind. Liefert den Namen, wenn gewirkt wurde.
+  // Skill-Einstellungen gelten je Digitationsform (auf derselben Taste liegt nach einer Digitation ein anderer Skill).
+  // Gibt es für die Form noch keine Einstellung, gelten die alten (globalen) Haken, Heil-Skills aber nicht.
+  const skillSet = (st) => { const sp = st?.me?.partner?.species; return sp ? cfg.skillSets?.[sp] || null : null; };
+  const skillOn = (st, k) => { const s = skillSet(st); return s ? s.skills?.[k] ?? true : !!cfg.skills[k]; };
+  const healAt = (st, k) => Number(skillSet(st)?.heal?.[k]) || 0;
+  function editSkillSet(st) {
+    const sp = st?.me?.partner?.species || '_';
+    cfg.skillSets ||= {};
+    return (cfg.skillSets[sp] ||= { skills: { ...cfg.skills }, heal: {} });
+  }
   function healSkill(st, now) {
     const p = st?.me?.partner;
-    if (!p || p.fainted || p.evolving || !cfg.heal) return null;
+    if (!p || p.fainted || p.evolving) return null;
     const hp = pct(p.hp, p.maxHp);
     for (const k of SKILL_KEYS) {
-      const lim = cfg.heal[k];
+      const lim = healAt(st, k);
       if (!lim || hp >= lim) continue;
       const s = skillOnKey(st, k);
       if (!s || s.cdLeft > 0 || s.skill.unlocked === false || p.ds < (s.skill.dsCost || 0)) continue;
@@ -1870,7 +1934,7 @@
     let text = `greife ${name} an`;
     if (!p.evolving && bot.can('skill', SKILL_GAP_MS, now)) {
       for (const k of SKILL_KEYS) {
-        if (!cfg.skills[k] || cfg.heal?.[k]) continue; // Heil-Skills nur über healSkill
+        if (!skillOn(st, k) || healAt(st, k)) continue; // Heil-Skills nur über healSkill
         const sk = skillOnKey(st, k);
         if (!sk || sk.cdLeft > 0 || sk.skill.unlocked === false || p.ds < (sk.skill.dsCost || 0)) continue;
         if (!bot.can('Digit' + k, SKILL_GAP_MS * 2, now)) continue;
@@ -2094,11 +2158,29 @@
     return `Wechsle zu ${partnerLabel(p)}…`;
   }
 
+  // „Höchstmögliche Digitation“: die tiefste freigeschaltete Form auf dem Ast des aktuellen Digimons (Kette über „from“).
+  // Bei mehreren gleich tiefen Formen die erste. null = es gibt keine höhere Form.
+  const EVO_MAX = '__max';
+  function maxEvolution(p) {
+    const evos = p?.evolutions || [];
+    const by = new Map(evos.map((e) => [e.species, e]));
+    const chain = (e) => { const out = []; for (let i = 0, x = e; x && i < 12; i++, x = by.get(x.from)) out.push(x); return out; };
+    let best = null, bestD = -1;
+    for (const e of evos) {
+      const c = chain(e);
+      if (!c.some((x) => x.species === p.species) || c.some((x) => x.unlocked === false)) continue; // anderer Ast / gesperrt
+      if (e.level && (p.level ?? 0) < e.level) continue;
+      if (c.length > bestD) { best = e; bestD = c.length; }
+    }
+    return best && best.species !== p.species ? best.species : null;
+  }
+
   // Digitiert das aktive Digimon Schritt für Schritt zur gewünschten Form. Fehlt Tamer-DS, wird der F3-Trank
   // benutzt. true = passt (oder geht gerade nicht); sonst Statustext.
   function ensureEvolution(st, species, now) {
     // Mitläufer: gleiche Zielform wie der Leader – nur wenn ihr eigenes Digimon sie hat (sonst passiert unten nichts)
     const p = st?.me?.partner;
+    if (species === EVO_MAX) species = maxEvolution(p); // „höchstmögliche Digitation“
     if (!species || !p || p.species === species || p.evolving || autopilot.evoGiveUp === species) return true;
     const evos = p.evolutions || [];
     const target = evos.find((e) => e.species === species);
@@ -3687,7 +3769,7 @@
       if (farmShielded(t, now)) { this.status += ' · Spawn-Schutz – Skills warten'; return; }
       let held = null;
       for (const k of SKILL_KEYS) {
-        if (!cfg.skills[k] || cfg.heal?.[k]) continue; // Heil-Skills nur über healSkill
+        if (!skillOn(st, k) || healAt(st, k)) continue; // Heil-Skills nur über healSkill
         const s = skillOnKey(st, k);
         if (!s || s.cdLeft > 0 || s.skill.unlocked === false || p.ds < (s.skill.dsCost || 0)) continue;
         if (!this.can('Digit' + k, SKILL_GAP_MS * 2, now)) continue; // Server-Cooldown noch nicht angekommen
@@ -3848,7 +3930,26 @@
       row.querySelector('span').textContent = s ? s.skill.name : 'kein Skill';
       row.querySelector('em').textContent =
         !s ? '' : s.skill.unlocked === false ? 'gesperrt' : s.cdLeft > 0 ? `${(s.cdLeft / 1000).toFixed(1)} s` : 'bereit';
+      // Haken und Heal-Auswahl zeigen die Einstellung der aktuellen Digitationsform
+      const doc = row.ownerDocument, cb = row.querySelector('[data-skillcfg]'), hs = row.querySelector('[data-healcfg]');
+      const on = skillOn(st, k), hv = String(healAt(st, k));
+      if (cb && cb !== doc.activeElement && cb.checked !== on) cb.checked = on;
+      if (hs && hs !== doc.activeElement && hs.value !== hv) hs.value = hv;
+      hs?.classList.toggle('on', hv !== '0');
     }
+    const sf = panel.querySelector('[data-f="skillsfor"]');
+    const sfT = p?.species ? `· ${speciesName(p.species)}` : '';
+    if (sf && sf.textContent !== sfT) { sf.textContent = sfT; sf.title = 'Haken und Heal gelten nur für diese Digitationsform'; }
+    // alte Heil-Einstellung (vor 2.12, für alle Formen) einmalig der aktuellen Form zuordnen
+    if (p?.species && cfg.heal && Object.keys(cfg.heal).length) {
+      const set = editSkillSet(st);
+      set.heal = { ...cfg.heal, ...set.heal };
+      cfg.heal = {};
+      saveCfg();
+      logEvent('bot', `Heil-Skills gelten jetzt nur für ${speciesName(p.species)} (je Digitationsform einstellbar)`);
+    }
+    trackLoot(st);
+    renderLoot();
   }
 
   // Monsterliste im Reiter "Attacken". Wird nur neu aufgebaut, wenn sich Map, Arten oder Level-Bezug ändern,
@@ -3947,7 +4048,7 @@
     const act = activePartner(st);
     const evoFor = !cfg.apQuestPartner || act?.partnerId === cfg.apQuestPartner;
     const evos = evoFor ? (st?.me?.partner?.evolutions || []).filter((e) => !e.isCurrent || e.species !== st.me.partner.species) : [];
-    fillSelect('apEvo', [['', 'keine Digitation'], ...evos.map((e) => [e.species,
+    fillSelect('apEvo', [['', 'keine Digitation'], [EVO_MAX, '⬆ höchstmögliche Digitation'], ...evos.map((e) => [e.species,
       `${speciesName(e.species)} (${e.stage}, ab Lv ${e.level}${e.unlocked === false ? ', gesperrt' : ''})`])]);
     fillSelect('apStartMap', world.state === 'ready'
       ? [['', 'höchste erreichbare'], ...sweepList().map((m) => [m.id,
@@ -4319,7 +4420,11 @@
       const act = e.target.closest('[data-act]')?.dataset.act;
       if (act === 'min') { cfg.min = panel.classList.toggle('is-min'); saveCfg(); panel.querySelector('[data-act="min"]').textContent = cfg.min ? '+' : '–'; }
       if (act === 'pip') popOut();
-      if (act === 'reset') { exp.reset(); bitsRate.last = null; bitsRate.gains = []; bitsRate.total = 0; sess.kills = 0; sess.turnins = 0; sess.faints = 0; schedule(); }
+      if (act === 'reset') {
+        exp.reset(); bitsRate.last = null; bitsRate.gains = []; bitsRate.total = 0; sess.kills = 0; sess.turnins = 0; sess.faints = 0;
+        loot.inv = null; loot.gained = new Map(); loot.used = new Map(); loot.bitsIn = 0; loot.bitsOut = 0; loot.lastBits = null; loot.sig = '';
+        schedule();
+      }
       if (act === 'compact') { cfg.compact = panel.classList.toggle('is-compact'); saveCfg(); }
       const gm = e.target.closest('[data-gmode]')?.dataset.gmode;
       if (gm) {
@@ -4449,15 +4554,15 @@
       if (e.target.matches('[data-bosssearch]')) { filterBossPick(); return; }
       const hk = e.target.dataset.healcfg;
       if (hk) {
-        const v = Number(e.target.value) || 0;
-        cfg.heal = { ...cfg.heal, [hk]: v };
-        if (!v) delete cfg.heal[hk];
+        const st = getStore()?.getState?.(), v = Number(e.target.value) || 0, set = editSkillSet(st);
+        set.heal = { ...set.heal, [hk]: v };
+        if (!v) delete set.heal[hk];
         saveCfg(); e.target.blur(); e.target.classList.toggle('on', !!v);
-        logEvent('bot', `Skill ${hk}: ${v ? `Heil-Skill unter ${v} % HP` : 'normal im Angriff'}`);
+        logEvent('bot', `Skill ${hk} (${speciesName(st?.me?.partner?.species)}): ${v ? `Heil-Skill unter ${v} % HP` : 'normal im Angriff'}`);
         return;
       }
       const sk = e.target.dataset.skillcfg;
-      if (sk) { cfg.skills[sk] = e.target.checked; saveCfg(); e.target.blur(); return; }
+      if (sk) { editSkillSet(getStore()?.getState?.()).skills[sk] = e.target.checked; saveCfg(); e.target.blur(); return; }
       const key = e.target.dataset.cfg;
       if (!key) return;
       cfg[key] = Number(e.target.value);
