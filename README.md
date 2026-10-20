@@ -170,6 +170,32 @@ In der Reihenfolge „Map für Map: annehmen → erledigen → abgeben“ arbeit
    (nur Angreifer werden abgewehrt).
 Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im Log.
 
+### Gruppe mit mehreren Accounts (Reiter Accounts, ab 2.9)
+- **Bis zu 5 Accounts:** Benutzername und optional Passwort. ☑ = beim Gruppenstart dabei, ◉ = Leader.
+  Passwörter liegen **unverschlüsselt** im localStorage dieses Browsers. Ohne Passwort loggst du im Fenster selbst ein.
+- **Charaktername:** Wird bei jedem Einloggen pro Account gemerkt („zuletzt: Spencer · vor 2 h“). Im Gruppenfenster
+  wählt der Bot genau diesen Charakter aus.
+- **▶ Gruppe starten:** Dieses Fenster übernimmt den hier eingeloggten Account (sonst den Leader). Für jeden weiteren
+  Account öffnet sich ein eigenes Fenster, nebeneinander gekachelt.
+  - Ist dort noch ein anderer Account angemeldet, meldet der Bot ihn ab, loggt den richtigen ein und betritt die Welt.
+  - Danach startet der Bot im Autopilot. Pop-ups für die Seite müssen erlaubt sein.
+- **Leader:** Fährt den Autopilot und sucht die Monster aus. Er lädt die anderen in die Party ein.
+  - Nach jedem Annehmen/Abgeben/Gespräch wartet er (max. 3 min), bis die anderen es nachgemacht haben.
+  - Hat er die Items/Kills schon, ein Mitläufer aber noch nicht, **jagt er weiter** und gibt erst ab, wenn alle
+    abgeben können.
+- **Mitläufer:**
+  - Nehmen dieselben Quests beim selben NPC an und geben sie mit ab.
+  - Folgen dem Leader über Maps und Kanäle und greifen sein Ziel mit an.
+  - Wehren Monster ab, die die Gruppe angreifen.
+  - Auf dem Weg kämpfen sie nicht.
+- **■ Gruppe stoppen:** Stoppt die Bots in allen Gruppenfenstern. Die Fenster bleiben offen.
+- **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
+  Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
+
+#### Neu in 2.8.3 – Unterwegs keine Kämpfe
+- Auf dem Weg zum **Annehmen, Abgeben, Sprechen** und zu **Reise-Zielen** (auch über mehrere Maps) ignoriert der
+  Autopilot alle Angreifer: Digimon zurückrufen und weiterlaufen. Gekämpft wird nur noch beim Jagen.
+
 #### Neu in 2.8.2 – Jagdgebiete
 - **Bosse nur als letzte Quelle:** Für Sammel-Items wählt der Autopilot normale Monster. Feldbosse (stark, lange
   Respawn-Zeit) nur, wenn es keine andere Quelle gibt. Verlangt eine Kill-Quest genau den Boss, bleibt er das Ziel.

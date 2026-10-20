@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.8.3
+// @version      2.9.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -87,6 +87,16 @@
     .digibot__apcfg [data-sweeponly].hide{display:none}
     .digibot__apinfo{font-size:11px;margin:-2px 0 6px;padding:4px 6px;border-radius:5px;background:#2a2410;color:#ffe08a;display:none}
     .digibot__apinfo.on{display:block}
+    .digibot__accwarn{font-size:10.5px;margin:0 0 6px;padding:4px 6px;border-radius:5px;background:#2a2410;color:#ffe08a}
+    .digibot__accrow{display:grid;grid-template-columns:14px 14px 1fr 1fr;gap:2px 4px;align-items:center;margin:0 0 6px}
+    .digibot__accrow input[type=text],.digibot__accrow input[type=password]{min-width:0;background:#0b1020;color:#e8ecf4;
+      border:1px solid #3a4670;border-radius:4px;font:11px system-ui;padding:2px 4px;user-select:text}
+    .digibot__accrow input[type=checkbox],.digibot__accrow input[type=radio]{margin:0;accent-color:#3fa0ff}
+    .digibot__accinfo{grid-column:3/-1;font-size:10.5px;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .digibot__accinfo.on{opacity:1;color:#7ee2a8}
+    .digibot__grpbtns{display:flex;gap:6px;margin:4px 0 6px}
+    .digibot__grpbtns .digibot__btn{flex:1;padding:4px;font-weight:700}
+    .digibot__grpinfo{font-size:11px;opacity:.85;margin-bottom:4px}
     .digibot__qsum{font-size:11px;margin-bottom:6px;min-height:14px}
     .digibot__quests{display:flex;flex-direction:column;gap:5px;max-height:220px;overflow-y:auto;padding-right:2px}
     .digibot__quest{padding:5px 6px;border-radius:6px;background:#161c33;border-left:3px solid var(--c);font-size:11px}
@@ -248,6 +258,57 @@
   const mobOn = (mapId, key, cat) => cfg.mobs[mapId]?.[key] ?? cat !== 'boss';
   const saveCfg = () => { try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch {} };
 
+  // ---------- Accounts & Gruppe ----------
+  // Bis zu 5 Accounts (localStorage, gilt für alle Fenster). Welcher Account in welchem Fenster läuft, steht in der
+  // sessionStorage des Fensters (Slot) – die Bot-Einstellungen in localStorage teilen sich ja alle Fenster.
+  const ACC_KEY = 'digibot.accounts';
+  const ACC_MAX = 5;
+  const accounts = { leader: 0, popup: true, list: [] };
+  function reloadAcc() {
+    try {
+      const a = JSON.parse(localStorage.getItem(ACC_KEY) || 'null');
+      if (a && Array.isArray(a.list)) {
+        accounts.leader = Number(a.leader) || 0; accounts.popup = a.popup !== false;
+        accounts.list = a.list.slice(0, ACC_MAX);
+      }
+    } catch {}
+    while (accounts.list.length < ACC_MAX) accounts.list.push({});
+    accounts.list = accounts.list.map((x) => ({ on: false, user: '', pass: '', char: '', at: 0, ...x }));
+  }
+  reloadAcc();
+  const saveAcc = () => { try { localStorage.setItem(ACC_KEY, JSON.stringify(accounts)); } catch {} };
+  const ss = {
+    get(k) { try { return sessionStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { if (v == null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, v); } catch {} },
+  };
+  { // Fenster, die „Gruppe starten“ geöffnet hat, bringen ihren Slot im Link mit (#dbslot=2&go=1)
+    const m = /[#&]dbslot=(\d)(&go=1)?/.exec(location.hash || '');
+    if (m) {
+      ss.set('digibot.slot', m[1]); ss.set('digibot.group', '1'); if (m[2]) ss.set('digibot.go', '1');
+      try { history.replaceState(null, '', location.pathname + location.search); } catch {}
+    }
+  }
+  const GROUP_STALE_MS = 6000;           // so lange gilt die letzte Meldung eines Fensters
+  const GROUP_WAIT_MS = 180000;          // Leader wartet höchstens so lange auf die anderen (Annehmen/Abgeben)
+  const GROUP_TALK_KEEP_MS = 20 * 60000; // so lange können Mitläufer verpasste Gespräche nachholen
+  const FOLLOW_DIST = 110;               // Mitläufer bleiben so nah am Leader
+  const FOLLOW_FAR = 350;                // weiter weg: erst hinlaufen, nicht kämpfen
+  const group = {
+    bus: null, peers: new Map(), // Slot -> letzte Meldung
+    talks: [],                   // Leader: letzte Gespräche (Annehmen/Abgeben/Sprechen) zum Nachmachen
+    handled: new Set(), done: [], cur: null, // Mitläufer: abgearbeitete Gespräche
+    noFight: false, invited: new Map(), worldAt: 0, msg: '',
+    login: { at: 0, tries: 0, outAt: 0, enterAt: 0, msg: '' },
+    slot() { const v = ss.get('digibot.slot'); return v === null ? -1 : Number(v); },
+    active() { return ss.get('digibot.group') === '1' && this.slot() >= 0 && this.slot() < ACC_MAX; },
+    role() { return !this.active() ? null : this.slot() === accounts.leader ? 'leader' : 'follower'; },
+  };
+  try {
+    group.bus = new BroadcastChannel('digibot-group');
+    group.bus.onmessage = (e) => onGroupMsg(e.data);
+  } catch { /* kein BroadcastChannel – Gruppe nicht möglich */ }
+  window.addEventListener('storage', (e) => { if (e.key === ACC_KEY) { reloadAcc(); schedule(); } });
+
   // Monster-Kategorien (aus den Entity-Flags des Spiels) mit Farbe für Liste und Radar
   const CAT = {
     normal: { label: 'Normal', color: '#9aa5b1' },
@@ -275,7 +336,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.8.3'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.9.0'}</span>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
       <button class="digibot__btn" data-act="min" title="Ein-/Ausklappen">–</button>
     </div>
@@ -291,7 +352,7 @@
       <div class="digibot__vitals">${bar('hp mini', 'HP').replace('data-bar="hp mini"', 'data-bar="mhp"')}${bar('ds mini', 'DS').replace('data-bar="ds mini"', 'data-bar="mds"')}${bar('tg mini', 'Ziel').replace('data-bar="tg mini"', 'data-bar="mtg"')}</div>
     </div>
     <nav class="digibot__tabs">
-      <button data-tab="data">Übersicht</button><button data-tab="attack">Kampf</button><button data-tab="quest">Quests</button><button data-tab="farm">Bosse</button><button data-tab="log">Log</button>
+      <button data-tab="data">Übersicht</button><button data-tab="attack">Kampf</button><button data-tab="quest">Quests</button><button data-tab="farm">Bosse</button><button data-tab="acc">Accounts</button><button data-tab="log">Log</button>
     </nav>
     <div class="digibot__body">
       <section data-page="data">
@@ -385,6 +446,16 @@
         ${grp('timers', 'Timer', `<div class="digibot__timers" data-f="timers"><div class="digibot__none">Keine Bosse ausgewählt.</div></div>`, true,
           'Aus dem Boss-Fenster des Spiels, der Map-Info deines Kanals und eigenen Siegen. ★ = aktuelles Ziel, „hier“ = dein Standort.')}
         ${grp('bosspick', 'Bosse auswählen', `<div class="digibot__bosspick" data-f="bosspick"><div class="digibot__none">warte auf Spielwelt…</div></div>`, false, '', 'data-farmmode="boss"')}
+      </section>
+
+      <section data-page="acc">
+        <div class="digibot__accwarn">Passwörter werden <b>unverschlüsselt</b> in diesem Browser gespeichert. Feld leer lassen = im Fenster selbst einloggen.</div>
+        ${grp('accounts', 'Accounts (bis zu 5)', `<div data-f="acclist">${accRows()}</div>
+          <label class="digibot__skill digibot__chk"><input type="checkbox" data-accpopup ${accounts.popup ? 'checked' : ''}><span>Als eigene Fenster nebeneinander öffnen (empfohlen)</span></label>`, true,
+          '☑ = beim Gruppenstart dabei · ◉ = Leader. Der Leader fährt den Autopilot und sucht die Monster aus. Die anderen folgen ihm, helfen beim Kämpfen und nehmen dieselben Quests an und geben sie mit ab. Der Leader gibt erst ab, wenn alle so weit sind. Der Charaktername wird beim Einloggen gemerkt.')}
+        <div class="digibot__grpbtns"><button class="digibot__btn" data-act="grp-start">▶ Gruppe starten</button><button class="digibot__btn" data-act="grp-stop">■ Gruppe stoppen</button></div>
+        <div class="digibot__grpinfo" data-f="grpinfo">–</div>
+        <div class="digibot__hint">Fenster im Hintergrund oder minimiert bremst der Browser stark – Fenster nebeneinander sichtbar lassen.</div>
       </section>
 
       <section data-page="log">
@@ -842,6 +913,15 @@
   const PASSIVE = (tk) => !!tk && (tk.kind === 'talk' || tk.kind === 'reach');
   const turninPeek = { at: 0, val: false };
   function nextIsTurnin(st, now) {
+    if (group.role() === 'follower') {
+      const tk = autopilot.task;
+      if (tk && !taskDone(st, tk)) return PASSIVE(tk);
+      const L = groupLeader(now);
+      if (!L?.inWorld) return false;
+      if (L.noFight || st.world?.mapId !== L.mapId) return true;
+      const me = controlled(st);
+      return !!me && L.x != null && Math.hypot(me.x - L.x, me.y - L.y) > FOLLOW_FAR;
+    }
     const tk = autopilot.task;
     if (tk && !taskDone(st, tk)) return PASSIVE(tk);
     if (world.state !== 'ready') return false;
@@ -962,13 +1042,15 @@
     const me = st?.me;
     if (!me || !ents?.forEach) return null;
     const mine = new Set([me.partner?.entityId, me.tamerEntityId].filter(Boolean));
+    const party = groupEntityIds(); // Tamer/Digimon der anderen Gruppen-Fenster
+    const ours = party.size ? new Set([...mine, ...party]) : mine;
     const self = ents.get?.(me.partner?.entityId) || ents.get?.(me.tamerEntityId);
     if (!self) return null;
     const tamer = ents.get?.(me.tamerEntityId);
 
     const takenByOthers = new Set();
     ents.forEach((e) => {
-      if ((e.kind === KIND.Tamer || e.kind === KIND.Partner) && !mine.has(e.id) && e.targetId) takenByOthers.add(e.targetId);
+      if ((e.kind === KIND.Tamer || e.kind === KIND.Partner) && !ours.has(e.id) && e.targetId) takenByOthers.add(e.targetId);
     });
 
     const now = Date.now();
@@ -979,14 +1061,16 @@
     // schwächere Monster sind dann erlaubt, nur zu starke (über + Level-Unterschied) bleiben tabu.
     // (sobald das Jagdziel erfüllt ist, sofort nichts Neues mehr angreifen)
     const quest = cfg.autopilot
-      ? { species: autopilot.task && !taskDone(st, autopilot.task) ? autopilot.huntSpecies : new Set(), open: [] }
+      ? { species: (autopilot.task && !taskDone(st, autopilot.task)) || (group.role() === 'follower' && !autopilot.task) ? autopilot.huntSpecies : new Set(), open: [] }
       : cfg.questMode ? questTargets(st, null) : null;
     const pLvl = me.partner?.level ?? 0;
     const farmSp = cfg.farm ? farmTargets(mapId) : null;
+    const assistId = group.role() === 'follower' ? groupLeader(now)?.targetId : null;
     const mobs = [];
     ents.forEach((e) => {
       if (e.kind !== KIND.Mob || e.hp <= 0 || (e.flags & (FLAG.Dead | FLAG.Hidden | FLAG.Untargetable))) return;
-      const attacker = mine.has(e.targetId);
+      // Angreifer: greift mich an – oder ein Gruppenmitglied in meiner Nähe
+      const attacker = mine.has(e.targetId) || (party.has(e.targetId) && Math.hypot(e.x - self.x, e.y - self.y) <= cfg.radius);
       const cat = catOf(e.flags), key = `${e.defId}|${cat}`;
       const aggressive = !!(e.flags & FLAG.Aggressive);
       const s = seenHere.get(key);
@@ -997,10 +1081,10 @@
         attacker,
         // Bosse sind Gruppenkämpfe: ein Farm-Boss gilt nie als „von anderen belegt“
         taken: cfg.skipTaken && !attacker && !isFarmMob(farmSp, e.defId, cat, e.level)
-          && (takenByOthers.has(e.id) || (!!e.targetId && !mine.has(e.targetId))),
+          && (takenByOthers.has(e.id) || (!!e.targetId && !ours.has(e.targetId))),
         // nur zu starke Monster sind tabu, schwächere immer erlaubt; Farm-Bosse immer
         inLvl: e.level <= pLvl + cfg.lvlDiff || isFarmMob(farmSp, e.defId, cat, e.level),
-        enabled: farmSp ? isFarmMob(farmSp, e.defId, cat, e.level) : quest ? quest.species.has(e.defId) : mobOn(mapId, key, cat),
+        enabled: farmSp ? isFarmMob(farmSp, e.defId, cat, e.level) : quest ? quest.species.has(e.defId) || e.id === assistId : mobOn(mapId, key, cat),
         aggressive,
         banned: (blacklist.get(e.id) || 0) > now,
       });
@@ -1187,6 +1271,280 @@
     for (const [k, until] of autopilot.avoidSpots) if (until > now) set.add(k); else autopilot.avoidSpots.delete(k);
     return set;
   };
+  // ---------- Gruppe: Meldungen zwischen den Fenstern ----------
+  function onGroupMsg(m) {
+    if (!m || typeof m !== 'object') return;
+    if (m.type === 'state' && Number.isInteger(m.slot) && m.slot !== group.slot()) group.peers.set(m.slot, { ...m, seen: Date.now() });
+    if (m.type === 'stop' && group.active()) leaveGroup('Gruppe gestoppt (aus einem anderen Fenster)');
+  }
+  const charName = (st) => st?.session?.characters?.find?.((c) => c.id === window.dmo?.net?.charId)?.name || null;
+  function groupState(st, now) {
+    const me = st?.me, quests = {};
+    for (const [id, q] of Object.entries(me?.quests || {})) if (q.state === 1 || q.state === 2) quests[id] = { state: q.state, counters: [...(q.counters || [])] };
+    const pos = controlled(st), t = st?.target, tk = autopilot.task;
+    return {
+      type: 'state', slot: group.slot(), role: group.role(), user: st?.session?.username || '', name: charName(st),
+      inWorld: st?.screen === 'world' && !!me, mapId: st?.world?.mapId || null, channel: st?.world?.channel ?? 1,
+      x: pos?.x ?? null, y: pos?.y ?? null, bot: bot.on, status: bot.status, quests,
+      ents: [me?.tamerEntityId, me?.partner?.entityId].filter(Boolean),
+      targetId: t?.kind === 'mob' && t.hp > 0 ? t.id : null, hunt: [...autopilot.huntSpecies], noFight: !!group.noFight,
+      task: tk ? { key: tk.key, kind: tk.kind, label: tk.label } : null,
+      talks: group.role() === 'leader' ? group.talks : [], done: group.done.slice(-30), busy: group.cur, login: group.login.msg,
+    };
+  }
+  const fresh = (p, now) => !!p && now - p.seen < GROUP_STALE_MS;
+  function groupLeader(now = Date.now()) {
+    if (group.role() !== 'follower') return null;
+    const p = group.peers.get(accounts.leader);
+    return fresh(p, now) && p.role === 'leader' ? p : null;
+  }
+  function groupMembers(now = Date.now()) {
+    if (group.role() !== 'leader') return [];
+    return [...group.peers.values()].filter((p) => fresh(p, now) && p.role === 'follower' && accounts.list[p.slot]?.on);
+  }
+  function groupEntityIds() {
+    const set = new Set(), now = Date.now();
+    if (!group.active()) return set;
+    for (const p of group.peers.values()) if (fresh(p, now)) for (const id of p.ents || []) set.add(id);
+    return set;
+  }
+  // Leader plant mit dem Stand der ganzen Gruppe: Hat ein Mitläufer bei einer Quest noch offene Kampf-/Sammelziele,
+  // gilt sie auch für den Leader als offen – er jagt weiter und gibt erst ab, wenn alle abgeben können.
+  function planQuests(st) {
+    const own = st?.me?.quests || {};
+    if (group.role() !== 'leader') return own;
+    const mem = groupMembers().filter((m) => m.inWorld && m.quests);
+    if (!mem.length) return own;
+    const C = content();
+    let out = null;
+    for (const [id, q] of Object.entries(own)) {
+      if (q.state !== 1 && q.state !== 2) continue;
+      const lag = mem.map((m) => m.quests[id]).filter((x) => x && x.state === 1);
+      if (!lag.length) continue;
+      const objs = questDef(C, id)?.objectives || [];
+      let open = false;
+      const counters = objs.map((o, i) => {
+        const need = o.count || 1, mine = q.state === 2 ? need : q.counters?.[i] ?? 0;
+        if (o.kind !== 'kill' && o.kind !== 'collect') return mine; // dabei kann der Leader nicht helfen
+        const v = Math.min(mine, ...lag.map((x) => x.counters?.[i] ?? 0));
+        if (v < need) open = true;
+        return v;
+      });
+      if (open) (out ||= { ...own })[id] = { ...q, state: 1, counters, group: true };
+    }
+    return out || own;
+  }
+  // Leader: Gespräch merken, damit die Mitläufer es nachmachen (Annehmen, Abgeben, Sprechen, Dailies)
+  function groupNoteTalk(t, now) {
+    if (group.role() !== 'leader' || t.kind !== 'talk') return;
+    const e = { key: `${t.key}@${now}`, tkey: t.key, at: now, purpose: t.purpose, questId: t.questId || null, objIndex: t.objIndex ?? null,
+      need: t.need ?? null, npcId: t.npcId, pool: t.def?.pool || null, loc: { mapId: t.loc.mapId, x: t.loc.x, y: t.loc.y }, label: t.label };
+    group.talks = [...group.talks.filter((x) => now - x.at < GROUP_TALK_KEEP_MS), e].slice(-12);
+  }
+  // Leader: vor der nächsten Aufgabe warten, bis die Mitläufer das letzte Gespräch nachgemacht haben
+  function groupWait(now) {
+    if (group.role() !== 'leader') return null;
+    const lt = group.talks[group.talks.length - 1];
+    if (!lt || now - lt.at > GROUP_WAIT_MS) return null;
+    const waiting = groupMembers(now).filter((m) => m.inWorld && (m.busy || (!(m.done || []).includes(lt.key) && now - lt.at < 15000)));
+    if (!waiting.length) return null;
+    return `Gruppe: warte auf ${waiting.map((m) => m.name || `Slot ${m.slot + 1}`).join(', ')} (${lt.label})`;
+  }
+  // Mitläufer: Gespräch des Leaders als eigene Aufgabe, wenn es für diesen Charakter passt
+  function mirrorTask(st, lt) {
+    const q = lt.questId ? st.me?.quests?.[lt.questId] : null;
+    const def = lt.questId ? questDef(content(), lt.questId) : null;
+    const base = { ...lt, key: lt.tkey, kind: 'talk', loc: { ...lt.loc }, def, mirror: lt.key };
+    if (lt.purpose === 'accept') return def && ((q?.state ?? 0) === 0 || (q.state === 3 && repeatAvailable(def, q))) ? base : null;
+    if (lt.purpose === 'turnin') return q?.state === 2 ? base : null;
+    if (lt.purpose === 'objective') return q?.state === 1 && (q.counters?.[lt.objIndex] ?? 0) < lt.need ? base : null;
+    if (lt.purpose === 'daily' && lt.pool) {
+      const visitKey = `${lt.pool}|${activePartner(st)?.partnerId || 'p'}`;
+      return autopilot.dailyVisited.has(visitKey) ? null : { ...base, visitKey, def: { pool: lt.pool } };
+    }
+    return null;
+  }
+  // Mitläufer: nächste Aufgabe = verpasstes Gespräch des Leaders, sonst dem Leader folgen (Status-Text)
+  function followerPick(st, sc, now) {
+    let t = autopilot.task;
+    if (t && taskDone(st, t)) { autopilot.reset(); t = null; }
+    if (!t && group.cur) { group.done.push(group.cur); group.cur = null; }
+    if (t) return t;
+    const L = groupLeader(now);
+    if (!L) { autopilot.huntSpecies = new Set(); return 'Gruppe: warte auf den Leader…'; }
+    for (const lt of L.talks || []) {
+      if (group.handled.has(lt.key)) continue;
+      group.handled.add(lt.key);
+      const mt = mirrorTask(st, lt);
+      if (!mt || (autopilot.failed.get(mt.key) || 0) > now) { group.done.push(lt.key); continue; }
+      autopilot.reset();
+      autopilot.task = mt; group.cur = lt.key;
+      logEvent('auto', `Gruppe: ${mt.label}`);
+      return mt;
+    }
+    group.done = group.done.slice(-30);
+    return followLeader(st, sc, L, now);
+  }
+  function followLeader(st, sc, L, now) {
+    const name = L.name || 'Leader';
+    if (!L.inWorld || !L.mapId) { autopilot.huntSpecies = new Set(); return `Gruppe: ${name} ist nicht in der Spielwelt`; }
+    if (st.world?.mapId !== L.mapId) {
+      autopilot.huntSpecies = new Set();
+      const tr = travel(st, L.mapId, now);
+      return tr === true ? 'Gruppe: angekommen' : `Gruppe: folge ${name} · ${tr}`;
+    }
+    const ch = L.channel ?? 1;
+    if ((st.world?.channel ?? 1) !== ch) {
+      const r = farmSwitch(st, sc, L.mapId, content()?.maps?.[L.mapId]?.name || L.mapId, ch, now);
+      if (!r.done) return `Gruppe: zu ${name} · ${r.status}`;
+    }
+    autopilot.huntSpecies = new Set(L.hunt || []);
+    const me = controlled(st);
+    const d = me && L.x != null ? Math.hypot(me.x - L.x, me.y - L.y) : 0;
+    if (d > FOLLOW_DIST) {
+      if (walkTo(st, L.x, L.y, now) === 'stuck') autopilot.nav = null;
+      return `Gruppe: folge ${name} (${Math.round(d)} px)`;
+    }
+    autopilot.nav = null;
+    return `Gruppe: bei ${name}${L.task ? ` · ${L.task.label}` : ''}`;
+  }
+  // Mitläufer: Ziel des Leaders mit angreifen
+  function groupAssist(sc) {
+    const id = groupLeader()?.targetId;
+    return id ? sc.mobs.find((m) => m.id === id && m.inLvl && !m.banned && m.d <= cfg.radius * 1.5) || null : null;
+  }
+  // Party im Spiel: Leader lädt ein, Mitläufer nehmen Einladungen vom Leader an
+  function groupParty(st, now) {
+    const cmd = commands();
+    if (!cmd?.partyInvite || st.screen !== 'world') return;
+    if (group.role() === 'follower') {
+      const inv = st.partyInvite, L = groupLeader(now);
+      const from = String(inv?.from?.name ?? inv?.from ?? '').toLowerCase();
+      if (inv && L?.name && from === L.name.toLowerCase()) {
+        cmd.partyRespond?.(true);
+        logEvent('bot', `Gruppe: Party-Einladung von ${L.name} angenommen`);
+      }
+      return;
+    }
+    if (group.role() !== 'leader') return;
+    const inParty = (st.party?.members || []).map((x) => String(x.name || '').toLowerCase());
+    for (const m of groupMembers(now)) {
+      if (!m.inWorld || !m.name || inParty.includes(m.name.toLowerCase())) continue;
+      if (now - (group.invited.get(m.name) || 0) < 30000) continue;
+      group.invited.set(m.name, now);
+      cmd.partyInvite(m.name);
+      logEvent('bot', `Gruppe: lade ${m.name} in die Party ein`);
+    }
+  }
+  // Login im Gruppen-Fenster: richtiger Account (sonst abmelden), einloggen, Charakter wählen
+  function autoLogin(st, now) {
+    const acc = accounts.list[group.slot()], cl = window.dmo?.client, L = group.login;
+    if (!acc?.user || !cl || st.session?.busy) return;
+    const user = String(st.session?.username || '').toLowerCase();
+    const same = user === acc.user.trim().toLowerCase();
+    if (st.screen === 'login') {
+      if (!acc.pass) { L.msg = `bitte als ${acc.user} einloggen`; return; }
+      if (L.tries >= 3) { L.msg = 'Login klappt nicht – bitte selbst einloggen'; return; }
+      if (now - L.at < 15000) return;
+      L.at = now; L.tries++; L.msg = `logge ${acc.user} ein…`;
+      Promise.resolve(cl.login?.(acc.user.trim(), acc.pass)).catch(() => {});
+      logEvent('bot', `Gruppe: logge ${acc.user} ein`);
+    } else if (st.screen === 'charSelect') {
+      if (user && !same) {
+        if (now - L.outAt > 10000) {
+          L.outAt = now; L.msg = 'anderer Account – melde ab…';
+          logEvent('bot', `Gruppe: hier ist ${st.session.username} eingeloggt, Slot ${group.slot() + 1} gehört ${acc.user} – melde ab`);
+          cl.logout?.();
+        }
+        return;
+      }
+      const chars = st.session?.characters || [];
+      const c = chars.find((x) => acc.char && String(x.name).toLowerCase() === acc.char.toLowerCase()) || (chars.length === 1 ? chars[0] : null);
+      if (!c) { L.msg = 'bitte Charakter wählen'; return; }
+      if (now - L.enterAt < 20000) return;
+      L.enterAt = now; L.msg = `betrete die Welt mit ${c.name}…`;
+      Promise.resolve(cl.enterWorld?.(c.id)).catch(() => {});
+    } else if (st.screen === 'world') {
+      L.tries = 0;
+      L.msg = user && !same ? `Achtung: hier ist ${st.session.username} eingeloggt, nicht ${acc.user}` : '';
+    }
+  }
+  // Charaktername pro Account merken (in jedem Fenster, auch ohne Gruppe)
+  function noteCharacter(st, now) {
+    if (st.screen !== 'world' || !st.me) return;
+    const user = String(st.session?.username || '').trim().toLowerCase(), name = charName(st);
+    if (!user || !name) return;
+    const i = accounts.list.findIndex((a) => a.user.trim().toLowerCase() === user);
+    if (i < 0 || (accounts.list[i].char === name && now - (accounts.list[i].at || 0) < 300000)) return;
+    reloadAcc();
+    accounts.list[i].char = name; accounts.list[i].at = now;
+    saveAcc();
+  }
+  function groupTick() {
+    const st = getStore()?.getState?.();
+    if (!st) return;
+    const now = Date.now();
+    noteCharacter(st, now);
+    if (!group.active()) return;
+    try { group.bus?.postMessage(groupState(st, now)); } catch { /* ignore */ }
+    autoLogin(st, now);
+    groupParty(st, now);
+    // Fenster aus „Gruppe starten“: Bot im Autopilot starten, sobald der Charakter in der Welt ist
+    if (ss.get('digibot.go') === '1' && st.screen === 'world' && st.me?.partner) {
+      group.worldAt ||= now;
+      if (now - group.worldAt > 3000) {
+        ss.set('digibot.go', null);
+        if (!bot.on) {
+          cfg.questMode = false; cfg.autopilot = true; cfg.farm = false;
+          loadWorld();
+          bot.toggle();
+          logEvent('bot', `Gruppe: Bot gestartet als ${group.role() === 'leader' ? 'Leader' : 'Mitläufer'}`);
+        }
+      }
+    } else if (st.screen !== 'world') group.worldAt = 0;
+  }
+  function startGroup() {
+    reloadAcc();
+    const st = getStore()?.getState?.(), now = Date.now();
+    const on = accounts.list.map((a, i) => ({ ...a, i })).filter((a) => a.on && a.user.trim());
+    if (!on.length) { group.msg = 'Kein Account mit Haken und Benutzername.'; schedule(); return; }
+    if (!on.some((a) => a.i === accounts.leader)) { group.msg = 'Der Leader (◉) braucht auch einen Haken.'; schedule(); return; }
+    let mine = group.slot();
+    if (!on.some((a) => a.i === mine)) { // dieses Fenster: eingeloggter Account, sonst der Leader
+      const u = String(st?.session?.username || '').toLowerCase();
+      mine = (on.find((a) => a.user.trim().toLowerCase() === u) || on.find((a) => a.i === accounts.leader)).i;
+    }
+    ss.set('digibot.slot', String(mine)); ss.set('digibot.group', '1'); ss.set('digibot.go', '1');
+    group.login = { at: 0, tries: 0, outAt: 0, enterAt: 0, msg: '' };
+    group.talks = []; group.handled = new Set(); group.done = []; group.cur = null; group.worldAt = 0;
+    const order = [on.find((a) => a.i === mine), ...on.filter((a) => a.i !== mine)];
+    const cols = Math.ceil(Math.sqrt(order.length)), rows = Math.ceil(order.length / cols);
+    const sw = screen.availWidth || 1280, sh = screen.availHeight || 800, cw = Math.floor(sw / cols), chh = Math.floor(sh / rows);
+    let opened = 0, blocked = 0;
+    order.forEach((a, cell) => {
+      if (cell === 0 || fresh(group.peers.get(a.i), now)) return; // läuft schon
+      const feat = accounts.popup ? `popup,width=${cw},height=${chh},left=${(screen.availLeft || 0) + (cell % cols) * cw},top=${(screen.availTop || 0) + Math.floor(cell / cols) * chh}` : '';
+      const w = window.open(`${location.origin}${location.pathname}#dbslot=${a.i}&go=1`, `digibot-slot-${a.i}`, feat);
+      if (w) opened++; else blocked++;
+    });
+    group.msg = blocked ? `${blocked} Fenster blockiert – bitte Pop-ups für diese Seite erlauben und nochmal starten.`
+      : `Gruppe gestartet: ${order.length} Account(s), ${opened} Fenster geöffnet.`;
+    logEvent('bot', group.msg);
+    groupTick();
+    schedule();
+  }
+  function leaveGroup(why) {
+    ss.set('digibot.group', null); ss.set('digibot.go', null);
+    group.msg = why;
+    if (bot.on) bot.toggle();
+    logEvent('bot', why);
+    schedule();
+  }
+  function stopGroup() {
+    try { group.bus?.postMessage({ type: 'stop' }); } catch { /* ignore */ }
+    leaveGroup('Gruppe gestoppt');
+  }
+
   function controlled(st) {
     const ents = window.dmo?.net?.state?.entities;
     const id = worldScene()?.controlledId?.() || st?.me?.tamerEntityId;
@@ -1302,6 +1660,7 @@
   const evoCooldownLeft = (st) => Math.max(0, (st?.cooldowns?.evolve?.end ?? 0) - performance.now());
 
   function ensurePartner(st, partnerId, now) {
+    if (group.role() === 'follower') return true; // Partner-IDs gehören zum Account des Leaders
     if (!partnerId || autopilot.switchGiveUp === partnerId) return true;
     const act = activePartner(st);
     if (!act || act.partnerId === partnerId) { autopilot.switchTries = 0; return true; }
@@ -1337,6 +1696,7 @@
   // Digitiert das aktive Digimon Schritt für Schritt zur gewünschten Form. Fehlt Tamer-DS, wird der F3-Trank
   // benutzt. true = passt (oder geht gerade nicht); sonst Statustext.
   function ensureEvolution(st, species, now) {
+    if (group.role() === 'follower') return true;
     const p = st?.me?.partner;
     if (!species || !p || p.species === species || p.evolving || autopilot.evoGiveUp === species) return true;
     const evos = p.evolutions || [];
@@ -1448,7 +1808,7 @@
   function questTasks(st) {
     const C = content(), me = st?.me, mapId = st?.world?.mapId;
     if (!C || !me || world.state !== 'ready') return [];
-    const ix = questIndex(C), lvl = me.partner?.level ?? 1, quests = me.quests || {};
+    const ix = questIndex(C), lvl = me.partner?.level ?? 1, quests = planQuests(st);
     const npcName = (id) => C.npcs?.[id]?.name || id;
     const npcLoc = (npcId, prefMap) => {
       const locs = world.npcAt.get(npcId) || [];
@@ -1550,7 +1910,7 @@
   function taskDone(st, t) {
     if (t.grind) return (st?.me?.partner?.level ?? 0) >= t.targetLevel;
     if (t.purpose === 'daily') return autopilot.dailyVisited.has(t.visitKey);
-    const q = st?.me?.quests?.[t.questId];
+    const q = planQuests(st)[t.questId];
     if (t.purpose === 'turnin') return q?.state !== 2;
     if (t.purpose === 'accept') return q?.state === 1 || q?.state === 2;
     return !q || q.state !== 1 || (q.counters?.[t.objIndex] ?? 0) >= t.need;
@@ -1801,13 +2161,24 @@
   function autopilotStep(st, sc, now) {
     if (world.state !== 'ready') { loadWorld(); return `Lade Weltkarte… ${world.loaded}/${world.total || '?'}`; }
     if (st.screen !== 'world') return 'Warte auf Map-Wechsel…';
-    if (cfg.apOrder === 'sweep') {
+    const follower = group.role() === 'follower';
+    let t = null;
+    if (follower) {
+      autopilot.sweepAt = null;
+      const fp = followerPick(st, sc, now);
+      if (typeof fp === 'string') return fp;
+      t = fp;
+    } else if (cfg.apOrder === 'sweep') {
       autopilot.sweepAt = sweepMap(st);
       if (!autopilot.sweepAt) { cfg.apSweepMap = ''; saveCfg(); return null; }
     } else autopilot.sweepAt = null;
-    let t = autopilot.task;
-    if (t && taskDone(st, t)) { t = null; autopilot.reset(); }
+    if (!follower) {
+      t = autopilot.task;
+      if (t && taskDone(st, t)) { t = null; autopilot.reset(); }
+    }
     if (!t) {
+      const gw = groupWait(now);
+      if (gw) return gw;
       let all = questTasks(st);
       // Runde: auf dieser Map nichts mehr zu tun -> nächste Map (absteigend)
       for (let guard = 0; cfg.apOrder === 'sweep' && !all.length && guard < 40; guard++) {
@@ -1834,7 +2205,7 @@
         autopilot.phase = t.phase;
         logEvent('map', `Runde ${content()?.maps?.[autopilot.sweepAt]?.name || autopilot.sweepAt}: Phase ${t.phase}/3 – ${PHASE_NAMES[t.phase]}`);
       }
-      if (t) logEvent('auto', `Aufgabe: ${t.label}`);
+      if (t) { logEvent('auto', `Aufgabe: ${t.label}`); groupNoteTalk(t, now); }
       autopilot.nav = null; autopilot.talkTries = 0; autopilot.arrivedAt = 0; autopilot.idleSince = 0;
       if (!t) { autopilot.huntSpecies = new Set(); return null; }
     }
@@ -2443,6 +2814,8 @@
     if (!sc) return null;
     if (sc.attackers.length) return sc.attackers[0];
     if (resting) return null;
+    const assist = group.role() === 'follower' ? groupAssist(sc) : null; // Mitläufer: Ziel des Leaders
+    if (assist) return assist;
     return sc.mobs.find(usable) || null;
   }
 
@@ -2450,7 +2823,8 @@
   // Tippt der Spieler gerade (Chat o. ä.)? Knöpfe zählen nicht, das Bot-Panel auch nicht.
   function typingInField() {
     const el = document.activeElement;
-    if (!el || el.closest?.('.digibot')) return false;
+    if (!el) return false;
+    if (el.closest?.('.digibot')) return el.tagName === 'INPUT' && (el.type === 'text' || el.type === 'password');
     return el.isContentEditable || el.tagName === 'TEXTAREA' ||
       (el.tagName === 'INPUT' && !['button', 'checkbox', 'radio', 'range', 'submit', 'reset'].includes(el.type));
   }
@@ -2559,6 +2933,7 @@
       // Autopilot auf dem Weg zum Abgeben, Annehmen, Sprechen oder zu einem Reise-Ziel: keine Kämpfe, auch nicht gegen
       // Angreifer – Digimon zurückrufen und weiterlaufen
       const noFight = cfg.autopilot && !cfg.farm && nextIsTurnin(st, now);
+      if (group.role() === 'leader') group.noFight = noFight; // Mitläufer kämpfen dann auch nicht
       if (noFight) {
         const pe = window.dmo?.net?.state?.entities?.get?.(p.entityId);
         if ((pe?.targetId || this.attackedId) && this.can('follow', 1500, now)) {
@@ -2841,6 +3216,7 @@
     renderMobList(st, sc);
     renderQuests(st, sc);
     renderFarm(st);
+    renderAccounts(st);
     watchGame(st);
     renderLog();
 
@@ -3086,6 +3462,44 @@
 
   const CSS_ESC = (s) => (window.CSS?.escape ? window.CSS.escape(s) : s.replace(/["\\]/g, '\\$&'));
 
+  function accRows() {
+    return accounts.list.map((a, i) => `
+      <div class="digibot__accrow">
+        <input type="checkbox" data-acc="${i}" data-k="on" ${a.on ? 'checked' : ''} title="Beim Gruppenstart dabei">
+        <input type="radio" name="digibot-leader" data-accleader="${i}" ${accounts.leader === i ? 'checked' : ''} title="Leader">
+        <input type="text" data-acc="${i}" data-k="user" placeholder="Account ${i + 1}: Benutzername" value="${escAttr(a.user)}" autocomplete="off" spellcheck="false">
+        <input type="password" data-acc="${i}" data-k="pass" placeholder="Passwort (optional)" value="${escAttr(a.pass)}" autocomplete="new-password">
+        <div class="digibot__accinfo" data-accinfo="${i}">–</div>
+      </div>`).join('');
+  }
+  function renderAccounts(st) {
+    if (!panel.querySelector('[data-page="acc"]').classList.contains('on')) return;
+    const now = Date.now(), C = content();
+    accounts.list.forEach((a, i) => {
+      for (const k of ['user', 'pass']) { // von einem anderen Fenster gespeichert -> übernehmen (nicht das Feld, in dem getippt wird)
+        const el = panel.querySelector(`[data-acc="${i}"][data-k="${k}"]`);
+        if (el && el !== document.activeElement && el.value !== a[k]) el.value = a[k];
+      }
+      const cb = panel.querySelector(`[data-acc="${i}"][data-k="on"]`); if (cb && cb.checked !== !!a.on) cb.checked = !!a.on;
+      const rb = panel.querySelector(`[data-accleader="${i}"]`); if (rb && rb.checked !== (accounts.leader === i)) rb.checked = accounts.leader === i;
+      const self = group.active() && group.slot() === i;
+      const p = self ? groupState(st, now) : fresh(group.peers.get(i), now) ? group.peers.get(i) : null;
+      const info = panel.querySelector(`[data-accinfo="${i}"]`);
+      let text;
+      if (p) {
+        const where = p.inWorld ? `${C?.maps?.[p.mapId]?.name || p.mapId} Ch${p.channel}` : (p.login || 'nicht in der Welt');
+        text = `● ${p.name || a.char || a.user}${self ? ' (dieses Fenster)' : ''} · ${p.role === 'leader' ? 'Leader' : 'folgt'} · ${where}${p.bot ? ` · ${p.status}` : ''}`;
+      } else text = a.char ? `zuletzt: ${a.char}${a.at ? ` · vor ${fmtDur(now - a.at)}` : ''}` : a.user ? 'Charakter noch unbekannt' : '';
+      if (info.textContent !== text) { info.textContent = text; info.title = text; }
+      info.classList.toggle('on', !!p);
+    });
+    const gi = panel.querySelector('[data-f="grpinfo"]');
+    const text = group.active()
+      ? `Dieses Fenster: Account ${group.slot() + 1} · ${group.role() === 'leader' ? 'Leader' : 'folgt dem Leader'}${group.login.msg ? ` · ${group.login.msg}` : ''}${group.msg ? ` · ${group.msg}` : ''}`
+      : `Dieses Fenster ist in keiner Gruppe.${group.msg ? ` · ${group.msg}` : ''}`;
+    if (gi.textContent !== text) gi.textContent = text;
+  }
+
   function setTab(tab) {
     cfg.tab = tab; saveCfg();
     panel.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
@@ -3171,7 +3585,11 @@
     document.body.append(panel);
 
     makeDraggable(panel, panel.querySelector('.digibot__head'));
-    setTab(['data', 'attack', 'quest', 'farm', 'log'].includes(cfg.tab) ? cfg.tab : 'data');
+    setTab(['data', 'attack', 'quest', 'farm', 'acc', 'log'].includes(cfg.tab) ? cfg.tab : 'data');
+    // Tippen in die Account-Felder nicht ans Spiel weitergeben (sonst laufen/greifen Tasten im Spiel)
+    for (const ev of ['keydown', 'keyup', 'keypress']) {
+      panel.addEventListener(ev, (e) => { if (e.target.matches?.('input[type="text"],input[type="password"]')) e.stopPropagation(); });
+    }
     // Gruppen auf/zu merken ("toggle" steigt nicht auf -> in der Capture-Phase abfangen)
     panel.addEventListener('toggle', (e) => {
       const k = e.target?.dataset?.grp;
@@ -3183,6 +3601,8 @@
       if (act === 'pip') popOut();
       if (act === 'reset') { exp.reset(); bitsRate.last = null; bitsRate.gains = []; bitsRate.total = 0; schedule(); }
       if (act === 'bot') bot.toggle();
+      if (act === 'grp-start') startGroup();
+      if (act === 'grp-stop') stopGroup();
       if (act === 'mobs-all') setAllMobs(true);
       if (act === 'log-copy') copyLog(e.target);
       if (act === 'log-clear') { logbook.length = 0; logSig++; schedule(); }
@@ -3200,6 +3620,23 @@
       }
     });
     panel.addEventListener('input', (e) => {
+      const ai = e.target.dataset.acc;
+      if (ai !== undefined) {
+        reloadAcc();
+        const k = e.target.dataset.k;
+        accounts.list[Number(ai)][k] = k === 'on' ? e.target.checked : e.target.value;
+        saveAcc();
+        if (k === 'on') e.target.blur();
+        schedule();
+        return;
+      }
+      if (e.target.dataset.accleader !== undefined) {
+        reloadAcc(); accounts.leader = Number(e.target.dataset.accleader); saveAcc(); e.target.blur();
+        logEvent('bot', `Gruppe: Leader ist jetzt Account ${accounts.leader + 1}${accounts.list[accounts.leader].user ? ` (${accounts.list[accounts.leader].user})` : ''}`);
+        schedule();
+        return;
+      }
+      if (e.target.matches('[data-accpopup]')) { reloadAcc(); accounts.popup = e.target.checked; saveAcc(); e.target.blur(); return; }
       if (e.target.matches('[data-farm]')) {
         cfg.farm = e.target.checked; saveCfg(); e.target.blur(); farm.reset(); autopilot.reset();
         if (cfg.farm) loadWorld();
@@ -3295,6 +3732,7 @@
     store.subscribe(schedule);
     if (cfg.autopilot || cfg.farm) setTimeout(loadWorld, 2000);
     setInterval(schedule, 250); // Fallback, falls ein Update am Store vorbeiläuft
+    setInterval(groupTick, 1000); // Gruppe: Meldungen, Login, Party, Autostart
     render();
   }, 300);
 })();
