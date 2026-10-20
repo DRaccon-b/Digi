@@ -197,6 +197,15 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
   - **▶ Start / ■ Stopp** oben im Leader-Fenster (oder **Alt+B**) wirkt ebenfalls auf alle.
   - Ist der Leader mit allen Quests fertig, stoppen auch die Mitläufer.
   - Ein Fenster, das noch nicht in der Welt ist, startet seinen Bot, sobald es die Welt betritt.
+- **Schneller in der Gruppe (ab 2.10):**
+  - Mitläufer lesen das Ziel des Leaders direkt aus ihrer eigenen Spielwelt. Sie greifen nach etwa 0,1 s mit an,
+    statt auf die nächste Meldung zu warten.
+  - Änderungen (Ziel, Aufgabe, Gespräch, Kampf, Quests) melden die Fenster sofort, und der Empfänger reagiert gleich darauf.
+  - Liegengebliebene NPC-Dialoge und Daily-Boards schließen Mitläufer sofort. Dialogschritte gehen schneller.
+- **Bewegungen spiegeln (ab 2.10, Haken im Reiter Accounts):** Du steuerst den Leader selbst, die anderen Fenster
+  laufen ihm in kleiner Formation nach, auch über Maps und Kanäle.
+  - Gilt nur in Fenstern, deren Bot aus ist.
+  - Gespiegelt werden nur die Bewegungen, nicht die Angriffe.
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 

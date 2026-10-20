@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.9.4
+// @version      2.10.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -264,12 +264,12 @@
   // sessionStorage des Fensters (Slot) – die Bot-Einstellungen in localStorage teilen sich ja alle Fenster.
   const ACC_KEY = 'digibot.accounts';
   const ACC_MAX = 5;
-  const accounts = { leader: 0, popup: true, list: [] };
+  const accounts = { leader: 0, popup: true, mirror: false, list: [] };
   function reloadAcc() {
     try {
       const a = JSON.parse(localStorage.getItem(ACC_KEY) || 'null');
       if (a && Array.isArray(a.list)) {
-        accounts.leader = Number(a.leader) || 0; accounts.popup = a.popup !== false;
+        accounts.leader = Number(a.leader) || 0; accounts.popup = a.popup !== false; accounts.mirror = !!a.mirror;
         accounts.list = a.list.slice(0, ACC_MAX);
       }
     } catch {}
@@ -341,7 +341,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.9.4'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.10.0'}</span>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
       <button class="digibot__btn" data-act="min" title="Ein-/Ausklappen">–</button>
     </div>
@@ -456,7 +456,8 @@
       <section data-page="acc">
         <div class="digibot__accwarn">Passwörter werden <b>unverschlüsselt</b> in diesem Browser gespeichert. Feld leer lassen = im Fenster selbst einloggen.</div>
         ${grp('accounts', 'Accounts (bis zu 5)', `<div data-f="acclist">${accRows()}</div>
-          <label class="digibot__skill digibot__chk"><input type="checkbox" data-accpopup ${accounts.popup ? 'checked' : ''}><span>Als eigene Fenster nebeneinander öffnen (empfohlen)</span></label>`, true,
+          <label class="digibot__skill digibot__chk"><input type="checkbox" data-accpopup ${accounts.popup ? 'checked' : ''}><span>Als eigene Fenster nebeneinander öffnen (empfohlen)</span></label>
+          <label class="digibot__skill digibot__chk" title="Du steuerst den Leader selbst; die anderen Fenster laufen ihm nach (in kleiner Formation, auch über Maps und Kanäle). Gilt in Fenstern, deren Bot aus ist."><input type="checkbox" data-accmirror ${accounts.mirror ? 'checked' : ''}><span>Bewegungen des Leaders spiegeln (Mitläufer ohne Bot)</span></label>`, true,
           '☑ = beim Gruppenstart dabei · ◉ = Leader. Der Leader fährt den Autopilot und sucht die Monster aus. Die anderen folgen ihm, helfen beim Kämpfen und nehmen dieselben Quests an und geben sie mit ab. Der Leader gibt erst ab, wenn alle so weit sind. Der Charaktername wird beim Einloggen gemerkt.')}
         <div class="digibot__grpbtns"><button class="digibot__btn" data-act="grp-login" title="Fehlende Fenster öffnen, alle Accounts einloggen und Charakter wählen">🔑 Alle einloggen</button></div>
         <div class="digibot__grpbtns"><button class="digibot__btn" data-act="grp-start" title="Bots in allen Gruppenfenstern starten">▶ Bots starten</button><button class="digibot__btn" data-act="grp-stop" title="Bots in allen Gruppenfenstern stoppen">■ Bots stoppen</button></div>
@@ -1072,7 +1073,7 @@
       : cfg.questMode ? questTargets(st, null) : null;
     const pLvl = me.partner?.level ?? 0;
     const farmSp = cfg.farm ? farmTargets(mapId) : null;
-    const assistId = group.role() === 'follower' ? groupLeader(now)?.targetId : null;
+    const assistId = group.role() === 'follower' ? leaderTargetId(now) : null;
     const mobs = [];
     ents.forEach((e) => {
       if (e.kind !== KIND.Mob || e.hp <= 0 || (e.flags & (FLAG.Dead | FLAG.Hidden | FLAG.Untargetable))) return;
@@ -1281,11 +1282,35 @@
   // ---------- Gruppe: Meldungen zwischen den Fenstern ----------
   function onGroupMsg(m) {
     if (!m || typeof m !== 'object') return;
-    if (m.type === 'state' && Number.isInteger(m.slot) && m.slot !== group.slot()) group.peers.set(m.slot, { ...m, seen: Date.now() });
+    if (m.type === 'state' && Number.isInteger(m.slot) && m.slot !== group.slot()) {
+      const prev = group.peers.get(m.slot);
+      group.peers.set(m.slot, { ...m, seen: Date.now() });
+      // Hat sich beim anderen Fenster etwas Wichtiges geändert: gleich einen Bot-Schritt machen, nicht auf den Takt warten
+      if (bot.on && group.active() && (!prev || groupSig(prev) !== groupSig(m))) kickTick();
+    }
+    if (m.type === 'pos' && m.slot === accounts.leader && m.slot !== group.slot()) group.leaderPos = { ...m, seen: Date.now() };
     if (!group.active()) return;
     if (m.type === 'start' && !bot.on) groupStartBot('Gruppe: Start aus dem Leader-Fenster');
     if (m.type === 'login') { ss.set('digibot.login', '1'); group.login = { at: 0, tries: 0, outAt: 0, enterAt: 0, msg: '' }; }
     if (m.type === 'stop') groupStopBot('Gruppe: Stopp aus dem Leader-Fenster');
+  }
+  // Was ein anderes Fenster sofort wissen muss (Ziel, Aufgabe, Gespräche, Kampf, Map, Quests) – Position nicht
+  const groupSig = (m) => JSON.stringify([m.targetId, m.task?.key, m.talks?.[m.talks.length - 1]?.key, m.busy, m.done?.[m.done.length - 1],
+    m.fight, m.mapId, m.channel, m.bot, m.noFight, m.inWorld, m.quests]);
+  function groupPush(force = false) {
+    if (!group.active() || !group.bus) return;
+    const st = getStore()?.getState?.(), now = Date.now();
+    if (!st) return;
+    const msg = groupState(st, now), sig = groupSig(msg);
+    if (!force && sig === group.sig && now - group.sentAt < 1000) return;
+    group.sig = sig; group.sentAt = now;
+    try { group.bus.postMessage(msg); } catch { /* ignore */ }
+  }
+  function kickTick() {
+    const now = Date.now();
+    if (now - (group.kickAt || 0) < 120) return;
+    group.kickAt = now;
+    setTimeout(() => { if (bot.on) try { bot.tick(); } catch { /* ignore */ } }, 0);
   }
   const charName = (st) => st?.session?.characters?.find?.((c) => c.id === window.dmo?.net?.charId)?.name || null;
   function groupState(st, now) {
@@ -1414,6 +1439,9 @@
       return mt;
     }
     group.done = group.done.slice(-30);
+    // Ohne eigenes Gespräch: liegengebliebene Dialoge/Daily-Board sofort schließen (z. B. nach einer Abgabe)
+    if (st.dialog && !(st.dialog.npc === 'digiphone' && autopilot.tp)) commands()?.closeDialog?.();
+    if (st.dailies?.board) commands()?.closeDailyBoard?.();
     return followLeader(st, sc, L, now);
   }
   function followLeader(st, sc, L, now) {
@@ -1440,8 +1468,20 @@
     return `Gruppe: bei ${name}${L.task ? ` · ${L.task.label}` : ''}`;
   }
   // Mitläufer: Ziel des Leaders mit angreifen
+  // Wen greift der Leader gerade an? Sein Digimon/Tamer steht auch in meiner Spielwelt – dort direkt nachsehen
+  // (sofort, ohne auf seine Meldung zu warten). Nur wenn er nicht in Sichtweite ist: das gemeldete Ziel.
+  function leaderTargetId(now = Date.now()) {
+    const L = groupLeader(now);
+    if (!L) return null;
+    const ents = window.dmo?.net?.state?.entities;
+    for (const id of [...(L.ents || [])].reverse()) { // Digimon zuerst
+      const tid = ents?.get?.(id)?.targetId, m = tid && ents.get(tid);
+      if (m && m.kind === KIND.Mob && m.hp > 0) return m.id;
+    }
+    return L.targetId || null;
+  }
   function groupAssist(sc) {
-    const id = groupLeader()?.targetId;
+    const id = leaderTargetId();
     return id ? sc.mobs.find((m) => m.id === id && m.inLvl && !m.banned && m.d <= cfg.radius * 1.5) || null : null;
   }
   // Party im Spiel: Leader lädt ein, Mitläufer nehmen Einladungen vom Leader an
@@ -1518,7 +1558,7 @@
     const now = Date.now();
     noteCharacter(st, now);
     if (!group.active()) return;
-    try { group.bus?.postMessage(groupState(st, now)); } catch { /* ignore */ }
+    groupPush(true);
     if (ss.get('digibot.login') === '1') autoLogin(st, now);
     groupParty(st, now);
     // Fenster aus „Gruppe starten“: Bot im Autopilot starten, sobald der Charakter in der Welt ist
@@ -1546,6 +1586,55 @@
     return { on, mine };
   }
   // ▶ Bots starten: nur die Bots aller Gruppenfenster starten (kein Login, keine neuen Fenster)
+  // ---------- Bewegungen spiegeln: Leader meldet seine Position, Mitläufer (Bot aus) laufen mit ----------
+  const MIRROR_OFFSETS = [[-26, 18], [26, 18], [-26, -18], [26, -18]]; // kleine Formation um den Leader
+  function mirrorTick() {
+    if (!accounts.mirror || !group.active()) { if (group.mirroring) mirrorEnd(); return; }
+    const st = getStore()?.getState?.(), now = Date.now();
+    if (!st || st.screen !== 'world' || !st.me) return;
+    if (group.role() === 'leader') { // Position melden, sobald sie sich ändert (sonst 1× pro Sekunde)
+      const me = controlled(st), lp = group.lastPos;
+      if (!me || !group.bus) return;
+      const moved = !lp || lp.mapId !== st.world?.mapId || Math.hypot(lp.x - me.x, lp.y - me.y) >= 2;
+      if (!moved && now - lp.at < 1000) return;
+      group.lastPos = { mapId: st.world?.mapId, x: me.x, y: me.y, at: now };
+      try { group.bus.postMessage({ type: 'pos', slot: group.slot(), mapId: st.world?.mapId, channel: st.world?.channel ?? 1, x: me.x, y: me.y }); } catch { /* ignore */ }
+      return;
+    }
+    if (bot.on) { if (group.mirroring) mirrorEnd(); return; } // läuft der Bot, folgt er selbst
+    group.mirroring = true;
+    const P = group.leaderPos;
+    const set = (t) => { if (bot.status !== t) { bot.status = t; schedule(); } };
+    if (!P || now - P.seen > 3000) return set('Spiegeln: warte auf den Leader…');
+    if (world.state !== 'ready') { loadWorld(); return set('Spiegeln: lade Weltkarte…'); }
+    if (st.world?.mapId !== P.mapId) {
+      const tr = travel(st, P.mapId, now);
+      return set(tr === true ? 'Spiegeln: angekommen' : `Spiegeln: ${tr}`);
+    }
+    const ch = P.channel ?? 1;
+    if ((st.world?.channel ?? 1) !== ch) {
+      const r = farmSwitch(st, scan(st), P.mapId, content()?.maps?.[P.mapId]?.name || P.mapId, ch, now);
+      if (!r.done) return set(`Spiegeln: ${r.status}`);
+    }
+    const followers = accounts.list.map((a, i) => i).filter((i) => i !== accounts.leader && accounts.list[i].on);
+    const [ox, oy] = MIRROR_OFFSETS[Math.max(0, followers.indexOf(group.slot())) % MIRROR_OFFSETS.length];
+    const tx = P.x + ox, ty = P.y + oy, me = controlled(st);
+    if (!me) return;
+    const d = Math.hypot(me.x - tx, me.y - ty);
+    if (d < 6) { autopilot.nav = null; return set('Spiegeln: beim Leader'); }
+    if (d > LONG_WALK) { walkTo(st, tx, ty, now); return set(`Spiegeln: laufe zum Leader (${Math.round(d)} px)`); }
+    const lt = group.mirrorTap;
+    if (!lt || Math.hypot(lt.x - tx, lt.y - ty) > 4 || now - lt.at > 700) {
+      worldScene()?.tapGround?.(tx, ty);
+      group.mirrorTap = { x: tx, y: ty, at: now };
+    }
+    set('Spiegeln: folge dem Leader');
+  }
+  function mirrorEnd() {
+    group.mirroring = false; group.mirrorTap = null; autopilot.nav = null;
+    if (!bot.on) { bot.status = 'Bot aus'; schedule(); }
+  }
+
   function startGroup() {
     const st = getStore()?.getState?.();
     if (!claimSlot(st)) return;
@@ -2167,7 +2256,7 @@
 
   // Dialog mit dem NPC der Aufgabe: Quest annehmen/abgeben per Dialog-Auswahl (wie ein Klick), bei Bedarf über
   // Unterdialoge. Klappt das nicht: NPC einmal neu ansprechen, dann direkter Befehl des Spiels, dann aufgeben.
-  const DIALOG_STEP_MS = 1200;
+  const DIALOG_STEP_MS = 800;
   const DIALOG_MAX_STEPS = 6;
   function handleDialog(st, t, now) {
     const cmd = commands();
@@ -3701,6 +3790,11 @@
         return;
       }
       if (e.target.matches('[data-accpopup]')) { reloadAcc(); accounts.popup = e.target.checked; saveAcc(); e.target.blur(); return; }
+      if (e.target.matches('[data-accmirror]')) {
+        reloadAcc(); accounts.mirror = e.target.checked; saveAcc(); e.target.blur();
+        logEvent('bot', `Gruppe: Bewegungen spiegeln ${accounts.mirror ? 'an' : 'aus'}`);
+        return;
+      }
       if (e.target.matches('[data-farm]')) {
         cfg.farm = e.target.checked; saveCfg(); e.target.blur(); farm.reset(); autopilot.reset();
         if (cfg.farm) loadWorld();
@@ -3797,6 +3891,8 @@
     if (cfg.autopilot || cfg.farm) setTimeout(loadWorld, 2000);
     setInterval(schedule, 250); // Fallback, falls ein Update am Store vorbeiläuft
     setInterval(groupTick, 1000); // Gruppe: Meldungen, Login, Party, Autostart
+    setInterval(() => groupPush(), 150); // Gruppe: Änderungen sofort melden
+    setInterval(mirrorTick, 100);   // Gruppe: Bewegungen des Leaders spiegeln
     render();
   }, 300);
 })();
