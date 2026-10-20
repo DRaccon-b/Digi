@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.10.6
+// @version      2.10.7
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -345,7 +345,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.10.6'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.10.7'}</span>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
       <button class="digibot__btn" data-act="min" title="Ein-/Ausklappen">–</button>
     </div>
@@ -2651,6 +2651,10 @@
       return r === 'stuck' ? fail('Jagdgebiet nicht erreichbar') : `${t.label} · laufe ins Jagdgebiet (${Math.round(dz)} px)`;
     }
     autopilot.idleSince ||= now;
+    if (t.loc.boss) { // Feldboss tot (Respawn oft 10 min): auf den anderen Kanälen nachsehen
+      const bc = bossChannelHop(st, sc, t, now);
+      if (bc) return `${t.label} · ${bc}`;
+    }
     if (now - autopilot.idleSince > HUNT_IDLE_MS) {
       // Gebiet ist leer (z. B. Boss tot, andere Spieler jagen dort): 5 min meiden und neu planen – dann wird das
       // nächstbeste Gebiet mit derselben Beute gewählt. Gibt es keins, bleibt es bei diesem (weiter warten).
@@ -2663,6 +2667,33 @@
       return fail('keine passenden Monster');
     }
     return `${t.label} · warte auf ${t.names}…`;
+  }
+
+  // Boss-Jagd ohne Boss: erst BOSS_CH_WAIT_MS hier warten, dann den nächsten freien Kanal prüfen, dort wieder warten …
+  // Sind alle Kanäle durch, wartet der Bot normal weiter. Mitläufer wechseln den Kanal mit (sie folgen dem Leader).
+  const BOSS_CH_WAIT_MS = 20000;
+  function bossChannelHop(st, sc, t, now) {
+    const h = (t.chHop ||= { tried: new Map(), switchTo: null });
+    const cur = st.world?.channel ?? 1, mapId = st.world?.mapId;
+    const name = content()?.maps?.[mapId]?.name || mapId;
+    if (!h.tried.has(cur)) h.tried.set(cur, now);
+    if (h.switchTo != null) {
+      if (cur === h.switchTo) { h.switchTo = null; h.tried.set(cur, now); autopilot.idleSince = now; return null; }
+      const r = farmSwitch(st, sc, mapId, name, h.switchTo, now);
+      if (r.done) { h.switchTo = null; h.tried.set(cur, now); autopilot.idleSince = now; return null; }
+      if (r.failed) { h.tried.set(h.switchTo, now); h.switchTo = null; return null; }
+      return r.status;
+    }
+    if (now - h.tried.get(cur) < BOSS_CH_WAIT_MS) return null;
+    const list = farmChannelList(st, now);
+    if (!list) return 'lade Kanalliste…';
+    const next = list.filter((r) => r.channel !== cur && !h.tried.has(r.channel) && !r.closing && !(r.maxClients && r.clients >= r.maxClients))
+      .sort((a, b) => a.channel - b.channel)[0];
+    if (!next) return null; // alle Kanäle geprüft -> normal weiter warten
+    h.switchTo = next.channel;
+    autopilot.nav = null;
+    logEvent('map', `${name}: ${t.names} ist auf Ch ${cur} nicht da – prüfe Ch ${next.channel}`);
+    return `prüfe Ch ${next.channel}…`;
   }
 
   // Arten, die der Quest-Modus auf dieser Map noch jagen muss (aus aktivierten, offenen Kampf-/Sammelzielen)

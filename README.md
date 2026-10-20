@@ -217,6 +217,12 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.10.7 – Boss-Quests: andere Kanäle prüfen
+- Verlangt eine Quest einen Feldboss (z. B. Andromon, Respawn 10 min) und ist er am Spawnpunkt nicht da, wartet der
+  Autopilot 20 s und prüft dann der Reihe nach die anderen freien Kanäle, je 20 s.
+- Mitläufer wechseln automatisch mit, weil sie dem Kanal des Leaders folgen.
+- Sind alle Kanäle geprüft, wartet er normal weiter.
+
 #### Neu in 2.10.6 – Zonenziele und Aufholen in der Gruppe
 - **Zonen-/Reiseziele werden mitgemacht:** Geht der Leader für ein Quest-Ziel in eine Zone (z. B. „The Assembly Hall“ →
   Bereich *assembly*), laufen die Mitläufer selbst hinein. Vorher zählte das Ziel nur für den, der zufällig drinstand.
