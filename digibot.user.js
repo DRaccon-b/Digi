@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.8.1
+// @version      2.8.2
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -275,7 +275,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.8.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.8.2'}</span>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
       <button class="digibot__btn" data-act="min" title="Ein-/Ausklappen">–</button>
     </div>
@@ -1166,6 +1166,7 @@
     task: null, nav: null, failed: new Map(), huntSpecies: new Set(),
     sweepAt: null, tp: null, tpBlock: new Map(), route: null, lastSwitch: 0, switchTries: 0, switchGiveUp: null, lastEvolve: 0, evoTries: 0, evoGiveUp: null,
     dailyVisited: new Set(), dailyAccepted: new Set(), dailyAt: 0, boardOnly: new Set(),
+    avoidSpots: new Map(), // Jagdgebiet-Schlüssel -> bis wann gemieden (war leer)
     phase: 0, // aktuelle Phase der Map-für-Map-Runde (nur fürs Log)
     newRun() { // beim Start des Bots: Wechsel/Digitation/Dailies neu versuchen
       this.switchGiveUp = null; this.evoGiveUp = null; this.switchTries = 0; this.evoTries = 0;
@@ -1179,6 +1180,11 @@
   };
 
   const commands = () => worldScene()?.deps?.commands;
+  const activeAvoid = () => {
+    const now = Date.now(), set = new Set();
+    for (const [k, until] of autopilot.avoidSpots) if (until > now) set.add(k); else autopilot.avoidSpots.delete(k);
+    return set;
+  };
   function controlled(st) {
     const ents = window.dmo?.net?.state?.entities;
     const id = worldScene()?.controlledId?.() || st?.me?.tamerEntityId;
@@ -1186,14 +1192,18 @@
   }
 
   // Bester Ort zum Jagen einer Art: Spawn-Zone (oder Boss-Spawnpunkt) mit passendem Level, möglichst nah.
-  function huntSpot(C, species, lvl, curMap, itemId) {
-    let best = null;
-    const consider = (mapId, sp, lo, hi, pos) => {
+  // Bestes Jagdgebiet für ein Kill-/Sammel-Ziel. Pro Zone werden alle passenden Arten zusammengefasst
+  // (mehr Arten = mehr mögliche Ziele). Feldbosse kommen für Sammel-Items nur infrage, wenn es keine normale
+  // Quelle gibt – sie sind stark und brauchen Minuten bis zum Respawn. Verlangt ein Kill-Ziel genau den Boss,
+  // ist er natürlich das Ziel. avoid = gerade gemiedene Gebiete (leer gewesen).
+  function huntSpot(C, species, lvl, curMap, itemId, avoid) {
+    const spots = new Map();
+    const add = (key, mapId, pos, sp, lo, hi, boss) => {
       if (!pos || hops(curMap, mapId) === Infinity) return;
-      const tooStrong = lo > lvl + cfg.lvlDiff;
-      const score = (tooStrong ? 1000 : 0) + hops(curMap, mapId) * 10 + Math.abs((lo + hi) / 2 - lvl) * 0.5;
-      if (!best || score < best.score) best = { mapId, species: [sp], x: pos.x, y: pos.y, score, tooStrong };
-      else if (best.mapId === mapId && best.x === pos.x && best.y === pos.y && !best.species.includes(sp)) best.species.push(sp);
+      let sp0 = spots.get(key);
+      if (!sp0) spots.set(key, sp0 = { key, mapId, x: pos.x, y: pos.y, species: [], lo: Infinity, hi: -Infinity, boss });
+      if (!sp0.species.includes(sp)) sp0.species.push(sp);
+      sp0.lo = Math.min(sp0.lo, lo); sp0.hi = Math.max(sp0.hi, hi);
     };
     for (const [mapId, spawn] of Object.entries(C.spawns || {})) {
       const wm = world.maps[mapId];
@@ -1204,18 +1214,27 @@
           const wanted = itemId ? dropsOf(C, en).some((d) => d.itemId === itemId) : species.includes(en.species);
           if (!wanted) continue;
           const [lo, hi] = Array.isArray(en.level) ? en.level : [en.level, en.level];
-          consider(mapId, en.species, lo, hi, r && { x: r.x + r.w / 2, y: r.y + r.h / 2 });
+          add(`${mapId}|${zone}`, mapId, r && { x: r.x + r.w / 2, y: r.y + r.h / 2 }, en.species, lo, hi, false);
         }
       }
       for (const b of spawn.bosses || []) {
         const wanted = itemId ? dropsOf(C, b).some((d) => d.itemId === itemId) : species.includes(b.species);
-        if (wanted) consider(mapId, b.species, b.level, b.level, wm.spawns[b.at]);
+        if (wanted) add(`${mapId}|boss|${b.at}`, mapId, wm.spawns[b.at] || (wm.zones[b.at] && { x: wm.zones[b.at].x + wm.zones[b.at].w / 2, y: wm.zones[b.at].y + wm.zones[b.at].h / 2 }), b.species, b.level, b.level, true);
       }
     }
-    if (!best || best.tooStrong) return null;
+    const score = (sp) => (sp.lo > lvl + cfg.lvlDiff ? 1000 : 0)
+      + (sp.boss && itemId ? 500 : 0)                // Boss nur als letzte Quelle für Items
+      + (avoid?.has(sp.key) ? 300 : 0)                // gerade leer gewesen
+      + hops(curMap, sp.mapId) * 10
+      + Math.abs((Math.min(sp.hi, lvl + cfg.lvlDiff) + sp.lo) / 2 - lvl) * 0.5
+      - Math.min(sp.species.length, 4) * 0.5;        // mehrere passende Arten: mehr Ziele
+    let best = null;
+    for (const sp of spots.values()) { sp.score = score(sp); if (!best || sp.score < best.score) best = sp; }
+    if (!best || best.lo > lvl + cfg.lvlDiff) return null;
     best.names = best.species.map((sp) => C.digimon?.[sp]?.name || sp).join(', ');
     return best;
   }
+
 
   // Bester Ort zum Leveln: Zone, deren Monster im eigenen Level-Bereich liegen, möglichst nah.
   function grindSpot(C, lvl, curMap) {
@@ -1468,7 +1487,7 @@
           tasks.push({ ...base, key: `reach:${id}:${i}`, kind: 'reach', loc, prio: 1,
             label: `${def.name}: nach ${C.maps?.[o.mapId]?.name || o.mapId}${z ? ` (${o.zone.replace(/_/g, ' ')})` : ''} reisen` });
         } else if (o.kind === 'kill' || o.kind === 'collect') {
-          const spot = huntSpot(C, [].concat(o.species || []), lvl, mapId, o.kind === 'collect' ? o.itemId : null);
+          const spot = huntSpot(C, [].concat(o.species || []), lvl, mapId, o.kind === 'collect' ? o.itemId : null, activeAvoid());
           if (spot) tasks.push({ ...base, key: `hunt:${id}:${i}`, kind: 'hunt', species: new Set(spot.species), names: spot.names, loc: spot, prio: 3,
             label: `${def.name}: ${o.kind === 'kill' ? 'besiege' : 'sammle von'} ${spot.names}` });
         }
@@ -1918,7 +1937,18 @@
       return r === 'stuck' ? fail('Jagdgebiet nicht erreichbar') : `${t.label} · laufe ins Jagdgebiet (${Math.round(dz)} px)`;
     }
     autopilot.idleSince ||= now;
-    return now - autopilot.idleSince > HUNT_IDLE_MS ? fail('keine passenden Monster') : `${t.label} · warte auf ${t.names}…`;
+    if (now - autopilot.idleSince > HUNT_IDLE_MS) {
+      // Gebiet ist leer (z. B. Boss tot, andere Spieler jagen dort): 5 min meiden und neu planen – dann wird das
+      // nächstbeste Gebiet mit derselben Beute gewählt. Gibt es keins, bleibt es bei diesem (weiter warten).
+      if (t.loc.key && !t.grind) {
+        autopilot.avoidSpots.set(t.loc.key, now + TASK_BAN_MS);
+        logEvent('warn', `${t.label}: hier keine ${t.names} – versuche ein anderes Jagdgebiet`);
+        autopilot.reset();
+        return `${t.label} · suche anderes Jagdgebiet…`;
+      }
+      return fail('keine passenden Monster');
+    }
+    return `${t.label} · warte auf ${t.names}…`;
   }
 
   // Arten, die der Quest-Modus auf dieser Map noch jagen muss (aus aktivierten, offenen Kampf-/Sammelzielen)

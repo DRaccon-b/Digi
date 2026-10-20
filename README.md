@@ -170,6 +170,13 @@ In der Reihenfolge „Map für Map: annehmen → erledigen → abgeben“ arbeit
    (nur Angreifer werden abgewehrt).
 Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im Log.
 
+#### Neu in 2.8.2 – Jagdgebiete
+- **Bosse nur als letzte Quelle:** Für Sammel-Items wählt der Autopilot normale Monster. Feldbosse (stark, lange
+  Respawn-Zeit) nur, wenn es keine andere Quelle gibt. Verlangt eine Kill-Quest genau den Boss, bleibt er das Ziel.
+- **Zonen mit mehreren passenden Arten** werden bevorzugt (mehr mögliche Ziele).
+- **Leeres Jagdgebiet:** Kommt 90 s lang kein passendes Monster, meidet der Bot das Gebiet 5 min und geht zum
+  nächstbesten mit derselben Beute, statt die Aufgabe abzubrechen.
+
 #### Neu in 2.8.0
 - **Runde startet an der Start-Map:** Bei jedem Bot-Start beginnt die Map-für-Map-Runde an der eingestellten Start-Map
   (vorher wurde der Fortschritt des letzten Laufs weitergeführt). Überspringt der Bot eine Map, steht der Grund im Log,
