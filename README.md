@@ -217,6 +217,12 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.11.4 – Kein falsches Aufholen
+- Der Leader meldet jetzt auch seine **abgeschlossenen** Quests. Ein Mitläufer holt eine Quest nur noch allein nach, wenn
+  der Leader sie wirklich abgeschlossen hat.
+- Vorher reichte „Leader hat sie nicht aktiv“, das gilt aber auch, wenn er sie erst noch annimmt. So erledigte z. B.
+  Marcus „The Supply Line“ komplett allein, bevor Spencer sie überhaupt angenommen hatte.
+
 #### Neu in 2.11.3 – Mitläufer laufen nicht mehr allein vor
 - Wählt der Leader ein Gespräch auf einer **anderen Map**, während er noch beim Mitläufer steht, läuft der Mitläufer nicht
   mehr allein los. Er meldet „gesehen“, damit der Leader nicht wartet, und folgt ihm.

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.11.3
+// @version      2.11.4
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -400,7 +400,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.11.3'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.11.4'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -1434,6 +1434,8 @@
   function groupState(st, now) {
     const me = st?.me, quests = {};
     for (const [id, q] of Object.entries(me?.quests || {})) if (q.state === 1 || q.state === 2) quests[id] = { state: q.state, counters: [...(q.counters || [])] };
+    // abgeschlossene Quests (nur der Leader): Mitläufer holen nur auf, wenn der Leader eine Quest wirklich hinter sich hat
+    const fin = group.role() === 'leader' ? Object.keys(me?.quests || {}).filter((id) => me.quests[id].state === 3) : [];
     const pos = controlled(st), t = st?.target, tk = autopilot.task;
     return {
       type: 'state', slot: group.slot(), role: group.role(), user: st?.session?.username || '', name: charName(st),
@@ -1443,7 +1445,7 @@
       ents: [me?.tamerEntityId, me?.partner?.entityId].filter(Boolean),
       targetId: t?.kind === 'mob' && t.hp > 0 ? t.id : null, hunt: [...autopilot.huntSpecies], noFight: !!group.noFight,
       task: tk ? { key: tk.key, kind: tk.kind, label: tk.label } : null,
-      talks: group.role() === 'leader' ? group.talks : [], done: group.done.slice(-30), busy: group.cur, login: group.login.msg,
+      talks: group.role() === 'leader' ? group.talks : [], done: group.done.slice(-30), busy: group.cur, login: group.login.msg, fin,
       deferred: group.seen.slice(-30),
       fight: inCombat(st),
     };
@@ -1623,7 +1625,8 @@
       if (t.kind !== 'talk' && t.kind !== 'reach') return false;          // gejagt wird mit dem Leader
       const q = own[t.questId], l = lq[t.questId];
       if (!(q?.state === 1 || q?.state === 2)) return false;
-      if (!l) return true;                                                // Leader ist mit der Quest schon fertig
+      // Leader hat die Quest nicht aktiv: nur aufholen, wenn er sie abgeschlossen hat – nicht, wenn er sie erst noch annimmt
+      if (!l) return (L.fin || []).includes(t.questId) && !(L.talks || []).some((x) => x.questId === t.questId && x.purpose === 'accept' && now - x.at < 600000);
       if (t.purpose === 'objective') return l.state === 2 || (l.counters?.[t.objIndex] ?? 0) >= (t.need || 1); // Leader hat dieses Ziel schon
       return false;
     }) || null;
