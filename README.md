@@ -175,10 +175,12 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
   Passwörter liegen **unverschlüsselt** im localStorage dieses Browsers. Ohne Passwort loggst du im Fenster selbst ein.
 - **Charaktername:** Wird bei jedem Einloggen pro Account gemerkt („zuletzt: Spencer · vor 2 h“). Im Gruppenfenster
   wählt der Bot genau diesen Charakter aus.
-- **▶ Gruppe starten:** Dieses Fenster übernimmt den hier eingeloggten Account (sonst den Leader). Für jeden weiteren
-  Account öffnet sich ein eigenes Fenster, nebeneinander gekachelt.
+- **🔑 Alle einloggen (ab 2.9.4):** Dieses Fenster übernimmt den hier eingeloggten Account (sonst den Leader).
+  - Für jeden weiteren Account öffnet sich ein eigenes Fenster, nebeneinander gekachelt. Pop-ups für die Seite müssen
+    erlaubt sein.
   - Ist dort noch ein anderer Account angemeldet, meldet der Bot ihn ab, loggt den richtigen ein und betritt die Welt.
-  - Danach startet der Bot im Autopilot. Pop-ups für die Seite müssen erlaubt sein.
+  - Der Bot startet dabei **nicht**.
+  - Eingeloggt wird nur auf Knopfdruck. Beim Öffnen oder Neuladen der Seite loggt sich nichts automatisch ein.
 - **Leader:** Fährt den Autopilot und sucht die Monster aus. Er lädt die anderen in die Party ein.
   - Nach jedem Annehmen/Abgeben/Gespräch wartet er (max. 3 min), bis die anderen es nachgemacht haben.
   - Hat er die Items/Kills schon, ein Mitläufer aber noch nicht, **jagt er weiter** und gibt erst ab, wenn alle
@@ -190,12 +192,11 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
   - Auf dem Weg kämpfen sie nicht.
 - **Erst kämpfen, dann abgeben (ab 2.9.2):** Solange ein Gruppenmitglied noch kämpft, geht der Leader nicht zum
   Abgeben/Annehmen los. Er hilft mit und wartet höchstens 2 min.
-- **■ Gruppe stoppen:** Stoppt die Bots in allen Gruppenfenstern. Die Fenster bleiben offen und in der Gruppe.
-- **Start/Stopp für alle (ab 2.9.3):** Diese Knöpfe wirken auf alle schon offenen Gruppenfenster:
-  - **▶ Gruppe starten** startet dort sofort die Bots.
-  - **▶ Start / ■ Stopp** oben im Leader-Fenster (oder **Alt+B**) startet bzw. stoppt alle Bots.
+- **▶ Bots starten / ■ Bots stoppen:** Starten bzw. stoppen nur die Bots in allen offenen Gruppenfenstern.
+  Sie loggen nicht ein und öffnen keine Fenster.
+  - **▶ Start / ■ Stopp** oben im Leader-Fenster (oder **Alt+B**) wirkt ebenfalls auf alle.
   - Ist der Leader mit allen Quests fertig, stoppen auch die Mitläufer.
-  - Ein Fenster, das noch einloggt, startet direkt nach dem Betreten der Welt.
+  - Ein Fenster, das noch nicht in der Welt ist, startet seinen Bot, sobald es die Welt betritt.
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.9.3
+// @version      2.9.4
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -282,10 +282,14 @@
     get(k) { try { return sessionStorage.getItem(k); } catch { return null; } },
     set(k, v) { try { if (v == null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, v); } catch {} },
   };
-  { // Fenster, die „Gruppe starten“ geöffnet hat, bringen ihren Slot im Link mit (#dbslot=2&go=1)
-    const m = /[#&]dbslot=(\d)(&go=1)?/.exec(location.hash || '');
+  { // Neu laden: weder einloggen noch Bot starten. Fenster, die „Alle einloggen“ geöffnet hat, bringen Slot und
+    // Login-Auftrag im Link mit (#dbslot=2&login=1).
+    ss.set('digibot.go', null); ss.set('digibot.login', null);
+    const m = /[#&]dbslot=(\d)((?:&\w+=1)*)/.exec(location.hash || '');
     if (m) {
-      ss.set('digibot.slot', m[1]); ss.set('digibot.group', '1'); if (m[2]) ss.set('digibot.go', '1');
+      ss.set('digibot.slot', m[1]); ss.set('digibot.group', '1');
+      if (/&login=1/.test(m[2])) ss.set('digibot.login', '1');
+      if (/&go=1/.test(m[2])) ss.set('digibot.go', '1');
       try { history.replaceState(null, '', location.pathname + location.search); } catch {}
     }
   }
@@ -337,7 +341,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.9.3'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.9.4'}</span>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
       <button class="digibot__btn" data-act="min" title="Ein-/Ausklappen">–</button>
     </div>
@@ -454,7 +458,8 @@
         ${grp('accounts', 'Accounts (bis zu 5)', `<div data-f="acclist">${accRows()}</div>
           <label class="digibot__skill digibot__chk"><input type="checkbox" data-accpopup ${accounts.popup ? 'checked' : ''}><span>Als eigene Fenster nebeneinander öffnen (empfohlen)</span></label>`, true,
           '☑ = beim Gruppenstart dabei · ◉ = Leader. Der Leader fährt den Autopilot und sucht die Monster aus. Die anderen folgen ihm, helfen beim Kämpfen und nehmen dieselben Quests an und geben sie mit ab. Der Leader gibt erst ab, wenn alle so weit sind. Der Charaktername wird beim Einloggen gemerkt.')}
-        <div class="digibot__grpbtns"><button class="digibot__btn" data-act="grp-start">▶ Gruppe starten</button><button class="digibot__btn" data-act="grp-stop">■ Gruppe stoppen</button></div>
+        <div class="digibot__grpbtns"><button class="digibot__btn" data-act="grp-login" title="Fehlende Fenster öffnen, alle Accounts einloggen und Charakter wählen">🔑 Alle einloggen</button></div>
+        <div class="digibot__grpbtns"><button class="digibot__btn" data-act="grp-start" title="Bots in allen Gruppenfenstern starten">▶ Bots starten</button><button class="digibot__btn" data-act="grp-stop" title="Bots in allen Gruppenfenstern stoppen">■ Bots stoppen</button></div>
         <div class="digibot__grpinfo" data-f="grpinfo">–</div>
         <div class="digibot__hint">Fenster im Hintergrund oder minimiert bremst der Browser stark – Fenster nebeneinander sichtbar lassen.</div>
       </section>
@@ -1279,6 +1284,7 @@
     if (m.type === 'state' && Number.isInteger(m.slot) && m.slot !== group.slot()) group.peers.set(m.slot, { ...m, seen: Date.now() });
     if (!group.active()) return;
     if (m.type === 'start' && !bot.on) groupStartBot('Gruppe: Start aus dem Leader-Fenster');
+    if (m.type === 'login') { ss.set('digibot.login', '1'); group.login = { at: 0, tries: 0, outAt: 0, enterAt: 0, msg: '' }; }
     if (m.type === 'stop') groupStopBot('Gruppe: Stopp aus dem Leader-Fenster');
   }
   const charName = (st) => st?.session?.characters?.find?.((c) => c.id === window.dmo?.net?.charId)?.name || null;
@@ -1491,6 +1497,7 @@
       Promise.resolve(cl.enterWorld?.(c.id)).catch(() => {});
     } else if (st.screen === 'world') {
       L.tries = 0;
+      if (same) ss.set('digibot.login', null); // Login-Auftrag erledigt
       L.msg = user && !same ? `Achtung: hier ist ${st.session.username} eingeloggt, nicht ${acc.user}` : '';
     }
   }
@@ -1512,7 +1519,7 @@
     noteCharacter(st, now);
     if (!group.active()) return;
     try { group.bus?.postMessage(groupState(st, now)); } catch { /* ignore */ }
-    autoLogin(st, now);
+    if (ss.get('digibot.login') === '1') autoLogin(st, now);
     groupParty(st, now);
     // Fenster aus „Gruppe starten“: Bot im Autopilot starten, sobald der Charakter in der Welt ist
     if (ss.get('digibot.go') === '1' && st.screen === 'world' && st.me?.partner) {
@@ -1523,34 +1530,53 @@
       }
     } else if (st.screen !== 'world') group.worldAt = 0;
   }
-  function startGroup() {
+  // Dieses Fenster einer Gruppe zuordnen: eingeloggter Account, sonst der Leader. Liefert die aktiven Accounts oder null.
+  function claimSlot(st) {
     reloadAcc();
-    const st = getStore()?.getState?.(), now = Date.now();
     const on = accounts.list.map((a, i) => ({ ...a, i })).filter((a) => a.on && a.user.trim());
-    if (!on.length) { group.msg = 'Kein Account mit Haken und Benutzername.'; schedule(); return; }
-    if (!on.some((a) => a.i === accounts.leader)) { group.msg = 'Der Leader (◉) braucht auch einen Haken.'; schedule(); return; }
+    if (!on.length) { group.msg = 'Kein Account mit Haken und Benutzername.'; schedule(); return null; }
+    if (!on.some((a) => a.i === accounts.leader)) { group.msg = 'Der Leader (◉) braucht auch einen Haken.'; schedule(); return null; }
     let mine = group.slot();
-    if (!on.some((a) => a.i === mine)) { // dieses Fenster: eingeloggter Account, sonst der Leader
+    if (!group.active() || !on.some((a) => a.i === mine)) {
       const u = String(st?.session?.username || '').toLowerCase();
       mine = (on.find((a) => a.user.trim().toLowerCase() === u) || on.find((a) => a.i === accounts.leader)).i;
+      group.talks = []; group.handled = new Set(); group.done = []; group.cur = null;
     }
-    ss.set('digibot.slot', String(mine)); ss.set('digibot.group', '1'); ss.set('digibot.go', '1');
+    ss.set('digibot.slot', String(mine)); ss.set('digibot.group', '1');
+    return { on, mine };
+  }
+  // ▶ Bots starten: nur die Bots aller Gruppenfenster starten (kein Login, keine neuen Fenster)
+  function startGroup() {
+    const st = getStore()?.getState?.();
+    if (!claimSlot(st)) return;
+    group.msg = 'Bots gestartet.';
+    groupSend('start');
+    groupStartBot('Gruppe: Bots gestartet');
+    groupTick();
+    schedule();
+  }
+  // 🔑 Alle einloggen: fehlende Fenster öffnen, überall den richtigen Account einloggen und den Charakter wählen
+  function loginGroup() {
+    const st = getStore()?.getState?.(), now = Date.now();
+    const c = claimSlot(st);
+    if (!c) return;
+    const { on, mine } = c;
+    ss.set('digibot.login', '1');
     group.login = { at: 0, tries: 0, outAt: 0, enterAt: 0, msg: '' };
-    group.talks = []; group.handled = new Set(); group.done = []; group.cur = null; group.worldAt = 0;
     const order = [on.find((a) => a.i === mine), ...on.filter((a) => a.i !== mine)];
     const cols = Math.ceil(Math.sqrt(order.length)), rows = Math.ceil(order.length / cols);
     const sw = screen.availWidth || 1280, sh = screen.availHeight || 800, cw = Math.floor(sw / cols), chh = Math.floor(sh / rows);
     let opened = 0, blocked = 0;
     order.forEach((a, cell) => {
-      if (cell === 0 || fresh(group.peers.get(a.i), now)) return; // läuft schon
+      if (cell === 0 || fresh(group.peers.get(a.i), now)) return; // Fenster ist schon offen
       const feat = accounts.popup ? `popup,width=${cw},height=${chh},left=${(screen.availLeft || 0) + (cell % cols) * cw},top=${(screen.availTop || 0) + Math.floor(cell / cols) * chh}` : '';
-      const w = window.open(`${location.origin}${location.pathname}#dbslot=${a.i}&go=1`, `digibot-slot-${a.i}`, feat);
+      const w = window.open(`${location.origin}${location.pathname}#dbslot=${a.i}&login=1`, `digibot-slot-${a.i}`, feat);
       if (w) opened++; else blocked++;
     });
-    group.msg = blocked ? `${blocked} Fenster blockiert – bitte Pop-ups für diese Seite erlauben und nochmal starten.`
-      : `Gruppe gestartet: ${order.length} Account(s), ${opened} Fenster geöffnet.`;
+    group.msg = blocked ? `${blocked} Fenster blockiert – bitte Pop-ups für diese Seite erlauben und nochmal klicken.`
+      : `Einloggen: ${order.length} Account(s), ${opened} Fenster geöffnet.`;
     logEvent('bot', group.msg);
-    groupSend('start'); // schon offene Gruppenfenster starten ihren Bot sofort
+    groupSend('login'); // schon offene Gruppenfenster loggen ebenfalls ein
     groupTick();
     schedule();
   }
@@ -1575,7 +1601,7 @@
   function stopGroup() {
     groupSend('stop');
     groupStopBot('Gruppe gestoppt');
-    group.msg = 'Alle Bots gestoppt.';
+    group.msg = 'Bots gestoppt.';
   }
 
   function controlled(st) {
@@ -3639,6 +3665,7 @@
       if (act === 'reset') { exp.reset(); bitsRate.last = null; bitsRate.gains = []; bitsRate.total = 0; schedule(); }
       if (act === 'bot') bot.toggle();
       if (act === 'grp-start') startGroup();
+      if (act === 'grp-login') loginGroup();
       if (act === 'grp-stop') stopGroup();
       if (act === 'mobs-all') setAllMobs(true);
       if (act === 'log-copy') copyLog(e.target);
