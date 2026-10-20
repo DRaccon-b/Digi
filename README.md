@@ -181,6 +181,10 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
   - Ist dort noch ein anderer Account angemeldet, meldet der Bot ihn ab, loggt den richtigen ein und betritt die Welt.
   - Der Bot startet dabei **nicht**.
   - Eingeloggt wird nur auf Knopfdruck. Beim Öffnen oder Neuladen der Seite loggt sich nichts automatisch ein.
+- **Dieses Fenster ist: Account 1–5 (ab 2.10.2):** Auswahl im Reiter Accounts. Sie legt fest, welcher Account in diesem
+  Fenster läuft und ob es Leader oder Mitläufer ist. Gilt sofort, ohne Neuladen und ohne neues Einloggen.
+  - „– keine Gruppe –“ nimmt das Fenster aus der Gruppe.
+  - Ist ein anderer Account eingeloggt als eingestellt, erscheint eine orange Warnung.
 - **Leader:** Fährt den Autopilot und sucht die Monster aus. Er lädt die anderen in die Party ein.
   - Nach jedem Annehmen/Abgeben/Gespräch wartet er (max. 3 min), bis die anderen es nachgemacht haben.
   - Hat er die Items/Kills schon, ein Mitläufer aber noch nicht, **jagt er weiter** und gibt erst ab, wenn alle

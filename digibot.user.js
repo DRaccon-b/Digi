@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.10.1
+// @version      2.10.2
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -97,6 +97,9 @@
     .digibot__grpbtns{display:flex;gap:6px;margin:4px 0 6px}
     .digibot__grpbtns .digibot__btn{flex:1;padding:4px;font-weight:700}
     .digibot__grpinfo{font-size:11px;opacity:.85;margin-bottom:4px}
+    .digibot__grpinfo.warn{opacity:1;color:#ffb86b}
+    .digibot__slotsel{display:flex;align-items:center;gap:6px;margin:0 0 6px;font-size:11px}
+    .digibot__slotsel select{flex:1;min-width:0;background:#0b1020;color:#e8ecf4;border:1px solid #3a4670;border-radius:4px;font:11px system-ui;padding:2px}
     .digibot__qsum{font-size:11px;margin-bottom:6px;min-height:14px}
     .digibot__quests{display:flex;flex-direction:column;gap:5px;max-height:220px;overflow-y:auto;padding-right:2px}
     .digibot__quest{padding:5px 6px;border-radius:6px;background:#161c33;border-left:3px solid var(--c);font-size:11px}
@@ -341,7 +344,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.10.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.10.2'}</span>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
       <button class="digibot__btn" data-act="min" title="Ein-/Ausklappen">–</button>
     </div>
@@ -462,6 +465,8 @@
           '☑ = beim Gruppenstart dabei · ◉ = Leader. Der Leader fährt den Autopilot und sucht die Monster aus. Die anderen folgen ihm, helfen beim Kämpfen und nehmen dieselben Quests an und geben sie mit ab. Der Leader gibt erst ab, wenn alle so weit sind. Der Charaktername wird beim Einloggen gemerkt.')}
         <div class="digibot__grpbtns"><button class="digibot__btn" data-act="grp-login" title="Fehlende Fenster öffnen, alle Accounts einloggen und Charakter wählen">🔑 Alle einloggen</button></div>
         <div class="digibot__grpbtns"><button class="digibot__btn" data-act="grp-start" title="Bots in allen Gruppenfenstern starten">▶ Bots starten</button><button class="digibot__btn" data-act="grp-stop" title="Bots in allen Gruppenfenstern stoppen">■ Bots stoppen</button></div>
+        <label class="digibot__slotsel" title="Welcher Account läuft in diesem Fenster? Bestimmt, ob es Leader oder Mitläufer ist. Gilt nur für dieses Fenster.">Dieses Fenster ist
+          <select data-accslot><option value="">– keine Gruppe –</option>${accounts.list.map((a, i) => `<option value="${i}">Account ${i + 1}${a.user ? ` (${escAttr(a.user)})` : ''}</option>`).join('')}</select></label>
         <div class="digibot__grpinfo" data-f="grpinfo">–</div>
         <div class="digibot__hint">Fenster im Hintergrund oder minimiert bremst der Browser stark – Fenster nebeneinander sichtbar lassen.</div>
       </section>
@@ -3696,11 +3701,22 @@
       if (info.textContent !== text) { info.textContent = text; info.title = text; }
       info.classList.toggle('on', !!p);
     });
+    const sel = panel.querySelector('[data-accslot]');
+    if (sel && sel !== document.activeElement) {
+      accounts.list.forEach((a, i) => { const o = sel.options[i + 1], t = `Account ${i + 1}${a.user ? ` (${a.user})` : ''}`; if (o && o.textContent !== t) o.textContent = t; });
+      const v = group.active() ? String(group.slot()) : '';
+      if (sel.value !== v) sel.value = v;
+    }
+    // Ist hier ein anderer Account eingeloggt als der, für den das Fenster eingestellt ist?
+    const slotUser = group.active() ? accounts.list[group.slot()]?.user?.trim() : '';
+    const loggedIn = String(st?.session?.username || '');
+    const wrong = !!slotUser && !!loggedIn && loggedIn.toLowerCase() !== slotUser.toLowerCase();
     const gi = panel.querySelector('[data-f="grpinfo"]');
     const text = group.active()
-      ? `Dieses Fenster: Account ${group.slot() + 1} · ${group.role() === 'leader' ? 'Leader' : 'folgt dem Leader'}${group.login.msg ? ` · ${group.login.msg}` : ''}${group.msg ? ` · ${group.msg}` : ''}`
+      ? `Dieses Fenster: Account ${group.slot() + 1} · ${group.role() === 'leader' ? 'Leader' : 'folgt dem Leader'}${wrong ? ` · ⚠ hier ist ${loggedIn} eingeloggt, nicht ${slotUser} – oben den richtigen Account wählen` : ''}${group.login.msg ? ` · ${group.login.msg}` : ''}${group.msg ? ` · ${group.msg}` : ''}`
       : `Dieses Fenster ist in keiner Gruppe.${group.msg ? ` · ${group.msg}` : ''}`;
     if (gi.textContent !== text) gi.textContent = text;
+    gi.classList.toggle('warn', wrong);
   }
 
   function setTab(tab) {
@@ -3838,6 +3854,20 @@
       if (e.target.dataset.accleader !== undefined) {
         reloadAcc(); accounts.leader = Number(e.target.dataset.accleader); saveAcc(); e.target.blur();
         logEvent('bot', `Gruppe: Leader ist jetzt Account ${accounts.leader + 1}${accounts.list[accounts.leader].user ? ` (${accounts.list[accounts.leader].user})` : ''}`);
+        schedule();
+        return;
+      }
+      if (e.target.matches('[data-accslot]')) {
+        const v = e.target.value;
+        if (v === '') { ss.set('digibot.group', null); group.msg = ''; logEvent('bot', 'Gruppe: dieses Fenster ist in keiner Gruppe mehr'); }
+        else {
+          ss.set('digibot.slot', v); ss.set('digibot.group', '1');
+          group.talks = []; group.handled = new Set(); group.done = []; group.cur = null; group.leaderPos = null; group.msg = '';
+          autopilot.reset();
+          logEvent('bot', `Gruppe: dieses Fenster ist jetzt Account ${Number(v) + 1}${accounts.list[v]?.user ? ` (${accounts.list[v].user})` : ''} – ${group.role() === 'leader' ? 'Leader' : 'Mitläufer'}`);
+        }
+        e.target.blur();
+        groupPush(true);
         schedule();
         return;
       }
