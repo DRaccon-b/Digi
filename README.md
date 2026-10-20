@@ -170,6 +170,12 @@ In der Reihenfolge „Map für Map: annehmen → erledigen → abgeben“ arbeit
    (nur Angreifer werden abgewehrt).
 Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im Log.
 
+#### Schutzzonen (ab 2.7.1)
+Manche Bereiche einer Map sind Schutzzonen, z. B. Camp und Tore in Factorial Town. Dort lehnt das Spiel jeden Angriff ab
+(„You cannot fight here.“). Der Bot liest diese Zonen aus den Kartendaten und läuft vor dem Angriff heraus, auf die Seite
+des Ziels. Steht eine Zone nicht in den Daten, reagiert er auf die Spielmeldung. Die Kartendaten werden jetzt in jedem
+Modus geladen.
+
 #### Fixes 2.6.2
 - **Sammel-Quests:** Quest-Items, die nur in den Drops der Monsterart stehen (z. B. Sleepy Spore von Mushroomon,
   Betamon Scale von Betamon), werden jetzt erkannt – Quest-Jagd und Autopilot jagen dafür die richtigen Monster.

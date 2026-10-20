@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.7.0
+// @version      2.7.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -275,7 +275,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.7.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.7.1'}</span>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
       <button class="digibot__btn" data-act="min" title="Ein-/Ausklappen">–</button>
     </div>
@@ -781,6 +781,66 @@
     return null;
   }
 
+  // ---------- Schutzzonen ----------
+  // In Schutzzonen lehnt das Spiel jeden Angriff ab („You cannot fight here.“). Stehen Tamer oder Digimon darin,
+  // läuft der Bot vor dem Angriff hinaus – auf die Seite, die dem Ziel am nächsten liegt.
+  const SAFE_MARGIN = 10;   // so nah am Rand gilt schon als „drin“
+  const SAFE_EXIT = 28;     // so weit hinter den Rand laufen
+  const SAFE_MSG = /cannot fight here|no puedes pelear aqu|n(ã|a)o pode lutar aqui/i;
+  function safeRectAt(mapId, p) {
+    if (!p) return null;
+    return (world.maps[mapId]?.safe || []).find((r) => p.x >= r.x - SAFE_MARGIN && p.x <= r.x + r.w + SAFE_MARGIN
+      && p.y >= r.y - SAFE_MARGIN && p.y <= r.y + r.h + SAFE_MARGIN) || null;
+  }
+  // Meldet das Spiel gerade „You cannot fight here.“? (Rückfall, falls eine Zone nicht in den Kartendaten steht)
+  function safeMessageRecent(st, ms = 4000) {
+    const chat = st?.chat;
+    const list = Array.isArray(chat) ? chat : chat?.messages || chat?.lines || [];
+    const t = Date.now();
+    for (let i = list.length - 1; i >= 0 && i >= list.length - 6; i--) {
+      const m = list[i];
+      if (m && SAFE_MSG.test(m.text || '') && (!m.ts || t - m.ts < ms)) return true;
+    }
+    return false;
+  }
+  const safeState = { lastTap: 0, lastFollow: 0, logged: 0 };
+  // Liefert Statustext, solange der Bot aus der Schutzzone läuft, sonst null.
+  function leaveSafeZone(st, target, now) {
+    const mapId = st.world?.mapId;
+    const ents = window.dmo?.net?.state?.entities;
+    const tamer = controlled(st), partner = ents?.get?.(st?.me?.partner?.entityId);
+    let r = safeRectAt(mapId, tamer) || safeRectAt(mapId, partner);
+    if (!r && safeMessageRecent(st) && tamer) {
+      // Zone unbekannt: ein Stück Richtung Ziel gehen
+      r = { x: tamer.x - 1, y: tamer.y - 1, w: 2, h: 2, guess: true };
+    }
+    if (!r) return null;
+    const me = tamer || partner;
+    const g = worldScene()?.map?.grid, T = g?.tile || 16;
+    const walkable = (x, y) => !g?.blocked || g.blocked[Math.floor(y / T) * g.w + Math.floor(x / T)] !== 1;
+    const clampX = (x) => Math.min(Math.max(x, r.x), r.x + r.w), clampY = (y) => Math.min(Math.max(y, r.y), r.y + r.h);
+    const exitD = r.guess ? 56 : SAFE_EXIT;
+    const cands = [
+      { x: r.x - exitD, y: clampY(me.y) }, { x: r.x + r.w + exitD, y: clampY(me.y) },
+      { x: clampX(me.x), y: r.y - exitD }, { x: clampX(me.x), y: r.y + r.h + exitD },
+    ];
+    if (r.guess && target) {
+      const d = Math.hypot(target.x - me.x, target.y - me.y) || 1;
+      cands.unshift({ x: me.x + (target.x - me.x) / d * exitD, y: me.y + (target.y - me.y) / d * exitD });
+    }
+    const ok = cands.filter((p) => walkable(p.x, p.y) && !safeRectAt(mapId, p));
+    if (!ok.length) return null;
+    const ref = target || me;
+    ok.sort((a, b) => Math.hypot(a.x - ref.x, a.y - ref.y) - Math.hypot(b.x - ref.x, b.y - ref.y));
+    const p = ok[0];
+    if (now - safeState.lastTap > 600) { safeState.lastTap = now; worldScene()?.tapGround?.(p.x, p.y); }
+    if (partner && tamer && Math.hypot(partner.x - tamer.x, partner.y - tamer.y) > 30 && now - safeState.lastFollow > 1500) {
+      safeState.lastFollow = now; commands()?.partnerFollow?.();
+    }
+    if (now - safeState.logged > 10000) { safeState.logged = now; logEvent('warn', 'Schutzzone – hier kann nicht gekämpft werden, laufe heraus'); }
+    return 'Schutzzone – laufe heraus, um kämpfen zu können…';
+  }
+
   // ---------- Bot ----------
   // Simuliert Tastendrücke genau wie die echte Tastatur (das Spiel wertet e.code aus).
   function press(code) {
@@ -969,7 +1029,7 @@
     await Promise.all(ids.map(async (mapId) => {
       try {
         const tmj = await fetch(base + list[mapId].tmj).then((r) => r.json());
-        const m = { id: mapId, portals: [], npcs: [], zones: {}, spawns: {} };
+        const m = { id: mapId, portals: [], npcs: [], zones: {}, spawns: {}, safe: [] };
         for (const layer of tmj.layers || []) {
           if (layer.type !== 'objectgroup') continue;
           for (const o of layer.objects || []) {
@@ -979,6 +1039,7 @@
             else if (type === 'npc') m.npcs.push({ npcId: prop(o, 'npcId') || o.name, x: o.x, y: o.y });
             else if (type === 'zone') m.zones[o.name] = rect;
             else if (type === 'spawn') m.spawns[o.name] = { x: o.x, y: o.y };
+            else if (type === 'safe') m.safe.push(rect);
           }
         }
         world.maps[mapId] = m;
@@ -2317,6 +2378,7 @@
       autopilot.reset();
       farm.reset();
       if (this.on) autopilot.newRun();
+      if (this.on) loadWorld(); // Kartendaten (Portale, Zonen, Schutzzonen) für alle Modi
       if (this.on) this.timer = setInterval(() => this.tick(), TICK_MS);
       this.status = this.on ? 'Bot läuft' : 'Bot aus';
       logEvent('bot', this.on ? `Bot gestartet${cfg.farm ? ' (Boss-Rotation)' : cfg.autopilot ? ' (Quest-Autopilot)' : cfg.questMode ? ' (Quest-Modus)' : ''}` : 'Bot gestoppt');
@@ -2465,6 +2527,11 @@
         this.status = `${t.name} unerreichbar – für 1 min gesperrt`;
         return;
       }
+
+      // 4b) Schutzzone: erst heraus, sonst lehnt das Spiel den Angriff ab
+      const ents = window.dmo?.net?.state?.entities;
+      const sz = leaveSafeZone(st, ents?.get?.(t.id), now);
+      if (sz) { this.engage = null; this.attackedId = null; this.status = sz; return; }
 
       // 5) Angreifen
       if (this.attackedId !== t.id || this.can('Digit1', ATTACK_REPEAT_MS, now)) {
