@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.10.5
+// @version      2.10.6
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -301,11 +301,12 @@
   const GROUP_TALK_KEEP_MS = 20 * 60000; // so lange können Mitläufer verpasste Gespräche nachholen
   const FOLLOW_DIST = 110;               // Mitläufer bleiben so nah am Leader
   const FOLLOW_FAR = 350;                // weiter weg: erst hinlaufen, nicht kämpfen
+  const GROUP_BLOCK_MAX_MS = 300000;     // so lange hält der Leader eine Abgabe zurück, bis Mitläufer Reise-/Gesprächsziele haben
   const group = {
     bus: null, peers: new Map(), // Slot -> letzte Meldung
     talks: [],                   // Leader: letzte Gespräche (Annehmen/Abgeben/Sprechen) zum Nachmachen
     handled: new Set(), done: [], cur: null, // Mitläufer: abgearbeitete Gespräche
-    noFight: false, invited: new Map(), worldAt: 0, msg: '',
+    noFight: false, invited: new Map(), worldAt: 0, msg: '', blockSince: new Map(),
     login: { at: 0, tries: 0, outAt: 0, enterAt: 0, msg: '' },
     slot() { const v = ss.get('digibot.slot'); return v === null ? -1 : Number(v); },
     active() { return ss.get('digibot.group') === '1' && this.slot() >= 0 && this.slot() < ACC_MAX; },
@@ -344,7 +345,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.10.5'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.10.6'}</span>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
       <button class="digibot__btn" data-act="min" title="Ein-/Ausklappen">–</button>
     </div>
@@ -1401,22 +1402,30 @@
       const lag = mem.map((m) => m.quests[id]).filter((x) => x && x.state === 1);
       if (!lag.length) continue;
       const objs = questDef(C, id)?.objectives || [];
-      let open = false;
+      let open = false, blocked = false;
       const counters = objs.map((o, i) => {
         const need = o.count || 1, mine = q.state === 2 ? need : q.counters?.[i] ?? 0;
-        if (o.kind !== 'kill' && o.kind !== 'collect') return mine; // dabei kann der Leader nicht helfen
+        if (o.kind !== 'kill' && o.kind !== 'collect') { // dabei kann der Leader nicht helfen – nur warten
+          if ((o.kind === 'reach' || o.kind === 'talk') && lag.some((x) => (x.counters?.[i] ?? 0) < need)) blocked = true;
+          return mine;
+        }
         const v = Math.min(mine, ...lag.map((x) => x.counters?.[i] ?? 0));
         if (v < need) open = true;
         return v;
       });
-      if (open) (out ||= { ...own })[id] = { ...q, state: 1, counters, group: true };
+      if (blocked) { // Mitläufer muss noch hin / sprechen: Abgabe zurückhalten, aber nicht ewig
+        const since = group.blockSince.get(id) ?? Date.now();
+        group.blockSince.set(id, since);
+        if (Date.now() - since > GROUP_BLOCK_MAX_MS) blocked = false;
+      } else group.blockSince.delete(id);
+      if (open || blocked) (out ||= { ...own })[id] = { ...q, state: 1, counters, group: true };
     }
     return out || own;
   }
   // Leader: Gespräch merken, damit die Mitläufer es nachmachen (Annehmen, Abgeben, Sprechen, Dailies)
   function groupNoteTalk(t, now) {
-    if (group.role() !== 'leader' || t.kind !== 'talk') return;
-    const e = { key: `${t.key}@${now}`, tkey: t.key, at: now, purpose: t.purpose, questId: t.questId || null, objIndex: t.objIndex ?? null,
+    if (group.role() !== 'leader' || (t.kind !== 'talk' && t.kind !== 'reach')) return;
+    const e = { key: `${t.key}@${now}`, tkey: t.key, kind: t.kind, at: now, purpose: t.purpose, questId: t.questId || null, objIndex: t.objIndex ?? null,
       need: t.need ?? null, npcId: t.npcId, pool: t.def?.pool || null, loc: { mapId: t.loc.mapId, x: t.loc.x, y: t.loc.y }, label: t.label };
     group.talks = [...group.talks.filter((x) => now - x.at < GROUP_TALK_KEEP_MS), e].slice(-12);
   }
@@ -1443,6 +1452,10 @@
   function mirrorTask(st, lt) {
     const q = lt.questId ? st.me?.quests?.[lt.questId] : null;
     const def = lt.questId ? questDef(content(), lt.questId) : null;
+    if (lt.kind === 'reach') { // „reise nach … / in die Zone …“
+      return q?.state === 1 && (q.counters?.[lt.objIndex] ?? 0) < (lt.need || 1)
+        ? { ...lt, key: lt.tkey, kind: 'reach', loc: { ...lt.loc }, def, mirror: lt.key } : null;
+    }
     const base = { ...lt, key: lt.tkey, kind: 'talk', loc: npcStation(lt.npcId, st.me?.quests || {}) || { ...lt.loc }, def, mirror: lt.key };
     if (lt.purpose === 'accept') return def && ((q?.state ?? 0) === 0 || (q.state === 3 && repeatAvailable(def, q))) ? base : null;
     if (lt.purpose === 'turnin') return q?.state === 2 ? base : null;
@@ -1472,10 +1485,37 @@
       return mt;
     }
     group.done = group.done.slice(-30);
+    // Aufholen (alle 3 s prüfen): Quests, bei denen der Leader schon weiter ist, selbst zu Ende bringen
+    // (Gespräch, Zone, Abgabe) – und Quests annehmen, die der Leader aktiv hat, ich aber noch nicht
+    if (now - (group.catchAt || 0) > 3000) {
+      group.catchAt = now;
+      const ct = followerCatchUp(st, L, now);
+      if (ct) {
+        autopilot.reset();
+        autopilot.task = { ...ct, catchUp: true }; group.cur = `catchup:${ct.key}@${now}`;
+        logEvent('auto', `Gruppe: hole nach – ${ct.label}`);
+        return autopilot.task;
+      }
+    }
     // Ohne eigenes Gespräch: liegengebliebene Dialoge/Daily-Board sofort schließen (z. B. nach einer Abgabe)
     if (st.dialog && !(st.dialog.npc === 'digiphone' && autopilot.tp)) commands()?.closeDialog?.();
     if (st.dailies?.board) commands()?.closeDailyBoard?.();
     return followLeader(st, sc, L, now);
+  }
+  function followerCatchUp(st, L, now) {
+    const lq = L.quests || {}, own = st.me?.quests || {};
+    let tasks;
+    try { tasks = questTasks(st); } catch { return null; }
+    return tasks.find((t) => {
+      if ((autopilot.failed.get(t.key) || 0) > now || !t.questId) return false;
+      if (t.purpose === 'accept') return !!lq[t.questId];                 // Leader hat sie aktiv, ich noch nicht
+      if (t.kind !== 'talk' && t.kind !== 'reach') return false;          // gejagt wird mit dem Leader
+      const q = own[t.questId], l = lq[t.questId];
+      if (!(q?.state === 1 || q?.state === 2)) return false;
+      if (!l) return true;                                                // Leader ist mit der Quest schon fertig
+      if (t.purpose === 'objective') return l.state === 2 || (l.counters?.[t.objIndex] ?? 0) >= (t.need || 1); // Leader hat dieses Ziel schon
+      return false;
+    }) || null;
   }
   function followLeader(st, sc, L, now) {
     const name = L.name || 'Leader';
