@@ -188,6 +188,8 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
   - Folgen dem Leader über Maps und Kanäle und greifen sein Ziel mit an.
   - Wehren Monster ab, die die Gruppe angreifen.
   - Auf dem Weg kämpfen sie nicht.
+- **Erst kämpfen, dann abgeben (ab 2.9.2):** Solange ein Gruppenmitglied noch kämpft, geht der Leader nicht zum
+  Abgeben/Annehmen los. Er hilft mit und wartet höchstens 2 min.
 - **■ Gruppe stoppen:** Stoppt die Bots in allen Gruppenfenstern. Die Fenster bleiben offen.
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.

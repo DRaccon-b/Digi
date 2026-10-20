@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.9.1
+// @version      2.9.2
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -337,7 +337,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.9.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.9.2'}</span>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
       <button class="digibot__btn" data-act="min" title="Ein-/Ausklappen">–</button>
     </div>
@@ -914,6 +914,7 @@
   const PASSIVE = (tk) => !!tk && (tk.kind === 'talk' || tk.kind === 'reach');
   const turninPeek = { at: 0, val: false };
   function nextIsTurnin(st, now) {
+    if (group.role() === 'leader' && groupFighters(now).length && (Date.now() - (group.fightWait || now)) <= GROUP_FIGHT_MAX_MS) return false;
     if (group.role() === 'follower') {
       const tk = autopilot.task;
       if (tk && !taskDone(st, tk)) return PASSIVE(tk);
@@ -1028,7 +1029,7 @@
 
   // ---------- Umgebung scannen ----------
   const KIND = { Tamer: 0, Partner: 1, Mob: 2, Npc: 3 };
-  const FLAG = { Dead: 2, Boss: 16, Aggressive: 32, Hidden: 64, Untargetable: 256, Elite: 1024 };
+  const FLAG = { Dead: 2, InCombat: 8, Boss: 16, Aggressive: 32, Hidden: 64, Untargetable: 256, Elite: 1024 };
   const blacklist = new Map(); // Monster-ID -> gesperrt bis (Date.now()), z. B. weil unerreichbar
   const catOf = (flags) => (flags & FLAG.Boss ? 'boss' : flags & FLAG.Elite ? 'elite' : 'normal');
   // Pro Map gesehene Monster-Arten (z. B. Elite-Varianten, die nicht in der Spawn-Tabelle stehen) und ob sie aggressiv sind
@@ -1291,6 +1292,7 @@
       targetId: t?.kind === 'mob' && t.hp > 0 ? t.id : null, hunt: [...autopilot.huntSpecies], noFight: !!group.noFight,
       task: tk ? { key: tk.key, kind: tk.kind, label: tk.label } : null,
       talks: group.role() === 'leader' ? group.talks : [], done: group.done.slice(-30), busy: group.cur, login: group.login.msg,
+      fight: inCombat(st),
     };
   }
   const fresh = (p, now) => !!p && now - p.seen < GROUP_STALE_MS;
@@ -1303,6 +1305,26 @@
     if (group.role() !== 'leader') return [];
     return [...group.peers.values()].filter((p) => fresh(p, now) && p.role === 'follower' && accounts.list[p.slot]?.on);
   }
+  // Kämpft dieser Charakter gerade? Kampf-Flag des Spiels auf Tamer/Digimon oder eigener laufender Angriff
+  const GROUP_FIGHT_MAX_MS = 120000; // länger wartet der Leader nicht auf ein Kampfende
+  function inCombat(st) {
+    const ents = window.dmo?.net?.state?.entities, me = st?.me;
+    if (!me || st.screen !== 'world') return false;
+    for (const id of [me.tamerEntityId, me.partner?.entityId]) if ((ents?.get?.(id)?.flags ?? 0) & FLAG.InCombat) return true;
+    const t = st.target;
+    return !!bot.attackedId && t?.id === bot.attackedId && t.kind === 'mob' && t.hp > 0;
+  }
+  const groupFighters = (now = Date.now()) => groupMembers(now).filter((m) => m.inWorld && m.fight);
+  // Leader: vor einem Gespräch (v. a. Abgabe) warten, bis niemand aus der Gruppe mehr kämpft
+  function groupCombatWait(st, t, now) {
+    if (group.role() !== 'leader' || t.kind !== 'talk' || st.dialog?.npc === t.npcId) { group.fightWait = 0; return null; }
+    const f = groupFighters(now);
+    if (!f.length) { group.fightWait = 0; return null; }
+    group.fightWait ||= now;
+    if (now - group.fightWait > GROUP_FIGHT_MAX_MS) return null;
+    return `Gruppe: warte, bis ${f.map((m) => m.name || `Account ${m.slot + 1}`).join(', ')} den Kampf beendet`;
+  }
+
   function groupEntityIds() {
     const set = new Set(), now = Date.now();
     if (!group.active()) return set;
@@ -2217,6 +2239,8 @@
       logEvent('warn', `${t.label}: ${why} – 5 min übersprungen`);
       return `${t.label}: ${why} – übersprungen`;
     };
+    const gc = groupCombatWait(st, t, now);
+    if (gc) { autopilot.nav = null; return gc; }
     // offener Dialog mit einem anderen NPC stört nur -> schließen
     if (st.dialog && st.dialog.npc !== t.npcId && !(st.dialog.npc === 'digiphone' && autopilot.tp)) commands()?.closeDialog?.();
 
