@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.11.0
+// @version      2.11.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -399,7 +399,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.11.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.11.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -2801,13 +2801,29 @@
     if (now - h.tried.get(cur) < BOSS_CH_WAIT_MS) return null;
     const list = farmChannelList(st, now);
     if (!list) return 'lade Kanalliste…';
-    const next = list.filter((r) => r.channel !== cur && !h.tried.has(r.channel) && !r.closing && !(r.maxClients && r.clients >= r.maxClients))
+    let next = list.filter((r) => r.channel !== cur && !h.tried.has(r.channel) && !r.closing && !(r.maxClients && r.clients >= r.maxClients))
       .sort((a, b) => a.channel - b.channel)[0];
+    if (!next && commands()?.openChannel) { // kein anderer Kanal offen: neuen öffnen, wenn das Spiel es erlaubt (Ch 2 immer)
+      const nc = newChannelAllowed(list);
+      if (nc.allowed && !h.tried.has(nc.channel)) next = { channel: nc.channel, open: true };
+    }
     if (!next) return null; // alle Kanäle geprüft -> normal weiter warten
     h.switchTo = next.channel;
     autopilot.nav = null;
-    logEvent('map', `${name}: ${t.names} ist auf Ch ${cur} nicht da – prüfe Ch ${next.channel}`);
-    return `prüfe Ch ${next.channel}…`;
+    logEvent('map', `${name}: ${t.names} ist auf Ch ${cur} nicht da – ${next.open ? 'öffne' : 'prüfe'} Ch ${next.channel}`);
+    return `${next.open ? 'öffne' : 'prüfe'} Ch ${next.channel}…`;
+  }
+  // Wie das Spiel entscheidet, ob „Neuer Kanal – Öffnen“ geht: mindestens 2 Kanäle immer, mehr erst, wenn die offenen
+  // Kanäle zu openFill (~90 %) voll sind. Liefert die nächste freie Kanalnummer und ob sie geöffnet werden darf.
+  function newChannelAllowed(list) {
+    const used = new Set(list.map((r) => r.channel));
+    let channel = 1;
+    while (used.has(channel)) channel++;
+    const total = list.reduce((n, r) => n + (r.clients || 0), 0);
+    const max = list.find((r) => r.maxClients)?.maxClients || 40;
+    const fill = list.find((r) => r.openFill !== undefined)?.openFill ?? 0.9;
+    const per = Math.max(1, Math.ceil(Math.max(1, max) * fill));
+    return { channel, allowed: list.length < Math.max(2, Math.floor(total / per) + 1) };
   }
 
   // Arten, die der Quest-Modus auf dieser Map noch jagen muss (aus aktivierten, offenen Kampf-/Sammelzielen)
@@ -3107,8 +3123,8 @@
     };
     if (!room) {
       // Kanal noch nicht offen. Ist er die nächste freie Nummer, öffnet ihn der Bot selbst – wie „New channel – Open“
-      // im Kanalfenster. Das Spiel erlaubt das erst, wenn die offenen Kanäle fast voll sind; klappt es nicht,
-      // wird der Kanal nur 1 min gemieden und dann erneut versucht.
+      // im Kanalfenster. Das Spiel erlaubt immer mindestens 2 Kanäle; ab Ch 3 erst, wenn die offenen Kanäle zu ~90 %
+      // voll sind (newChannelAllowed). Klappt es nicht, wird der Kanal nur 1 min gemieden und dann erneut versucht.
       const used = new Set(list.map((r) => r.channel));
       let free = 1;
       while (used.has(free)) free++;

@@ -217,6 +217,10 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.11.1 – Boss-Quest: Ch 2 selbst öffnen
+- Ist ein Feldboss auf Ch 1 tot und gibt es keinen anderen Kanal, öffnet der Autopilot Ch 2 selbst. Das Spiel erlaubt
+  immer mindestens 2 Kanäle, ab Ch 3 erst bei ~90 % Auslastung. Die Mitläufer wechseln automatisch mit.
+
 #### Neu in 2.11.0 – Übersichtlicheres Panel und Heil-Skills
 - **Kopfbereich:** Modus, Start/Stopp, Status und die **aktuelle Aufgabe mit Fortschrittsbalken** (z. B. „Spare Circuits · 2/3“).
   Oben rechts ein Gruppen-Chip („● Leader 2/2“). HP/DS/Ziel stehen nur noch oben, nicht doppelt.
