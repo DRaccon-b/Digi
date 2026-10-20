@@ -217,6 +217,13 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.12.2 – Keine sinnlosen Annahme-Versuche, fehlende Story-Quests nachholen
+- Ein Mitläufer macht ein Annehmen des Leaders nur noch nach, wenn der NPC ihm die Quest auch anbietet (Vorquests erledigt,
+  Level reicht). Vorher versuchte er es ~15-mal und gab nach ~14 s auf. Der Leader wartete in der Zeit auf ihn.
+- **Fehlende Story-Quests nachholen:** Hat der Leader eine Story-Quest schon abgeschlossen, die der Mitläufer verpasst hat,
+  nimmt der Mitläufer sie an, erledigt sie und gibt sie ab. So reißt die Quest-Kette nicht ab (z. B. „Word to Gennai“ →
+  „The Assembly Hall“).
+
 #### Neu in 2.12.1 – Mitläufer holen auch im Jagdgebiet auf
 - Mitläufer prüfen jetzt **vor jedem neuen Kampf**, ob ein Gespräch des Leaders nachzumachen oder eine Quest aufzuholen ist.
   Vorher passierte das nur, wenn kein Monster in der Nähe war. In Jagdgebieten mit ständig neuen Monstern kam ein

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.12.1
+// @version      2.12.2
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -422,7 +422,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.12.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.12.2'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -1641,7 +1641,12 @@
         ? { ...lt, key: lt.tkey, kind: 'reach', loc: { ...lt.loc }, def, mirror: lt.key } : null;
     }
     const base = { ...lt, key: lt.tkey, kind: 'talk', loc: npcStation(lt.npcId, st.me?.quests || {}) || { ...lt.loc }, def, mirror: lt.key };
-    if (lt.purpose === 'accept') return def && ((q?.state ?? 0) === 0 || (q.state === 3 && repeatAvailable(def, q))) ? base : null;
+    if (lt.purpose === 'accept') {
+      // nur nachmachen, wenn der NPC sie mir auch anbietet: Vorquests erledigt, Level reicht (sonst ~15 s Dialog-Versuche)
+      const mine = st.me?.quests || {};
+      if (!def || (def.prereq || []).some((p) => mine[p]?.state !== 3) || (def.minLevel ?? 1) > (st.me?.partner?.level ?? 1)) return null;
+      return (q?.state ?? 0) === 0 || (q.state === 3 && repeatAvailable(def, q)) ? base : null;
+    }
     if (lt.purpose === 'turnin') return q?.state === 2 ? base : null;
     if (lt.purpose === 'objective') return q?.state === 1 && (q.counters?.[lt.objIndex] ?? 0) < lt.need ? base : null;
     if (lt.purpose === 'daily' && lt.pool) {
@@ -1706,7 +1711,9 @@
     try { tasks = questTasks(st); } catch { return null; }
     return tasks.find((t) => {
       if ((autopilot.failed.get(t.key) || 0) > now || !t.questId) return false;
-      if (t.purpose === 'accept') return !!lq[t.questId];                 // Leader hat sie aktiv, ich noch nicht
+      // annehmen: Leader hat sie aktiv – oder es ist eine Story-Quest, die der Leader schon abgeschlossen hat (sonst
+      // bleibt die Kette beim Mitläufer für immer hängen, z. B. fehlt „Word to Gennai“ -> „The Assembly Hall“ geht nicht)
+      if (t.purpose === 'accept') return !!lq[t.questId] || ((L.fin || []).includes(t.questId) && isStory(t.questId));
       if (t.kind !== 'talk' && t.kind !== 'reach') return false;          // gejagt wird mit dem Leader
       const q = own[t.questId], l = lq[t.questId];
       if (!(q?.state === 1 || q?.state === 2)) return false;
