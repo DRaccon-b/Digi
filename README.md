@@ -217,6 +217,14 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.11.6 – Kein Kanal-Pingpong bei Boss-Quests
+- **Neuer Kanal ist nicht automatisch frisch:** Der Bot merkt sich den Boss-Timer pro Kanalnummer, auch wenn der Kanal
+  schließt, sobald niemand mehr drauf ist. Ein neu geöffneter Kanal mit bekanntem Timer wird nicht mehr als „Boss frisch“
+  gewertet. Vorher wechselte die Gruppe bei Phantomon ständig Ch 1 ↔ Ch 2.
+- **Keine falsche 5-min-Sperre mehr:** Der Zähler für fehlgeschlagene Kanalwechsel wird nach jedem erfolgreichen Wechsel
+  zurückgesetzt. Vorher wurde nach einigen Wechseln Ch 1 fälschlich gesperrt („Wechsel klappt nicht“), und die Gruppe
+  blieb auf dem Kanal mit dem späteren Respawn.
+
 #### Neu in 2.11.5 – Zusammen losreisen
 - Macht ein Mitläufer gerade **dasselbe** Gespräch nach wie der Leader (gleiches Ziel), wartet der Leader nicht mehr
   „vor dem Map-Wechsel“ auf ihn. Beide reisen gleichzeitig. Vorher lief der Mitläufer vor und der Leader kam ~25 s später.

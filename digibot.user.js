@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.11.5
+// @version      2.11.6
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -400,7 +400,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.11.5'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.11.6'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -2806,7 +2806,7 @@
     const name = content()?.maps?.[mapId]?.name || mapId;
     if (!h.tried.has(cur)) h.tried.set(cur, now);
     if (h.switchTo != null) {
-      if (cur === h.switchTo) { h.switchTo = null; h.tried.set(cur, now); autopilot.idleSince = now; return null; }
+      if (cur === h.switchTo) { h.switchTo = null; h.tried.set(cur, now); autopilot.idleSince = now; farm.switchTries = 0; farm.opening = null; return null; }
       const r = farmSwitch(st, sc, mapId, name, h.switchTo, now);
       if (r.done) { h.switchTo = null; h.tried.set(cur, now); autopilot.idleSince = now; return null; }
       if (r.failed) { h.tried.set(h.switchTo, now); h.switchTo = null; return null; }
@@ -2840,12 +2840,13 @@
     const b = questBossSel(t)[0];
     const cur = st.world?.channel ?? 1, mapId = st.world?.mapId;
     const name = content()?.maps?.[mapId]?.name || mapId;
-    const h = (t.chPlan ||= { checked: new Map(), switchTo: null, arrived: now });
+    const h = (t.chPlan ||= { switchTo: null, arrived: now });
+    h.checked = ((autopilot.bossChecked ||= {})[mapId] ||= new Map()); // „nachgesehen“ je Kanalnummer – überlebt Neuplanung
     if (h.switchTo != null) { // Wechsel läuft
-      if (cur === h.switchTo) { h.switchTo = null; h.arrived = now; autopilot.idleSince = now; }
+      if (cur === h.switchTo) { h.switchTo = null; h.arrived = now; autopilot.idleSince = now; farm.switchTries = 0; farm.opening = null; }
       else {
         const r = farmSwitch(st, sc, mapId, name, h.switchTo, now);
-        if (r.done) { h.switchTo = null; h.arrived = now; }
+        if (r.done) { h.switchTo = null; h.arrived = now; farm.switchTries = 0; }
         else if (r.failed) { h.checked.set(h.switchTo, now); h.switchTo = null; }
         else return r.status;
       }
@@ -2866,7 +2867,12 @@
       opts.push({ ch: r.channel, eta, s });
     }
     const nc = commands()?.openChannel ? newChannelAllowed(list) : { allowed: false };
-    if (nc.allowed && now - (h.checked.get(nc.channel) || 0) > 180000) opts.push({ ch: nc.channel, eta: 15000, s: { state: 'new' }, open: true });
+    if (nc.allowed) { // neuer Kanal: der Boss ist dort nicht automatisch frisch – bekannten Timer der Kanalnummer nutzen
+      const ns = farmState(b, nc.channel, now);
+      const eta = ns.state === 'down' ? Math.max(ns.readyAt - now, 15000) : ns.state === 'up' ? 15000
+        : now - (h.checked.get(nc.channel) || 0) < 180000 ? Infinity : 15000 + BOSS_UNKNOWN_ETA;
+      opts.push({ ch: nc.channel, eta, s: ns.state === 'unknown' ? { state: 'new' } : ns, open: true });
+    }
     opts.sort((x, y) => x.eta - y.eta);
     const best = opts[0], here = opts.find((o) => o.ch === cur);
     const fmtS = (o) => (!o ? '' : o.s.state === 'down' ? `Respawn in ${fmtClock(o.s.readyAt - now)}` : o.s.state === 'up' ? 'lebt' : o.s.state === 'new' ? 'neuer Kanal' : 'Timer unbekannt');
