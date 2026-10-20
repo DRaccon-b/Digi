@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.11.1
+// @version      2.11.2
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -399,7 +399,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.11.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.11.2'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -2578,7 +2578,7 @@
       const parts = t.parts || [{ questId: t.questId, objIndex: t.objIndex }];
       const prog = parts.reduce((n, p) => n + (pq[p.questId]?.counters?.[p.objIndex] ?? 0) + (pq[p.questId]?.state === 2 ? 1000 : 0), 0);
       if (t.prog === undefined || prog > t.prog) { t.prog = prog; t.progAt = now; }
-      else if (now - t.progAt > HUNT_STALL_MS) {
+      else if (now - t.progAt > HUNT_STALL_MS && !t.loc.boss) { // Boss-Quests warten bewusst auf den Respawn
         if (t.loc.key) autopilot.avoidSpots.set(t.loc.key, now + TASK_BAN_MS);
         logEvent('warn', `${t.label}: ${Math.round(HUNT_STALL_MS / 60000)} min ohne Fortschritt – meide dieses Gebiet und plane neu`);
         autopilot.reset();
@@ -2765,8 +2765,8 @@
       return r === 'stuck' ? fail('Jagdgebiet nicht erreichbar') : `${t.label} · laufe ins Jagdgebiet (${Math.round(dz)} px)`;
     }
     autopilot.idleSince ||= now;
-    if (t.loc.boss) { // Feldboss tot (Respawn oft 10 min): auf den anderen Kanälen nachsehen
-      const bc = bossChannelHop(st, sc, t, now);
+    if (t.loc.boss) { // Feldboss nicht da (Respawn oft 10 min): Kanal mit dem kürzesten Respawn wählen
+      const bc = questBossSel(t).length ? bossChannelPlan(st, sc, t, now) : bossChannelHop(st, sc, t, now);
       if (bc) return `${t.label} · ${bc}`;
     }
     if (now - autopilot.idleSince > HUNT_IDLE_MS) {
@@ -2812,6 +2812,58 @@
     autopilot.nav = null;
     logEvent('map', `${name}: ${t.names} ist auf Ch ${cur} nicht da – ${next.open ? 'öffne' : 'prüfe'} Ch ${next.channel}`);
     return `${next.open ? 'öffne' : 'prüfe'} Ch ${next.channel}…`;
+  }
+  // Feldboss(e) der aktuellen Boss-Jagd im Format der Boss-Rotation (für Timer und Kampf-Erkennung)
+  function questBossSel(t) {
+    if (!t?.loc?.boss || t.kind !== 'hunt') return [];
+    const at = String(t.loc.key || '').split('|boss|')[1];
+    return farmBossList().filter((b) => b.map === t.loc.mapId && (!at || b.at === at) && t.species?.has?.(b.species));
+  }
+  // Boss-Quest: für jeden Kanal schätzen, wann der Boss kämpfbar ist – lebt = gleich, tot = Respawn-Timer, unbekannt =
+  // einmal nachsehen, neuer Kanal = Boss spawnt frisch – und auf dem schnellsten warten (wie die Boss-Rotation).
+  const BOSS_UNKNOWN_ETA = 25000, BOSS_SWITCH_GAIN = 15000;
+  function bossChannelPlan(st, sc, t, now) {
+    const b = questBossSel(t)[0];
+    const cur = st.world?.channel ?? 1, mapId = st.world?.mapId;
+    const name = content()?.maps?.[mapId]?.name || mapId;
+    const h = (t.chPlan ||= { checked: new Map(), switchTo: null, arrived: now });
+    if (h.switchTo != null) { // Wechsel läuft
+      if (cur === h.switchTo) { h.switchTo = null; h.arrived = now; autopilot.idleSince = now; }
+      else {
+        const r = farmSwitch(st, sc, mapId, name, h.switchTo, now);
+        if (r.done) { h.switchTo = null; h.arrived = now; }
+        else if (r.failed) { h.checked.set(h.switchTo, now); h.switchTo = null; }
+        else return r.status;
+      }
+    }
+    if (now - h.arrived < BOSS_CH_WAIT_MS) return null; // erst kurz hier warten (Boss evtl. gleich sichtbar)
+    // hier ist er nicht: als „gerade nachgesehen“ merken, falls der Timer unbekannt ist
+    if (farmState(b, cur, now).state !== 'down') h.checked.set(cur, now);
+    const list = farmChannelList(st, now);
+    if (!list) return 'lade Kanalliste…';
+    const opts = [];
+    for (const r of list) {
+      if (r.closing || (r.maxClients && r.clients >= r.maxClients) || (farm.chBan.get(`${mapId}#${r.channel}`) || 0) > now) continue;
+      const s = farmState(b, r.channel, now), sw = r.channel === cur ? 0 : 8000;
+      let eta;
+      if (s.state === 'up') eta = sw;
+      else if (s.state === 'down') eta = Math.max(s.readyAt - now, sw);
+      else eta = now - (h.checked.get(r.channel) || 0) < 180000 ? Infinity : sw + BOSS_UNKNOWN_ETA; // unbekannt: einmal nachsehen
+      opts.push({ ch: r.channel, eta, s });
+    }
+    const nc = commands()?.openChannel ? newChannelAllowed(list) : { allowed: false };
+    if (nc.allowed && now - (h.checked.get(nc.channel) || 0) > 180000) opts.push({ ch: nc.channel, eta: 15000, s: { state: 'new' }, open: true });
+    opts.sort((x, y) => x.eta - y.eta);
+    const best = opts[0], here = opts.find((o) => o.ch === cur);
+    const fmtS = (o) => (!o ? '' : o.s.state === 'down' ? `Respawn in ${fmtClock(o.s.readyAt - now)}` : o.s.state === 'up' ? 'lebt' : o.s.state === 'new' ? 'neuer Kanal' : 'Timer unbekannt');
+    if (best && best.eta < Infinity && best.ch !== cur && (!here || best.eta + BOSS_SWITCH_GAIN < here.eta)) {
+      h.switchTo = best.ch;
+      autopilot.nav = null;
+      logEvent('map', `${name}: ${b.name} – Ch ${best.ch} ist am schnellsten (${fmtS(best)}${here ? `; Ch ${cur}: ${fmtS(here)}` : ''}) – ${best.open ? 'öffne' : 'wechsle zu'} Ch ${best.ch}`);
+      return `${best.open ? 'öffne' : 'wechsle zu'} Ch ${best.ch} (${fmtS(best)})…`;
+    }
+    autopilot.idleSince = now; // bewusst warten – nicht als „leeres Gebiet“ werten
+    return `warte auf ${b.name} (Ch ${cur}: ${fmtS(here) || 'Timer unbekannt'})`;
   }
   // Wie das Spiel entscheidet, ob „Neuer Kanal – Öffnen“ geht: mindestens 2 Kanäle immer, mehr erst, wenn die offenen
   // Kanäle zu openFill (~90 %) voll sind. Liefert die nächste freie Kanalnummer und ob sie geöffnet werden darf.
@@ -2990,8 +3042,8 @@
     if (e.respawnInMs === undefined) farmSet(map, index, ch, { up: true, hp: e.hp });
     else farmSet(map, index, ch, { up: false, readyAt: Date.now() - (performance.now() - at) + e.respawnInMs });
   }
-  function farmUpdate(st, now) {
-    const sel = farmSelected();
+  function farmUpdate(st, now, selArg) {
+    const sel = selArg || farmSelected();
     // Jede Antwort nur einmal auswerten – sie bleibt im Spielzustand liegen und wäre sonst nach unserem Sieg veraltet
     const bp = st.bossPins;
     if (bp?.bosses && bp.at !== farm.pinsAt) {
@@ -3135,7 +3187,7 @@
       if (now - o.at > CHANNEL_OPEN_WAIT_MS) {
         if (o.tries >= 2) {
           farm.opening = null;
-          return fail('lässt sich noch nicht öffnen (neuer Kanal erst, wenn die anderen fast voll sind)', CHANNEL_RETRY_MS);
+          return fail('lässt sich gerade nicht öffnen (ab Ch 3 erst, wenn die anderen fast voll sind – oder es lief noch ein Kampf)', CHANNEL_RETRY_MS);
         }
         o.tries++; o.at = now;
         farm.channels = null;  // Kanalliste danach neu laden
@@ -3439,6 +3491,7 @@
       const sc = scan(st);
       const attackers = sc ? sc.attackers.map((m) => m.id) : [];
       if (cfg.farm && world.state === 'ready') farmUpdate(st, now);
+      else if (cfg.autopilot && world.state === 'ready') { const qb = questBossSel(autopilot.task); if (qb.length) farmUpdate(st, now, qb); } // Boss-Quest: Timer wie bei der Rotation
       checkRefusals(st, t, now);
       // Autopilot auf dem Weg zum Abgeben, Annehmen, Sprechen oder zu einem Reise-Ziel: keine Kämpfe, auch nicht gegen
       // Angreifer – Digimon zurückrufen und weiterlaufen

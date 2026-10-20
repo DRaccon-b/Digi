@@ -217,6 +217,16 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.11.2 – Boss-Quest: kürzester Respawn wie in der Boss-Rotation
+- Ist der Boss einer Quest nicht da, schätzt der Autopilot für jeden Kanal, wann er kämpfbar ist:
+  - lebt: sofort
+  - tot: Respawn-Timer aus Boss-Fenster/Map-Info oder eigenem Sieg
+  - unbekannt: einmal nachsehen
+  - neuer Kanal: spawnt frisch
+- Er wartet auf dem schnellsten Kanal und wechselt nur, wenn ein anderer deutlich schneller ist (>15 s). Kein Hin-und-her mehr.
+- Die Statuszeile zeigt z. B. „warte auf Mammothmon (Ch 2: Respawn in 3:40)“.
+- Log der Boss-Rotation korrigiert: Ch 2 lässt sich immer öffnen, erst ab Ch 3 müssen die anderen Kanäle fast voll sein.
+
 #### Neu in 2.11.1 – Boss-Quest: Ch 2 selbst öffnen
 - Ist ein Feldboss auf Ch 1 tot und gibt es keinen anderen Kanal, öffnet der Autopilot Ch 2 selbst. Das Spiel erlaubt
   immer mindestens 2 Kanäle, ab Ch 3 erst bei ~90 % Auslastung. Die Mitläufer wechseln automatisch mit.
