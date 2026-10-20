@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.10.3
+// @version      2.10.4
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -344,7 +344,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.10.3'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.10.4'}</span>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
       <button class="digibot__btn" data-act="min" title="Ein-/Ausklappen">–</button>
     </div>
@@ -888,6 +888,23 @@
     return false;
   }
   const safeState = { lastTap: 0, lastFollow: 0, logged: 0 };
+  const SAFE_FLIP_N = 3, SAFE_FLIP_MS = 12000, SAFE_HOLD_MS = 15000;
+  const safeFlips = new Map(); // Ziel-ID -> Zeitpunkte, zu denen der Bot seinetwegen aus der Zone lief
+  const safeHold = new Map();  // Ziel-ID -> bis wann in Ruhe lassen
+  const safeHeld = (id, now = Date.now()) => (safeHold.get(id) || 0) > now;
+  // Läuft der Bot wegen desselben Ziels immer wieder aus der Schutzzone (Ziel steht am Rand, das Digimon läuft beim
+  // Angriff wieder hinein), wird das Ziel eine Weile in Ruhe gelassen. Liefert true, wenn das gerade passiert ist.
+  function noteSafeFlip(id, name, now) {
+    const list = (safeFlips.get(id) || []).filter((t) => now - t < SAFE_FLIP_MS);
+    list.push(now);
+    safeFlips.set(id, list);
+    if (list.length < SAFE_FLIP_N) return false;
+    safeFlips.delete(id);
+    safeHold.set(id, now + SAFE_HOLD_MS);
+    blacklist.set(id, now + SAFE_HOLD_MS);
+    logEvent('warn', `${name || 'Ziel'}: steht an der Schutzzone, hin und her bringt nichts – ${SAFE_HOLD_MS / 1000} s in Ruhe lassen`);
+    return true;
+  }
   // Lehnt das Spiel einen Angriff/Skill ab, kommt ein Fehler-Hinweis mit Code (st.toasts: { kind: 'error', code }).
   //  unreachable    -> Digimon kommt nicht hin: Ziel sofort 1 min sperren (statt 12 s auf HP-Verlust zu warten)
   //  not_in_range   -> zu weit weg: ein Stück auf das Ziel zugehen
@@ -1408,9 +1425,19 @@
     if (group.role() !== 'leader') return null;
     const lt = group.talks[group.talks.length - 1];
     if (!lt || now - lt.at > GROUP_WAIT_MS) return null;
-    const waiting = groupMembers(now).filter((m) => m.inWorld && (m.busy || (!(m.done || []).includes(lt.key) && now - lt.at < 15000)));
+    // nur warten, bis jeder Mitläufer das Gespräch übernommen (oder übersprungen) hat – nicht bis zum Ende
+    const waiting = groupMembers(now).filter((m) => m.inWorld && m.busy !== lt.key && !(m.done || []).includes(lt.key) && now - lt.at < 15000);
     if (!waiting.length) return null;
     return `Gruppe: warte auf ${waiting.map((m) => m.name || `Slot ${m.slot + 1}`).join(', ')} (${lt.label})`;
+  }
+  // Leader will die Map verlassen: erst warten, bis die Mitläufer auf dieser Map ihre Gespräche beendet haben
+  function groupLeaveWait(st, t, now) {
+    if (group.role() !== 'leader' || !t?.loc?.mapId || t.loc.mapId === st.world?.mapId) return null;
+    const lt = group.talks[group.talks.length - 1];
+    if (lt && now - lt.at > GROUP_WAIT_MS) return null;
+    const busy = groupMembers(now).filter((m) => m.inWorld && m.busy && m.mapId === st.world?.mapId);
+    if (!busy.length) return null;
+    return `Gruppe: warte vor dem Map-Wechsel auf ${busy.map((m) => m.name || `Slot ${m.slot + 1}`).join(', ')}`;
   }
   // Mitläufer: Gespräch des Leaders als eigene Aufgabe, wenn es für diesen Charakter passt
   function mirrorTask(st, lt) {
@@ -2384,6 +2411,47 @@
     return null; // klappt nicht -> Aufgabe wird übersprungen
   }
 
+  // Läuft in jedem Bot-Takt:
+  // - zusammengefasste Jagd: erledigte Teilziele fliegen raus (sonst jagt der Bot z. B. weiter Hagurumon, obwohl nur
+  //   noch Guardromon das gesuchte Item fallen lässt)
+  // - eine fertige Abgabe auf derselben Map wird zwischendurch erledigt (nicht in der Map-für-Map-Runde)
+  const HUNT_STALL_MS = 240000; // so lange darf eine Jagd ohne Fortschritt dauern
+  function apRefresh(st, now) {
+    const t = autopilot.task;
+    if (!t || t.kind !== 'hunt' || t.grind || group.role() === 'follower') return;
+    if (t.parts) {
+      const pq = planQuests(st);
+      const open = t.parts.filter((p) => pq[p.questId]?.state === 1 && (pq[p.questId].counters?.[p.objIndex] ?? 0) < p.need);
+      const sp = new Set(open.flatMap((p) => [...p.species]));
+      if (open.length && sp.size !== t.species.size) {
+        t.species = sp; t.names = [...new Set(open.map((p) => p.names))].join(', ');
+        if (st.world?.mapId === t.loc.mapId) autopilot.huntSpecies = sp;
+        logEvent('auto', `Teilziel erledigt – jage nur noch ${t.names}`);
+      }
+    }
+    // Notbremse: Jagd ohne jeden Fortschritt (Zähler steigen nicht) -> Gebiet meiden und neu planen
+    {
+      const pq = planQuests(st);
+      const parts = t.parts || [{ questId: t.questId, objIndex: t.objIndex }];
+      const prog = parts.reduce((n, p) => n + (pq[p.questId]?.counters?.[p.objIndex] ?? 0) + (pq[p.questId]?.state === 2 ? 1000 : 0), 0);
+      if (t.prog === undefined || prog > t.prog) { t.prog = prog; t.progAt = now; }
+      else if (now - t.progAt > HUNT_STALL_MS) {
+        if (t.loc.key) autopilot.avoidSpots.set(t.loc.key, now + TASK_BAN_MS);
+        logEvent('warn', `${t.label}: ${Math.round(HUNT_STALL_MS / 60000)} min ohne Fortschritt – meide dieses Gebiet und plane neu`);
+        autopilot.reset();
+        return;
+      }
+    }
+    if (cfg.apOrder !== 'sweep' && world.state === 'ready' && now - (autopilot.peekAt || 0) > 5000) {
+      autopilot.peekAt = now;
+      const nt = questTasks(st)[0];
+      if (nt?.kind === 'talk' && nt.purpose === 'turnin' && nt.loc.mapId === st.world?.mapId) {
+        logEvent('auto', `Zwischendurch abgeben: ${nt.label}`);
+        autopilot.reset();
+      }
+    }
+  }
+
   // Ein Schritt des Autopiloten. Liefert den Statustext oder null, wenn es nichts mehr zu tun gibt.
   function autopilotStep(st, sc, now) {
     if (world.state !== 'ready') { loadWorld(); return `Lade Weltkarte… ${world.loaded}/${world.total || '?'}`; }
@@ -2423,6 +2491,8 @@
       if (t?.kind === 'hunt' && !t.grind) {
         const same = all.filter((o) => o.kind === 'hunt' && !o.grind && o.loc.mapId === t.loc.mapId && o !== t);
         if (same.length) {
+          // Teilziele merken: ist eines erledigt, fliegt seine Beute aus der Liste (apRefresh)
+          t.parts = [t, ...same].map((o) => ({ questId: o.questId, objIndex: o.objIndex, need: o.need, species: o.species, names: o.names }));
           t.species = new Set([t.species, ...same.map((o) => o.species)].flatMap((x) => [...x]));
           t.names = [...new Set([t.names, ...same.map((o) => o.names)])].join(', ');
           t.label += ` (+${same.length} weitere${same.length > 1 ? '' : 's'} Ziel${same.length > 1 ? 'e' : ''})`;
@@ -2445,6 +2515,8 @@
     };
     const gc = groupCombatWait(st, t, now);
     if (gc) { autopilot.nav = null; autopilot.huntSpecies = new Set(); return gc; }
+    const gl = groupLeaveWait(st, t, now);
+    if (gl) { autopilot.nav = null; return gl; }
     // offener Dialog mit einem anderen NPC stört nur -> schließen
     if (st.dialog && st.dialog.npc !== t.npcId && !(st.dialog.npc === 'digiphone' && autopilot.tp)) commands()?.closeDialog?.();
 
@@ -3041,7 +3113,8 @@
 
   function pickTarget(sc, resting) {
     if (!sc) return null;
-    if (sc.attackers.length) return sc.attackers[0];
+    const att = sc.attackers.filter((m) => !safeHeld(m.id));
+    if (att.length) return att[0];
     if (resting) return null;
     const assist = group.role() === 'follower' ? groupAssist(sc) : null; // Mitläufer: Ziel des Leaders
     if (assist) return assist;
@@ -3156,6 +3229,7 @@
 
       // 2) Ruhemodus: HP unter Schwelle und kein HP-Trank mehr -> keine neuen Kämpfe, bis HP wieder 100 %
       const hpPct = pct(p.hp, p.maxHp);
+      if (cfg.autopilot && !cfg.farm) apRefresh(st, now);
       if (group.role() === 'follower' && cfg.autopilot && !autopilot.task) {
         const L = groupLeader(now);
         autopilot.huntSpecies = L && L.mapId === st.world?.mapId ? new Set(L.hunt || []) : new Set();
@@ -3194,7 +3268,7 @@
       // Level-Prüfung wie bei der Zielwahl (scan): im Quest-Modus/Autopilot sind schwächere Monster erlaubt.
       // Sonst wählt der Bot ein Ziel aus und verwirft es gleich wieder – endlos.
       const lvlOk = info ? info.inLvl : diff <= cfg.lvlDiff;
-      const valid = !noFight && (isAttacker || (!blocked && (this.resting ? fighting : alive && lvlOk)));
+      const valid = !noFight && !(alive && safeHeld(t.id, now)) && (isAttacker || (!blocked && (this.resting ? fighting : alive && lvlOk)));
       if (!valid) {
         this.attackedId = null;
         this.engage = null;
@@ -3302,7 +3376,16 @@
         this.status = `Zu weit weg – gehe näher an ${t.name} heran…`;
       }
       const sz = leaveSafeZone(st, ents?.get?.(t.id), now);
-      if (sz) { this.engage = null; this.attackedId = null; this.status = sz; return; }
+      if (sz) {
+        this.engage = null; this.attackedId = null;
+        // nur neue Ausflüge zählen: dazwischen wurde angegriffen (nicht jeden Takt desselben Herauslaufens)
+        if (!safeState.inZone || safeState.flipFor !== t.id) noteSafeFlip(t.id, t.name, now);
+        safeState.inZone = true; safeState.flipFor = t.id;
+        this.status = safeHeld(t.id, now) ? `${t.name}: an der Schutzzone – lasse ihn kurz in Ruhe` : sz;
+        if (safeHeld(t.id, now)) commands()?.partnerFollow?.();
+        return;
+      }
+      safeState.inZone = false;
 
       // 5) Angreifen
       if (this.attackedId !== t.id || this.can('Digit1', ATTACK_REPEAT_MS, now)) {
