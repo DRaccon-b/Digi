@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.10.8
+// @version      2.11.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -198,6 +198,58 @@
     .digibot .info:hover{opacity:1}
     .digibot__chk{align-items:flex-start;margin:3px 0}
     .digibot__chk input{margin-top:1px}
+    .digibot{resize:horizontal;overflow:hidden;min-width:300px;max-width:640px}
+    .digibot.is-min{resize:none;width:auto!important;min-width:150px}
+    .digibot.is-compact .digibot__tabs,.digibot.is-compact .digibot__body{display:none}
+    .digibot__gchip{flex:0 0 auto!important;font:600 10px system-ui;letter-spacing:0;padding:1px 6px;border-radius:9px;background:#161c33;border:1px solid #2a3355;color:#9aa5c4;white-space:nowrap}
+    .digibot__gchip.on{color:#7ee2a8;border-color:#2b6b4a}
+    .digibot__gchip:empty{display:none}
+    .digibot__task{display:none;margin:2px 0 1px;font-size:11px}
+    .digibot__task.on{display:block}
+    .digibot__task .t{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#ffe08a}
+    .digibot__task .pb{display:block;height:4px;background:#0b1020;border-radius:2px;overflow:hidden;margin-top:2px}
+    .digibot__task .pb i{display:block;height:100%;width:0;background:linear-gradient(90deg,#b8860b,#ffd43b);transition:width .3s}
+    .digibot__task .pb.none{display:none}
+    .digibot__tabs button{display:flex;flex-direction:column;align-items:center;line-height:1.15;padding:4px 0 3px}
+    .digibot__tabs button i{font-style:normal;font-size:13px}
+    .digibot__tabs button small{font-size:9.5px;font-weight:600}
+    .digibot__tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-top:6px}
+    .digibot__tiles div{background:#161c33;border:1px solid #222a48;border-radius:6px;padding:3px 5px;text-align:center;min-width:0}
+    .digibot__tiles b{display:block;font-size:12.5px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .digibot__tiles small{display:block;font-size:9.5px;opacity:.65;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .digibot__tiles [data-tip]{cursor:help}
+    .digibot__sesshead{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:10.5px;opacity:.8}
+    .digibot__sesshead span{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .digibot__queue{display:flex;flex-direction:column;gap:3px;font-size:11px}
+    .digibot__queue div{display:grid;grid-template-columns:16px 1fr;gap:4px;padding:3px 5px;border-radius:5px;background:#161c33;border-left:3px solid #3a4670}
+    .digibot__queue div.cur{border-left-color:#ffd43b;background:#221d10}
+    .digibot__queue div.digibot__none{display:block;background:none;border:0;padding:0}
+    .digibot__queue b{opacity:.6;font-variant-numeric:tabular-nums}
+    .digibot__queue span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .digibot__seg{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin:0 0 6px}
+    .digibot__seg button{background:#161c33;border:1px solid #2a3355;color:#9aa5c4;border-radius:5px;font:600 10.5px system-ui;padding:4px 2px;cursor:pointer}
+    .digibot__seg button:hover{color:#e8ecf4;border-color:#3a4670}
+    .digibot__seg button.on{background:#26305a;border-color:#3fa0ff;color:#fff;box-shadow:inset 0 -2px 0 #3fa0ff}
+    .digibot__gcards{display:flex;flex-direction:column;gap:5px;margin:0 0 6px}
+    .digibot__gcard{padding:5px 7px;border-radius:7px;background:#161c33;border-left:3px solid #3a4670;font-size:11px}
+    .digibot__gcard.lead{border-left-color:#ffd43b}
+    .digibot__gcard.off{opacity:.55}
+    .digibot__gcard header{display:flex;align-items:center;gap:6px;font-weight:700}
+    .digibot__gcard header span{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .digibot__gcard .role{font:700 9px system-ui;padding:0 5px;border-radius:3px;background:#3a4670;text-transform:uppercase}
+    .digibot__gcard.lead .role{background:#ffd43b;color:#0b1020}
+    .digibot__gcard .where{font-size:10px;opacity:.7;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .digibot__gcard .st{font-size:10.5px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.9}
+    .digibot__gcard .hpb{height:5px;background:#0b1020;border-radius:3px;overflow:hidden;margin-top:3px}
+    .digibot__gcard .hpb i{display:block;height:100%;background:linear-gradient(90deg,#c0392b,#e74c3c)}
+    .digibot__gcard .sync{font-size:10px;margin-top:2px}
+    .digibot__gcard .sync.ok{color:#7ee2a8}.digibot__gcard .sync.bad{color:#ffb86b}
+    .digibot__grpbtns.three .digibot__btn{padding:4px 2px;font-size:10.5px}
+    .digibot__logf{display:flex;flex-wrap:wrap;gap:3px;margin:0 0 5px}
+    .digibot__logf button{background:#161c33;border:1px solid #2a3355;color:#9aa5c4;border-radius:10px;font:600 10px system-ui;padding:1px 7px;cursor:pointer}
+    .digibot__logf button.on{background:#26305a;border-color:#3fa0ff;color:#fff}
+    .digibot__heal{margin-left:2px;background:#0b1020;color:#9aa5c4;border:1px solid #3a4670;border-radius:4px;font:10px system-ui;padding:0 1px;max-width:78px}
+    .digibot__heal.on{border-color:#2ecc71;color:#7ee2a8}
     .digibot__chk span{white-space:normal;line-height:1.3}
     .digibot__qsum:empty{display:none}
     .digibot__btnrow{display:flex;gap:4px;justify-content:flex-end;margin-bottom:4px}
@@ -219,6 +271,8 @@
   const cfg = {
     tab: 'data', lvlDiff: 5, radius: 300, hpPot: 40, dsPot: 20, tdsPot: 20,
     skills: { 2: true, 3: true, 4: true, 5: true, 6: true },
+    heal: {},       // { [Taste]: HP-% } – Heil-Skill: nur unter dieser HP-Grenze wirken, nicht im Angriff
+    logFilter: 'all',
     mobs: {}, // { [mapId]: { 'kunemon|elite': false, ... } } – nicht gesetzt = Standard (Bosse aus, Rest an)
     questMode: false, // nur Monster für offene Quest-Ziele jagen, danach Bot stoppen
     questOff: {},     // { [questId]: true } – Quests, die der Quest-Modus ignorieren soll
@@ -248,7 +302,7 @@
   try {
     const saved = JSON.parse(localStorage.getItem(CFG_KEY) || '{}');
     Object.assign(cfg, saved, {
-      skills: { ...cfg.skills, ...saved.skills }, mobs: { ...saved.mobs }, questOff: { ...saved.questOff },
+      skills: { ...cfg.skills, ...saved.skills }, heal: { ...saved.heal }, mobs: { ...saved.mobs }, questOff: { ...saved.questOff },
     });
   } catch {}
   // Betriebsart (genau eine): Grinden, Quest-Jagd (Quest-Modus), Quest-Autopilot oder Bosse (Rotation/Named-Runde)
@@ -345,7 +399,9 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.10.8'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.11.0'}</span>
+      <span class="digibot__gchip" data-f="gchip"></span>
+      <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
       <button class="digibot__btn" data-act="min" title="Ein-/Ausklappen">–</button>
     </div>
@@ -358,26 +414,27 @@
       }[k])}">${l}</button>`).join('')}</div>
       <button class="digibot__btn digibot__run" data-act="bot" title="Alt+B">▶ Start</button>
       <div class="digibot__status" data-f="status">Bot aus</div>
+      <div class="digibot__task" data-f="task"><span class="t"></span><span class="pb"><i></i></span></div>
       <div class="digibot__vitals">${bar('hp mini', 'HP').replace('data-bar="hp mini"', 'data-bar="mhp"')}${bar('ds mini', 'DS').replace('data-bar="ds mini"', 'data-bar="mds"')}${bar('tg mini', 'Ziel').replace('data-bar="tg mini"', 'data-bar="mtg"')}</div>
     </div>
     <nav class="digibot__tabs">
-      <button data-tab="data">Übersicht</button><button data-tab="attack">Kampf</button><button data-tab="quest">Quests</button><button data-tab="farm">Bosse</button><button data-tab="acc">Accounts</button><button data-tab="log">Log</button>
+      <button data-tab="data"><i>📊</i><small>Übersicht</small></button><button data-tab="attack"><i>⚔️</i><small>Kampf</small></button><button data-tab="quest"><i>📜</i><small>Quests</small></button><button data-tab="farm"><i>👑</i><small>Bosse</small></button><button data-tab="acc"><i>👥</i><small>Gruppe</small></button><button data-tab="log"><i>📋</i><small>Log</small></button>
     </nav>
     <div class="digibot__body">
       <section data-page="data">
         ${grp('digimon', '<span data-f="partner">Digimon</span>', `
-          ${bar('hp', 'HP')}
-          ${bar('ds', 'DS')}
           ${bar('exp', 'EXP')}
-          <dl class="digibot__stats">
-            <dt data-tip="rate">EXP / Min</dt><dd data-f="rate" data-tip="rate">–</dd>
-            <dt data-tip="bitrate">Bits / Min</dt><dd data-f="bitrate" data-tip="bitrate">–</dd>
-            <dt>Level-Up in</dt><dd data-f="eta">–</dd>
-            <dt>EXP Sitzung <button class="digibot__btn" data-act="reset" title="EXP-/Bits-Messung zurücksetzen">↺</button></dt>
-            <dd data-f="sess">–</dd>
-          </dl>`, true, 'Maus über EXP / Min oder Bits / Min zeigt die Hochrechnung pro Stunde.')}
-        ${grp('tamer', 'Tamer', bar('tds', 'DS'))}
-        ${grp('target', '<span data-f="target">Ziel</span>', bar('tg', 'HP'))}
+          <div class="digibot__tiles">
+            <div data-tip="rate"><b data-f="rate">–</b><small>EXP / Min</small></div>
+            <div data-tip="bitrate"><b data-f="bitrate">–</b><small>Bits / Min</small></div>
+            <div><b data-f="eta">–</b><small>Level-Up in</small></div>
+            <div><b data-f="kills">0</b><small>Kills</small></div>
+            <div><b data-f="sturn">0</b><small>Quests abgegeben</small></div>
+            <div><b data-f="sfaint">0</b><small>Bewusstlos</small></div>
+          </div>
+          <div class="digibot__sesshead"><span>Sitzung: <b data-f="sess">–</b></span><button class="digibot__btn" data-act="reset" title="Sitzungswerte zurücksetzen">↺</button></div>`, true, 'Werte seit Sitzungsbeginn. Maus über EXP / Min oder Bits / Min zeigt die Hochrechnung pro Stunde. HP, DS und Ziel stehen oben.')}
+        ${grp('queue', 'Als Nächstes', `<div class="digibot__queue" data-f="queue"><div class="digibot__none">–</div></div>`, true, 'Aktuelle Aufgabe (gelb) und die nächsten Schritte des Autopiloten.')}
+        ${grp('tamer', 'Tamer', bar('tds', 'DS'), false)}
         ${grp('radar', '<span data-f="radar">Radar</span>', `
           <canvas class="digibot__radar" width="476" height="320"></canvas>
           <div class="digibot__legend">
@@ -392,7 +449,8 @@
           <label class="digibot__skill" data-skill="${k}">
             <input type="checkbox" data-skillcfg="${k}" ${cfg.skills[k] ? 'checked' : ''}>
             <kbd>${k}</kbd><span>–</span><em></em>
-          </label>`).join('')}</div>`, true, 'Haken = Skill wird im Kampf automatisch gewirkt, sobald er bereit ist und genug DS da ist.')}
+            <select class="digibot__heal ${cfg.heal?.[k] ? 'on' : ''}" data-healcfg="${k}" title="Angriff = normal im Kampf wirken. Heal = nur wirken, wenn die HP des Digimons unter den Wert fallen (dann nicht im Angriff).">${[0, 30, 40, 50, 60, 70, 80].map((v) => `<option value="${v}" ${(cfg.heal?.[k] || 0) === v ? 'selected' : ''}>${v ? `Heal &lt;${v} %` : 'Angriff'}</option>`).join('')}</select>
+          </label>`).join('')}</div>`, true, 'Haken = Skill wird automatisch gewirkt, sobald er bereit ist und genug DS da ist. Rechts „Heal <x %“: Heil-Skill, der nur bei niedrigen HP gewirkt wird.')}
         ${grp('pots', 'Tränke &amp; Food (F1–F3)', `
           ${slider('hpPot', 'Digimon HP (F1) unter', 0, 95, potLabel, 1)}
           ${slider('dsPot', 'Digimon DS (F2) unter', 0, 95, potLabel, 2)}
@@ -458,17 +516,18 @@
       </section>
 
       <section data-page="acc">
-        <div class="digibot__accwarn">Passwörter werden <b>unverschlüsselt</b> in diesem Browser gespeichert. Feld leer lassen = im Fenster selbst einloggen.</div>
-        ${grp('accounts', 'Accounts (bis zu 5)', `<div data-f="acclist">${accRows()}</div>
-          <label class="digibot__skill digibot__chk"><input type="checkbox" data-accpopup ${accounts.popup ? 'checked' : ''}><span>Als eigene Fenster nebeneinander öffnen (empfohlen)</span></label>
-          <label class="digibot__skill digibot__chk" title="Du steuerst den Leader selbst; die anderen Fenster laufen ihm nach (in kleiner Formation, auch über Maps und Kanäle). Gilt in Fenstern, deren Bot aus ist."><input type="checkbox" data-accmirror ${accounts.mirror ? 'checked' : ''}><span>Bewegungen des Leaders spiegeln (Mitläufer ohne Bot)</span></label>
-          <label class="digibot__skill digibot__chk" title="Beim Spiegeln greifen die anderen das Ziel des Leaders mit an – mit ihren Skills (Reiter Kampf), Tränken und Ausweichen."><input type="checkbox" data-accmirroratk ${accounts.mirrorAtk ? 'checked' : ''}><span>… und Angriffe spiegeln (Ziel des Leaders mit angreifen)</span></label>`, true,
-          '☑ = beim Gruppenstart dabei · ◉ = Leader. Der Leader fährt den Autopilot und sucht die Monster aus. Die anderen folgen ihm, helfen beim Kämpfen und nehmen dieselben Quests an und geben sie mit ab. Der Leader gibt erst ab, wenn alle so weit sind. Der Charaktername wird beim Einloggen gemerkt.')}
-        <div class="digibot__grpbtns"><button class="digibot__btn" data-act="grp-login" title="Fehlende Fenster öffnen, alle Accounts einloggen und Charakter wählen">🔑 Alle einloggen</button></div>
-        <div class="digibot__grpbtns"><button class="digibot__btn" data-act="grp-start" title="Bots in allen Gruppenfenstern starten">▶ Bots starten</button><button class="digibot__btn" data-act="grp-stop" title="Bots in allen Gruppenfenstern stoppen">■ Bots stoppen</button></div>
+        <div class="digibot__seg">
+          <button data-gmode="bots" title="Alle Fenster fahren ihren Bot: der Leader den Autopilot, die anderen folgen ihm und machen seine Quests mit.">🤖 Bots</button><button data-gmode="move" title="Du spielst den Leader selbst – die anderen Fenster (Bot aus) laufen ihm nach, auch über Maps und Kanäle.">👣 Spiegeln</button><button data-gmode="both" title="Wie Spiegeln, und die anderen greifen das Ziel des Leaders mit an – mit ihren Skills, Tränken und Ausweichen.">⚔️ + Angriff</button>
+        </div>
+        <div class="digibot__grpbtns three"><button class="digibot__btn" data-act="grp-login" title="Fehlende Fenster öffnen, alle Accounts einloggen und Charakter wählen">🔑 Einloggen</button><button class="digibot__btn" data-act="grp-start" title="Bots in allen Gruppenfenstern starten">▶ Starten</button><button class="digibot__btn" data-act="grp-stop" title="Bots in allen Gruppenfenstern stoppen">■ Stoppen</button></div>
+        <div class="digibot__gcards" data-f="gcards"></div>
         <label class="digibot__slotsel" title="Welcher Account läuft in diesem Fenster? Bestimmt, ob es Leader oder Mitläufer ist. Gilt nur für dieses Fenster.">Dieses Fenster ist
           <select data-accslot><option value="">– keine Gruppe –</option>${accounts.list.map((a, i) => `<option value="${i}">Account ${i + 1}${a.user ? ` (${escAttr(a.user)})` : ''}</option>`).join('')}</select></label>
         <div class="digibot__grpinfo" data-f="grpinfo">–</div>
+        ${grp('accounts', 'Accounts verwalten', `<div class="digibot__accwarn">Passwörter werden <b>unverschlüsselt</b> in diesem Browser gespeichert. Feld leer lassen = im Fenster selbst einloggen.</div>
+          <div data-f="acclist">${accRows()}</div>
+          <label class="digibot__skill digibot__chk"><input type="checkbox" data-accpopup ${accounts.popup ? 'checked' : ''}><span>Als eigene Fenster nebeneinander öffnen (empfohlen)</span></label>`, !accounts.list.some((a) => a.user),
+          '☑ = in der Gruppe dabei · ◉ = Leader. Der Leader fährt den Autopilot und sucht die Monster aus. Die anderen folgen ihm, helfen beim Kämpfen und nehmen dieselben Quests an und geben sie mit ab. Der Charaktername wird beim Einloggen gemerkt.')}
         <div class="digibot__hint">Fenster im Hintergrund oder minimiert bremst der Browser stark – Fenster nebeneinander sichtbar lassen.</div>
       </section>
 
@@ -478,6 +537,7 @@
           <button class="digibot__btn" data-act="log-copy">Kopieren</button>
           <button class="digibot__btn" data-act="log-clear">Leeren</button>
         </div>
+        <div class="digibot__logf">${[['all', 'Alle'], ['quest', 'Quests'], ['group', 'Gruppe'], ['fight', 'Kampf'], ['map', 'Karte'], ['warn', 'Warnungen']].map(([k, l]) => `<button data-logf="${k}">${l}</button>`).join('')}</div>
         <div class="digibot__log" data-f="log"><div class="digibot__none">Noch keine Einträge.</div></div>
         <div class="digibot__hint">Neueste oben. „Kopieren“ legt das ganze Protokoll in die Zwischenablage.</div>
       </section>
@@ -546,6 +606,14 @@
   const LOG_COLORS = { bot: '#4dabf7', kill: '#2ecc71', potion: '#f783ac', auto: '#ffd43b', quest: '#fab005',
     map: '#3bc9db', level: '#69db7c', warn: '#ff6b6b' };
   const logbook = [];
+  const LOG_FILTERS = {
+    all: () => true,
+    quest: (e) => (e.type === 'quest' || e.type === 'auto') && !/^Gruppe/.test(e.text),
+    group: (e) => /^Gruppe|Party/.test(e.text),
+    fight: (e) => e.type === 'kill' || e.type === 'potion' || e.type === 'level' || /ausweich|Warnkreis|Warnstrahl|Spiegel|Heal|Schutzzone/i.test(e.text),
+    map: (e) => e.type === 'map',
+    warn: (e) => e.type === 'warn',
+  };
   let logSig = 0;
   function logEvent(type, text) {
     const last = logbook[logbook.length - 1];
@@ -558,6 +626,7 @@
   // Beobachtet den Spielstand und protokolliert Map-Wechsel, Level-Ups, Quest-Änderungen und Kills –
   // egal ob der Bot läuft oder du selbst spielst.
   const watchPrev = { map: null, level: null, quests: null, target: null, toasts: new Set() };
+  const sess = { kills: 0, turnins: 0, faints: 0, wasFainted: false }; // Sitzungswerte für die Übersicht
   function watchGame(st) {
     // Meldungen des Spiels (z. B. „Du bist noch nicht bereit für diese Quest“) mitschreiben – erklärt Ablehnungen
     for (const tst of st?.toasts || []) {
@@ -586,6 +655,7 @@
         if ((prev?.state ?? 0) !== q.state) {
           const what = { 1: 'angenommen', 2: 'erfüllt – bereit zum Abgeben', 3: 'abgeschlossen' }[q.state];
           if (q.state === 3 && !isStory(id)) markDoneToday(id);
+          if (q.state === 3) sess.turnins++;
           if (what) logEvent('quest', `Quest „${name}“ ${what}`);
         } else if (q.state === 1 && JSON.stringify(prev.counters) !== JSON.stringify(q.counters)) {
           (def?.objectives || []).forEach((o, i) => {
@@ -596,7 +666,10 @@
     }
     watchPrev.quests = Object.fromEntries(Object.entries(qs).map(([id, q]) => [id, { state: q.state, counters: [...(q.counters || [])] }]));
     const t = st.target, pt = watchPrev.target;
-    if (pt && t && pt.id === t.id && pt.hp > 0 && t.hp <= 0 && t.kind === 'mob') logEvent('kill', `Besiegt: ${t.name} Lv ${t.level}`);
+    if (pt && t && pt.id === t.id && pt.hp > 0 && t.hp <= 0 && t.kind === 'mob') { logEvent('kill', `Besiegt: ${t.name} Lv ${t.level}`); sess.kills++; }
+    const fainted = !!me.partner?.fainted;
+    if (fainted && !sess.wasFainted) sess.faints++;
+    sess.wasFainted = fainted;
     watchPrev.target = t ? { id: t.id, hp: t.hp } : null;
   }
 
@@ -1050,6 +1123,26 @@
   }
 
   // Wie viele Stück des Items auf Hotbar-Taste F<n> liegen im Inventar? (F1 = Slot 9). null = dort liegt kein Item.
+  // Heil-Skill: Skill auf einer Taste, für die „Heal <x %“ eingestellt ist, wirken, sobald die HP des Digimons unter x %
+  // fallen – sofern bereit und genug DS da sind. Liefert den Namen, wenn gewirkt wurde.
+  function healSkill(st, now) {
+    const p = st?.me?.partner;
+    if (!p || p.fainted || p.evolving || !cfg.heal) return null;
+    const hp = pct(p.hp, p.maxHp);
+    for (const k of SKILL_KEYS) {
+      const lim = cfg.heal[k];
+      if (!lim || hp >= lim) continue;
+      const s = skillOnKey(st, k);
+      if (!s || s.cdLeft > 0 || s.skill.unlocked === false || p.ds < (s.skill.dsCost || 0)) continue;
+      if (!bot.can('Digit' + k, SKILL_GAP_MS * 2, now) || !bot.can('skill', SKILL_GAP_MS, now)) continue;
+      bot.lastPress.skill = now;
+      bot.hit('Digit' + k, now);
+      logEvent('potion', `Heal: ${s.skill.name} (HP ${Math.round(hp)} %)`);
+      return s.skill.name;
+    }
+    return null;
+  }
+
   function potionCount(me, fKey) {
     const ref = me?.hotbar?.[7 + fKey];
     if (typeof ref !== 'string' || !ref.startsWith('item:')) return null;
@@ -1345,6 +1438,7 @@
       type: 'state', slot: group.slot(), role: group.role(), user: st?.session?.username || '', name: charName(st),
       inWorld: st?.screen === 'world' && !!me, mapId: st?.world?.mapId || null, channel: st?.world?.channel ?? 1,
       x: pos?.x ?? null, y: pos?.y ?? null, bot: bot.on, status: bot.status, quests,
+      hp: me?.partner ? Math.round(pct(me.partner.hp, me.partner.maxHp)) : null,
       ents: [me?.tamerEntityId, me?.partner?.entityId].filter(Boolean),
       targetId: t?.kind === 'mob' && t.hp > 0 ? t.id : null, hunt: [...autopilot.huntSpecies], noFight: !!group.noFight,
       task: tk ? { key: tk.key, kind: tk.kind, label: tk.label } : null,
@@ -1734,6 +1828,7 @@
     potion(1, cfg.hpPot > 0 && pct(p.hp, p.maxHp) < cfg.hpPot);
     potion(2, cfg.dsPot > 0 && pct(p.ds, p.maxDs) < cfg.dsPot);
     potion(3, cfg.tdsPot > 0 && me.tamerMaxDs > 0 && pct(me.tamerDs, me.tamerMaxDs) < cfg.tdsPot);
+    healSkill(st, now);
     const dg = dodge(st, now);
     if (dg) { group.mirrorTap = null; return { text: dg, hold: true }; }
     const ents = window.dmo?.net?.state?.entities;
@@ -1750,7 +1845,7 @@
     let text = `greife ${name} an`;
     if (!p.evolving && bot.can('skill', SKILL_GAP_MS, now)) {
       for (const k of SKILL_KEYS) {
-        if (!cfg.skills[k]) continue;
+        if (!cfg.skills[k] || cfg.heal?.[k]) continue; // Heil-Skills nur über healSkill
         const sk = skillOnKey(st, k);
         if (!sk || sk.cdLeft > 0 || sk.skill.unlocked === false || p.ds < (sk.skill.dsCost || 0)) continue;
         if (!bot.can('Digit' + k, SKILL_GAP_MS * 2, now)) continue;
@@ -3316,6 +3411,7 @@
       // 1b) Flächenangriffen ausweichen hat Vorrang vor allem anderen
       const dg = dodge(st, now);
       if (dg) { this.status = dg; this.attackedId = null; return; }
+      healSkill(st, now); // Heil-Skill bei niedrigen HP (auch außerhalb des Kampfes)
 
       // 2) Ruhemodus: HP unter Schwelle und kein HP-Trank mehr -> keine neuen Kämpfe, bis HP wieder 100 %
       const hpPct = pct(p.hp, p.maxHp);
@@ -3491,7 +3587,7 @@
       if (farmShielded(t, now)) { this.status += ' · Spawn-Schutz – Skills warten'; return; }
       let held = null;
       for (const k of SKILL_KEYS) {
-        if (!cfg.skills[k]) continue;
+        if (!cfg.skills[k] || cfg.heal?.[k]) continue; // Heil-Skills nur über healSkill
         const s = skillOnKey(st, k);
         if (!s || s.cdLeft > 0 || s.skill.unlocked === false || p.ds < (s.skill.dsCost || 0)) continue;
         if (!this.can('Digit' + k, SKILL_GAP_MS * 2, now)) continue; // Server-Cooldown noch nicht angekommen
@@ -3606,15 +3702,11 @@
 
     setBar(panel, 'tds', me?.tamerDs, me?.tamerMaxDs);
 
-    const tt = panel.querySelector('[data-f="target"]');
-    if (t) {
-      tt.classList.remove('digibot__none');
-      tt.textContent = `Ziel · ${t.name ?? '?'}${t.level ? ' · Lv ' + t.level : ''}${t.boss ? ' · BOSS' : ''}`;
-    } else {
-      tt.classList.add('digibot__none');
-      tt.textContent = 'Kein Ziel – mit Tab anvisieren';
-    }
-    setBar(panel, 'tg', t?.hp, t?.maxHp);
+    const mtg = panel.querySelector('[data-bar="mtg"]');
+    if (mtg) { const tn = t ? `Ziel: ${t.name ?? '?'}${t.level ? ' · Lv ' + t.level : ''}${t.boss ? ' · BOSS' : ''}` : 'Kein Ziel'; if (mtg.title !== tn) mtg.title = tn; }
+    panel.querySelector('[data-f="kills"]').textContent = fmt(sess.kills);
+    panel.querySelector('[data-f="sturn"]').textContent = fmt(sess.turnins);
+    panel.querySelector('[data-f="sfaint"]').textContent = fmt(sess.faints);
 
     const sc = scan(st);
     drawRadar(panel.querySelector('.digibot__radar'), sc, t?.id);
@@ -3625,6 +3717,8 @@
     renderQuests(st, sc);
     renderFarm(st);
     renderAccounts(st);
+    renderTop(st);
+    renderQueue(st);
     watchGame(st);
     renderLog();
 
@@ -3702,11 +3796,14 @@
     if (!panel.querySelector('[data-page="log"]').classList.contains('on') || logShown === logSig) return;
     logShown = logSig;
     const esc = (x) => String(x).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-    panel.querySelector('[data-f="logcount"]').textContent = `· ${logbook.length}`;
-    panel.querySelector('[data-f="log"]').innerHTML = logbook.length
-      ? logbook.slice().reverse().map((e) => `<div style="--c:${LOG_COLORS[e.type] || '#888'}"><time>${hhmmss(e.t)}</time>` +
+    const fk = LOG_FILTERS[cfg.logFilter] ? cfg.logFilter : 'all';
+    panel.querySelectorAll('[data-logf]').forEach((b) => b.classList.toggle('on', b.dataset.logf === fk));
+    const list = logbook.filter(LOG_FILTERS[fk]);
+    panel.querySelector('[data-f="logcount"]').textContent = fk === 'all' ? `· ${logbook.length}` : `· ${list.length} von ${logbook.length}`;
+    panel.querySelector('[data-f="log"]').innerHTML = list.length
+      ? list.slice().reverse().map((e) => `<div style="--c:${LOG_COLORS[e.type] || '#888'}"><time>${hhmmss(e.t)}</time>` +
         `<span>${esc(e.text)}${e.n > 1 ? ` <b>×${e.n}</b>` : ''}</span></div>`).join('')
-      : '<div class="digibot__none">Noch keine Einträge.</div>';
+      : `<div class="digibot__none">${logbook.length ? 'Keine Einträge in diesem Filter.' : 'Noch keine Einträge.'}</div>`;
   }
 
   async function copyLog(btn) {
@@ -3917,6 +4014,87 @@
       : `Dieses Fenster ist in keiner Gruppe.${group.msg ? ` · ${group.msg}` : ''}`;
     if (gi.textContent !== text) gi.textContent = text;
     gi.classList.toggle('warn', wrong);
+    renderGroupCards(st, now);
+  }
+  // Gruppe: Modus-Schalter und eine Karte pro Mitglied (Name, Rolle, Ort, HP, Status, Quest-Abgleich mit dem Leader)
+  function renderGroupCards(st, now) {
+    const mode = !accounts.mirror ? 'bots' : accounts.mirrorAtk ? 'both' : 'move';
+    panel.querySelectorAll('[data-gmode]').forEach((b) => b.classList.toggle('on', b.dataset.gmode === mode));
+    const box = panel.querySelector('[data-f="gcards"]');
+    const C = content(), esc = (x) => String(x ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const stateOf = (i) => (group.active() && group.slot() === i ? groupState(st, now) : fresh(group.peers.get(i), now) ? group.peers.get(i) : null);
+    const L = stateOf(accounts.leader);
+    const active = (qs) => Object.entries(qs || {}).filter(([, q]) => q.state === 1 || q.state === 2).map(([id]) => id);
+    const cards = accounts.list.map((a, i) => ({ a, i })).filter(({ a }) => a.on && a.user.trim()).map(({ a, i }) => {
+      const p = stateOf(i), lead = i === accounts.leader;
+      const name = p?.name || a.char || a.user;
+      const where = p ? (p.inWorld ? `${C?.maps?.[p.mapId]?.name || p.mapId} · Ch ${p.channel}` : (p.login || 'nicht in der Welt'))
+        : `offline${a.at ? ` · zuletzt vor ${fmtDur(now - a.at)}` : ''}`;
+      let sync = '';
+      if (!lead && p?.inWorld && L?.inWorld) {
+        const mine = active(p.quests), theirs = active(L.quests);
+        const diff = mine.filter((id) => !theirs.includes(id)).length + theirs.filter((id) => !mine.includes(id)).length;
+        sync = diff ? `<div class="sync bad">⚠ ${diff} Quest${diff > 1 ? 's' : ''} anders als beim Leader</div>` : '<div class="sync ok">✓ gleiche Quests wie der Leader</div>';
+      }
+      return `<div class="digibot__gcard${lead ? ' lead' : ''}${p ? '' : ' off'}">
+        <header><span>${p ? '●' : '○'} ${esc(name)}</span><b class="role">${lead ? 'Leader' : 'folgt'}</b></header>
+        <div class="where">${esc(where)}</div>
+        ${p?.hp != null ? `<div class="hpb" title="HP ${p.hp} %"><i style="width:${p.hp}%"></i></div>` : ''}
+        ${p ? `<div class="st" title="${esc(p.bot ? p.status : 'Bot aus')}">${esc(p.bot ? p.status : 'Bot aus')}</div>` : ''}${sync}
+      </div>`;
+    });
+    const html = cards.length ? cards.join('') : '<div class="digibot__none">Noch keine Accounts – unten unter „Accounts verwalten“ eintragen.</div>';
+    if (box.innerHTML !== html) box.innerHTML = html;
+  }
+  // Kopfbereich: Gruppen-Chip und aktuelle Aufgabe mit Fortschritt
+  function renderTop(st) {
+    const now = Date.now();
+    const chip = panel.querySelector('[data-f="gchip"]');
+    let ct = '';
+    if (group.active()) {
+      const on = accounts.list.map((a, i) => i).filter((i) => accounts.list[i].on && accounts.list[i].user.trim());
+      const online = on.filter((i) => i === group.slot() || fresh(group.peers.get(i), now)).length;
+      ct = `● ${group.role() === 'leader' ? 'Leader' : 'Mitläufer'} ${online}/${on.length}`;
+    }
+    if (chip.textContent !== ct) chip.textContent = ct;
+    chip.classList.toggle('on', !!ct);
+    const box = panel.querySelector('[data-f="task"]'), at = autopilot.task;
+    let tl = '', prog = null;
+    if (bot.on && cfg.autopilot && !cfg.farm && at && st?.me) {
+      tl = at.label;
+      if (at.questId && at.objIndex != null && at.need) {
+        const q = planQuests(st)[at.questId], c = Math.min(q?.counters?.[at.objIndex] ?? 0, at.need);
+        tl += ` · ${c}/${at.need}`; prog = c / at.need;
+      }
+    }
+    box.classList.toggle('on', !!tl);
+    const te = box.querySelector('.t');
+    if (te.textContent !== tl) { te.textContent = tl; te.title = tl; }
+    box.querySelector('.pb').classList.toggle('none', prog == null);
+    if (prog != null) box.querySelector('.pb i').style.width = `${Math.round(prog * 100)}%`;
+  }
+  // Übersicht: aktuelle Aufgabe und die nächsten Schritte (alle 2 s neu berechnet)
+  const queueCache = { at: 0, html: '' };
+  function renderQueue(st) {
+    if (!panel.querySelector('[data-page="data"]').classList.contains('on')) return;
+    const now = Date.now();
+    if (now - queueCache.at < 2000) return;
+    queueCache.at = now;
+    const esc = (x) => String(x ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    let rows = [];
+    if (group.role() === 'follower') {
+      const L = groupLeader(now);
+      if (autopilot.task) rows.push({ cur: true, text: autopilot.task.label });
+      rows.push({ text: L ? `Folgt ${L.name || 'dem Leader'}${L.task ? ` – ${L.task.label}` : ''}` : 'Wartet auf den Leader' });
+    } else if (cfg.autopilot && !cfg.farm && world.state === 'ready' && st?.screen === 'world') {
+      const cur = autopilot.task;
+      if (cur) rows.push({ cur: true, text: cur.label });
+      try { for (const t of questTasks(st)) { if (rows.length >= 4) break; if (!cur || t.key !== cur.key) rows.push({ text: t.label }); } } catch { /* ignore */ }
+      if (!rows.length) rows.push({ text: 'Nichts zu tun – keine machbaren Quests' });
+    }
+    const html = rows.length ? rows.map((r, i) => `<div${r.cur ? ' class="cur"' : ''}><b>${r.cur ? '▶' : i + (rows[0]?.cur ? 0 : 1)}</b><span title="${esc(r.text)}">${esc(r.text)}</span></div>`).join('')
+      : '<div class="digibot__none">Nur im Modus Autopilot.</div>';
+    if (html !== queueCache.html) { queueCache.html = html; panel.querySelector('[data-f="queue"]').innerHTML = html; }
   }
 
   function setTab(tab) {
@@ -4003,6 +4181,16 @@
     } catch {}
     document.body.append(panel);
     if (cfg.min) { panel.classList.add('is-min'); panel.querySelector('[data-act="min"]').textContent = '+'; } // bleibt nach Neuladen eingeklappt
+    if (cfg.compact) panel.classList.add('is-compact');
+    if (cfg.width >= 300) panel.style.width = cfg.width + 'px';
+    try { // Breite (am rechten unteren Rand ziehbar) merken
+      let rt = 0;
+      new ResizeObserver(() => {
+        if (panel.classList.contains('is-min')) return;
+        clearTimeout(rt);
+        rt = setTimeout(() => { const w = Math.round(panel.getBoundingClientRect().width); if (w >= 300 && w !== cfg.width) { cfg.width = w; saveCfg(); } }, 400);
+      }).observe(panel);
+    } catch { /* ignore */ }
 
     makeDraggable(panel, panel.querySelector('.digibot__head'));
     setTab(['data', 'attack', 'quest', 'farm', 'acc', 'log'].includes(cfg.tab) ? cfg.tab : 'data');
@@ -4019,7 +4207,16 @@
       const act = e.target.closest('[data-act]')?.dataset.act;
       if (act === 'min') { cfg.min = panel.classList.toggle('is-min'); saveCfg(); panel.querySelector('[data-act="min"]').textContent = cfg.min ? '+' : '–'; }
       if (act === 'pip') popOut();
-      if (act === 'reset') { exp.reset(); bitsRate.last = null; bitsRate.gains = []; bitsRate.total = 0; schedule(); }
+      if (act === 'reset') { exp.reset(); bitsRate.last = null; bitsRate.gains = []; bitsRate.total = 0; sess.kills = 0; sess.turnins = 0; sess.faints = 0; schedule(); }
+      if (act === 'compact') { cfg.compact = panel.classList.toggle('is-compact'); saveCfg(); }
+      const gm = e.target.closest('[data-gmode]')?.dataset.gmode;
+      if (gm) {
+        reloadAcc(); accounts.mirror = gm !== 'bots'; accounts.mirrorAtk = gm === 'both'; saveAcc();
+        logEvent('bot', `Gruppe: Modus ${{ bots: 'Bots', move: 'Bewegungen spiegeln', both: 'Bewegungen + Angriffe spiegeln' }[gm]}`);
+        schedule();
+      }
+      const lf = e.target.closest('[data-logf]')?.dataset.logf;
+      if (lf) { cfg.logFilter = lf; saveCfg(); logShown = -1; schedule(); }
       if (act === 'bot') bot.toggle();
       if (act === 'grp-start') startGroup();
       if (act === 'grp-login') loginGroup();
@@ -4135,6 +4332,15 @@
         if (mapId) { (cfg.mobs[mapId] ||= {})[mob] = e.target.checked; saveCfg(); }
         e.target.closest('.digibot__mob')?.classList.toggle('off', !e.target.checked);
         e.target.blur();
+        return;
+      }
+      const hk = e.target.dataset.healcfg;
+      if (hk) {
+        const v = Number(e.target.value) || 0;
+        cfg.heal = { ...cfg.heal, [hk]: v };
+        if (!v) delete cfg.heal[hk];
+        saveCfg(); e.target.blur(); e.target.classList.toggle('on', !!v);
+        logEvent('bot', `Skill ${hk}: ${v ? `Heil-Skill unter ${v} % HP` : 'normal im Angriff'}`);
         return;
       }
       const sk = e.target.dataset.skillcfg;

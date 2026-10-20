@@ -217,6 +217,24 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.11.0 – Übersichtlicheres Panel und Heil-Skills
+- **Kopfbereich:** Modus, Start/Stopp, Status und die **aktuelle Aufgabe mit Fortschrittsbalken** (z. B. „Spare Circuits · 2/3“).
+  Oben rechts ein Gruppen-Chip („● Leader 2/2“). HP/DS/Ziel stehen nur noch oben, nicht doppelt.
+- **Reiter mit Symbolen:** 📊 Übersicht · ⚔️ Kampf · 📜 Quests · 👑 Bosse · 👥 Gruppe · 📋 Log.
+- **Übersicht als Dashboard:**
+  - Kacheln: EXP/Min, Bits/Min, Level-Up in, Kills, Quests abgegeben, Bewusstlos (seit Sitzungsbeginn, ↺ setzt zurück).
+  - „Als Nächstes“: aktuelle Aufgabe und die nächsten drei Schritte des Autopiloten.
+- **Reiter Gruppe (vorher Accounts):**
+  - Modus-Schalter 🤖 Bots · 👣 Spiegeln · ⚔️ + Angriff.
+  - Knöpfe 🔑 Einloggen · ▶ Starten · ■ Stoppen.
+  - Eine Karte pro Mitglied mit Ort, HP, Status und Quest-Abgleich mit dem Leader (✓ gleich / ⚠ anders).
+  - Die Account-Liste liegt eingeklappt unter „Accounts verwalten“.
+- **Log mit Filtern:** Alle · Quests · Gruppe · Kampf · Karte · Warnungen.
+- **Breite ziehbar** (rechte untere Ecke, wird gemerkt). Der Knopf ▭ schaltet den Kompaktmodus um: nur Start, Status und Aufgabe.
+- **Heil-Skills:** Im Reiter Kampf hat jeder Skill rechts eine Auswahl: „Angriff“ (normal) oder „Heal <30…80 %“.
+  - Ein Heil-Skill wird nur gewirkt, wenn die HP des Digimons unter den Wert fallen, auch außerhalb des Kampfes und beim Spiegeln.
+  - Im normalen Angriff wird er nicht verbraucht.
+
 #### Neu in 2.10.8 – Leader wartet nicht mehr grundlos
 - **„Kämpft gerade“ nur bei echtem Kampf:** Das Kampf-Flag des Spiels bleibt nach einem Kampf noch einige Sekunden
   stehen. Deshalb wartete der Leader vor Abgaben 4–10 s auf einen Mitläufer, der längst zum NPC unterwegs war. Jetzt
