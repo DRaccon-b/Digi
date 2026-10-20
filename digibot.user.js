@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.11.4
+// @version      2.11.5
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -400,7 +400,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.11.4'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.11.5'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -1551,7 +1551,9 @@
     if (group.role() !== 'leader' || !t?.loc?.mapId || t.loc.mapId === st.world?.mapId) return null;
     const lt = group.talks[group.talks.length - 1];
     if (lt && now - lt.at > GROUP_WAIT_MS) return null;
-    const busy = groupMembers(now).filter((m) => m.inWorld && m.busy && m.mapId === st.world?.mapId);
+    // Wer gerade dasselbe Gespräch nachmacht (gleiches Ziel wie der Leader), läuft ohnehin mit – auf den nicht warten
+    const sameAsMine = (m) => group.talks.some((x) => x.key === m.busy && x.tkey === t.key);
+    const busy = groupMembers(now).filter((m) => m.inWorld && m.busy && m.mapId === st.world?.mapId && !sameAsMine(m));
     if (!busy.length) return null;
     return `Gruppe: warte vor dem Map-Wechsel auf ${busy.map((m) => m.name || `Slot ${m.slot + 1}`).join(', ')}`;
   }
@@ -1586,7 +1588,7 @@
       const mt = mirrorTask(st, lt);
       // NPC auf einer anderen Map, der Leader steht aber noch hier: nicht allein loslaufen, sondern mit dem Leader
       // reisen – „gesehen“ melden (der Leader wartet dann nicht) und erst übernehmen, wenn er die Map gewechselt hat
-      if (mt && mt.loc?.mapId && mt.loc.mapId !== st.world?.mapId && L.mapId === st.world?.mapId && L.inWorld) {
+      if (mt && mt.loc?.mapId && mt.loc.mapId !== st.world?.mapId && L.mapId === st.world?.mapId) { // auch während der Leader lädt
         if (!group.seen.includes(lt.key)) { group.seen.push(lt.key); group.seen = group.seen.slice(-30); }
         break;
       }

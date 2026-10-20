@@ -217,6 +217,11 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.11.5 – Zusammen losreisen
+- Macht ein Mitläufer gerade **dasselbe** Gespräch nach wie der Leader (gleiches Ziel), wartet der Leader nicht mehr
+  „vor dem Map-Wechsel“ auf ihn. Beide reisen gleichzeitig. Vorher lief der Mitläufer vor und der Leader kam ~25 s später.
+- Die Regel „nicht allein vorlaufen“ (2.11.3) gilt jetzt auch, während der Leader gerade eine Map lädt.
+
 #### Neu in 2.11.4 – Kein falsches Aufholen
 - Der Leader meldet jetzt auch seine **abgeschlossenen** Quests. Ein Mitläufer holt eine Quest nur noch allein nach, wenn
   der Leader sie wirklich abgeschlossen hat.
