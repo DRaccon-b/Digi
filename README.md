@@ -217,6 +217,11 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.12.1 – Mitläufer holen auch im Jagdgebiet auf
+- Mitläufer prüfen jetzt **vor jedem neuen Kampf**, ob ein Gespräch des Leaders nachzumachen oder eine Quest aufzuholen ist.
+  Vorher passierte das nur, wenn kein Monster in der Nähe war. In Jagdgebieten mit ständig neuen Monstern kam ein
+  Mitläufer nie dazu. Beispiel: Fumiko behielt „The Beach Guardian“ fertig, gab sie aber nie ab.
+
 #### Neu in 2.12.0 – Höchste Digitation, Skills je Form, Beute & Verbrauch
 - **Höchstmögliche Digitation:** In den Autopilot-Einstellungen unter „Digitation“ gibt es „⬆ höchstmögliche Digitation“.
   Der Bot digitiert Schritt für Schritt bis zur höchsten freigeschalteten Form auf dem Ast des aktuellen Digimons,

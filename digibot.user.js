@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.12.0
+// @version      2.12.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -422,7 +422,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.12.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.12.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -1658,6 +1658,17 @@
     if (t) return t;
     const L = groupLeader(now);
     if (!L) { autopilot.huntSpecies = new Set(); return 'Gruppe: warte auf den Leader…'; }
+    const at = followerAssign(st, L, now);
+    if (at) return at;
+    // Ohne eigenes Gespräch: liegengebliebene Dialoge/Daily-Board sofort schließen (z. B. nach einer Abgabe)
+    if (st.dialog && !(st.dialog.npc === 'digiphone' && autopilot.tp)) commands()?.closeDialog?.();
+    if (st.dailies?.board) commands()?.closeDailyBoard?.();
+    return followLeader(st, sc, L, now);
+  }
+  // Mitläufer: nächstes eigenes Gespräch bestimmen – nachgemachtes Gespräch des Leaders oder Aufholen. Läuft auch
+  // zwischen zwei Kämpfen (sonst kommt ein Mitläufer im Jagdgebiet nie dazu, weil immer ein Monster da ist).
+  function followerAssign(st, L, now) {
+    if (group.cur && !autopilot.task) { group.done.push(group.cur); group.cur = null; }
     for (const lt of L.talks || []) {
       if (group.handled.has(lt.key)) continue;
       const mt = mirrorTask(st, lt);
@@ -1687,10 +1698,7 @@
         return autopilot.task;
       }
     }
-    // Ohne eigenes Gespräch: liegengebliebene Dialoge/Daily-Board sofort schließen (z. B. nach einer Abgabe)
-    if (st.dialog && !(st.dialog.npc === 'digiphone' && autopilot.tp)) commands()?.closeDialog?.();
-    if (st.dailies?.board) commands()?.closeDailyBoard?.();
-    return followLeader(st, sc, L, now);
+    return null;
   }
   function followerCatchUp(st, L, now) {
     const lq = L.quests || {}, own = st.me?.quests || {};
@@ -3651,7 +3659,13 @@
             if (ev !== true) { this.status = `Autopilot: ${ev}`; return; }
           }
           // Direkt das beste Ziel anvisieren
-          const next = noFight ? null : pickTarget(sc, this.resting);
+          // Mitläufer: vor dem nächsten Kampf prüfen, ob ein Gespräch nachzumachen oder aufzuholen ist
+          if (group.role() === 'follower' && cfg.autopilot && !autopilot.task && !attackers.length) {
+            const L = groupLeader(now);
+            if (L) followerAssign(st, L, now);
+          }
+          const folBusy = group.role() === 'follower' && autopilot.task && PASSIVE(autopilot.task) && !taskDone(st, autopilot.task);
+          const next = noFight || folBusy ? null : pickTarget(sc, this.resting);
           if (next) {
             if (this.can('select', SELECT_GAP_MS, now)) { this.lastPress.select = now; scene.select(next.id); }
             this.status = `${next.attacker ? 'Angreifer' : 'Nächstes Ziel'}: Lv ${next.level} · ${Math.round(next.d)} px`;
