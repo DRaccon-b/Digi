@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.9.0
+// @version      2.9.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -176,7 +176,8 @@
     .digibot__row.mini .digibot__lbl{font-size:10px}
     .digibot__row.mini .digibot__bar{height:11px;border-radius:3px}
     .digibot__row.mini .digibot__txt{font-size:9.5px;line-height:11px}
-    .digibot.is-min .digibot__vitals{display:block}
+    .digibot.is-min .digibot__runbar{display:none}
+    .digibot.is-min{width:auto;min-width:150px}
     .digibot__grp{margin-bottom:6px;border:1px solid #2a3355;border-radius:7px;background:rgba(22,28,51,.55)}
     .digibot__grp:last-child{margin-bottom:0}
     .digibot__grp>summary{list-style:none;cursor:pointer;padding:5px 8px;font-weight:600;display:flex;align-items:center;
@@ -336,7 +337,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.9.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.9.1'}</span>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
       <button class="digibot__btn" data-act="min" title="Ein-/Ausklappen">–</button>
     </div>
@@ -3583,6 +3584,7 @@
       if (pos) { panel.style.left = pos.l; panel.style.top = pos.t; panel.style.right = 'auto'; }
     } catch {}
     document.body.append(panel);
+    if (cfg.min) { panel.classList.add('is-min'); panel.querySelector('[data-act="min"]').textContent = '+'; } // bleibt nach Neuladen eingeklappt
 
     makeDraggable(panel, panel.querySelector('.digibot__head'));
     setTab(['data', 'attack', 'quest', 'farm', 'acc', 'log'].includes(cfg.tab) ? cfg.tab : 'data');
@@ -3597,7 +3599,7 @@
     }, true);
     panel.addEventListener('click', (e) => {
       const act = e.target.closest('[data-act]')?.dataset.act;
-      if (act === 'min') panel.classList.toggle('is-min');
+      if (act === 'min') { cfg.min = panel.classList.toggle('is-min'); saveCfg(); panel.querySelector('[data-act="min"]').textContent = cfg.min ? '+' : '–'; }
       if (act === 'pip') popOut();
       if (act === 'reset') { exp.reset(); bitsRate.last = null; bitsRate.gains = []; bitsRate.total = 0; schedule(); }
       if (act === 'bot') bot.toggle();
