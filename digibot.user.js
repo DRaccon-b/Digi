@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.8.2
+// @version      2.8.3
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -275,7 +275,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.8.2'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.8.3'}</span>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
       <button class="digibot__btn" data-act="min" title="Ein-/Ausklappen">–</button>
     </div>
@@ -836,16 +836,18 @@
     }
     return null;
   }
-  // Ist gerade eine Abgabe dran? Auch wenn der Autopilot die nächste Aufgabe noch nicht gewählt hat (die alte ist
-  // erledigt, aber ein Angreifer kam dazwischen) – dann wird vorausgeschaut (höchstens 1× pro Sekunde).
+  // Ist gerade eine „friedliche“ Aufgabe dran – Abgeben, Annehmen, Gespräch oder Reise-Ziel? Dann wird unterwegs nicht
+  // gekämpft, auch nicht gegen Angreifer (Map-Wechsel inklusive). Auch wenn der Autopilot die nächste Aufgabe noch
+  // nicht gewählt hat (die alte ist erledigt, ein Angreifer kam dazwischen), wird vorausgeschaut (max. 1×/s).
+  const PASSIVE = (tk) => !!tk && (tk.kind === 'talk' || tk.kind === 'reach');
   const turninPeek = { at: 0, val: false };
   function nextIsTurnin(st, now) {
     const tk = autopilot.task;
-    if (tk && !taskDone(st, tk)) return tk.purpose === 'turnin';
+    if (tk && !taskDone(st, tk)) return PASSIVE(tk);
     if (world.state !== 'ready') return false;
     if (now - turninPeek.at > 1000) {
       turninPeek.at = now;
-      try { turninPeek.val = questTasks(st)[0]?.purpose === 'turnin'; } catch { turninPeek.val = false; }
+      try { turninPeek.val = PASSIVE(questTasks(st)[0]); } catch { turninPeek.val = false; }
     }
     return turninPeek.val;
   }
@@ -2554,8 +2556,8 @@
       const attackers = sc ? sc.attackers.map((m) => m.id) : [];
       if (cfg.farm && world.state === 'ready') farmUpdate(st, now);
       checkRefusals(st, t, now);
-      // Autopilot auf dem Weg zur Abgabe (bzw. in der Abgabe-Phase der Runde): keine Kämpfe, auch nicht gegen Angreifer –
-      // Digimon zurückrufen und weiterlaufen
+      // Autopilot auf dem Weg zum Abgeben, Annehmen, Sprechen oder zu einem Reise-Ziel: keine Kämpfe, auch nicht gegen
+      // Angreifer – Digimon zurückrufen und weiterlaufen
       const noFight = cfg.autopilot && !cfg.farm && nextIsTurnin(st, now);
       if (noFight) {
         const pe = window.dmo?.net?.state?.entities?.get?.(p.entityId);
