@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.7.1
+// @version      2.8.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -275,7 +275,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.7.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.8.0'}</span>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
       <button class="digibot__btn" data-act="min" title="Ein-/Ausklappen">–</button>
     </div>
@@ -804,13 +804,46 @@
     return false;
   }
   const safeState = { lastTap: 0, lastFollow: 0, logged: 0 };
+  // Lehnt das Spiel einen Angriff/Skill ab, kommt ein Fehler-Hinweis mit Code (st.toasts: { kind: 'error', code }).
+  //  unreachable    -> Digimon kommt nicht hin: Ziel sofort 1 min sperren (statt 12 s auf HP-Verlust zu warten)
+  //  not_in_range   -> zu weit weg: ein Stück auf das Ziel zugehen
+  //  safe_zone      -> Schutzzone: herauslaufen (auch wenn die Zone nicht in den Kartendaten steht)
+  //  invalid_target -> Ziel kurz überspringen
+  const refusal = { seen: new WeakSet(), safeAt: 0, rangeAt: 0, lastTap: 0 };
+  // Ist gerade eine Abgabe dran? Auch wenn der Autopilot die nächste Aufgabe noch nicht gewählt hat (die alte ist
+  // erledigt, aber ein Angreifer kam dazwischen) – dann wird vorausgeschaut (höchstens 1× pro Sekunde).
+  const turninPeek = { at: 0, val: false };
+  function nextIsTurnin(st, now) {
+    const tk = autopilot.task;
+    if (tk && !taskDone(st, tk)) return tk.purpose === 'turnin';
+    if (world.state !== 'ready') return false;
+    if (now - turninPeek.at > 1000) {
+      turninPeek.at = now;
+      try { turninPeek.val = questTasks(st)[0]?.purpose === 'turnin'; } catch { turninPeek.val = false; }
+    }
+    return turninPeek.val;
+  }
+  function checkRefusals(st, t, now) {
+    for (const to of st?.toasts || []) {
+      if (!to || typeof to !== 'object' || refusal.seen.has(to)) continue;
+      refusal.seen.add(to);
+      if (to.kind !== 'error' || !to.code) continue;
+      if (to.code === 'safe_zone') refusal.safeAt = now;
+      else if (to.code === 'not_in_range') refusal.rangeAt = now;
+      else if ((to.code === 'unreachable' || to.code === 'invalid_target') && t?.id && t.kind === 'mob') {
+        blacklist.set(t.id, now + (to.code === 'unreachable' ? BAN_MS : 15000));
+        bot.attackedId = null; bot.engage = null;
+        logEvent('warn', `${t.name || 'Ziel'}: ${to.code === 'unreachable' ? 'Digimon kommt nicht hin – 1 min gesperrt' : 'ungültiges Ziel – kurz übersprungen'}`);
+      }
+    }
+  }
   // Liefert Statustext, solange der Bot aus der Schutzzone läuft, sonst null.
   function leaveSafeZone(st, target, now) {
     const mapId = st.world?.mapId;
     const ents = window.dmo?.net?.state?.entities;
     const tamer = controlled(st), partner = ents?.get?.(st?.me?.partner?.entityId);
     let r = safeRectAt(mapId, tamer) || safeRectAt(mapId, partner);
-    if (!r && safeMessageRecent(st) && tamer) {
+    if (!r && (safeMessageRecent(st) || now - refusal.safeAt < 4000) && tamer) {
       // Zone unbekannt: ein Stück Richtung Ziel gehen
       r = { x: tamer.x - 1, y: tamer.y - 1, w: 2, h: 2, guess: true };
     }
@@ -1283,6 +1316,27 @@
     const start = cfg.apStartMap && ids.includes(cfg.apStartMap) ? ids.indexOf(cfg.apStartMap) : 0;
     return ids.slice(start).find((id) => hops(st.world?.mapId, id) < Infinity) || null;
   }
+  // Warum hat eine Map der Runde gerade keine Aufgaben? (fürs Log)
+  function sweepSkipReasons(st, M) {
+    const C = content(), quests = st?.me?.quests || {}, lvl = st?.me?.partner?.level ?? 1;
+    const r = { level: 0, prereq: 0, series: 0, today: 0, stuck: 0, off: 0 };
+    for (const def of Object.values(C?.quests || {})) {
+      if (!def.giver || def.autoAssign || !questOnMap(def, M)) continue;
+      const q = quests[def.id], fresh = (q?.state ?? 0) === 0;
+      if (q?.state === 1 || q?.state === 2) { r.stuck++; continue; }
+      if (q?.state === 3) { if (!isStory(def.id) && !(cfg.apRepeat && repeatAvailable(def, q))) r.today++; continue; }
+      if (cfg.questOff[def.id]) { r.off++; continue; }
+      if (questSeries(def.id) > worldSeries(st)) { r.series++; continue; }
+      if ((def.prereq || []).some((p) => quests[p]?.state !== 3)) { r.prereq++; continue; }
+      if ((def.minLevel ?? 1) > (fresh ? lvl : teamLevel(st))) r.level++;
+    }
+    const parts = [
+      r.today && `${r.today}× heute schon erledigt`, r.level && `${r.level}× Level zu niedrig`,
+      r.prereq && `${r.prereq}× Vorquest fehlt`, r.series && `${r.series}× andere Serie`,
+      r.stuck && `${r.stuck}× angenommen, aber gerade nicht machbar (Ziel zu stark/gesperrt)`, r.off && `${r.off}× abgewählt`,
+    ].filter(Boolean);
+    return parts.length ? ` (${parts.join(', ')})` : '';
+  }
   // Nächste (erreichbare) Map der Runde; null = Runde fertig.
   function sweepAdvance(st) {
     const ids = sweepList().map((m) => m.id);
@@ -1697,9 +1751,10 @@
       // Runde: auf dieser Map nichts mehr zu tun -> nächste Map (absteigend)
       for (let guard = 0; cfg.apOrder === 'sweep' && !all.length && guard < 40; guard++) {
         const done = autopilot.sweepAt;
+        const why = sweepSkipReasons(st, done);
         const next = sweepAdvance(st);
-        logEvent('map', next ? `Runde: ${content()?.maps?.[done]?.name || done} erledigt → weiter mit ${content()?.maps?.[next]?.name || next}`
-          : `Runde: ${content()?.maps?.[done]?.name || done} erledigt – Runde beendet`);
+        logEvent('map', next ? `Runde: ${content()?.maps?.[done]?.name || done} erledigt${why} → weiter mit ${content()?.maps?.[next]?.name || next}`
+          : `Runde: ${content()?.maps?.[done]?.name || done} erledigt${why} – Runde beendet`);
         if (!next) return null;
         autopilot.sweepAt = next;
         autopilot.phase = 0;
@@ -2378,6 +2433,9 @@
       autopilot.reset();
       farm.reset();
       if (this.on) autopilot.newRun();
+      // Map-für-Map-Runde: bei jedem Start an der eingestellten Start-Map beginnen (nicht beim gespeicherten Fortschritt,
+      // sonst fehlt z. B. eine Map, die beim letzten Lauf noch nichts zu tun hatte, inzwischen aber schon)
+      if (this.on && cfg.apOrder === 'sweep' && cfg.apSweepMap) { cfg.apSweepMap = ''; saveCfg(); }
       if (this.on) loadWorld(); // Kartendaten (Portale, Zonen, Schutzzonen) für alle Modi
       if (this.on) this.timer = setInterval(() => this.tick(), TICK_MS);
       this.status = this.on ? 'Bot läuft' : 'Bot aus';
@@ -2425,6 +2483,17 @@
       const sc = scan(st);
       const attackers = sc ? sc.attackers.map((m) => m.id) : [];
       if (cfg.farm && world.state === 'ready') farmUpdate(st, now);
+      checkRefusals(st, t, now);
+      // Autopilot auf dem Weg zur Abgabe (bzw. in der Abgabe-Phase der Runde): keine Kämpfe, auch nicht gegen Angreifer –
+      // Digimon zurückrufen und weiterlaufen
+      const noFight = cfg.autopilot && !cfg.farm && nextIsTurnin(st, now);
+      if (noFight) {
+        const pe = window.dmo?.net?.state?.entities?.get?.(p.entityId);
+        if ((pe?.targetId || this.attackedId) && this.can('follow', 1500, now)) {
+          this.lastPress.follow = now;
+          commands()?.partnerFollow?.();
+        }
+      }
       if (!this.resting && cfg.hpPot > 0 && hpPct < cfg.hpPot && !potionCount(me, 1)) {
         this.resting = true;
         logEvent('warn', `Ruhemodus: HP ${hpPct.toFixed(0)} % und kein Trank auf F1`);
@@ -2444,7 +2513,7 @@
       // Level-Prüfung wie bei der Zielwahl (scan): im Quest-Modus/Autopilot sind schwächere Monster erlaubt.
       // Sonst wählt der Bot ein Ziel aus und verwirft es gleich wieder – endlos.
       const lvlOk = info ? info.inLvl : diff <= cfg.lvlDiff;
-      const valid = isAttacker || (!blocked && (this.resting ? fighting : alive && lvlOk));
+      const valid = !noFight && (isAttacker || (!blocked && (this.resting ? fighting : alive && lvlOk)));
       if (!valid) {
         this.attackedId = null;
         this.engage = null;
@@ -2458,20 +2527,20 @@
             if (ev !== true) { this.status = `Autopilot: ${ev}`; return; }
           }
           // Direkt das beste Ziel anvisieren
-          const next = pickTarget(sc, this.resting);
+          const next = noFight ? null : pickTarget(sc, this.resting);
           if (next) {
             if (this.can('select', SELECT_GAP_MS, now)) { this.lastPress.select = now; scene.select(next.id); }
             this.status = `${next.attacker ? 'Angreifer' : 'Nächstes Ziel'}: Lv ${next.level} · ${Math.round(next.d)} px`;
           } else if (cfg.farm && !this.resting) {
             this.status = `Bosse: ${farmStep(st, sc, now)}`;
-          } else if (cfg.autopilot && !this.resting) {
+          } else if (cfg.autopilot && (!this.resting || noFight)) {
             const s = autopilotStep(st, sc, now);
             if (s === null) {
               this.toggle();
               this.status = 'Autopilot: keine machbaren Quests mehr – Bot gestoppt';
               logEvent('auto', 'Keine machbaren Quests mehr – Bot gestoppt');
               notify('Autopilot fertig.');
-            } else this.status = `Autopilot: ${s}`;
+            } else this.status = `Autopilot: ${noFight && attackers.length ? 'ignoriere Kämpfe · ' : ''}${s}`;
           } else if (!cfg.autopilot && sc.quest && !sc.quest.open.length && !attackers.length) {
             // Quest-Modus: alle jagbaren Ziele auf dieser Map erledigt -> fertig
             this.toggle();
@@ -2530,6 +2599,14 @@
 
       // 4b) Schutzzone: erst heraus, sonst lehnt das Spiel den Angriff ab
       const ents = window.dmo?.net?.state?.entities;
+      if (now - refusal.rangeAt < 2500) {
+        const te = ents?.get?.(t.id), me2 = controlled(st);
+        if (te && me2 && now - refusal.lastTap > 700) {
+          refusal.lastTap = now;
+          worldScene()?.tapGround?.(me2.x + (te.x - me2.x) * 0.6, me2.y + (te.y - me2.y) * 0.6);
+        }
+        this.status = `Zu weit weg – gehe näher an ${t.name} heran…`;
+      }
       const sz = leaveSafeZone(st, ents?.get?.(t.id), now);
       if (sz) { this.engage = null; this.attackedId = null; this.status = sz; return; }
 
