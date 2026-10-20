@@ -217,6 +217,11 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.11.7 – Boss-Liste mit Suche
+- Im Reiter Bosse unter „Bosse auswählen“ gibt es ein **Suchfeld**, das nach Boss- oder Map-Namen filtert.
+- Die Liste hat eine **feste Höhe** und wird mit dem **Balken rechts** gescrollt. Das Panel wächst nicht mehr nach unten.
+- Alle scrollbaren Listen haben schlanke, gut sichtbare Scrollbalken.
+
 #### Neu in 2.11.6 – Kein Kanal-Pingpong bei Boss-Quests
 - **Neuer Kanal ist nicht automatisch frisch:** Der Bot merkt sich den Boss-Timer pro Kanalnummer, auch wenn der Kanal
   schließt, sobald niemand mehr drauf ist. Ein neu geöffneter Kanal mit bekanntem Timer wird nicht mehr als „Boss frisch“

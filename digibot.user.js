@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.11.6
+// @version      2.11.7
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -144,7 +144,17 @@
     .digibot__farmch{display:flex;gap:8px;flex-wrap:wrap;font-size:11px;margin:0 0 6px}
     .digibot__farmch label{display:flex;gap:3px;align-items:center;cursor:pointer}
     .digibot__farmch input{margin:0;accent-color:#ffd43b}
-    .digibot__bosspick{display:flex;flex-direction:column;gap:2px;max-height:150px;overflow-y:auto;padding-right:2px;margin-bottom:6px}
+    .digibot__bosspick{display:flex;flex-direction:column;gap:2px;height:190px;overflow-y:scroll;padding-right:4px;margin-bottom:6px;
+      border:1px solid #222a48;border-radius:6px;padding:3px}
+    .digibot__search{display:block;width:100%;box-sizing:border-box;margin:0 0 4px;background:#0b1020;color:#e8ecf4;border:1px solid #3a4670;
+      border-radius:5px;font:11px system-ui;padding:3px 6px;user-select:text}
+    .digibot__search:focus{outline:none;border-color:#3fa0ff}
+    .digibot__bosspick label.hide{display:none}
+    .digibot__bosspick,.digibot__timers,.digibot__quests,.digibot__mobs,.digibot__log,.digibot__body{scrollbar-width:thin;scrollbar-color:#3a4670 #0b1020}
+    .digibot ::-webkit-scrollbar{width:8px}
+    .digibot ::-webkit-scrollbar-track{background:#0b1020;border-radius:4px}
+    .digibot ::-webkit-scrollbar-thumb{background:#3a4670;border-radius:4px}
+    .digibot ::-webkit-scrollbar-thumb:hover{background:#4d5c94}
     .digibot__bosspick label{display:grid;grid-template-columns:auto 1fr auto;gap:5px;align-items:center;padding:2px 5px;
       border-radius:4px;background:#161c33;font-size:11px;cursor:pointer}
     .digibot__bosspick input{margin:0;accent-color:#ff6b6b}
@@ -400,7 +410,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.11.6'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.11.7'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -513,7 +523,8 @@
           'Gilt für den Modus Bosse. Boss-Rotation: reist zum ausgewählten Boss, der als Nächstes da ist. Named-Elite-Runde: Maps von Start bis Ende ablaufen, je Kanal prüfen (lebt → kämpfen, Respawn unter 2 min → warten, sonst weiter), danach per Digi-Phone zurück. Kanalwechsel nur außerhalb des Kampfes; das Level-Limit gilt für diese Bosse nicht.')}
         ${grp('timers', 'Timer', `<div class="digibot__timers" data-f="timers"><div class="digibot__none">Keine Bosse ausgewählt.</div></div>`, true,
           'Aus dem Boss-Fenster des Spiels, der Map-Info deines Kanals und eigenen Siegen. ★ = aktuelles Ziel, „hier“ = dein Standort.')}
-        ${grp('bosspick', 'Bosse auswählen', `<div class="digibot__bosspick" data-f="bosspick"><div class="digibot__none">warte auf Spielwelt…</div></div>`, false, '', 'data-farmmode="boss"')}
+        ${grp('bosspick', 'Bosse auswählen', `<input class="digibot__search" type="text" data-bosssearch placeholder="🔍 Boss oder Map suchen…" autocomplete="off" spellcheck="false">
+          <div class="digibot__bosspick" data-f="bosspick"><div class="digibot__none">warte auf Spielwelt…</div></div>`, false, 'Suchfeld filtert nach Boss- oder Map-Namen. Die Liste hat eine feste Höhe – mit dem Balken rechts scrollen.', 'data-farmmode="boss"')}
       </section>
 
       <section data-page="acc">
@@ -3989,9 +4000,10 @@
       farmPickSig = sig;
       const on = new Set(cfg.farmBosses || []);
       panel.querySelector('[data-f="bosspick"]').innerHTML = all.length ? all.map((b) => `
-        <label><input type="checkbox" data-farmboss="${esc(b.id)}" ${on.has(b.id) ? 'checked' : ''}>
+        <label data-q="${esc(`${b.name} ${b.mapName}`.toLowerCase())}"><input type="checkbox" data-farmboss="${esc(b.id)}" ${on.has(b.id) ? 'checked' : ''}>
           <span title="${esc(b.mapName)}">${esc(b.name)} · ${esc(b.mapName)}</span><em>Lv ${b.level} · ${Math.round(b.respawnMs / 60000)} min</em></label>`).join('')
         : '<div class="digibot__none">warte auf Spielwelt…</div>';
+      filterBossPick();
     }
     const now = Date.now(), sel = farmSelected(), chs = farmChannels();
     const curMap = st?.world?.mapId, curCh = st?.world?.channel ?? 1;
@@ -4009,6 +4021,17 @@
       }).join('');
       return `<div class="digibot__timer${goal ? ' goal' : ''}"><b>${esc(b.name)} Lv ${b.level} · ${esc(b.mapName)}</b>${rows}</div>`;
     }).join('') : '<div class="digibot__none">Keine Bosse ausgewählt.</div>';
+  }
+
+  // Suchfeld über der Boss-Liste: Einträge ausblenden, deren Boss-/Map-Name den Suchtext nicht enthält
+  function filterBossPick() {
+    const q = (panel.querySelector('[data-bosssearch]')?.value || '').trim().toLowerCase();
+    const box = panel.querySelector('[data-f="bosspick"]');
+    let shown = 0;
+    box.querySelectorAll('label[data-q]').forEach((l) => { const hit = !q || l.dataset.q.includes(q); l.classList.toggle('hide', !hit); if (hit) shown++; });
+    let none = box.querySelector('.digibot__nohit');
+    if (q && !shown) { if (!none) { none = document.createElement('div'); none.className = 'digibot__none digibot__nohit'; box.append(none); } none.textContent = `Kein Boss passt zu „${q}“.`; }
+    else none?.remove();
   }
 
   function renderQuests(st, sc) {
@@ -4423,6 +4446,7 @@
         e.target.blur();
         return;
       }
+      if (e.target.matches('[data-bosssearch]')) { filterBossPick(); return; }
       const hk = e.target.dataset.healcfg;
       if (hk) {
         const v = Number(e.target.value) || 0;
