@@ -217,6 +217,13 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.11.3 – Mitläufer laufen nicht mehr allein vor
+- Wählt der Leader ein Gespräch auf einer **anderen Map**, während er noch beim Mitläufer steht, läuft der Mitläufer nicht
+  mehr allein los. Er meldet „gesehen“, damit der Leader nicht wartet, und folgt ihm.
+- Erst wenn der Leader die Map gewechselt hat, übernimmt der Mitläufer das Gespräch. Beide reisen also zusammen.
+- Vorher wartete der Leader auf den beschäftigten Mitläufer, der Mitläufer lief allein vor, dann zurück, und beide
+  trafen sich wieder.
+
 #### Neu in 2.11.2 – Boss-Quest: kürzester Respawn wie in der Boss-Rotation
 - Ist der Boss einer Quest nicht da, schätzt der Autopilot für jeden Kanal, wann er kämpfbar ist:
   - lebt: sofort
