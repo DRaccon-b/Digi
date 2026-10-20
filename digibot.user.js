@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.6.3
+// @version      2.7.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -275,7 +275,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.6.3'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.7.0'}</span>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
       <button class="digibot__btn" data-act="min" title="Ein-/Ausklappen">–</button>
     </div>
@@ -351,7 +351,7 @@
           <div class="digibot__apcfg">
             <label>Reihenfolge<select data-apsel="apOrder">
               <option value="near">Nächste Aufgabe zuerst</option>
-              <option value="sweep">Map für Map (absteigend)</option></select></label>
+              <option value="sweep">Map für Map: annehmen → erledigen → abgeben</option></select></label>
             <label data-sweeponly>Start-Map<select data-apsel="apStartMap"></select></label>
             <label>Quest-Digimon<select data-apsel="apQuestPartner"></select></label>
             <label>Digitation<select data-apsel="apEvo"></select></label>
@@ -1032,9 +1032,10 @@
     task: null, nav: null, failed: new Map(), huntSpecies: new Set(),
     sweepAt: null, tp: null, tpBlock: new Map(), route: null, lastSwitch: 0, switchTries: 0, switchGiveUp: null, lastEvolve: 0, evoTries: 0, evoGiveUp: null,
     dailyVisited: new Set(), dailyAccepted: new Set(), dailyAt: 0, boardOnly: new Set(),
+    phase: 0, // aktuelle Phase der Map-für-Map-Runde (nur fürs Log)
     newRun() { // beim Start des Bots: Wechsel/Digitation/Dailies neu versuchen
       this.switchGiveUp = null; this.evoGiveUp = null; this.switchTries = 0; this.evoTries = 0;
-      this.dailyVisited = new Set(); this.dailyAccepted = new Set(); this.failed = new Map(); this.tpBlock = new Map(); this.tp = null;
+      this.dailyVisited = new Set(); this.dailyAccepted = new Set(); this.failed = new Map(); this.tpBlock = new Map(); this.tp = null; this.phase = 0;
     },
     lastTap: 0, lastTalk: 0, talkTries: 0, dialogAt: 0, arrivedAt: 0, idleSince: 0,
     reset() {
@@ -1361,9 +1362,14 @@
     return tasks
       .filter((t) => !M || t.grind ? !M : t.purpose === 'daily' ? t.loc.mapId === M : questOnMap(t.def, M))
       .filter((t) => (autopilot.failed.get(t.key) || 0) < now && hops(mapId, t.loc.mapId) < Infinity)
-      .map((t) => ({ ...t, cost: hops(mapId, t.loc.mapId) * 10 + t.prio }))
-      .sort((a, b) => a.cost - b.cost);
+      .map((t) => ({ ...t, cost: hops(mapId, t.loc.mapId) * 10 + t.prio, phase: M ? taskPhase(t) : 0 }))
+      .sort((a, b) => a.phase - b.phase || a.cost - b.cost);
   }
+  // Phasen der Map-für-Map-Runde: 1 = Quests annehmen, 2 = Ziele erledigen, 3 = abgeben.
+  // So wird pro Map erst alles angenommen, dann alles erledigt und ganz zum Schluss abgegeben –
+  // Digimon-Wechsel und Zurück-Digitation passieren nur einmal, beim Übergang zum Abgeben.
+  const taskPhase = (t) => (t.purpose === 'accept' || t.purpose === 'daily' ? 1 : t.purpose === 'turnin' ? 3 : 2);
+  const PHASE_NAMES = { 1: 'Quests annehmen', 2: 'Ziele erledigen', 3: 'Quests abgeben' };
 
   function taskDone(st, t) {
     if (t.grind) return (st?.me?.partner?.level ?? 0) >= t.targetLevel;
@@ -1635,6 +1641,7 @@
           : `Runde: ${content()?.maps?.[done]?.name || done} erledigt – Runde beendet`);
         if (!next) return null;
         autopilot.sweepAt = next;
+        autopilot.phase = 0;
         all = questTasks(st);
       }
       t = autopilot.task = all[0] || null;
@@ -1645,6 +1652,10 @@
           t.names = [...new Set([t.names, ...same.map((o) => o.names)])].join(', ');
           t.label += ` (+${same.length} weitere${same.length > 1 ? '' : 's'} Ziel${same.length > 1 ? 'e' : ''})`;
         }
+      }
+      if (t && t.phase && t.phase !== autopilot.phase) {
+        autopilot.phase = t.phase;
+        logEvent('map', `Runde ${content()?.maps?.[autopilot.sweepAt]?.name || autopilot.sweepAt}: Phase ${t.phase}/3 – ${PHASE_NAMES[t.phase]}`);
       }
       if (t) logEvent('auto', `Aufgabe: ${t.label}`);
       autopilot.nav = null; autopilot.talkTries = 0; autopilot.arrivedAt = 0; autopilot.idleSince = 0;
@@ -1661,9 +1672,18 @@
     if (st.dialog && st.dialog.npc !== t.npcId && !(st.dialog.npc === 'digiphone' && autopilot.tp)) commands()?.closeDialog?.();
 
     autopilot.huntSpecies = t.kind === 'hunt' && st.world?.mapId === t.loc.mapId ? t.species : new Set();
-    // Quest-Digimon für alles außer Abgaben (die Abgabe wechselt erst direkt beim NPC)
+    // Quest-Digimon (in der gewählten Digitation) für Annehmen und Erledigen; für Abgaben das Abgabe-Digimon.
+    // In der Map-für-Map-Runde wird schon vor dem ersten Annehmen digitiert und vor dem Hinlaufen zur Abgabe
+    // zurück-digitiert und gewechselt – nicht erst beim NPC.
     if (t.purpose !== 'turnin') {
       const sw = ensurePartner(st, cfg.apQuestPartner, now);
+      if (sw !== true) return `${t.label} · ${sw}`;
+      if (cfg.apOrder === 'sweep' && (!cfg.apQuestPartner || activePartner(st)?.partnerId === cfg.apQuestPartner)) {
+        const ev = ensureEvolution(st, cfg.apEvo, now);
+        if (ev !== true) return `${t.label} · ${ev}`;
+      }
+    } else if (cfg.apOrder === 'sweep') {
+      const sw = ensurePartner(st, cfg.apTurninPartner || cfg.apQuestPartner, now);
       if (sw !== true) return `${t.label} · ${sw}`;
     }
     const tr = travel(st, t.loc.mapId, now);

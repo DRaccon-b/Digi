@@ -55,10 +55,14 @@ Unerreichbare NPCs/Ziele werden nach kurzer Zeit für 5 Minuten übersprungen. G
 stoppt der Bot mit Hinweiston. Keine Schnellreise (Digi-Phone).
 
 #### Autopilot-Einstellungen
-- **Reihenfolge:** „Nächste Aufgabe zuerst“ oder **„Map für Map (absteigend)“**. Die Runde geht die Maps nach
-  Level absteigend durch (Dream Ruins → Highton View Terrace → … → Native Forest). Pro Map: alle Quests annehmen,
-  deren Geber dort steht (plus Dailies der dortigen Daily-NPCs), alle Ziele erledigen – auch wenn die Monster auf
-  einer anderen Map leben –, alles abgeben, dann weiter zur nächsten Map. Der Fortschritt bleibt gespeichert.
+- **Reihenfolge:** „Nächste Aufgabe zuerst“ oder **„Map für Map: annehmen → erledigen → abgeben“**. Die Runde geht
+  die Maps nach Level absteigend durch (Dream Ruins → Highton View Terrace → … → Native Forest). Pro Map in drei
+  festen Phasen (ab 2.7, im Log als „Phase 1/3 …“ zu sehen): **1.** alle Quests annehmen, deren Geber dort steht
+  (plus Dailies der dortigen Daily-NPCs), **2.** alle Ziele erledigen – auch wenn die Monster auf einer anderen Map
+  leben –, **3.** alles abgeben, dann weiter zur nächsten Map. Der Fortschritt bleibt gespeichert.
+  Digimon-Wechsel und Digitation passieren dabei nur an den Phasengrenzen: vor dem ersten Annehmen wird zum
+  Quest-Digimon gewechselt und digitiert, vor dem Hinlaufen zur ersten Abgabe zurück-digitiert und zum
+  Abgabe-Digimon gewechselt – nicht mehr bei jedem einzelnen NPC.
 - **Start-Map:** wo die Runde beginnt (Standard: höchste erreichbare Map).
 - **Quest-Digimon:** mit welchem Partner aus dem Team Quests erledigt werden (Wechsel wie im Wechsel-Menü).
 - **Digitation:** in welche Form das Quest-Digimon vor dem Jagen digitiert (schrittweise; fehlt Tamer-DS,
