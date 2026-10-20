@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.8.0
+// @version      2.8.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -275,7 +275,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.8.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.8.1'}</span>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
       <button class="digibot__btn" data-act="min" title="Ein-/Ausklappen">–</button>
     </div>
@@ -809,7 +809,33 @@
   //  not_in_range   -> zu weit weg: ein Stück auf das Ziel zugehen
   //  safe_zone      -> Schutzzone: herauslaufen (auch wenn die Zone nicht in den Kartendaten steht)
   //  invalid_target -> Ziel kurz überspringen
-  const refusal = { seen: new WeakSet(), safeAt: 0, rangeAt: 0, lastTap: 0 };
+  const refusal = { seen: new WeakSet(), safeAt: 0, rangeAt: 0, lastTap: 0, tries: new Map(), repos: null };
+  const REPOS_MAX = 2;      // so oft eine andere Position versuchen, bevor das Ziel gesperrt wird
+  const REPOS_MS = 5000;    // so lange höchstens zur neuen Position laufen
+  const REPOS_DIST = 52;    // Abstand der neuen Position zum Ziel
+  // Neue Angriffsposition rund ums Ziel: begehbar, keine Schutzzone, mit echtem Weg vom Tamer aus.
+  // Versuch 1 bevorzugt die Seiten (±60°/±90° zur bisherigen Richtung), Versuch 2 die Rückseite des Ziels.
+  function repositionSpot(st, targetId, attempt) {
+    const ents = window.dmo?.net?.state?.entities;
+    const te = ents?.get?.(targetId), me = controlled(st);
+    if (!te || !me) return null;
+    const g = worldScene()?.map?.grid, T = g?.tile || 16;
+    const walkable = (x, y) => !g?.blocked || g.blocked[Math.floor(y / T) * g.w + Math.floor(x / T)] !== 1;
+    const base = Math.atan2(me.y - te.y, me.x - te.x); // Richtung Ziel -> Tamer
+    const deg = attempt === 1 ? [60, -60, 90, -90, 30, -30, 120, -120] : [180, 150, -150, 120, -120, 0];
+    for (const d of deg) {
+      const a = base + d * Math.PI / 180;
+      for (const r of [REPOS_DIST, REPOS_DIST + 24]) {
+        const p = { x: te.x + Math.cos(a) * r, y: te.y + Math.sin(a) * r };
+        if (!walkable(p.x, p.y) || safeRectAt(st.world?.mapId, p)) continue;
+        if (Math.hypot(p.x - me.x, p.y - me.y) < 20) continue;
+        const path = gridRoute(me.x, me.y, p.x, p.y);
+        if (g?.blocked && !path) continue; // kein Weg dorthin
+        return p;
+      }
+    }
+    return null;
+  }
   // Ist gerade eine Abgabe dran? Auch wenn der Autopilot die nächste Aufgabe noch nicht gewählt hat (die alte ist
   // erledigt, aber ein Angreifer kam dazwischen) – dann wird vorausgeschaut (höchstens 1× pro Sekunde).
   const turninPeek = { at: 0, val: false };
@@ -830,10 +856,24 @@
       if (to.kind !== 'error' || !to.code) continue;
       if (to.code === 'safe_zone') refusal.safeAt = now;
       else if (to.code === 'not_in_range') refusal.rangeAt = now;
-      else if ((to.code === 'unreachable' || to.code === 'invalid_target') && t?.id && t.kind === 'mob') {
-        blacklist.set(t.id, now + (to.code === 'unreachable' ? BAN_MS : 15000));
+      else if (to.code === 'unreachable' && t?.id && t.kind === 'mob') {
+        // Erst aus einer anderen Richtung versuchen (bis REPOS_MAX-mal), dann sperren
+        const tries = (refusal.tries.get(t.id) || 0) + 1;
+        refusal.tries.set(t.id, tries);
+        const spot = tries <= REPOS_MAX ? repositionSpot(st, t.id, tries) : null;
         bot.attackedId = null; bot.engage = null;
-        logEvent('warn', `${t.name || 'Ziel'}: ${to.code === 'unreachable' ? 'Digimon kommt nicht hin – 1 min gesperrt' : 'ungültiges Ziel – kurz übersprungen'}`);
+        if (spot) {
+          refusal.repos = { id: t.id, x: spot.x, y: spot.y, until: now + REPOS_MS };
+          logEvent('auto', `${t.name || 'Ziel'}: Digimon kommt nicht hin – versuche andere Position (${tries}/${REPOS_MAX})`);
+        } else {
+          refusal.repos = null;
+          blacklist.set(t.id, now + BAN_MS);
+          logEvent('warn', `${t.name || 'Ziel'}: Digimon kommt auch von anderer Position nicht hin – 1 min gesperrt`);
+        }
+      } else if (to.code === 'invalid_target' && t?.id && t.kind === 'mob') {
+        blacklist.set(t.id, now + 15000);
+        bot.attackedId = null; bot.engage = null;
+        logEvent('warn', `${t.name || 'Ziel'}: ungültiges Ziel – kurz übersprungen`);
       }
     }
   }
@@ -2599,6 +2639,19 @@
 
       // 4b) Schutzzone: erst heraus, sonst lehnt das Spiel den Angriff ab
       const ents = window.dmo?.net?.state?.entities;
+      const rp = refusal.repos;
+      if (rp && rp.id === t.id && now < rp.until) {
+        const me3 = controlled(st);
+        const dr = me3 ? Math.hypot(me3.x - rp.x, me3.y - rp.y) : 0;
+        if (dr > 18) {
+          if (now - refusal.lastTap > 600) { refusal.lastTap = now; worldScene()?.tapGround?.(rp.x, rp.y); }
+          if (this.can('follow', 1500, now)) { this.lastPress.follow = now; commands()?.partnerFollow?.(); }
+          this.engage = null; this.attackedId = null;
+          this.status = `${t.name}: Digimon kam nicht hin – wechsle Position (${Math.round(dr)} px)…`;
+          return;
+        }
+        refusal.repos = null; // angekommen -> gleich neu angreifen
+      } else if (rp && (rp.id !== t.id || now >= rp.until)) refusal.repos = null;
       if (now - refusal.rangeAt < 2500) {
         const te = ents?.get?.(t.id), me2 = controlled(st);
         if (te && me2 && now - refusal.lastTap > 700) {
