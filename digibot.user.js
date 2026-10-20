@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.10.4
+// @version      2.10.5
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -344,7 +344,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.10.4'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.10.5'}</span>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
       <button class="digibot__btn" data-act="min" title="Ein-/Ausklappen">–</button>
     </div>
@@ -1929,7 +1929,7 @@
   // Digitiert das aktive Digimon Schritt für Schritt zur gewünschten Form. Fehlt Tamer-DS, wird der F3-Trank
   // benutzt. true = passt (oder geht gerade nicht); sonst Statustext.
   function ensureEvolution(st, species, now) {
-    if (group.role() === 'follower') return true;
+    // Mitläufer: gleiche Zielform wie der Leader – nur wenn ihr eigenes Digimon sie hat (sonst passiert unten nichts)
     const p = st?.me?.partner;
     if (!species || !p || p.species === species || p.evolving || autopilot.evoGiveUp === species) return true;
     const evos = p.evolutions || [];
@@ -3276,8 +3276,9 @@
         if (scene && sc) {
           // Autopilot: vor dem Jagen erst in die gewünschte Form digitieren
           const at = autopilot.task;
-          if (!cfg.farm && cfg.autopilot && !attackers.length && at?.kind === 'hunt' && st.world?.mapId === at.loc.mapId
-            && (!cfg.apQuestPartner || activePartner(st)?.partnerId === cfg.apQuestPartner)) {
+          const folIdle = group.role() === 'follower' && !at; // Mitläufer zwischen den Kämpfen
+          if (!cfg.farm && cfg.autopilot && !attackers.length && (folIdle || (at?.kind === 'hunt' && st.world?.mapId === at.loc.mapId
+            && (!cfg.apQuestPartner || activePartner(st)?.partnerId === cfg.apQuestPartner)))) {
             const ev = ensureEvolution(st, cfg.apEvo, now);
             if (ev !== true) { this.status = `Autopilot: ${ev}`; return; }
           }
