@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.10.2
+// @version      2.10.3
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -344,7 +344,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.10.2'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.10.3'}</span>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
       <button class="digibot__btn" data-act="min" title="Ein-/Ausklappen">–</button>
     </div>
@@ -1416,7 +1416,7 @@
   function mirrorTask(st, lt) {
     const q = lt.questId ? st.me?.quests?.[lt.questId] : null;
     const def = lt.questId ? questDef(content(), lt.questId) : null;
-    const base = { ...lt, key: lt.tkey, kind: 'talk', loc: { ...lt.loc }, def, mirror: lt.key };
+    const base = { ...lt, key: lt.tkey, kind: 'talk', loc: npcStation(lt.npcId, st.me?.quests || {}) || { ...lt.loc }, def, mirror: lt.key };
     if (lt.purpose === 'accept') return def && ((q?.state ?? 0) === 0 || (q.state === 3 && repeatAvailable(def, q))) ? base : null;
     if (lt.purpose === 'turnin') return q?.state === 2 ? base : null;
     if (lt.purpose === 'objective') return q?.state === 1 && (q.counters?.[lt.objIndex] ?? 0) < lt.need ? base : null;
@@ -1598,6 +1598,7 @@
     if (!accounts.mirror || !group.active()) { if (group.mirroring) mirrorEnd(); return; }
     const st = getStore()?.getState?.(), now = Date.now();
     if (!st || st.screen !== 'world' || !st.me) return;
+    if (group.role() === 'leader' && group.mirroring) mirrorEnd();
     if (group.role() === 'leader') { // Position melden, sobald sie sich ändert (sonst 1× pro Sekunde)
       const me = controlled(st), lp = group.lastPos;
       if (!me || !group.bus) return;
@@ -2010,12 +2011,33 @@
   }
 
   // Alle Aufgaben, die der Autopilot gerade erledigen könnte – sortiert nach Weg (Map-Wechsel) und Priorität.
+  // Manche NPCs (z. B. Leomon) stehen je nach Quest-Stand woanders. Die Spieldaten nennen dafür „stations“:
+  // { mapId, point (Spawn-Punkt der Map), when: { quest, state: available|active|ready|done } }. Die erste passende
+  // Station gilt; passt keine, steht der NPC an seinem normalen Platz (null).
+  const QSTATE = ['available', 'active', 'ready', 'done'];
+  function npcStation(npcId, quests) {
+    const C = content(), stations = C?.npcs?.[npcId]?.stations;
+    if (!stations?.length) return null;
+    for (const sta of stations) {
+      const qid = sta.when?.quest;
+      if (!qid) continue;
+      const q = quests?.[qid], name = QSTATE[q?.state ?? 0] || 'available';
+      if (!new Set([].concat(sta.when.state || [])).has(name)) continue;
+      if (name === 'available' && (questDef(C, qid)?.prereq || []).some((p) => quests?.[p]?.state !== 3)) continue; // noch gar nicht verfügbar
+      const p = world.maps[sta.mapId]?.spawns?.[sta.point];
+      if (p) return { mapId: sta.mapId, x: p.x, y: p.y, station: sta.point };
+    }
+    return null;
+  }
+
   function questTasks(st) {
     const C = content(), me = st?.me, mapId = st?.world?.mapId;
     if (!C || !me || world.state !== 'ready') return [];
     const ix = questIndex(C), lvl = me.partner?.level ?? 1, quests = planQuests(st);
     const npcName = (id) => C.npcs?.[id]?.name || id;
     const npcLoc = (npcId, prefMap) => {
+      const sta = npcStation(npcId, me.quests || {});
+      if (sta) return sta;
       const locs = world.npcAt.get(npcId) || [];
       return locs.find((l) => l.mapId === prefMap) || [...locs].sort((a, b) => hops(mapId, a.mapId) - hops(mapId, b.mapId))[0] || null;
     };
@@ -2422,7 +2444,7 @@
       return `${t.label}: ${why} – übersprungen`;
     };
     const gc = groupCombatWait(st, t, now);
-    if (gc) { autopilot.nav = null; return gc; }
+    if (gc) { autopilot.nav = null; autopilot.huntSpecies = new Set(); return gc; }
     // offener Dialog mit einem anderen NPC stört nur -> schließen
     if (st.dialog && st.dialog.npc !== t.npcId && !(st.dialog.npc === 'digiphone' && autopilot.tp)) commands()?.closeDialog?.();
 
@@ -3134,6 +3156,10 @@
 
       // 2) Ruhemodus: HP unter Schwelle und kein HP-Trank mehr -> keine neuen Kämpfe, bis HP wieder 100 %
       const hpPct = pct(p.hp, p.maxHp);
+      if (group.role() === 'follower' && cfg.autopilot && !autopilot.task) {
+        const L = groupLeader(now);
+        autopilot.huntSpecies = L && L.mapId === st.world?.mapId ? new Set(L.hunt || []) : new Set();
+      }
       const sc = scan(st);
       const attackers = sc ? sc.attackers.map((m) => m.id) : [];
       if (cfg.farm && world.state === 'ready') farmUpdate(st, now);
