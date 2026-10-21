@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.12.2
+// @version      2.12.4
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -422,7 +422,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.12.2'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.12.4'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -2650,7 +2650,10 @@
     t.dlgSteps = (t.dlgSteps || 0) + 1;
     if (t.dlgSteps <= DIALOG_MAX_STEPS) {
       const step = dialogStep(t.npcId, d.node, want);
-      if (step) {
+      // Annehmen/Abgeben schon 2× gewählt und nichts passiert: das Fenster zeigt eine alte Seite (z. B. nach einer Abgabe)
+      // -> gleich frisch ansprechen statt 6× dieselbe Auswahl zu klicken
+      const stale = step?.final && (t.finalPicks = (t.finalPicks || 0) + 1) > 2 && !t.retalked;
+      if (step && !stale) {
         cmd?.chooseDialog?.(step.choice.id);
         const label = step.choice.label || step.choice.id;
         logEvent('auto', step.final ? `Dialog mit ${name}: ${accept ? 'Quest annehmen' : 'Quest abgeben'}` : `Dialog mit ${name}: „${label}“`);
@@ -2659,7 +2662,7 @@
     }
     if (!t.retalked) { // Fenster passt nicht (z. B. nach einer Abgabe) -> schließen und frisch ansprechen
       t.retalked = true;
-      t.dlgSteps = 0;
+      t.dlgSteps = 0; t.finalPicks = 0;
       cmd?.closeDialog?.();
       autopilot.lastTalk = 0;
       autopilot.talkTries = 0;
@@ -3623,6 +3626,12 @@
       checkRefusals(st, t, now);
       // Autopilot auf dem Weg zum Abgeben, Annehmen, Sprechen oder zu einem Reise-Ziel: keine Kämpfe, auch nicht gegen
       // Angreifer – Digimon zurückrufen und weiterlaufen
+      // Mitläufer: offene Gespräche des Leaders (oder Aufholen) gehen vor – auch vor Angreifern. Sonst reißt ihn z. B. ein
+      // Feldboss mitten aus einer Annehmen-/Abgeben-Folge beim NPC, und danach wird das Gespräch nicht mehr angeboten.
+      if (group.role() === 'follower' && cfg.autopilot && !cfg.farm && !autopilot.task && world.state === 'ready') {
+        const L0 = groupLeader(now);
+        if (L0) followerAssign(st, L0, now);
+      }
       const noFight = cfg.autopilot && !cfg.farm && nextIsTurnin(st, now);
       if (group.role() === 'leader') group.noFight = noFight; // Mitläufer kämpfen dann auch nicht
       if (noFight) {
@@ -3667,10 +3676,6 @@
           }
           // Direkt das beste Ziel anvisieren
           // Mitläufer: vor dem nächsten Kampf prüfen, ob ein Gespräch nachzumachen oder aufzuholen ist
-          if (group.role() === 'follower' && cfg.autopilot && !autopilot.task && !attackers.length) {
-            const L = groupLeader(now);
-            if (L) followerAssign(st, L, now);
-          }
           const folBusy = group.role() === 'follower' && autopilot.task && PASSIVE(autopilot.task) && !taskDone(st, autopilot.task);
           const next = noFight || folBusy ? null : pickTarget(sc, this.resting);
           if (next) {
