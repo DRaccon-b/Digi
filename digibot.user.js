@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.14.0
+// @version      2.14.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -469,7 +469,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.14.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.14.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -4850,10 +4850,14 @@
       }
       if (e.target.dataset.cfg) e.target.blur();
     });
-    // Tastenkürzel: Alt+D blendet das Panel ein/aus, Alt+B startet/stoppt den Bot
+    // Tastenkürzel: Alt+D oder Alt+H blendet das Panel ein/aus, Alt+B startet/stoppt den Bot. Alt+D springt in Chrome
+    // sonst zusätzlich in die Adresszeile – das wird hier unterbunden.
     window.addEventListener('keydown', (e) => {
       if (!e.isTrusted || !e.altKey) return;
-      if (e.code === 'KeyD') panel.style.display = panel.style.display === 'none' ? '' : 'none';
+      if (e.code === 'KeyD' || e.code === 'KeyH') {
+        e.preventDefault(); e.stopPropagation();
+        panel.style.display = panel.style.display === 'none' ? '' : 'none';
+      }
       if (e.code === 'KeyB') { e.preventDefault(); bot.toggle(); }
     }, true);
   }

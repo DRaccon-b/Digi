@@ -217,6 +217,9 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.14.1 – Ausblenden ohne Sprung in die Adresszeile
+- **Alt+D** blendet das Panel aus/ein, ohne dass Chrome zusätzlich in die Adresszeile springt. Neu dazu: **Alt+H** macht dasselbe.
+
 #### Neu in 2.14.0 – Einstellungen je Account, Account-Wahl loggt ein
 - **Einstellungen je Account:** Jeder Account (Login-Name) hat jetzt sein eigenes Profil: Betriebsart, Bosse, Kanäle,
   Digitation, Skills, Heal usw. Die Fenster der Gruppe überschreiben sich nicht mehr gegenseitig. Beim ersten Login
@@ -502,7 +505,7 @@ Direkter Installations-Link: https://raw.githubusercontent.com/DRaccon-b/Digi/ma
 ## Bedienung
 - Panel an der Titelleiste verschieben (Position wird gemerkt).
 - **⧉** öffnet das Panel als eigenes Fenster, das immer im Vordergrund bleibt (Chrome/Edge).
-- **–** klappt das Panel ein. **Alt+D** blendet es ganz aus/ein.
+- **–** klappt das Panel ein. **Alt+D** oder **Alt+H** blendet es ganz aus/ein.
 - HP-Balken des Digimons blinkt unter 25 %.
 
 ## Funktionsweise
