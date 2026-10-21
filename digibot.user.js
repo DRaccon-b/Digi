@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.18.2
+// @version      2.18.3
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -470,7 +470,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.18.2'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.18.3'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -1875,6 +1875,8 @@
   // Mitläufer: nächste Aufgabe = verpasstes Gespräch des Leaders, sonst dem Leader folgen (Status-Text)
   function followerPick(st, sc, now) {
     let t = autopilot.task;
+    // Leader erledigt meine Quests: eine noch laufende eigene Aufgabe (Aufholen, Gespräch nachmachen) abbrechen und stehen bleiben
+    if (t && groupLeader(now)?.serve) { autopilot.reset(); t = null; }
     if (t && taskDone(st, t)) { autopilot.reset(); t = null; }
     if (!t && group.cur) { group.done.push(group.cur); group.cur = null; }
     if (t) return t;
@@ -1943,7 +1945,18 @@
   }
   function followLeader(st, sc, L, now) {
     const name = L.name || 'Leader';
-    if (L.serve) { autopilot.huntSpecies = new Set(); autopilot.nav = null; return `Gruppe: bleibe stehen – ${name} erledigt meine Quests`; }
+    if (L.serve) {
+      autopilot.huntSpecies = new Set(); autopilot.nav = null;
+      // ein laufender Weg (Klickziel) läuft im Spiel sonst weiter: einmal auf die eigene Position tippen
+      const me = controlled(st);
+      if (me && (!group.standAt || Math.hypot(me.x - group.standAt.x, me.y - group.standAt.y) > 4) && bot.can('stand', 600, now)) {
+        bot.lastPress.stand = now;
+        group.standAt = { x: me.x, y: me.y };
+        worldScene()?.tapGround?.(me.x, me.y);
+      }
+      return `Gruppe: bleibe stehen – ${name} erledigt meine Quests`;
+    }
+    group.standAt = null;
     if (!L.inWorld || !L.mapId) { autopilot.huntSpecies = new Set(); return `Gruppe: ${name} ist nicht in der Spielwelt`; }
     if (st.world?.mapId !== L.mapId) {
       autopilot.huntSpecies = new Set();
