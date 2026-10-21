@@ -217,6 +217,13 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.16.0 – Gruppe: Ziele verteilen
+- Neuer Haken im Gruppen-Reiter: **„🎯 Ziele verteilen: jeder ein anderes Monster“**. Er gilt für die ganze Gruppe.
+- Ist er an, hängt sich kein Mitglied mehr ans Ziel des Leaders. Jeder greift ein Quest-Monster an, das noch kein anderes
+  Gruppenmitglied angreift. Erwischen zwei dasselbe, weicht der mit der höheren Slot-Nummer auf ein anderes aus,
+  solange das Monster noch über 50 % HP hat. Ist keins mehr frei, hilft man mit.
+- Bosse greifen weiterhin alle gemeinsam an, Angreifer wehrt jeder selbst ab. Nicht beim Spiegeln und nicht in der Boss-Rotation.
+
 #### Neu in 2.15.1 – Leader nutzt beim Spiegeln Tränke
 - Im Spiegel-Modus (👣 Spiegeln / ⚔️ + Angriff) spielst du den Leader selbst, sein Bot ist aus. Bisher setzten nur die
   Mitläufer ihre Tränke ein. Jetzt nutzt auch der Leader F1–F3 automatisch (nach den Schwellen im Reiter Pflege),

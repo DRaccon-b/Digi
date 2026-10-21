@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.15.1
+// @version      2.16.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -391,12 +391,12 @@
   // sessionStorage des Fensters (Slot) – die Bot-Einstellungen in localStorage teilen sich ja alle Fenster.
   const ACC_KEY = 'digibot.accounts';
   const ACC_MAX = 5;
-  const accounts = { leader: 0, popup: true, mirror: false, mirrorAtk: true, leadBoss: false, list: [] };
+  const accounts = { leader: 0, popup: true, mirror: false, mirrorAtk: true, leadBoss: false, spread: false, list: [] };
   function reloadAcc() {
     try {
       const a = JSON.parse(localStorage.getItem(ACC_KEY) || 'null');
       if (a && Array.isArray(a.list)) {
-        accounts.leader = Number(a.leader) || 0; accounts.popup = a.popup !== false; accounts.mirror = !!a.mirror; accounts.mirrorAtk = a.mirrorAtk !== false; accounts.leadBoss = !!a.leadBoss;
+        accounts.leader = Number(a.leader) || 0; accounts.popup = a.popup !== false; accounts.mirror = !!a.mirror; accounts.mirrorAtk = a.mirrorAtk !== false; accounts.leadBoss = !!a.leadBoss; accounts.spread = !!a.spread;
         accounts.list = a.list.slice(0, ACC_MAX);
       }
     } catch {}
@@ -470,7 +470,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.15.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.16.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -599,6 +599,7 @@
         <div class="digibot__seg">
           <button data-gmode="bots" title="Alle Fenster fahren ihren Bot: der Leader den Autopilot, die anderen folgen ihm und machen seine Quests mit.">📜 Quests</button><button data-gmode="boss" title="Alle Fenster fahren ihren Bot: der Leader die Boss-Rotation (Bosse im Tab Farmen auswählen), die anderen folgen ihm über Maps und Kanäle und kämpfen mit.">👑 Bosse</button><button data-gmode="move" title="Du spielst den Leader selbst – die anderen Fenster (Bot aus) laufen ihm nach, auch über Maps und Kanäle.">👣 Spiegeln</button><button data-gmode="both" title="Wie Spiegeln, und die anderen greifen das Ziel des Leaders mit an – mit ihren Skills, Tränken und Ausweichen.">⚔️ + Angriff</button>
         </div>
+        <label class="digibot__skill digibot__chk" title="Jedes Gruppenmitglied greift ein anderes Quest-Monster an (statt alle dasselbe). Ist keins mehr frei, hilft man mit. Bosse greifen alle gemeinsam an. Nicht beim Spiegeln und nicht in der Boss-Rotation."><input type="checkbox" data-accspread ${accounts.spread ? 'checked' : ''}><span>🎯 Ziele verteilen: jeder ein anderes Monster</span></label>
         <div class="digibot__grpbtns three"><button class="digibot__btn" data-act="grp-login" title="Fehlende Fenster öffnen, alle Accounts einloggen und Charakter wählen">🔑 Einloggen</button><button class="digibot__btn" data-act="grp-start" title="Bots in allen Gruppenfenstern starten">▶ Starten</button><button class="digibot__btn" data-act="grp-stop" title="Bots in allen Gruppenfenstern stoppen">■ Stoppen</button></div>
         <div class="digibot__gcards" data-f="gcards"></div>
         <label class="digibot__slotsel" title="Welcher Account läuft in diesem Fenster? Bestimmt, ob es Leader oder Mitläufer ist. Gilt nur für dieses Fenster.">Dieses Fenster ist
@@ -1419,6 +1420,7 @@
     if (!self) return null;
     const tamer = ents.get?.(me.tamerEntityId);
 
+    const grpTgt = spreadOn() ? groupTargets() : null;
     const takenByOthers = new Set();
     ents.forEach((e) => {
       if ((e.kind === KIND.Tamer || e.kind === KIND.Partner) && !ours.has(e.id) && e.targetId) takenByOthers.add(e.targetId);
@@ -1458,6 +1460,7 @@
         enabled: farmSp ? isFarmMob(farmSp, e.defId, cat, e.level) : quest ? quest.species.has(e.defId) || e.id === assistId : mobOn(mapId, key, cat),
         aggressive,
         banned: (blacklist.get(e.id) || 0) > now,
+        grpBy: grpTgt?.get(e.id) ?? null, // Slot des Gruppenmitglieds, das es schon angreift (Ziele verteilen)
       });
     });
     mobs.sort((a, b) => a.d - b.d);
@@ -1737,6 +1740,17 @@
     return `Gruppe: warte, bis ${f.map((m) => m.name || `Account ${m.slot + 1}`).join(', ')} den Kampf beendet`;
   }
 
+  // Ziele verteilen: nur im Bot-Betrieb der Gruppe (nicht Spiegeln, nicht Boss-Rotation)
+  const spreadOn = () => group.active() && accounts.spread && !accounts.mirror && !cfg.farm;
+  function groupTargets() {
+    const out = new Map(), now = Date.now(), ents = window.dmo?.net?.state?.entities;
+    for (const [slot, p] of group.peers) {
+      if (!fresh(p, now) || !p.inWorld) continue;
+      const ids = [p.targetId, ...(p.ents || []).map((id) => ents?.get?.(id)?.targetId)].filter(Boolean);
+      for (const id of ids) if (!out.has(id) || out.get(id) > slot) out.set(id, slot);
+    }
+    return out;
+  }
   function groupEntityIds() {
     const set = new Set(), now = Date.now();
     if (!group.active()) return set;
@@ -3776,8 +3790,13 @@
     const att = sc.attackers.filter((m) => !safeHeld(m.id));
     if (att.length) return att[0];
     if (resting) return null;
-    const assist = group.role() === 'follower' ? groupAssist(sc) : null; // Mitläufer: Ziel des Leaders
+    const spread = spreadOn();
+    const assist = group.role() === 'follower' && !spread ? groupAssist(sc) : null; // Mitläufer: Ziel des Leaders
     if (assist) return assist;
+    if (spread) { // Ziele verteilen: zuerst ein Monster, das noch kein anderes Gruppenmitglied angreift (Bosse gemeinsam)
+      const free = sc.mobs.find((m) => usable(m) && (m.grpBy === null || m.cat === 'boss'));
+      if (free) return free;
+    }
     return sc.mobs.find(usable) || null;
   }
 
@@ -3950,12 +3969,14 @@
       const info = alive && sc ? sc.mobs.find((m) => m.id === t.id) : null;
       // Gesperrt, von anderen belegt oder in der Liste abgewählt -> nicht (neu) angreifen; laufenden Kampf aber beenden
       const blocked = !!info && (info.banned || (!fighting && (info.taken || !info.enabled)));
+      const dup = !!info && spreadOn() && !isAttacker && info.cat !== 'boss' && info.grpBy !== null && info.grpBy < group.slot()
+        && info.maxHp > 0 && info.hp > info.maxHp * 0.5 && sc.mobs.some((m) => m.id !== info.id && usable(m) && m.grpBy === null);
       // Angreifer werden immer bekämpft (auch außerhalb der Level-Range).
       // Im Ruhemodus nur den laufenden Kampf beenden, sonst passende Ziele suchen.
       // Level-Prüfung wie bei der Zielwahl (scan): im Quest-Modus/Autopilot sind schwächere Monster erlaubt.
       // Sonst wählt der Bot ein Ziel aus und verwirft es gleich wieder – endlos.
       const lvlOk = info ? info.inLvl : diff <= cfg.lvlDiff;
-      const valid = !noFight && !(alive && safeHeld(t.id, now)) && (isAttacker || (!blocked && (this.resting ? fighting : alive && lvlOk)));
+      const valid = !noFight && !dup && !(alive && safeHeld(t.id, now)) && (isAttacker || (!blocked && (this.resting ? fighting : alive && lvlOk)));
       if (!valid) {
         this.attackedId = null;
         this.engage = null;
@@ -4556,6 +4577,7 @@
   // Gruppe: Modus-Schalter und eine Karte pro Mitglied (Name, Rolle, Ort, HP, Status, Quest-Abgleich mit dem Leader)
   function renderGroupCards(st, now) {
     const mode = !accounts.mirror ? (accounts.leadBoss ? 'boss' : 'bots') : accounts.mirrorAtk ? 'both' : 'move';
+    const spr = panel.querySelector('[data-accspread]'); if (spr && spr !== document.activeElement) spr.checked = !!accounts.spread;
     panel.querySelectorAll('[data-gmode]').forEach((b) => b.classList.toggle('on', b.dataset.gmode === mode));
     const box = panel.querySelector('[data-f="gcards"]');
     const C = content(), esc = (x) => String(x ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -4815,6 +4837,11 @@
         e.target.blur();
         groupPush(true);
         schedule();
+        return;
+      }
+      if (e.target.matches('[data-accspread]')) {
+        reloadAcc(); accounts.spread = e.target.checked; saveAcc(); e.target.blur();
+        logEvent('bot', `Gruppe: Ziele verteilen ${accounts.spread ? 'an' : 'aus'}`);
         return;
       }
       if (e.target.matches('[data-accpopup]')) { reloadAcc(); accounts.popup = e.target.checked; saveAcc(); e.target.blur(); return; }
