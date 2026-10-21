@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.20.0
+// @version      2.20.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -470,7 +470,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.20.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.20.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -2824,6 +2824,9 @@
     const d = Math.hypot(me.x - x, me.y - y);
     let nav = autopilot.nav;
     if (!nav || Math.hypot(nav.tx - x, nav.ty - y) > 24) nav = autopilot.nav = { tx: x, ty: y, best: d, progressAt: now, tries: 0 };
+    // Pause dazwischen (bewusstlos, Laden, Chat, Kampf …): kein „steckt fest“ – Fortschritt ab jetzt neu messen
+    if (nav.lastCall && now - nav.lastCall > 3000) { nav.progressAt = now; nav.best = d; }
+    nav.lastCall = now;
     if (d < nav.best - 6) { nav.best = d; nav.progressAt = now; }
     if (now - nav.progressAt > NAV_STUCK_MS) return 'stuck';
     const idle = now - nav.progressAt > 1200;
@@ -4023,6 +4026,7 @@
       }
       if (p.fainted) {
         if (this.status !== 'Digimon ist bewusstlos') logEvent('warn', 'Digimon ist bewusstlos – Bot pausiert');
+        autopilot.nav = null; autopilot.arrivedAt = 0; autopilot.idleSince = 0; // nach dem Wiederbeleben Weg neu planen
         this.status = 'Digimon ist bewusstlos';
         return;
       }

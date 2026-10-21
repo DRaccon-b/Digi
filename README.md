@@ -217,6 +217,11 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.20.1 – Nach dem Umkippen weiter bei der Quest
+- Nach einem langen Kampf oder nach dem Wiederbeleben hielt der Bot den Weg zurück ins Jagdgebiet fälschlich für
+  „nicht erreichbar“. Die Weg-Messung stammte noch von vor dem Kampf. Er übersprang die Quest dann 5 min und fing
+  woanders eine andere an. Jetzt beginnt die Messung nach jeder Pause (Kampf, bewusstlos, Laden, Chat) neu.
+
 #### Neu in 2.20.0 – Erst die Adds, dann der Boss
 - Ruft ein Boss Adds, kämpft der Bot zuerst gegen die Adds und geht danach automatisch zurück zum Boss.
 - Welche Adds ein Boss ruft, liest der Bot aus den Spieldaten. Beispiele: Apocalymon → Megadramon, MaloMyotismon → Phantomon
