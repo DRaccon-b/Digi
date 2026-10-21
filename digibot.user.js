@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.13.2
+// @version      2.13.3
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -423,7 +423,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.13.2'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.13.3'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -2060,6 +2060,7 @@
     potion(2, cfg.dsPot > 0 && pct(p.ds, p.maxDs) < cfg.dsPot);
     potion(3, cfg.tdsPot > 0 && me.tamerMaxDs > 0 && pct(me.tamerDs, me.tamerMaxDs) < cfg.tdsPot);
     healSkill(st, now);
+    noteBosses(now);
     const kh = keyOfHope(st, now);
     if (kh) return { text: kh, hold: true };
     const kg = kohGather(st, now);
@@ -2078,7 +2079,8 @@
     if (cfg.mirror && mirrorActive(id)) return { text: `${name} spiegelt Schaden – warte` };
     if (group.mirrorAtkId !== id || bot.can('Digit1', ATTACK_REPEAT_MS, now)) { group.mirrorAtkId = id; bot.hit('Digit1', now); }
     let text = `greife ${name} an`;
-    if (!p.evolving && bot.can('skill', SKILL_GAP_MS, now)) {
+    if (farmShielded(m, now)) text += ' · Spawn-Schutz – Skills warten';
+    else if (!p.evolving && bot.can('skill', SKILL_GAP_MS, now)) {
       for (const k of SKILL_KEYS) {
         if (!skillOn(st, k) || healAt(st, k)) continue; // Heil-Skills nur über healSkill
         const sk = skillOnKey(st, k);
@@ -3234,12 +3236,26 @@
     opening: null,      // { key, at, tries } – gerade angestoßenes Öffnen eines neuen Kanals
     reset() { this.goal = null; this.fight = null; this.switchTries = 0; this.route = null; this.opening = null; },
   };
-  // Bosse nehmen die ersten 3 s nach dem Respawn kaum Schaden (99 % Reduktion). Solange ein Farm-Boss frisch
+  // Bosse nehmen die ersten 3 s nach dem Respawn kaum Schaden (99 % Reduktion). Solange ein Boss frisch
   // aufgetaucht ist und volle HP hat, nur normal angreifen – Skills (Abklingzeit, DS) erst danach.
+  // Gilt für jeden Boss und in allen Modi (Bot, Mitläufer, Spiegeln mit Angriff), nicht nur für die Boss-Rotation.
   const FARM_SPAWN_GUARD_MS = 3300;
+  const bossSeen = new Map(); // Boss-Entity -> wann zuerst lebend gesehen
+  function noteBosses(now) {
+    const ents = window.dmo?.net?.state?.entities;
+    if (!ents?.forEach) return;
+    const alive = new Set();
+    ents.forEach((en) => {
+      if (en.kind !== KIND.Mob || !(en.flags & FLAG.Boss) || en.hp <= 0 || (en.flags & FLAG.Dead)) return;
+      alive.add(en.id);
+      if (!bossSeen.has(en.id)) bossSeen.set(en.id, now);
+    });
+    for (const id of bossSeen.keys()) if (!alive.has(id)) bossSeen.delete(id);
+  }
   function farmShielded(t, now) {
-    if (!cfg.farm || !t) return false;
-    const since = farm.firstSeen.get(t.id);
+    if (!t) return false;
+    const a = farm.firstSeen.get(t.id), b = bossSeen.get(t.id);
+    const since = a === undefined ? b : b === undefined ? a : Math.min(a, b);
     return since !== undefined && now - since < FARM_SPAWN_GUARD_MS && t.maxHp > 0 && t.hp >= t.maxHp * 0.99;
   }
   const farmKey = (map, index, ch) => `${map}#${index}#${ch}`;
@@ -3750,6 +3766,7 @@
       const dg = dodge(st, now);
       if (dg) { this.status = dg; this.attackedId = null; return; }
       healSkill(st, now); // Heil-Skill bei niedrigen HP (auch außerhalb des Kampfes)
+      noteBosses(now);
 
       // 2) Ruhemodus: HP unter Schwelle und kein HP-Trank mehr -> keine neuen Kämpfe, bis HP wieder 100 %
       const hpPct = pct(p.hp, p.maxHp);
