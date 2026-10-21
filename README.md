@@ -217,6 +217,11 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.18.2 – Knopf „👥 Party einladen“
+- Neuer Knopf im Gruppen-Reiter: Der Leader lädt sofort alle Gruppenmitglieder in die Party ein, die noch nicht drin
+  sind. Die automatische Einladung wartet zwischen zwei Versuchen 30 s, der Knopf nicht. Er geht aus jedem
+  Gruppenfenster, auch aus einem Mitläufer-Fenster. Die Mitläufer nehmen automatisch an.
+
 #### Neu in 2.18.1 – Mitläufer bleiben stehen
 - Mit „🤝 Leader erledigt die Quests der Mitläufer“ bleiben die Mitläufer jetzt stehen. Sie folgen nicht, reisen nicht,
   greifen nichts von sich aus an und wehren nur Angreifer ab. Nur der Leader bewegt sich und jagt, was ihnen fehlt.

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.18.1
+// @version      2.18.2
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -470,7 +470,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.18.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.18.2'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -602,7 +602,7 @@
         <label class="digibot__skill digibot__chk" title="Jedes Gruppenmitglied greift ein anderes Quest-Monster an (statt alle dasselbe). Ist keins mehr frei, hilft man mit. Bosse greifen alle gemeinsam an. Nicht beim Spiegeln und nicht in der Boss-Rotation."><input type="checkbox" data-accspread ${accounts.spread ? 'checked' : ''}><span>🎯 Ziele verteilen: jeder ein anderes Monster</span></label>
         <label class="digibot__skill digibot__chk" title="Der Leader kümmert sich nur um die Quests der Mitläufer (seine eigenen sind egal) und jagt, was ihnen fehlt. Die Mitläufer bleiben stehen und wehren nur Angreifer ab. Abgeben/Annehmen macht man bei ihnen selbst. Nur im Modus 📜 Quests."><input type="checkbox" data-accserve ${accounts.serve ? 'checked' : ''}><span>🤝 Leader erledigt die Quests der Mitläufer</span></label>
         <div class="digibot__grpbtns three"><button class="digibot__btn" data-act="grp-login" title="Fehlende Fenster öffnen, alle Accounts einloggen und Charakter wählen">🔑 Einloggen</button><button class="digibot__btn" data-act="grp-start" title="Bots in allen Gruppenfenstern starten">▶ Starten</button><button class="digibot__btn" data-act="grp-stop" title="Bots in allen Gruppenfenstern stoppen">■ Stoppen</button></div>
-        <div class="digibot__grpbtns"><button class="digibot__btn" data-act="grp-maptalk" title="In allen Gruppenfenstern: alle fertigen Quests auf der aktuellen Map abgeben und alle hier verfügbaren annehmen – jeder für sich. Danach geht es weiter wie vorher (lief der Bot nicht, stoppt er wieder).">📜 Abgeben &amp; Annehmen (diese Map)</button></div>
+        <div class="digibot__grpbtns"><button class="digibot__btn" data-act="grp-invite" title="Der Leader lädt sofort alle Gruppenmitglieder in die Party ein, die noch nicht drin sind (geht aus jedem Gruppenfenster). Die Mitläufer nehmen automatisch an.">👥 Party einladen</button><button class="digibot__btn" data-act="grp-maptalk" title="In allen Gruppenfenstern: alle fertigen Quests auf der aktuellen Map abgeben und alle hier verfügbaren annehmen – jeder für sich. Danach geht es weiter wie vorher (lief der Bot nicht, stoppt er wieder).">📜 Abgeben &amp; Annehmen (diese Map)</button></div>
         <div class="digibot__gcards" data-f="gcards"></div>
         <label class="digibot__slotsel" title="Welcher Account läuft in diesem Fenster? Bestimmt, ob es Leader oder Mitläufer ist. Gilt nur für dieses Fenster.">Dieses Fenster ist
           <select data-accslot><option value="">– keine Gruppe –</option>${accounts.list.map((a, i) => `<option value="${i}">Account ${i + 1}${a.user ? ` (${escAttr(a.user)})` : ''}</option>`).join('')}</select></label>
@@ -1663,6 +1663,7 @@
     if (m.type === 'start' && !bot.on) groupStartBot('Gruppe: Start aus dem Leader-Fenster');
     if (m.type === 'login') { ss.set('digibot.login', '1'); group.login = { at: 0, tries: 0, outAt: 0, enterAt: 0, msg: '' }; }
     if (m.type === 'stop') groupStopBot('Gruppe: Stopp aus dem Leader-Fenster');
+    if (m.type === 'invite' && group.role() === 'leader') partyInviteNow();
     if (m.type === 'maptalk') startMapTalk('Gruppe: Abgeben & Annehmen auf dieser Map (aus einem anderen Fenster)');
   }
   // Was ein anderes Fenster sofort wissen muss (Ziel, Aufgabe, Gespräche, Kampf, Map, Quests) – Position nicht
@@ -1980,6 +1981,19 @@
   function groupAssist(sc) {
     const id = leaderTargetId();
     return id ? sc.mobs.find((m) => m.id === id && m.inLvl && !m.banned && m.d <= cfg.radius * 1.5) || null : null;
+  }
+  // 👥 Party einladen (Knopf): Wartezeit zwischen Einladungen aufheben und sofort alle fehlenden einladen
+  function partyInviteNow() {
+    const st = getStore()?.getState?.();
+    if (!st || group.role() !== 'leader') return;
+    if (!commands()?.partyInvite || st.screen !== 'world') { group.msg = 'Einladen geht erst in der Spielwelt.'; schedule(); return; }
+    group.invited.clear();
+    const before = group.invited.size;
+    groupParty(st, Date.now());
+    const n = group.invited.size - before;
+    group.msg = n ? `${n} Einladung${n > 1 ? 'en' : ''} verschickt.` : 'Alle Gruppenmitglieder sind schon in der Party (oder nicht in der Welt).';
+    logEvent('bot', `Gruppe: Party einladen – ${group.msg}`);
+    schedule();
   }
   // Party im Spiel: Leader lädt ein, Mitläufer nehmen Einladungen vom Leader an
   function groupParty(st, now) {
@@ -4848,6 +4862,7 @@
       if (lf) { cfg.logFilter = lf; saveCfg(); logShown = -1; schedule(); }
       if (act === 'bot') bot.toggle();
       if (act === 'grp-start') startGroup();
+      if (act === 'grp-invite' && claimSlot(getStore()?.getState?.())) { if (group.role() === 'leader') partyInviteNow(); else groupSend('invite'); }
       if (act === 'grp-maptalk' && claimSlot(getStore()?.getState?.())) { groupSend('maptalk'); startMapTalk('Gruppe: Abgeben & Annehmen auf dieser Map'); }
       if (act === 'grp-login') loginGroup();
       if (act === 'grp-stop') stopGroup();
