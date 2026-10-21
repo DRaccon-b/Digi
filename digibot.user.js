@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.12.4
+// @version      2.12.5
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -422,7 +422,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.12.4'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.12.5'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -3632,6 +3632,13 @@
         const L0 = groupLeader(now);
         if (L0) followerAssign(st, L0, now);
       }
+      // Liegengebliebener NPC-Dialog (z. B. die Folgeseite nach Annehmen/Abgeben), während der Bot schon etwas anderes
+      // macht (oft gleich ein Kampf): nach kurzer Zeit schließen
+      const talking = !!st.dialog && autopilot.task?.npcId === st.dialog.npc && !taskDone(st, autopilot.task);
+      if (cfg.autopilot && st.dialog && !talking && !(st.dialog.npc === 'digiphone' && autopilot.tp)) {
+        autopilot.dlgIdleAt ||= now;
+        if (now - autopilot.dlgIdleAt > 1500) { commands()?.closeDialog?.(); autopilot.dlgIdleAt = 0; }
+      } else autopilot.dlgIdleAt = 0;
       const noFight = cfg.autopilot && !cfg.farm && nextIsTurnin(st, now);
       if (group.role() === 'leader') group.noFight = noFight; // Mitläufer kämpfen dann auch nicht
       if (noFight) {

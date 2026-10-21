@@ -217,6 +217,10 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.12.5 – Liegengebliebene NPC-Dialoge schließen
+- Nach einem Annehmen oder Abgeben blieb die Folgeseite des NPC-Dialogs offen, wenn der Bot direkt in einen Kampf ging
+  (gut bei Mitläufern zu sehen). Jetzt schließt der Bot einen Dialog nach ~1,5 s, wenn er gerade kein Gespräch mit diesem NPC führt.
+
 #### Neu in 2.12.4 – Gespräche vor Angreifern
 - Ein Mitläufer prüft vor jedem neuen Kampf, ob er ein Gespräch des Leaders nachmachen muss (Annehmen, Abgeben, Sprechen).
   Vorher ließ er sich von angreifenden Monstern (z. B. Andromon) in einen Kampf ziehen, statt die Quest anzunehmen.
