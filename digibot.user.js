@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.13.5
+// @version      2.13.6
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -423,7 +423,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.13.5'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.13.6'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -3849,13 +3849,15 @@
         this.engage = null;
         const scene = worldScene();
         if (scene && sc) {
-          // Autopilot: vor dem Jagen erst in die gewünschte Form digitieren
+          // Autopilot: vor dem Jagen erst in die gewünschte Form digitieren. Boss-Rotation genauso, zwischen den Kämpfen
+          // (sonst digitieren in der Gruppe nur die Mitläufer, der Leader in der Rotation nicht).
           const at = autopilot.task;
           const folIdle = group.role() === 'follower' && !at; // Mitläufer zwischen den Kämpfen
-          if (!cfg.farm && cfg.autopilot && !attackers.length && (folIdle || (at?.kind === 'hunt' && st.world?.mapId === at.loc.mapId
-            && (!cfg.apQuestPartner || activePartner(st)?.partnerId === cfg.apQuestPartner)))) {
+          const questMon = !cfg.apQuestPartner || activePartner(st)?.partnerId === cfg.apQuestPartner;
+          const farmEvo = cfg.farm && questMon;
+          if (!attackers.length && (farmEvo || (!cfg.farm && cfg.autopilot && (folIdle || (at?.kind === 'hunt' && st.world?.mapId === at.loc.mapId && questMon))))) {
             const ev = ensureEvolution(st, cfg.apEvo, now);
-            if (ev !== true) { this.status = `Autopilot: ${ev}`; return; }
+            if (ev !== true) { this.status = `${cfg.farm ? 'Bosse' : 'Autopilot'}: ${ev}`; return; }
           }
           // Direkt das beste Ziel anvisieren
           // Mitläufer: vor dem nächsten Kampf prüfen, ob ein Gespräch nachzumachen oder aufzuholen ist
