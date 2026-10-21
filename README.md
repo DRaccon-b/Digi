@@ -217,6 +217,15 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.20.0 – Erst die Adds, dann der Boss
+- Ruft ein Boss Adds, kämpft der Bot zuerst gegen die Adds und geht danach automatisch zurück zum Boss.
+- Welche Adds ein Boss ruft, liest der Bot aus den Spieldaten. Beispiele: Apocalymon → Megadramon, MaloMyotismon → Phantomon
+  und Illusion Tower, Dark Presence → Ritual Anchor, MarineDevimon → Divermon, Puppetmon → Pumpkinmon,
+  Arukenimon/BlackWarGreymon → Golemon.
+- In Raid- und Dungeon-Maps (z. B. Kera-Dungeon) zählt zusätzlich jedes normale Monster in der Nähe des Bosses als Add
+  (Wellen, Kopien).
+- In der Boss-Rotation bleibt alles wie bisher. Auf dem Weg zu einer Abgabe/einem Gespräch jagt der Bot keine Adds.
+
 #### Neu in 2.19.0 – Markierungen ausweichen (z. B. Apocalymons Big Bang Mark)
 - Manche Bosse markieren einen Spieler: Ein Warnkreis folgt ihm, und beim Einschlag bekommt jeder darin Schaden, die
   anderen sogar mehr. Das Ausweichen erkennt diese Markierungen jetzt.

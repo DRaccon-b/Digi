@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.19.0
+// @version      2.20.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -470,7 +470,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.19.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.20.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -3438,6 +3438,30 @@
     return `Channel-Checker: wechsle auf Ch ${best.channel}…`;
   }
 
+  // Adds eines Bosses (aus den Spieldaten: adds/moreAdds aller Bosse, z. B. Apocalymon -> Megadramon,
+  // MaloMyotismon -> Phantomon/Illusion Tower). In Raid-/Dungeon-Maps zählt zusätzlich jedes normale Monster nahe am
+  // Boss (Wellen, Kopien – z. B. im Kera-Dungeon). Nur wenn ein Boss in der Nähe ist; nicht in der Boss-Rotation.
+  let addSpeciesCache = null;
+  function addSpecies() {
+    if (addSpeciesCache) return addSpeciesCache;
+    const C = content();
+    if (!C?.spawns) return new Set();
+    addSpeciesCache = new Set();
+    for (const sp of Object.values(C.spawns)) for (const b of sp.bosses || []) for (const a of [b.adds, ...(b.moreAdds || [])]) if (a?.species) addSpeciesCache.add(a.species);
+    return addSpeciesCache;
+  }
+  const ADD_RANGE = 500, ADD_BOSS_NEAR = 640, ADD_RAID_RADIUS = 300;
+  function bossAdd(sc) {
+    if (cfg.farm || !sc) return null;
+    const boss = sc.mobs.find((m) => m.cat === 'boss');
+    if (!boss || boss.d > ADD_BOSS_NEAR) return null;
+    const set = addSpecies(), raid = isRaidMap(sc.mapId);
+    return sc.mobs.find((m) => m.cat !== 'boss' && !m.banned && m.d <= ADD_RANGE
+      && (set.has(m.species) || (raid && Math.hypot(m.x - boss.x, m.y - boss.y) <= ADD_RAID_RADIUS))) || null;
+  }
+  // Abgabe/Gespräch unterwegs (Autopilot) – dann auch keine Adds jagen
+  const noFightEarly = (st, now) => cfg.autopilot && !cfg.farm && autopilot.task && PASSIVE(autopilot.task) && !taskDone(st, autopilot.task);
+
   // Bestes nächstes Ziel: zuerst der nächste Angreifer, sonst (nicht im Ruhemodus) das nächste passende Monster im Radius.
   // ---------- Boss-Rotation (Digi-Eier farmen) ----------
   // Ausgewählte Feldbosse (Map + Art) werden reihum besiegt, auf den erlaubten Kanälen. Zeiten kommen aus drei Quellen:
@@ -4067,6 +4091,15 @@
       }
       if (this.resting && hpPct >= 100 && !attackers.length) this.resting = false;
 
+      // 2a) Boss ruft Adds: zuerst die Adds, dann wieder der Boss (nicht in der Boss-Rotation)
+      const add = !noFightEarly(st, now) && !this.resting ? bossAdd(sc) : null;
+      if (add && t?.id !== add.id) {
+        if (this.can('select', SELECT_GAP_MS, now)) { this.lastPress.select = now; worldScene()?.select?.(add.id); }
+        this.attackedId = null;
+        this.status = `Adds zuerst: ${content()?.digimon?.[add.species]?.name || add.species}`;
+        return;
+      }
+
       // 2b) Channel-Checker: außerhalb von Kämpfen auf den leersten Kanal der Map
       if (!attackers.length && !(t && t.kind === 'mob' && t.hp > 0 && this.attackedId === t.id)) {
         const cc = channelCheck(st, sc, now);
@@ -4088,7 +4121,8 @@
       // Level-Prüfung wie bei der Zielwahl (scan): im Quest-Modus/Autopilot sind schwächere Monster erlaubt.
       // Sonst wählt der Bot ein Ziel aus und verwirft es gleich wieder – endlos.
       const lvlOk = info ? info.inLvl : diff <= cfg.lvlDiff;
-      const valid = !noFight && !dup && !(alive && safeHeld(t.id, now)) && (isAttacker || (!blocked && (this.resting ? fighting : alive && lvlOk)));
+      const addTarget = !!add && alive && t.id === add.id; // Add des Bosses: immer bekämpfen, auch außerhalb der Level-/Monster-Auswahl
+      const valid = !noFight && !dup && !(alive && safeHeld(t.id, now)) && (isAttacker || addTarget || (!blocked && (this.resting ? fighting : alive && lvlOk)));
       if (!valid) {
         this.attackedId = null;
         this.engage = null;
