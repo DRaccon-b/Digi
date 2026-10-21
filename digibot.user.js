@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.13.0
+// @version      2.13.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -423,7 +423,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.13.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.13.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -1236,7 +1236,12 @@
   const KOH_STEP_MS = 200;    // Abstand, bis der nächste Clavis einspringt
   const KOH_COVER_MS = 1700;  // Einschläge bis so lange nach dem Zünden gelten als abgedeckt
   const KOH_RANGE = 700;      // nur Angriffe von Bossen in dieser Entfernung
-  const kohState = { claims: new Map() }; // Boss-Entity -> Zeitpunkt, an dem ein Clavis Key of Hope gezündet hat
+  const KOH_GATHER_R = 80;     // so nah laufen die anderen ans Clavis-Digimon (Schutzkreis 128 px)
+  const kohState = {
+    claims: new Map(), // Boss-Entity -> Zeitpunkt, an dem ein Clavis Key of Hope gezündet hat
+    plans: new Map(),  // Slot -> { x, y, mapId, end }: dieser Clavis zündet gleich, hier sammeln
+    anchor: null, sentAt: 0, // ich zünde gleich: { src, end }
+  };
   const isKoh = (sk) => !!sk && (sk.id === KOH_ID || sk.name === 'Key of Hope');
   function kohSlot(st) {
     for (const k of SKILL_KEYS) { const s = skillOnKey(st, k); if (s && isKoh(s.skill)) return { k, s }; }
@@ -1248,39 +1253,79 @@
     if (!o || o.s.skill.unlocked === false) return null;
     return o.s.cdLeft > 0 ? now + o.s.cdLeft : now;
   }
+  // Nächster großer, noch nicht abgedeckter Angriff eines Bosses in der Nähe (left = ms bis zum Einschlag)
+  function kohUpcoming(st, now) {
+    hookBossEvents();
+    const ents = window.dmo?.net?.state?.entities;
+    const me = ents?.get?.(st?.me?.partner?.entityId) || controlled(st);
+    let hit = null;
+    for (const [src, log] of bossSkillLog) {
+      for (const [sid, e] of log) {
+        if (!KOH_BLOCK.has(sid) || e.phase !== 'cast') continue;
+        const left = e.castEnd - now;
+        if (left < -300) continue;
+        const b = ents?.get?.(src);
+        if (b && me && Math.hypot(b.x - me.x, b.y - me.y) > KOH_RANGE) continue;
+        const claim = kohState.claims.get(src);
+        if (claim && e.castEnd <= claim + KOH_COVER_MS) continue; // ein Clavis hat schon gezündet
+        if (!hit || left < hit.left) hit = { src, sid, left, castEnd: e.castEnd };
+      }
+    }
+    return hit;
+  }
+  const kohReady = (st, own) => { const p = st?.me?.partner, sk = own?.s; return !!sk && !!p && !p.fainted && !p.evolving && sk.cdLeft <= 0 && sk.skill.unlocked !== false && p.ds >= (sk.skill.dsCost || 0); };
+  // Wie viele bereite Clavis auf derselben Map haben eine kleinere Slot-Nummer (sind vor mir dran)?
+  function kohRank(st, now) {
+    let rank = 0;
+    if (!group.active()) return 0;
+    for (const [slot, m] of group.peers) {
+      if (slot < group.slot() && fresh(m, now) && m.kohAt != null && m.kohAt <= now && m.inWorld && m.mapId === st.world?.mapId) rank++;
+    }
+    return rank;
+  }
+  // Ich bin als Nächster dran: Position meines Digimons laufend an die Gruppe melden, damit sich alle bei mir sammeln
+  function kohAnchor(st, now) {
+    const own = cfg.koh && group.active() && kohSlot(st);
+    const hit = own && kohReady(st, own) ? kohUpcoming(st, now) : null;
+    if (!hit || kohRank(st, now) > 0) { kohState.anchor = null; return; }
+    kohState.anchor = { src: hit.src, end: hit.castEnd + 500 };
+    if (now - kohState.sentAt < 200) return;
+    const me = window.dmo?.net?.state?.entities?.get?.(st.me.partner.entityId) || controlled(st);
+    if (!me) return;
+    kohState.sentAt = now;
+    try { group.bus?.postMessage({ type: 'kohplan', slot: group.slot(), x: me.x, y: me.y, mapId: st.world?.mapId, end: hit.castEnd + 500 }); } catch { /* ignore */ }
+  }
+  // Ein anderer Clavis zündet gleich: hinlaufen (Tamer, das Digimon folgt) – Vorrang vor Ausweichen und Kampf.
+  // Der Clavis, der zündet, bleibt stehen.
+  function kohGather(st, now) {
+    if (!cfg.koh || !group.active()) return null;
+    if (kohState.anchor && kohState.anchor.end > now) return 'Key of Hope gleich – halte Position, Gruppe sammelt sich';
+    let plan = null;
+    for (const [slot, pl] of kohState.plans) {
+      if (pl.end <= now) { kohState.plans.delete(slot); continue; }
+      if (pl.mapId === st.world?.mapId && (!plan || slot < plan.slot)) plan = pl;
+    }
+    if (!plan) return null;
+    const ents = window.dmo?.net?.state?.entities;
+    const partner = ents?.get?.(st?.me?.partner?.entityId), tamer = controlled(st);
+    const who = group.peers.get(plan.slot)?.name || `Slot ${plan.slot + 1}`;
+    const d = (e) => (e ? Math.hypot(e.x - plan.x, e.y - plan.y) : 0);
+    if (d(partner) <= KOH_GATHER_R && d(tamer) <= KOH_GATHER_R + 40) return `Key of Hope: im Schutzkreis von ${who}`;
+    if (tamer && d(tamer) > 24 && bot.can('kohTap', 250, now)) { bot.lastPress.kohTap = now; worldScene()?.tapGround?.(plan.x, plan.y); }
+    if (partner && d(partner) > KOH_GATHER_R && bot.can('kohFollow', 800, now)) { bot.lastPress.kohFollow = now; commands()?.partnerFollow?.(); }
+    return `Key of Hope: laufe in den Schutzkreis von ${who}`;
+  }
   function keyOfHope(st, now) {
     if (!cfg.koh) return null;
     const p = st?.me?.partner;
     if (!p || p.fainted || p.evolving) return null;
     const own = kohSlot(st);
     if (!own) return null;
-    hookBossEvents();
-    const ents = window.dmo?.net?.state?.entities;
-    const me = ents?.get?.(p.entityId) || controlled(st);
-    let hit = null;
-    for (const [src, log] of bossSkillLog) {
-      for (const [sid, e] of log) {
-        if (!KOH_BLOCK.has(sid) || e.phase !== 'cast') continue;
-        const left = e.castEnd - now;
-        if (left > KOH_LEAD_MS || left < -300) continue;
-        const b = ents?.get?.(src);
-        if (b && me && Math.hypot(b.x - me.x, b.y - me.y) > KOH_RANGE) continue;
-        const claim = kohState.claims.get(src);
-        if (claim && e.castEnd <= claim + KOH_COVER_MS) continue; // ein Clavis hat schon gezündet
-        if (!hit || left < hit.left) hit = { src, sid, left };
-      }
-    }
-    if (!hit) return null;
-    const sk = own.s;
-    if (sk.cdLeft > 0 || sk.skill.unlocked === false || p.ds < (sk.skill.dsCost || 0)) return null;
+    const hit = kohUpcoming(st, now);
+    if (!hit || hit.left > KOH_LEAD_MS) return null;
+    if (!kohReady(st, own)) return null;
     // Reihenfolge: bereite Clavis auf derselben Map mit kleinerer Slot-Nummer sind vor mir dran
-    let rank = 0;
-    if (group.active()) {
-      for (const [slot, m] of group.peers) {
-        if (slot < group.slot() && fresh(m, now) && m.kohAt != null && m.kohAt <= now && m.inWorld && m.mapId === st.world?.mapId) rank++;
-      }
-    }
-    if (KOH_LEAD_MS - hit.left < rank * KOH_STEP_MS) return null;
+    if (KOH_LEAD_MS - hit.left < kohRank(st, now) * KOH_STEP_MS) return null;
     if (!bot.can('Digit' + own.k, 300, now)) return null;
     kohState.claims.set(hit.src, now);
     try { group.bus?.postMessage({ type: 'koh', slot: group.slot(), src: hit.src, skill: hit.sid }); } catch { /* ignore */ }
@@ -1293,7 +1338,7 @@
   // Eigener schneller Takt: der Bot-Takt (250 ms) ist für die Staffelung zwischen den Clavis zu grob
   setInterval(() => {
     if (!bot.on || !cfg.koh || !bossSkillLog.size) return;
-    try { const st = getStore()?.getState?.(); if (st) keyOfHope(st, Date.now()); } catch { /* ignore */ }
+    try { const st = getStore()?.getState?.(); if (st) { kohAnchor(st, Date.now()); keyOfHope(st, Date.now()); } } catch { /* ignore */ }
   }, 50);
 
   function potionCount(me, fKey) {
@@ -1560,6 +1605,7 @@
     }
     if (m.type === 'pos' && m.slot === accounts.leader && m.slot !== group.slot()) group.leaderPos = { ...m, seen: Date.now() };
     if (m.type === 'koh' && m.src && m.slot !== group.slot()) kohState.claims.set(m.src, Date.now());
+    if (m.type === 'kohplan' && Number.isInteger(m.slot) && m.slot !== group.slot()) kohState.plans.set(m.slot, { ...m, seen: Date.now() });
     if (!group.active()) return;
     if (m.type === 'start' && !bot.on) groupStartBot('Gruppe: Start aus dem Leader-Fenster');
     if (m.type === 'login') { ss.set('digibot.login', '1'); group.login = { at: 0, tries: 0, outAt: 0, enterAt: 0, msg: '' }; }
@@ -2014,6 +2060,8 @@
     healSkill(st, now);
     const kh = keyOfHope(st, now);
     if (kh) return { text: kh, hold: true };
+    const kg = kohGather(st, now);
+    if (kg) { group.mirrorTap = null; return { text: kg, hold: true }; }
     const dg = dodge(st, now);
     if (dg) { group.mirrorTap = null; return { text: dg, hold: true }; }
     const ents = window.dmo?.net?.state?.entities;
@@ -3692,6 +3740,8 @@
       // 1b) Flächenangriffen ausweichen hat Vorrang vor allem anderen
       const kh = keyOfHope(st, now);
       if (kh) { this.status = kh; return; }
+      const kg = kohGather(st, now);
+      if (kg) { this.status = kg; return; }
       const dg = dodge(st, now);
       if (dg) { this.status = dg; this.attackedId = null; return; }
       healSkill(st, now); // Heil-Skill bei niedrigen HP (auch außerhalb des Kampfes)
