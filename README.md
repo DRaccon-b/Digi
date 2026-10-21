@@ -217,6 +217,13 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.13.2 – Gruppe im Boss-Rotations-Modus starten
+- Im Gruppen-Tab gibt es jetzt vier Modi: **📜 Quests**, **👑 Bosse**, 👣 Spiegeln und ⚔️ + Angriff.
+- Bei **👑 Bosse** startet ▶ Starten den Leader in der Boss-Rotation (Bosse wie gewohnt im Reiter Bosse auswählen).
+  Die anderen Fenster folgen ihm über Maps und Kanäle und kämpfen mit. Quest-Gespräche machen sie dabei nicht nach,
+  und verpasste Quests holen sie auch nicht auf.
+- Bei **📜 Quests** läuft alles wie bisher (Leader im Autopilot).
+
 #### Neu in 2.13.1 – Vor Key of Hope sammelt sich die Gruppe beim Clavis
 - Sobald ein großer Angriff angesagt wird, meldet der Clavis, der gleich zündet, laufend die Position seines Digimons.
   Er bleibt stehen. Alle anderen Bots der Gruppe (auch Imperialdramon) laufen sofort auf ≤ 80 px an ihn heran,

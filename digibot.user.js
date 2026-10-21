@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.13.1
+// @version      2.13.2
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -236,7 +236,7 @@
     .digibot__queue div.digibot__none{display:block;background:none;border:0;padding:0}
     .digibot__queue b{opacity:.6;font-variant-numeric:tabular-nums}
     .digibot__queue span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .digibot__seg{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin:0 0 6px}
+    .digibot__seg{display:grid;grid-template-columns:repeat(4,1fr);gap:3px;margin:0 0 6px}
     .digibot__seg button{background:#161c33;border:1px solid #2a3355;color:#9aa5c4;border-radius:5px;font:600 10.5px system-ui;padding:4px 2px;cursor:pointer}
     .digibot__seg button:hover{color:#e8ecf4;border-color:#3a4670}
     .digibot__seg button.on{background:#26305a;border-color:#3fa0ff;color:#fff;box-shadow:inset 0 -2px 0 #3fa0ff}
@@ -344,12 +344,12 @@
   // sessionStorage des Fensters (Slot) – die Bot-Einstellungen in localStorage teilen sich ja alle Fenster.
   const ACC_KEY = 'digibot.accounts';
   const ACC_MAX = 5;
-  const accounts = { leader: 0, popup: true, mirror: false, mirrorAtk: true, list: [] };
+  const accounts = { leader: 0, popup: true, mirror: false, mirrorAtk: true, leadBoss: false, list: [] };
   function reloadAcc() {
     try {
       const a = JSON.parse(localStorage.getItem(ACC_KEY) || 'null');
       if (a && Array.isArray(a.list)) {
-        accounts.leader = Number(a.leader) || 0; accounts.popup = a.popup !== false; accounts.mirror = !!a.mirror; accounts.mirrorAtk = a.mirrorAtk !== false;
+        accounts.leader = Number(a.leader) || 0; accounts.popup = a.popup !== false; accounts.mirror = !!a.mirror; accounts.mirrorAtk = a.mirrorAtk !== false; accounts.leadBoss = !!a.leadBoss;
         accounts.list = a.list.slice(0, ACC_MAX);
       }
     } catch {}
@@ -423,7 +423,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.13.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.13.2'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -549,7 +549,7 @@
 
       <section data-page="acc">
         <div class="digibot__seg">
-          <button data-gmode="bots" title="Alle Fenster fahren ihren Bot: der Leader den Autopilot, die anderen folgen ihm und machen seine Quests mit.">🤖 Bots</button><button data-gmode="move" title="Du spielst den Leader selbst – die anderen Fenster (Bot aus) laufen ihm nach, auch über Maps und Kanäle.">👣 Spiegeln</button><button data-gmode="both" title="Wie Spiegeln, und die anderen greifen das Ziel des Leaders mit an – mit ihren Skills, Tränken und Ausweichen.">⚔️ + Angriff</button>
+          <button data-gmode="bots" title="Alle Fenster fahren ihren Bot: der Leader den Autopilot, die anderen folgen ihm und machen seine Quests mit.">📜 Quests</button><button data-gmode="boss" title="Alle Fenster fahren ihren Bot: der Leader die Boss-Rotation (Bosse im Tab Farmen auswählen), die anderen folgen ihm über Maps und Kanäle und kämpfen mit.">👑 Bosse</button><button data-gmode="move" title="Du spielst den Leader selbst – die anderen Fenster (Bot aus) laufen ihm nach, auch über Maps und Kanäle.">👣 Spiegeln</button><button data-gmode="both" title="Wie Spiegeln, und die anderen greifen das Ziel des Leaders mit an – mit ihren Skills, Tränken und Ausweichen.">⚔️ + Angriff</button>
         </div>
         <div class="digibot__grpbtns three"><button class="digibot__btn" data-act="grp-login" title="Fehlende Fenster öffnen, alle Accounts einloggen und Charakter wählen">🔑 Einloggen</button><button class="digibot__btn" data-act="grp-start" title="Bots in allen Gruppenfenstern starten">▶ Starten</button><button class="digibot__btn" data-act="grp-stop" title="Bots in allen Gruppenfenstern stoppen">■ Stoppen</button></div>
         <div class="digibot__gcards" data-f="gcards"></div>
@@ -1648,6 +1648,7 @@
       deferred: group.seen.slice(-30),
       fight: inCombat(st),
       kohAt: kohReadyAt(st, now),
+      farm: !!cfg.farm,
     };
   }
   const fresh = (p, now) => !!p && now - p.seen < GROUP_STALE_MS;
@@ -1799,6 +1800,7 @@
   // zwischen zwei Kämpfen (sonst kommt ein Mitläufer im Jagdgebiet nie dazu, weil immer ein Monster da ist).
   function followerAssign(st, L, now) {
     if (group.cur && !autopilot.task) { group.done.push(group.cur); group.cur = null; }
+    if (L.farm) return null; // Leader rotiert Bosse: nur folgen und mitkämpfen
     for (const lt of L.talks || []) {
       if (group.handled.has(lt.key)) continue;
       const mt = mirrorTask(st, lt);
@@ -2135,7 +2137,10 @@
   function groupStartBot(why) {
     const st = getStore()?.getState?.();
     if (st?.screen !== 'world' || !st.me?.partner) { ss.set('digibot.go', '1'); group.worldAt = 0; return; }
-    cfg.questMode = false; cfg.autopilot = true; cfg.farm = false;
+    reloadAcc();
+    const boss = group.role() === 'leader' && accounts.leadBoss && !accounts.mirror;
+    cfg.questMode = false; cfg.autopilot = !boss; cfg.farm = boss;
+    if (boss) cfg.farmMode = 'boss';
     loadWorld();
     if (!bot.on) bot.toggle();
     logEvent('bot', why);
@@ -4399,7 +4404,7 @@
   }
   // Gruppe: Modus-Schalter und eine Karte pro Mitglied (Name, Rolle, Ort, HP, Status, Quest-Abgleich mit dem Leader)
   function renderGroupCards(st, now) {
-    const mode = !accounts.mirror ? 'bots' : accounts.mirrorAtk ? 'both' : 'move';
+    const mode = !accounts.mirror ? (accounts.leadBoss ? 'boss' : 'bots') : accounts.mirrorAtk ? 'both' : 'move';
     panel.querySelectorAll('[data-gmode]').forEach((b) => b.classList.toggle('on', b.dataset.gmode === mode));
     const box = panel.querySelector('[data-f="gcards"]');
     const C = content(), esc = (x) => String(x ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -4596,8 +4601,8 @@
       if (act === 'compact') { cfg.compact = panel.classList.toggle('is-compact'); saveCfg(); }
       const gm = e.target.closest('[data-gmode]')?.dataset.gmode;
       if (gm) {
-        reloadAcc(); accounts.mirror = gm !== 'bots'; accounts.mirrorAtk = gm === 'both'; saveAcc();
-        logEvent('bot', `Gruppe: Modus ${{ bots: 'Bots', move: 'Bewegungen spiegeln', both: 'Bewegungen + Angriffe spiegeln' }[gm]}`);
+        reloadAcc(); accounts.mirror = gm === 'move' || gm === 'both'; accounts.mirrorAtk = gm === 'both'; accounts.leadBoss = gm === 'boss'; saveAcc();
+        logEvent('bot', `Gruppe: Modus ${{ bots: 'Quests (Autopilot)', boss: 'Bosse (Rotation)', move: 'Bewegungen spiegeln', both: 'Bewegungen + Angriffe spiegeln' }[gm]}`);
         schedule();
       }
       const lf = e.target.closest('[data-logf]')?.dataset.logf;
