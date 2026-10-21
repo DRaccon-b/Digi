@@ -217,6 +217,18 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.13.0 – ClavisAngemon blockt große Raid-Angriffe mit Key of Hope
+- Kündigt Infermon, Diaboromon oder Armageddemon einen großen Angriff an, zündet ein ClavisAngemon kurz vor dem
+  Einschlag (~0,7 s vorher) **Key of Hope**. Das schützt 2 s lang ihn und alle Gruppen-Partner im Umkreis von 128 px.
+  Geblockt werden: Spider Shooter (auch aufgeladen), Cocoon Ram, Catastrophe Cannon, Cannon Volley, Tentacle Bug,
+  Black Rain (alle Varianten) und Ultimate Flare. Kleine Angriffe (z. B. von Keramon, Chrysalimon) werden nicht geblockt,
+  damit der Cooldown (45 s) für die großen frei bleibt.
+- **Mehrere Clavis wechseln sich ab:** Der bereite Clavis mit der kleinsten Slot-Nummer zündet zuerst und meldet es sofort
+  an die anderen Fenster. Kommt nichts, springt 0,2 s später der nächste ein. Fallen zwei Angriffe auf denselben Moment
+  (z. B. Black Rain Storm + Shell), reicht ein Key of Hope.
+- In der normalen Skill-Rotation wird Key of Hope nicht mehr verbraucht. Abschaltbar unter Boss-Mechaniken.
+- Wichtig: Die Gruppe muss nah beieinander stehen (128 px um den Clavis), sonst sind die anderen nicht geschützt.
+
 #### Neu in 2.12.5 – Liegengebliebene NPC-Dialoge schließen
 - Nach einem Annehmen oder Abgeben blieb die Folgeseite des NPC-Dialogs offen, wenn der Bot direkt in einen Kampf ging
   (gut bei Mitläufern zu sehen). Jetzt schließt der Bot einen Dialog nach ~1,5 s, wenn er gerade kein Gespräch mit diesem NPC führt.

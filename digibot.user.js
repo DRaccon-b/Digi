@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.12.5
+// @version      2.13.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -300,6 +300,7 @@
     questOff: {},     // { [questId]: true } – Quests, die der Quest-Modus ignorieren soll
     dodge: true,      // Flächenangriffen (Warnkreisen) ausweichen
     mirror: true,     // bei Spiegel/Reflexion des Ziels nicht angreifen
+    koh: true,        // ClavisAngemon: große Raid-Angriffe mit „Key of Hope“ blocken
     skipTaken: true,  // keine Gegner angreifen, die andere Spieler gerade bekämpfen
     safeCast: true,   // gegen Bosse: Skills nur, wenn danach noch Zeit zum Ausweichen bleibt (und kein Spiegel droht)
     autopilot: false, // Quests annehmen, hinreisen, erledigen, abgeben
@@ -422,7 +423,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.12.5'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.13.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -493,7 +494,8 @@
         ${grp('mech', 'Boss-Mechaniken', `
           ${check('dodge', 'Warnkreisen/-strahlen ausweichen')}
           ${check('mirror', 'Bei Spiegel/Reflexion nicht angreifen')}
-          ${check('safeCast', 'Skills nur, wenn danach noch Zeit zum Ausweichen bleibt')}`, true,
+          ${check('safeCast', 'Skills nur, wenn danach noch Zeit zum Ausweichen bleibt')}
+          ${check('koh', 'ClavisAngemon: große Raid-Angriffe mit Key of Hope blocken')}`, true,
           'Ausweichen: raus aus Kreisen, Strahlen und Fächern, möglichst mit freier Linie zum Ziel. Spiegel: weder 1 noch Skills, solange das Ziel Schaden zurückwirft. Skill-Timing: lange Casts nur, wenn eine mögliche Boss-Attacke noch Zeit zum Ausweichen lässt.')}
         ${grp('mobs', '<span data-f="mapname">Monster auf dieser Map</span>', `
           <div class="digibot__btnrow"><button class="digibot__btn" data-act="mobs-all">alle an</button><button class="digibot__btn" data-act="mobs-none">alle aus</button></div>
@@ -1219,6 +1221,81 @@
     return null;
   }
 
+  // ---------- Key of Hope: große Raid-Angriffe blocken ----------
+  // ClavisAngemons „Key of Hope“ schützt 2 s lang sich und die Gruppen-Partner im Umkreis von 128 px vor allem Schaden
+  // (45 s Cooldown, kein Cast). Kündigt ein Raid-Boss einen der großen Angriffe an, zündet ein Clavis den Skill kurz vor
+  // dem Einschlag. Mehrere Clavis in der Gruppe wechseln sich ab: der bereite mit der kleinsten Slot-Nummer zuerst; er
+  // meldet es sofort an die anderen Fenster. Kommt von ihm nichts, springt KOH_STEP_MS später der nächste ein.
+  const KOH_ID = 'clavisangemon.key_of_hope';
+  const KOH_BLOCK = new Set([
+    'infermon.spider_shooter', 'infermon.spider_shooter_charged', 'infermon.cocoon_ram',
+    'diaboromon.catastrophe_cannon', 'diaboromon.cannon_volley', 'diaboromon.tentacle_bug',
+    'armageddemon.black_rain', 'armageddemon.black_rain_storm', 'armageddemon.black_rain_shell', 'armageddemon.ultimate_flare',
+  ]);
+  const KOH_LEAD_MS = 700;    // so lange vor dem Einschlag zündet der erste Clavis (Schutz hält 2 s)
+  const KOH_STEP_MS = 200;    // Abstand, bis der nächste Clavis einspringt
+  const KOH_COVER_MS = 1700;  // Einschläge bis so lange nach dem Zünden gelten als abgedeckt
+  const KOH_RANGE = 700;      // nur Angriffe von Bossen in dieser Entfernung
+  const kohState = { claims: new Map() }; // Boss-Entity -> Zeitpunkt, an dem ein Clavis Key of Hope gezündet hat
+  const isKoh = (sk) => !!sk && (sk.id === KOH_ID || sk.name === 'Key of Hope');
+  function kohSlot(st) {
+    for (const k of SKILL_KEYS) { const s = skillOnKey(st, k); if (s && isKoh(s.skill)) return { k, s }; }
+    return null;
+  }
+  // Für die Gruppe: ab wann mein Key of Hope bereit ist (null = kein Clavis / ausgeschaltet)
+  function kohReadyAt(st, now) {
+    const o = cfg.koh && kohSlot(st);
+    if (!o || o.s.skill.unlocked === false) return null;
+    return o.s.cdLeft > 0 ? now + o.s.cdLeft : now;
+  }
+  function keyOfHope(st, now) {
+    if (!cfg.koh) return null;
+    const p = st?.me?.partner;
+    if (!p || p.fainted || p.evolving) return null;
+    const own = kohSlot(st);
+    if (!own) return null;
+    hookBossEvents();
+    const ents = window.dmo?.net?.state?.entities;
+    const me = ents?.get?.(p.entityId) || controlled(st);
+    let hit = null;
+    for (const [src, log] of bossSkillLog) {
+      for (const [sid, e] of log) {
+        if (!KOH_BLOCK.has(sid) || e.phase !== 'cast') continue;
+        const left = e.castEnd - now;
+        if (left > KOH_LEAD_MS || left < -300) continue;
+        const b = ents?.get?.(src);
+        if (b && me && Math.hypot(b.x - me.x, b.y - me.y) > KOH_RANGE) continue;
+        const claim = kohState.claims.get(src);
+        if (claim && e.castEnd <= claim + KOH_COVER_MS) continue; // ein Clavis hat schon gezündet
+        if (!hit || left < hit.left) hit = { src, sid, left };
+      }
+    }
+    if (!hit) return null;
+    const sk = own.s;
+    if (sk.cdLeft > 0 || sk.skill.unlocked === false || p.ds < (sk.skill.dsCost || 0)) return null;
+    // Reihenfolge: bereite Clavis auf derselben Map mit kleinerer Slot-Nummer sind vor mir dran
+    let rank = 0;
+    if (group.active()) {
+      for (const [slot, m] of group.peers) {
+        if (slot < group.slot() && fresh(m, now) && m.kohAt != null && m.kohAt <= now && m.inWorld && m.mapId === st.world?.mapId) rank++;
+      }
+    }
+    if (KOH_LEAD_MS - hit.left < rank * KOH_STEP_MS) return null;
+    if (!bot.can('Digit' + own.k, 300, now)) return null;
+    kohState.claims.set(hit.src, now);
+    try { group.bus?.postMessage({ type: 'koh', slot: group.slot(), src: hit.src, skill: hit.sid }); } catch { /* ignore */ }
+    bot.lastPress.skill = now;
+    bot.hit('Digit' + own.k, now);
+    const name = content()?.skills?.[hit.sid]?.name || hit.sid;
+    logEvent('warn', `Key of Hope gegen ${name}`);
+    return `Key of Hope gegen ${name}`;
+  }
+  // Eigener schneller Takt: der Bot-Takt (250 ms) ist für die Staffelung zwischen den Clavis zu grob
+  setInterval(() => {
+    if (!bot.on || !cfg.koh || !bossSkillLog.size) return;
+    try { const st = getStore()?.getState?.(); if (st) keyOfHope(st, Date.now()); } catch { /* ignore */ }
+  }, 50);
+
   function potionCount(me, fKey) {
     const ref = me?.hotbar?.[7 + fKey];
     if (typeof ref !== 'string' || !ref.startsWith('item:')) return null;
@@ -1482,6 +1559,7 @@
       if (bot.on && group.active() && (!prev || groupSig(prev) !== groupSig(m))) kickTick();
     }
     if (m.type === 'pos' && m.slot === accounts.leader && m.slot !== group.slot()) group.leaderPos = { ...m, seen: Date.now() };
+    if (m.type === 'koh' && m.src && m.slot !== group.slot()) kohState.claims.set(m.src, Date.now());
     if (!group.active()) return;
     if (m.type === 'start' && !bot.on) groupStartBot('Gruppe: Start aus dem Leader-Fenster');
     if (m.type === 'login') { ss.set('digibot.login', '1'); group.login = { at: 0, tries: 0, outAt: 0, enterAt: 0, msg: '' }; }
@@ -1523,6 +1601,7 @@
       talks: group.role() === 'leader' ? group.talks : [], done: group.done.slice(-30), busy: group.cur, login: group.login.msg, fin,
       deferred: group.seen.slice(-30),
       fight: inCombat(st),
+      kohAt: kohReadyAt(st, now),
     };
   }
   const fresh = (p, now) => !!p && now - p.seen < GROUP_STALE_MS;
@@ -1933,6 +2012,8 @@
     potion(2, cfg.dsPot > 0 && pct(p.ds, p.maxDs) < cfg.dsPot);
     potion(3, cfg.tdsPot > 0 && me.tamerMaxDs > 0 && pct(me.tamerDs, me.tamerMaxDs) < cfg.tdsPot);
     healSkill(st, now);
+    const kh = keyOfHope(st, now);
+    if (kh) return { text: kh, hold: true };
     const dg = dodge(st, now);
     if (dg) { group.mirrorTap = null; return { text: dg, hold: true }; }
     const ents = window.dmo?.net?.state?.entities;
@@ -1951,6 +2032,7 @@
       for (const k of SKILL_KEYS) {
         if (!skillOn(st, k) || healAt(st, k)) continue; // Heil-Skills nur über healSkill
         const sk = skillOnKey(st, k);
+        if (sk && isKoh(sk.skill) && cfg.koh) continue; // nur gegen große Raid-Angriffe
         if (!sk || sk.cdLeft > 0 || sk.skill.unlocked === false || p.ds < (sk.skill.dsCost || 0)) continue;
         if (!bot.can('Digit' + k, SKILL_GAP_MS * 2, now)) continue;
         if (skillUnsafe(st, st.target, sk.skill, now, Number(String(sk.ref).slice(6)))) continue;
@@ -3608,6 +3690,8 @@
       potion(3, cfg.tdsPot > 0 && me.tamerMaxDs > 0 && pct(me.tamerDs, me.tamerMaxDs) < cfg.tdsPot);
 
       // 1b) Flächenangriffen ausweichen hat Vorrang vor allem anderen
+      const kh = keyOfHope(st, now);
+      if (kh) { this.status = kh; return; }
       const dg = dodge(st, now);
       if (dg) { this.status = dg; this.attackedId = null; return; }
       healSkill(st, now); // Heil-Skill bei niedrigen HP (auch außerhalb des Kampfes)
@@ -3804,6 +3888,7 @@
       for (const k of SKILL_KEYS) {
         if (!skillOn(st, k) || healAt(st, k)) continue; // Heil-Skills nur über healSkill
         const s = skillOnKey(st, k);
+        if (s && isKoh(s.skill) && cfg.koh) continue; // nur gegen große Raid-Angriffe
         if (!s || s.cdLeft > 0 || s.skill.unlocked === false || p.ds < (s.skill.dsCost || 0)) continue;
         if (!this.can('Digit' + k, SKILL_GAP_MS * 2, now)) continue; // Server-Cooldown noch nicht angekommen
         const why = skillUnsafe(st, t, s.skill, now, Number(String(s.ref).slice(6))); // zu langer Cast vor einer möglichen Boss-Attacke -> nächster Skill
