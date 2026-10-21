@@ -217,6 +217,13 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.17.0 – Gruppe: Abgeben & Annehmen auf dieser Map
+- Neuer Knopf im Gruppen-Reiter: **„📜 Abgeben & Annehmen (diese Map)“**. In allen Gruppenfenstern gibt jeder seine
+  fertigen Quests auf der aktuellen Map ab und nimmt alle Quests an, die es hier gibt. Jeder arbeitet für sich, ohne auf
+  die anderen zu warten. Quests von NPCs auf anderen Maps bleiben liegen.
+- Danach geht es weiter wie vorher: Lief der Bot, läuft er im alten Modus weiter, sonst geht er wieder aus. Wechselt
+  ein Fenster dabei die Map, bricht es die Runde ab.
+
 #### Neu in 2.16.1 – Ziele verteilen bleibt beim Leader
 - Mit „🎯 Ziele verteilen“ greifen Mitläufer nur noch Monster im Umkreis von 250 px um den Leader an. Vorher suchten
   sie im Suchradius um sich selbst und konnten sich so Kill für Kill von der Gruppe entfernen. Ist in der Nähe des

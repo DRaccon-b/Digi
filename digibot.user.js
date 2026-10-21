@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.16.1
+// @version      2.17.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -470,7 +470,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.16.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.17.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -601,6 +601,7 @@
         </div>
         <label class="digibot__skill digibot__chk" title="Jedes Gruppenmitglied greift ein anderes Quest-Monster an (statt alle dasselbe). Ist keins mehr frei, hilft man mit. Bosse greifen alle gemeinsam an. Nicht beim Spiegeln und nicht in der Boss-Rotation."><input type="checkbox" data-accspread ${accounts.spread ? 'checked' : ''}><span>🎯 Ziele verteilen: jeder ein anderes Monster</span></label>
         <div class="digibot__grpbtns three"><button class="digibot__btn" data-act="grp-login" title="Fehlende Fenster öffnen, alle Accounts einloggen und Charakter wählen">🔑 Einloggen</button><button class="digibot__btn" data-act="grp-start" title="Bots in allen Gruppenfenstern starten">▶ Starten</button><button class="digibot__btn" data-act="grp-stop" title="Bots in allen Gruppenfenstern stoppen">■ Stoppen</button></div>
+        <div class="digibot__grpbtns"><button class="digibot__btn" data-act="grp-maptalk" title="In allen Gruppenfenstern: alle fertigen Quests auf der aktuellen Map abgeben und alle hier verfügbaren annehmen – jeder für sich. Danach geht es weiter wie vorher (lief der Bot nicht, stoppt er wieder).">📜 Abgeben &amp; Annehmen (diese Map)</button></div>
         <div class="digibot__gcards" data-f="gcards"></div>
         <label class="digibot__slotsel" title="Welcher Account läuft in diesem Fenster? Bestimmt, ob es Leader oder Mitläufer ist. Gilt nur für dieses Fenster.">Dieses Fenster ist
           <select data-accslot><option value="">– keine Gruppe –</option>${accounts.list.map((a, i) => `<option value="${i}">Account ${i + 1}${a.user ? ` (${escAttr(a.user)})` : ''}</option>`).join('')}</select></label>
@@ -1661,6 +1662,7 @@
     if (m.type === 'start' && !bot.on) groupStartBot('Gruppe: Start aus dem Leader-Fenster');
     if (m.type === 'login') { ss.set('digibot.login', '1'); group.login = { at: 0, tries: 0, outAt: 0, enterAt: 0, msg: '' }; }
     if (m.type === 'stop') groupStopBot('Gruppe: Stopp aus dem Leader-Fenster');
+    if (m.type === 'maptalk') startMapTalk('Gruppe: Abgeben & Annehmen auf dieser Map (aus einem anderen Fenster)');
   }
   // Was ein anderes Fenster sofort wissen muss (Ziel, Aufgabe, Gespräche, Kampf, Map, Quests) – Position nicht
   const groupSig = (m) => JSON.stringify([m.targetId, m.task?.key, m.talks?.[m.talks.length - 1]?.key, m.busy, m.done?.[m.done.length - 1],
@@ -2222,6 +2224,28 @@
     logEvent('bot', why);
     schedule();
   }
+  // 📜 Abgeben & Annehmen: einmalige Runde nur mit Gesprächen auf der aktuellen Map (eigene Quests, keine Gruppen-Wartezeiten)
+  function startMapTalk(why) {
+    const st = getStore()?.getState?.();
+    if (st?.screen !== 'world' || !st.me?.partner || autopilot.mapTalk) return;
+    autopilot.mapTalk = { mapId: st.world?.mapId, n: 0, prev: { autopilot: cfg.autopilot, farm: cfg.farm, questMode: cfg.questMode, on: bot.on } };
+    cfg.autopilot = true; cfg.farm = false; cfg.questMode = false;
+    autopilot.reset();
+    loadWorld();
+    if (!bot.on) bot.toggle(true); // still: kein Start/Stopp an die ganze Gruppe
+    logEvent('auto', why);
+    schedule();
+  }
+  function endMapTalk() {
+    const mt = autopilot.mapTalk;
+    if (!mt) return;
+    autopilot.mapTalk = null;
+    Object.assign(cfg, { autopilot: mt.prev.autopilot, farm: mt.prev.farm, questMode: mt.prev.questMode });
+    autopilot.reset();
+    logEvent('auto', `Abgeben & Annehmen fertig${mt.n ? ` (${mt.n} erledigt)` : ' – hier gab es nichts'}${mt.prev.on ? ' – weiter wie vorher' : ''}`);
+    if (!mt.prev.on && bot.on) bot.toggle(true); // nur dieses Fenster – die anderen sind evtl. noch dabei
+    schedule();
+  }
   // Bot stoppen; das Fenster bleibt in der Gruppe (nächster Start geht wieder an alle)
   function groupStopBot(why) {
     ss.set('digibot.go', null);
@@ -2552,7 +2576,7 @@
   function questTasks(st) {
     const C = content(), me = st?.me, mapId = st?.world?.mapId;
     if (!C || !me || world.state !== 'ready') return [];
-    const ix = questIndex(C), lvl = me.partner?.level ?? 1, quests = planQuests(st);
+    const ix = questIndex(C), lvl = me.partner?.level ?? 1, quests = autopilot.mapTalk ? (me.quests || {}) : planQuests(st);
     const npcName = (id) => C.npcs?.[id]?.name || id;
     // Manche NPCs gibt es mit derselben ID auf mehreren Maps (z. B. Gennai's Hologram), und jeder bietet nur die Quests
     // seiner Map an. Steht in der Quest die Map (giverMap/turnInMap), gilt der NPC dort – die Story-Station nur, wenn
@@ -2956,20 +2980,28 @@
   function autopilotStep(st, sc, now) {
     if (world.state !== 'ready') { loadWorld(); return `Lade Weltkarte… ${world.loaded}/${world.total || '?'}`; }
     if (st.screen !== 'world') return 'Warte auf Map-Wechsel…';
-    const follower = group.role() === 'follower';
+    const mt = autopilot.mapTalk;
+    if (mt && st.world?.mapId !== mt.mapId) { endMapTalk(); return 'Abgeben & Annehmen: Map gewechselt – beendet'; }
+    const follower = group.role() === 'follower' && !mt; // Abgeben & Annehmen: jeder für sich
     let t = null;
     if (follower) {
       autopilot.sweepAt = null;
       const fp = followerPick(st, sc, now);
       if (typeof fp === 'string') return fp;
       t = fp;
-    } else if (cfg.apOrder === 'sweep') {
+    } else if (cfg.apOrder === 'sweep' && !mt) {
       autopilot.sweepAt = sweepMap(st);
       if (!autopilot.sweepAt) { cfg.apSweepMap = ''; saveCfg(); return null; }
     } else autopilot.sweepAt = null;
     if (!follower) {
       t = autopilot.task;
-      if (t && taskDone(st, t)) { t = null; autopilot.reset(); }
+      if (t && taskDone(st, t)) { t = null; autopilot.reset(); if (mt) mt.n++; }
+    }
+    if (!t && mt) { // Abgeben & Annehmen: nur Gespräche auf dieser Map
+      t = autopilot.task = questTasks(st).find((o) => o.kind === 'talk' && (o.purpose === 'turnin' || o.purpose === 'accept') && o.loc?.mapId === mt.mapId) || null;
+      if (!t) { endMapTalk(); return 'Abgeben & Annehmen fertig'; }
+      logEvent('auto', `Abgeben & Annehmen: ${t.label}`);
+      autopilot.nav = null; autopilot.talkTries = 0; autopilot.arrivedAt = 0; autopilot.idleSince = 0;
     }
     if (!t) {
       const gw = groupWait(now);
@@ -3024,9 +3056,9 @@
       logEvent('warn', `${t.label}: ${why} – 5 min übersprungen`);
       return `${t.label}: ${why} – übersprungen`;
     };
-    const gc = groupCombatWait(st, t, now);
+    const gc = autopilot.mapTalk ? null : groupCombatWait(st, t, now);
     if (gc) { autopilot.nav = null; autopilot.huntSpecies = new Set(); return gc; }
-    const gl = groupLeaveWait(st, t, now);
+    const gl = autopilot.mapTalk ? null : groupLeaveWait(st, t, now);
     if (gl) { autopilot.nav = null; return gl; }
     // offener Dialog mit einem anderen NPC stört nur -> schließen
     if (st.dialog && st.dialog.npc !== t.npcId && !(st.dialog.npc === 'digiphone' && autopilot.tp)) commands()?.closeDialog?.();
@@ -3857,7 +3889,7 @@
     can(code, ms, now) { return now - (this.lastPress[code] || 0) >= ms; },
     hit(code, now) { this.lastPress[code] = now; press(code); },
 
-    toggle() {
+    toggle(quiet = false) { // quiet: Start/Stopp nicht an die ganze Gruppe melden
       this.on = !this.on;
       clearInterval(this.timer);
       this.attackedId = null;
@@ -3873,7 +3905,7 @@
       if (this.on) this.timer = setInterval(() => this.tick(), TICK_MS);
       this.status = this.on ? 'Bot läuft' : 'Bot aus';
       logEvent('bot', this.on ? `Bot gestartet${cfg.farm ? ' (Boss-Rotation)' : cfg.autopilot ? ' (Quest-Autopilot)' : cfg.questMode ? ' (Quest-Modus)' : ''}` : 'Bot gestoppt');
-      if (group.role() === 'leader') groupSend(this.on ? 'start' : 'stop');
+      if (group.role() === 'leader' && !quiet) groupSend(this.on ? 'start' : 'stop');
       schedule();
     },
 
@@ -3934,7 +3966,7 @@
       // Angreifer – Digimon zurückrufen und weiterlaufen
       // Mitläufer: offene Gespräche des Leaders (oder Aufholen) gehen vor – auch vor Angreifern. Sonst reißt ihn z. B. ein
       // Feldboss mitten aus einer Annehmen-/Abgeben-Folge beim NPC, und danach wird das Gespräch nicht mehr angeboten.
-      if (group.role() === 'follower' && cfg.autopilot && !cfg.farm && !autopilot.task && world.state === 'ready') {
+      if (group.role() === 'follower' && cfg.autopilot && !cfg.farm && !autopilot.task && !autopilot.mapTalk && world.state === 'ready') {
         const L0 = groupLeader(now);
         if (L0) followerAssign(st, L0, now);
       }
@@ -4788,6 +4820,7 @@
       if (lf) { cfg.logFilter = lf; saveCfg(); logShown = -1; schedule(); }
       if (act === 'bot') bot.toggle();
       if (act === 'grp-start') startGroup();
+      if (act === 'grp-maptalk' && claimSlot(getStore()?.getState?.())) { groupSend('maptalk'); startMapTalk('Gruppe: Abgeben & Annehmen auf dieser Map'); }
       if (act === 'grp-login') loginGroup();
       if (act === 'grp-stop') stopGroup();
       if (act === 'mobs-all') setAllMobs(true);
