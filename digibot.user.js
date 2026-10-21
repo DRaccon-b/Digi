@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.14.1
+// @version      2.14.2
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -469,7 +469,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.14.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.14.2'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -1812,7 +1812,8 @@
       return q?.state === 1 && (q.counters?.[lt.objIndex] ?? 0) < (lt.need || 1)
         ? { ...lt, key: lt.tkey, kind: 'reach', loc: { ...lt.loc }, def, mirror: lt.key } : null;
     }
-    const base = { ...lt, key: lt.tkey, kind: 'talk', loc: npcStation(lt.npcId, st.me?.quests || {}) || { ...lt.loc }, def, mirror: lt.key };
+    const sta = npcStation(lt.npcId, st.me?.quests || {});
+    const base = { ...lt, key: lt.tkey, kind: 'talk', loc: sta && sta.mapId === lt.loc?.mapId ? sta : { ...lt.loc }, def, mirror: lt.key };
     if (lt.purpose === 'accept') {
       // nur nachmachen, wenn der NPC sie mir auch anbietet: Vorquests erledigt, Level reicht (sonst ~15 s Dialog-Versuche)
       const mine = st.me?.quests || {};
@@ -2294,12 +2295,19 @@
   const RESET_UTC_HOUR = 7;
   const isStory = (id) => /^q(\d\d[a-z]?)?_/.test(id) || /^a2(_\d\d[a-z]?|q)_/.test(id);
   const gameDay = (t = Date.now()) => Math.floor((t - RESET_UTC_HOUR * 3600000) / 86400000);
+  // Eigene Merkliste „heute erledigt“ – je Account (sonst überspringt Account B eine Tagesquest, nur weil A sie heute hatte)
   const DONE_KEY = 'digibot.doneToday';
-  const doneToday = (() => { try { return JSON.parse(localStorage.getItem(DONE_KEY) || '{}'); } catch { return {}; } })();
+  const doneKey = () => (cfgUser ? `${DONE_KEY}@${cfgUser}` : DONE_KEY);
+  let doneUser, doneList = {};
+  function doneToday() {
+    if (doneUser !== cfgUser) { doneUser = cfgUser; try { doneList = JSON.parse(localStorage.getItem(doneKey()) || '{}'); } catch { doneList = {}; } }
+    return doneList;
+  }
   function markDoneToday(id) {
-    doneToday[id] = gameDay();
-    for (const [k, d] of Object.entries(doneToday)) if (d < gameDay()) delete doneToday[k]; // alte Tage aufräumen
-    try { localStorage.setItem(DONE_KEY, JSON.stringify(doneToday)); } catch {}
+    const d = doneToday();
+    d[id] = gameDay();
+    for (const [k, v] of Object.entries(d)) if (v < gameDay()) delete d[k]; // alte Tage aufräumen
+    try { localStorage.setItem(doneKey(), JSON.stringify(d)); } catch {}
   }
   // Serie (Adventure / Adventure 02): Quests a2…_ gibt es nur in Welten der Serie 2 (wie im Spiel)
   const questSeries = (id) => (/^a2[a-z]?_/.test(id) ? 2 : 1);
@@ -2308,7 +2316,7 @@
   const teamLevel = (st) => (st?.archive?.partners || []).reduce((m, p) => (p.carried ? Math.max(m, p.level || 0) : m), st?.me?.partner?.level ?? 1);
   function repeatAvailable(def, q) {
     if (!def || isStory(def.id) || q?.state !== 3) return false;
-    if (doneToday[def.id] === gameDay()) return false; // heute schon abgeschlossen (eigene Merkliste)
+    if (doneToday()[def.id] === gameDay()) return false; // heute schon abgeschlossen (eigene Merkliste)
     const day = (q.counters || [])[(def.objectives || []).length];
     return day === undefined || day < gameDay();
   }
@@ -2520,11 +2528,16 @@
     if (!C || !me || world.state !== 'ready') return [];
     const ix = questIndex(C), lvl = me.partner?.level ?? 1, quests = planQuests(st);
     const npcName = (id) => C.npcs?.[id]?.name || id;
+    // Manche NPCs gibt es mit derselben ID auf mehreren Maps (z. B. Gennai's Hologram), und jeder bietet nur die Quests
+    // seiner Map an. Steht in der Quest die Map (giverMap/turnInMap), gilt der NPC dort – die Story-Station nur, wenn
+    // sie auf dieser Map liegt.
     const npcLoc = (npcId, prefMap) => {
       const sta = npcStation(npcId, me.quests || {});
-      if (sta) return sta;
+      if (sta && (!prefMap || sta.mapId === prefMap)) return sta;
       const locs = world.npcAt.get(npcId) || [];
-      return locs.find((l) => l.mapId === prefMap) || [...locs].sort((a, b) => hops(mapId, a.mapId) - hops(mapId, b.mapId))[0] || null;
+      const onPref = prefMap && locs.find((l) => l.mapId === prefMap);
+      if (onPref) return onPref;
+      return sta || [...locs].sort((a, b) => hops(mapId, a.mapId) - hops(mapId, b.mapId))[0] || null;
     };
     const tasks = [];
     for (const [id, q] of Object.entries(quests)) {

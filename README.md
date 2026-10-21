@@ -217,6 +217,14 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.14.2 – Tägliche Quests beim richtigen NPC
+- Manche NPCs gibt es mit derselben ID auf mehreren Maps (z. B. Gennai's Hologram), und jeder vergibt nur die Quests
+  seiner Map. Der Bot ging bisher zu dem NPC, an dem die Story gerade steht (z. B. Myotismon's Castle), statt zur Map
+  der Quest (z. B. Sunset Bay für „Bay Patrol“). Dort versuchte er immer wieder eine Quest anzunehmen, die es da nicht gibt.
+  Jetzt gilt die Map, die in der Quest steht (Annehmen und Abgeben, auch bei Mitläufern).
+- Die eigene Liste „heute erledigt“ gilt jetzt je Account. Bisher teilten sich alle Accounts eine Liste, und Account B
+  übersprang eine Tagesquest, nur weil Account A sie heute schon gemacht hatte.
+
 #### Neu in 2.14.1 – Ausblenden ohne Sprung in die Adresszeile
 - **Alt+D** blendet das Panel aus/ein, ohne dass Chrome zusätzlich in die Adresszeile springt. Neu dazu: **Alt+H** macht dasselbe.
 
