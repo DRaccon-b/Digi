@@ -217,6 +217,14 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.13.5 – Boss lebt auf dem anderen Kanal: sofort hin
+- Wartet der Bot in der Boss-Rotation auf einem Kanal und meldet der Boss-Timer, dass der Boss auf einem anderen Kanal
+  (oder einer anderen Map) lebt oder in wenigen Sekunden spawnt, hört er auf, gegen normale Monster zu kämpfen. Er ruft
+  das Digimon zurück und wechselt sofort, auch wenn ihn gerade Monster angreifen. Vorher hielten ihn nachkommende
+  aggressive Monster (z. B. in Fog City) bis zu einer Minute auf.
+- Gilt nur bei mindestens 50 % HP; darunter wird erst zu Ende gekämpft. Mitläufer im Gruppen-Modus 👑 Bosse hören
+  dann ebenfalls auf zu kämpfen und folgen.
+
 #### Neu in 2.13.4 – Abgabe-Digimon erst beim Quest-Geber
 - Mit eingestelltem Abgabe-Digimon läuft der Bot jetzt in seiner aktuellen Form (z. B. Imperialdramon) zum Quest-Geber.
   Erst dort digitiert er zurück, wechselt das Digimon und gibt ab. Bisher passierte das im Map-für-Map-Modus schon vor dem Loslaufen.

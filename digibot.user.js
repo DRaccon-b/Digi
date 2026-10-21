@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.13.4
+// @version      2.13.5
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -423,7 +423,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.13.4'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.13.5'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -3240,8 +3240,20 @@
     chBan: new Map(),   // "map#ch" -> bis wann der Kanal gemieden wird (voll, Wechsel klappt nicht)
     route: null,        // Named-Runde: { i, map, skip:Set(ch), back, chSince, chKey, zoneAt, patrol, logged:Set }
     opening: null,      // { key, at, tries } – gerade angestoßenes Öffnen eines neuen Kanals
+    leave: false,       // Boss-Ziel lebt woanders: nicht kämpfen, sofort hin
     reset() { this.goal = null; this.fight = null; this.switchTries = 0; this.route = null; this.opening = null; },
   };
+  // Lebt das nächste Boss-Ziel auf einem anderen Kanal/einer anderen Map (oder spawnt dort in wenigen Sekunden)?
+  // Dann hält jeder Kampf gegen normale Monster nur auf – auch gegen Angreifer, die immer wieder nachkommen.
+  // Nur bei mindestens halben HP; sonst erst normal zu Ende kämpfen.
+  const FARM_LEAVE_SOON_MS = 15000;
+  function farmGoalElsewhere(st, p, now) {
+    if (cfg.farmMode === 'named' || world.state !== 'ready' || !farmChannels().length || !farmSelected().length) return false;
+    if (p.maxHp > 0 && p.hp / p.maxHp < 0.5) return false;
+    const o = farmPlan(st, now);
+    if (!o || (o.map === st.world?.mapId && o.ch === (st.world?.channel ?? 1))) return false;
+    return o.s.state === 'up' || (o.s.state === 'down' && o.s.readyAt - now < FARM_LEAVE_SOON_MS);
+  }
   // Bosse nehmen die ersten 3 s nach dem Respawn kaum Schaden (99 % Reduktion). Solange ein Boss frisch
   // aufgetaucht ist und volle HP hat, nur normal angreifen – Skills (Abklingzeit, DS) erst danach.
   // Gilt für jeden Boss und in allen Modi (Bot, Mitläufer, Spiegeln mit Angriff), nicht nur für die Boss-Rotation.
@@ -3451,7 +3463,8 @@
   function farmSwitch(st, sc, mapId, mapName, ch, now) {
     const curCh = st.world?.channel ?? 1;
     if (curCh === ch) { farm.switchTries = 0; farm.opening = null; return { done: true }; }
-    if (sc?.attackers?.length) return { status: 'Kanalwechsel nach dem Kampf…' };
+    const attacked = !!sc?.attackers?.length;
+    if (attacked && !farm.leave) return { status: 'Kanalwechsel nach dem Kampf…' };
     const list = farmChannelList(st, now);
     if (!list) return { status: 'lade Kanalliste…' };
     const room = list.find((r) => r.channel === ch);
@@ -3488,7 +3501,7 @@
     }
     if (room.closing || (room.maxClients && room.clients >= room.maxClients)) return fail('voll/schließt');
     if (now - farm.lastSwitch > FARM_SWITCH_MS) {
-      if (++farm.switchTries > 3) return fail('– Wechsel klappt nicht');
+      if (!attacked && ++farm.switchTries > 3) return fail('– Wechsel klappt nicht');
       farm.lastSwitch = now;
       autopilot.nav = null;
       farm.lastInfo = 0; // gleich danach die Map-Info des neuen Kanals holen
@@ -3801,7 +3814,8 @@
         autopilot.dlgIdleAt ||= now;
         if (now - autopilot.dlgIdleAt > 1500) { commands()?.closeDialog?.(); autopilot.dlgIdleAt = 0; }
       } else autopilot.dlgIdleAt = 0;
-      const noFight = cfg.autopilot && !cfg.farm && nextIsTurnin(st, now);
+      farm.leave = cfg.farm && !this.resting && farmGoalElsewhere(st, p, now);
+      const noFight = (cfg.autopilot && !cfg.farm && nextIsTurnin(st, now)) || farm.leave;
       if (group.role() === 'leader') group.noFight = noFight; // Mitläufer kämpfen dann auch nicht
       if (noFight) {
         const pe = window.dmo?.net?.state?.entities?.get?.(p.entityId);
