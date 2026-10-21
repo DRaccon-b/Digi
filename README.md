@@ -217,6 +217,15 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.18.0 – Gruppe: Leader erledigt die Quests der Mitläufer
+- Neuer Haken im Gruppen-Reiter: **„🤝 Leader erledigt die Quests der Mitläufer“** (nur im Modus 📜 Quests).
+- Der Leader plant dann nur noch mit den Quests der Mitläufer, seine eigenen sind egal. Er jagt, was ihnen fehlt
+  (Zähler = der Mitläufer, der am weitesten zurück ist), reist zu ihren Zielen und führt die Gruppe zum NPC.
+- Am NPC löst er „Abgeben & Annehmen“ bei den Mitläufern aus: Jeder gibt dort selbst ab, nimmt die nächsten Quests an
+  und erledigt Quest-Gespräche. Danach geht es mit der nächsten Mitläufer-Quest weiter. Abgegeben wird, wenn alle
+  Mitläufer mit der Quest fertig sind.
+- Eigene Quests nimmt der Leader in diesem Modus nicht an.
+
 #### Neu in 2.17.0 – Gruppe: Abgeben & Annehmen auf dieser Map
 - Neuer Knopf im Gruppen-Reiter: **„📜 Abgeben & Annehmen (diese Map)“**. In allen Gruppenfenstern gibt jeder seine
   fertigen Quests auf der aktuellen Map ab und nimmt alle Quests an, die es hier gibt. Jeder arbeitet für sich, ohne auf

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.17.0
+// @version      2.18.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -391,12 +391,12 @@
   // sessionStorage des Fensters (Slot) – die Bot-Einstellungen in localStorage teilen sich ja alle Fenster.
   const ACC_KEY = 'digibot.accounts';
   const ACC_MAX = 5;
-  const accounts = { leader: 0, popup: true, mirror: false, mirrorAtk: true, leadBoss: false, spread: false, list: [] };
+  const accounts = { leader: 0, popup: true, mirror: false, mirrorAtk: true, leadBoss: false, spread: false, serve: false, list: [] };
   function reloadAcc() {
     try {
       const a = JSON.parse(localStorage.getItem(ACC_KEY) || 'null');
       if (a && Array.isArray(a.list)) {
-        accounts.leader = Number(a.leader) || 0; accounts.popup = a.popup !== false; accounts.mirror = !!a.mirror; accounts.mirrorAtk = a.mirrorAtk !== false; accounts.leadBoss = !!a.leadBoss; accounts.spread = !!a.spread;
+        accounts.leader = Number(a.leader) || 0; accounts.popup = a.popup !== false; accounts.mirror = !!a.mirror; accounts.mirrorAtk = a.mirrorAtk !== false; accounts.leadBoss = !!a.leadBoss; accounts.spread = !!a.spread; accounts.serve = !!a.serve;
         accounts.list = a.list.slice(0, ACC_MAX);
       }
     } catch {}
@@ -470,7 +470,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.17.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.18.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -600,6 +600,7 @@
           <button data-gmode="bots" title="Alle Fenster fahren ihren Bot: der Leader den Autopilot, die anderen folgen ihm und machen seine Quests mit.">📜 Quests</button><button data-gmode="boss" title="Alle Fenster fahren ihren Bot: der Leader die Boss-Rotation (Bosse im Tab Farmen auswählen), die anderen folgen ihm über Maps und Kanäle und kämpfen mit.">👑 Bosse</button><button data-gmode="move" title="Du spielst den Leader selbst – die anderen Fenster (Bot aus) laufen ihm nach, auch über Maps und Kanäle.">👣 Spiegeln</button><button data-gmode="both" title="Wie Spiegeln, und die anderen greifen das Ziel des Leaders mit an – mit ihren Skills, Tränken und Ausweichen.">⚔️ + Angriff</button>
         </div>
         <label class="digibot__skill digibot__chk" title="Jedes Gruppenmitglied greift ein anderes Quest-Monster an (statt alle dasselbe). Ist keins mehr frei, hilft man mit. Bosse greifen alle gemeinsam an. Nicht beim Spiegeln und nicht in der Boss-Rotation."><input type="checkbox" data-accspread ${accounts.spread ? 'checked' : ''}><span>🎯 Ziele verteilen: jeder ein anderes Monster</span></label>
+        <label class="digibot__skill digibot__chk" title="Der Leader kümmert sich nur um die Quests der Mitläufer (seine eigenen sind egal): er jagt, was ihnen fehlt, reist zu ihren Zielen und führt die Gruppe zum Abgabe-/Gesprächs-NPC. Dort geben die Mitläufer selbst ab, nehmen neue Quests an und erledigen Quest-Gespräche. Nur im Modus 📜 Quests."><input type="checkbox" data-accserve ${accounts.serve ? 'checked' : ''}><span>🤝 Leader erledigt die Quests der Mitläufer</span></label>
         <div class="digibot__grpbtns three"><button class="digibot__btn" data-act="grp-login" title="Fehlende Fenster öffnen, alle Accounts einloggen und Charakter wählen">🔑 Einloggen</button><button class="digibot__btn" data-act="grp-start" title="Bots in allen Gruppenfenstern starten">▶ Starten</button><button class="digibot__btn" data-act="grp-stop" title="Bots in allen Gruppenfenstern stoppen">■ Stoppen</button></div>
         <div class="digibot__grpbtns"><button class="digibot__btn" data-act="grp-maptalk" title="In allen Gruppenfenstern: alle fertigen Quests auf der aktuellen Map abgeben und alle hier verfügbaren annehmen – jeder für sich. Danach geht es weiter wie vorher (lief der Bot nicht, stoppt er wieder).">📜 Abgeben &amp; Annehmen (diese Map)</button></div>
         <div class="digibot__gcards" data-f="gcards"></div>
@@ -1702,6 +1703,7 @@
       fight: inCombat(st),
       kohAt: kohReadyAt(st, now),
       farm: !!cfg.farm,
+      serve: serveOn(),
     };
   }
   const fresh = (p, now) => !!p && now - p.seen < GROUP_STALE_MS;
@@ -1763,9 +1765,30 @@
   }
   // Leader plant mit dem Stand der ganzen Gruppe: Hat ein Mitläufer bei einer Quest noch offene Kampf-/Sammelziele,
   // gilt sie auch für den Leader als offen – er jagt weiter und gibt erst ab, wenn alle abgeben können.
+  // „Leader erledigt die Quests der Mitläufer“ – nur im Quest-Betrieb der Gruppe
+  const serveOn = () => group.role() === 'leader' && accounts.serve && !accounts.mirror && !cfg.farm && !autopilot.mapTalk;
+  // Quests aller Mitläufer zusammen: aktiv, solange einer noch ein Ziel offen hat (Zähler = der kleinste);
+  // fertig (abgeben), wenn alle, die sie haben, fertig sind
+  function serveQuests() {
+    const C = content(), out = {};
+    for (const m of groupMembers().filter((x) => x.inWorld && x.quests)) {
+      for (const [id, q] of Object.entries(m.quests)) {
+        if (q.state !== 1 && q.state !== 2) continue;
+        const objs = questDef(C, id)?.objectives || [];
+        const full = (x) => (x.state === 2 ? objs.map((o) => o.count || 1) : objs.map((o, i) => x.counters?.[i] ?? 0));
+        const cur = out[id];
+        if (!cur) { out[id] = { state: q.state, counters: full(q), serve: true }; continue; }
+        if (cur.state === 2 && q.state === 2) continue;
+        const a = full(cur), b = full(q);
+        out[id] = { state: 1, counters: a.map((v, i) => Math.min(v, b[i])), serve: true };
+      }
+    }
+    return out;
+  }
   function planQuests(st) {
     const own = st?.me?.quests || {};
     if (group.role() !== 'leader') return own;
+    if (serveOn()) return serveQuests();
     const mem = groupMembers().filter((m) => m.inWorld && m.quests);
     if (!mem.length) return own;
     const C = content();
@@ -1867,7 +1890,7 @@
   // zwischen zwei Kämpfen (sonst kommt ein Mitläufer im Jagdgebiet nie dazu, weil immer ein Monster da ist).
   function followerAssign(st, L, now) {
     if (group.cur && !autopilot.task) { group.done.push(group.cur); group.cur = null; }
-    if (L.farm) return null; // Leader rotiert Bosse: nur folgen und mitkämpfen
+    if (L.farm || L.serve) return null; // Leader rotiert Bosse / führt nur: folgen und mitkämpfen
     for (const lt of L.talks || []) {
       if (group.handled.has(lt.key)) continue;
       const mt = mirrorTask(st, lt);
@@ -2589,7 +2612,7 @@
       if (onPref) return onPref;
       return sta || [...locs].sort((a, b) => hops(mapId, a.mapId) - hops(mapId, b.mapId))[0] || null;
     };
-    const tasks = [];
+    let tasks = [];
     for (const [id, q] of Object.entries(quests)) {
       if (cfg.questOff[id]) continue;
       const def = questDef(C, id);
@@ -2669,7 +2692,11 @@
     }
     const now = Date.now();
     // Runde: nur Quests, deren Geber auf der aktuellen Runden-Map steht (Ziele dürfen woanders liegen)
-    const M = cfg.apOrder === 'sweep' ? autopilot.sweepAt : null;
+    const M = cfg.apOrder === 'sweep' && !serveOn() ? autopilot.sweepAt : null;
+    if (serveOn()) { // Leader führt nur: Abgaben/Gespräche der Mitläufer erledigen sie am NPC selbst
+      tasks = tasks.filter((t) => t.purpose !== 'accept' && t.purpose !== 'daily' && !t.grind)
+        .map((t) => (t.kind === 'talk' ? { ...t, key: `escort:${t.key}`, purpose: 'escort', orig: t.purpose, label: `${t.label} (Mitläufer)` } : t));
+    }
     return tasks
       .filter((t) => !M || t.grind ? !M : t.purpose === 'daily' ? t.loc.mapId === M : questOnMap(t.def, M))
       .filter((t) => (autopilot.failed.get(t.key) || 0) < now && hops(mapId, t.loc.mapId) < Infinity)
@@ -2682,10 +2709,15 @@
   const taskPhase = (t) => (t.purpose === 'accept' || t.purpose === 'daily' ? 1 : t.purpose === 'turnin' ? 3 : 2);
   const PHASE_NAMES = { 1: 'Quests annehmen', 2: 'Ziele erledigen', 3: 'Quests abgeben' };
 
+  const ESCORT_MS = 45000;
   function taskDone(st, t) {
     if (t.grind) return (st?.me?.partner?.level ?? 0) >= t.targetLevel;
     if (t.purpose === 'daily') return autopilot.dailyVisited.has(t.visitKey);
     const q = planQuests(st)[t.questId];
+    if (t.purpose === 'escort') { // Mitläufer sind am NPC dran; nach ESCORT_MS weiter (kommt wieder, falls noch offen)
+      if (t.escortAt && Date.now() - t.escortAt > ESCORT_MS) return true;
+      return t.orig === 'turnin' ? q?.state !== 2 : !q || q.state !== 1 || (q.counters?.[t.objIndex] ?? 0) >= t.need;
+    }
     if (t.purpose === 'turnin') return q?.state !== 2;
     if (t.purpose === 'accept') return q?.state === 1 || q?.state === 2;
     return !q || q.state !== 1 || (q.counters?.[t.objIndex] ?? 0) >= t.need;
@@ -2998,7 +3030,7 @@
       if (t && taskDone(st, t)) { t = null; autopilot.reset(); if (mt) mt.n++; }
     }
     if (!t && mt) { // Abgeben & Annehmen: nur Gespräche auf dieser Map
-      t = autopilot.task = questTasks(st).find((o) => o.kind === 'talk' && (o.purpose === 'turnin' || o.purpose === 'accept') && o.loc?.mapId === mt.mapId) || null;
+      t = autopilot.task = questTasks(st).find((o) => o.kind === 'talk' && (o.purpose === 'turnin' || o.purpose === 'accept' || o.purpose === 'objective') && o.loc?.mapId === mt.mapId) || null;
       if (!t) { endMapTalk(); return 'Abgeben & Annehmen fertig'; }
       logEvent('auto', `Abgeben & Annehmen: ${t.label}`);
       autopilot.nav = null; autopilot.talkTries = 0; autopilot.arrivedAt = 0; autopilot.idleSince = 0;
@@ -3123,6 +3155,14 @@
       if (t.purpose === 'turnin') { // Abgabe mit dem gewählten Abgabe-Digimon
         const sw = ensurePartner(st, cfg.apTurninPartner || cfg.apQuestPartner, now);
         if (sw !== true) return `${t.label} · ${sw}`;
+      }
+      if (t.purpose === 'escort') { // Gruppe ist da: jeder Mitläufer gibt hier ab, nimmt an und spricht selbst
+        if (!t.escortAt) {
+          t.escortAt = now;
+          groupSend('maptalk');
+          logEvent('auto', `Gruppe: Mitläufer erledigen ihre Gespräche bei ${name}`);
+        }
+        return `${t.label} · warte, bis die Mitläufer fertig sind…`;
       }
       if (now - autopilot.lastTalk > 3000) {
         if (++autopilot.talkTries > 4) return fail(`${name} antwortet nicht`);
@@ -4616,6 +4656,7 @@
   function renderGroupCards(st, now) {
     const mode = !accounts.mirror ? (accounts.leadBoss ? 'boss' : 'bots') : accounts.mirrorAtk ? 'both' : 'move';
     const spr = panel.querySelector('[data-accspread]'); if (spr && spr !== document.activeElement) spr.checked = !!accounts.spread;
+    const srv = panel.querySelector('[data-accserve]'); if (srv && srv !== document.activeElement) srv.checked = !!accounts.serve;
     panel.querySelectorAll('[data-gmode]').forEach((b) => b.classList.toggle('on', b.dataset.gmode === mode));
     const box = panel.querySelector('[data-f="gcards"]');
     const C = content(), esc = (x) => String(x ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -4876,6 +4917,11 @@
         e.target.blur();
         groupPush(true);
         schedule();
+        return;
+      }
+      if (e.target.matches('[data-accserve]')) {
+        reloadAcc(); accounts.serve = e.target.checked; saveAcc(); e.target.blur(); autopilot.reset();
+        logEvent('bot', `Gruppe: Leader erledigt die Quests der Mitläufer – ${accounts.serve ? 'an' : 'aus'}`);
         return;
       }
       if (e.target.matches('[data-accspread]')) {
