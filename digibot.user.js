@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.18.4
+// @version      2.19.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -470,7 +470,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.18.4'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.19.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -820,6 +820,24 @@
   const dodgeState = { active: false, lastTap: 0, lastFollow: 0 };
   function dangerZones() {
     const sc = worldScene(), zones = [];
+    // Markierungen (z. B. Apocalymons „Big Bang Mark“): ein Kreis folgt einem Spieler und trifft beim Einschlag alle darin.
+    // Ein anderer ist markiert -> sein Kreis ist Gefahrenzone. Ich bin markiert -> weg von allen anderen Spielern/Digimon.
+    try {
+      const marks = sc?.telegraphs?.marksActive || [];
+      if (marks.length) {
+        const ents = window.dmo?.net?.state?.entities, me = getStore()?.getState?.()?.me;
+        const mine = new Set([me?.tamerEntityId, me?.partner?.entityId].filter(Boolean));
+        for (const m of marks) {
+          const r = m.r || 32;
+          if (mine.has(m.dst)) {
+            ents?.forEach?.((e) => { if ((e.kind === KIND.Tamer || e.kind === KIND.Partner) && !mine.has(e.id) && isFinite(e.x) && isFinite(e.y)) zones.push({ kind: 'circle', x: e.x, y: e.y, r }); });
+          } else {
+            const d = ents?.get?.(m.dst);
+            if (d && isFinite(d.x) && isFinite(d.y)) zones.push({ kind: 'circle', x: d.x, y: d.y, r });
+          }
+        }
+      }
+    } catch { /* ignore */ }
     try {
       for (const c of sc?.telegraphs?.active || []) {
         if (c && c.r > 0 && isFinite(c.x) && isFinite(c.y)) zones.push({ kind: 'circle', x: c.x, y: c.y, r: c.r });

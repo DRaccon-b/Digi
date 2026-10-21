@@ -217,6 +217,13 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.19.0 – Markierungen ausweichen (z. B. Apocalymons Big Bang Mark)
+- Manche Bosse markieren einen Spieler: Ein Warnkreis folgt ihm, und beim Einschlag bekommt jeder darin Schaden, die
+  anderen sogar mehr. Das Ausweichen erkennt diese Markierungen jetzt.
+- **Ein anderer ist markiert:** Der Bot geht aus dessen Kreis raus und hält Abstand.
+- **Ich bin markiert:** Der Bot läuft von den anderen Spielern weg, damit niemand mit im Kreis steht.
+- Gilt mit der Option „Warnkreisen/-strahlen ausweichen“ (Boss-Mechaniken), auch für Mitläufer.
+
 #### Neu in 2.18.4 – Mitläufer greifen nicht mehr beim Leader mit an
 - Mit „🤝 Leader erledigt die Quests der Mitläufer“ zählt für einen Mitläufer nur noch ein Monster als Angreifer, das ihn
   selbst angreift. Bisher galt auch ein Monster, das den Leader in der Nähe angreift, als Angreifer. Dann liefen alle
