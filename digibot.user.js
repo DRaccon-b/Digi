@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.18.3
+// @version      2.18.4
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -470,7 +470,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.18.3'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.18.4'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -1442,10 +1442,12 @@
     const farmSp = cfg.farm ? farmTargets(mapId) : null;
     const assistId = group.role() === 'follower' ? leaderTargetId(now) : null;
     const mobs = [];
+    // Leader erledigt meine Quests: ich bleibe stehen – nur, was mich selbst angreift, ist ein Angreifer
+    const guardParty = !(group.role() === 'follower' && groupLeader()?.serve);
     ents.forEach((e) => {
       if (e.kind !== KIND.Mob || e.hp <= 0 || (e.flags & (FLAG.Dead | FLAG.Hidden | FLAG.Untargetable))) return;
       // Angreifer: greift mich an – oder ein Gruppenmitglied in meiner Nähe
-      const attacker = mine.has(e.targetId) || (party.has(e.targetId) && Math.hypot(e.x - self.x, e.y - self.y) <= cfg.radius);
+      const attacker = mine.has(e.targetId) || (guardParty && party.has(e.targetId) && Math.hypot(e.x - self.x, e.y - self.y) <= cfg.radius);
       const cat = catOf(e.flags), key = `${e.defId}|${cat}`;
       const aggressive = !!(e.flags & FLAG.Aggressive);
       const s = seenHere.get(key);
