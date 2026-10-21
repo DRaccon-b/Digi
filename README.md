@@ -217,6 +217,13 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.13.4 – Abgabe-Digimon erst beim Quest-Geber
+- Mit eingestelltem Abgabe-Digimon läuft der Bot jetzt in seiner aktuellen Form (z. B. Imperialdramon) zum Quest-Geber.
+  Erst dort digitiert er zurück, wechselt das Digimon und gibt ab. Bisher passierte das im Map-für-Map-Modus schon vor dem Loslaufen.
+- Das Spiel lehnt einen Partner-Wechsel im Kampf und in den 10 s nach dem letzten Wechsel ab. Der Bot wartet das jetzt ab
+  (im Kampf ruft er das Digimon zurück), statt es als Fehlversuch zu zählen. Vorher gab er nach 6 abgelehnten Versuchen
+  auf und gab mit dem falschen Digimon ab.
+
 #### Neu in 2.13.3 – Spawn-Schutz in allen Modi
 - Die ersten ~3 s nach dem Auftauchen eines Bosses (99 % Schadensreduktion) setzt der Bot keine Skills ein, nur normale
   Angriffe. Das galt bisher nur in der Boss-Rotation und nur für ausgewählte Bosse. Jetzt gilt es für jeden Boss und

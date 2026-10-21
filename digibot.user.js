@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.13.3
+// @version      2.13.4
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -423,7 +423,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.13.3'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.13.4'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -1573,7 +1573,7 @@
 
   const autopilot = {
     task: null, nav: null, failed: new Map(), huntSpecies: new Set(),
-    sweepAt: null, tp: null, tpBlock: new Map(), route: null, lastSwitch: 0, switchTries: 0, switchGiveUp: null, lastEvolve: 0, evoTries: 0, evoGiveUp: null,
+    sweepAt: null, tp: null, tpBlock: new Map(), route: null, lastSwitch: 0, switchTries: 0, switchGiveUp: null, switchFollowAt: 0, lastEvolve: 0, evoTries: 0, evoGiveUp: null,
     dailyVisited: new Set(), dailyAccepted: new Set(), dailyAt: 0, boardOnly: new Set(),
     avoidSpots: new Map(), // Jagdgebiet-Schlüssel -> bis wann gemieden (war leer)
     phase: 0, // aktuelle Phase der Map-für-Map-Runde (nur fürs Log)
@@ -2297,6 +2297,15 @@
       }
       return `Digitiere ${speciesName(cur.species)} zurück…`;
     }
+    // Das Spiel lehnt den Wechsel im Kampf und 10 s nach dem letzten Wechsel ab – abwarten, ohne als Fehlversuch
+    // zu zählen (sonst gibt der Bot auf und gibt mit dem falschen Digimon ab). Im Kampf das Digimon zurückrufen.
+    const swCd = Math.max(0, (st?.cooldowns?.switch?.end ?? 0) - performance.now());
+    if (swCd > 0) return `Partner-Wechsel in ${Math.ceil(swCd / 1000)} s (Abklingzeit)…`;
+    const pe = window.dmo?.net?.state?.entities?.get?.(cur?.entityId);
+    if (pe && (pe.flags & FLAG.InCombat)) {
+      if (now - autopilot.switchFollowAt > 1500) { autopilot.switchFollowAt = now; commands()?.partnerFollow?.(); }
+      return 'Partner-Wechsel: warte, bis der Kampf vorbei ist…';
+    }
     if (now - autopilot.lastSwitch > 5000) {
       if (++autopilot.switchTries > 6) {
         autopilot.switchGiveUp = partnerId;
@@ -2937,9 +2946,9 @@
     if (st.dialog && st.dialog.npc !== t.npcId && !(st.dialog.npc === 'digiphone' && autopilot.tp)) commands()?.closeDialog?.();
 
     autopilot.huntSpecies = t.kind === 'hunt' && st.world?.mapId === t.loc.mapId ? t.species : new Set();
-    // Quest-Digimon (in der gewählten Digitation) für Annehmen und Erledigen; für Abgaben das Abgabe-Digimon.
-    // In der Map-für-Map-Runde wird schon vor dem ersten Annehmen digitiert und vor dem Hinlaufen zur Abgabe
-    // zurück-digitiert und gewechselt – nicht erst beim NPC.
+    // Quest-Digimon (in der gewählten Digitation) für Annehmen und Erledigen. In der Map-für-Map-Runde wird schon
+    // vor dem ersten Annehmen digitiert. Das Abgabe-Digimon kommt erst beim Quest-Geber dran (zurück-digitieren,
+    // wechseln, abgeben) – unterwegs scheitert der Wechsel an Kämpfen, und man läuft in der Grundform herum.
     if (t.purpose !== 'turnin') {
       const sw = ensurePartner(st, cfg.apQuestPartner, now);
       if (sw !== true) return `${t.label} · ${sw}`;
@@ -2947,9 +2956,6 @@
         const ev = ensureEvolution(st, cfg.apEvo, now);
         if (ev !== true) return `${t.label} · ${ev}`;
       }
-    } else if (cfg.apOrder === 'sweep') {
-      const sw = ensurePartner(st, cfg.apTurninPartner || cfg.apQuestPartner, now);
-      if (sw !== true) return `${t.label} · ${sw}`;
     }
     const tr = travel(st, t.loc.mapId, now);
     if (tr !== true) return tr === 'Keine Route' || tr === 'Portal nicht erreichbar' ? fail(tr) : `${t.label} · ${tr}`;
