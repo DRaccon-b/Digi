@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.14.2
+// @version      2.15.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -302,6 +302,7 @@
     mirror: true,     // bei Spiegel/Reflexion des Ziels nicht angreifen
     koh: true,        // ClavisAngemon: große Raid-Angriffe mit „Key of Hope“ blocken
     skipTaken: true,  // keine Gegner angreifen, die andere Spieler gerade bekämpfen
+    chCheck: false,   // Channel-Checker: auf den Kanal mit den wenigsten Spielern wechseln (nicht in der Boss-Rotation)
     safeCast: true,   // gegen Bosse: Skills nur, wenn danach noch Zeit zum Ausweichen bleibt (und kein Spiegel droht)
     autopilot: false, // Quests annehmen, hinreisen, erledigen, abgeben
     apGrind: true,    // Autopilot: bei Level-Sperren/Level-Zielen grinden statt stoppen
@@ -469,7 +470,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.14.2'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.15.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -535,8 +536,9 @@
         ${grp('targeting', 'Zielwahl', `
           ${slider('lvlDiff', 'Max. Level über dem Digimon', 0, 100, (v) => `+${v}`)}
           ${slider('radius', 'Suchradius', 100, 800, (v) => `${v} px`, 0, 20)}
-          ${check('skipTaken', 'Keine Gegner angreifen, die andere Spieler bekämpfen')}`, true,
-          'Schwächere Monster werden immer angegriffen, nur zu starke (über +Level) nicht. Angreifer werden immer abgewehrt.')}
+          ${check('skipTaken', 'Keine Gegner angreifen, die andere Spieler bekämpfen')}
+          ${check('chCheck', 'Channel-Checker: auf den leersten Kanal wechseln')}`, true,
+          'Schwächere Monster werden immer angegriffen, nur zu starke (über +Level) nicht. Angreifer werden immer abgewehrt. Channel-Checker: etwa jede Minute und nach jedem Map-Wechsel wechselt der Bot auf den Kanal mit den wenigsten Spielern (mind. 2 weniger) – nur außerhalb von Kämpfen, nicht in der Boss-Rotation; in der Gruppe entscheidet der Leader, die anderen folgen.')}
         ${grp('mech', 'Boss-Mechaniken', `
           ${check('dodge', 'Warnkreisen/-strahlen ausweichen')}
           ${check('mirror', 'Bei Spiegel/Reflexion nicht angreifen')}
@@ -3271,6 +3273,42 @@
     return [...rows.values()].sort((a, b) => order[a.cat] - order[b.cat] || a.lo - b.lo || a.name.localeCompare(b.name));
   }
 
+  // Channel-Checker: Kanal der aktuellen Map mit den wenigsten Spielern. Geprüft wird kurz nach der Ankunft auf einer
+  // Map und dann etwa jede Minute; gewechselt wird nur, wenn dort mindestens CH_CHECK_MIN_GAIN Spieler weniger sind
+  // (sonst Hin und Her, weil man selbst mitzählt). Nicht in der Boss-Rotation (die wählt den Kanal nach den Timern),
+  // nicht bei Quest-Bossen, nicht im Dialog. In der Gruppe entscheidet der Leader – die Mitläufer folgen ihm.
+  const CH_CHECK_MS = 60000, CH_CHECK_ARRIVE_MS = 5000, CH_CHECK_MIN_GAIN = 2, CH_CHECK_WAIT_MS = 8000;
+  const chCheckState = { mapId: null, arrived: 0, last: 0, switching: null };
+  function channelCheck(st, sc, now) {
+    if (!cfg.chCheck || cfg.farm || group.role() === 'follower' || world.state !== 'ready' || st.dialog) return null;
+    if (questBossSel(autopilot.task).length) return null;
+    const C = chCheckState, mapId = st.world?.mapId, cur = st.world?.channel ?? 1;
+    if (C.mapId !== mapId) { C.mapId = mapId; C.arrived = now; C.last = 0; C.switching = null; }
+    if (C.switching) {
+      if (cur === C.switching.ch) { C.switching = null; C.last = now; return null; }
+      if (now - C.switching.at < CH_CHECK_WAIT_MS) return `Channel-Checker: wechsle auf Ch ${C.switching.ch}…`;
+      C.switching = null; C.last = now; // hat nicht geklappt – beim nächsten Durchgang wieder
+      return null;
+    }
+    if (now - C.arrived < CH_CHECK_ARRIVE_MS || (C.last && now - C.last < CH_CHECK_MS)) return null;
+    const list = farmChannelList(st, now);
+    if (!list) return null; // lädt noch
+    C.last = now;
+    const here = list.find((r) => r.channel === cur);
+    if (!here) return null;
+    const best = list.filter((r) => r.channel !== cur && !r.closing && !(r.maxClients && r.clients >= r.maxClients))
+      .sort((a, b) => a.clients - b.clients || a.channel - b.channel)[0];
+    // nach dem Wechsel zählt man dort selbst mit: lohnt nur, wenn es dann mindestens CH_CHECK_MIN_GAIN weniger sind
+    if (!best || here.clients - (best.clients + 1) < CH_CHECK_MIN_GAIN) return null;
+    C.switching = { ch: best.channel, at: now };
+    autopilot.nav = null;
+    farm.channels = null; // nach dem Wechsel frisch laden
+    try { commands().switchChannel(best.roomId); } catch { /* ignore */ }
+    const name = content()?.maps?.[mapId]?.name || mapId;
+    logEvent('map', `Channel-Checker: ${name} Ch ${cur} (${here.clients} Spieler) → Ch ${best.channel} (${best.clients} Spieler)`);
+    return `Channel-Checker: wechsle auf Ch ${best.channel}…`;
+  }
+
   // Bestes nächstes Ziel: zuerst der nächste Angreifer, sonst (nicht im Ruhemodus) das nächste passende Monster im Radius.
   // ---------- Boss-Rotation (Digi-Eier farmen) ----------
   // Ausgewählte Feldbosse (Map + Art) werden reihum besiegt, auf den erlaubten Kanälen. Zeiten kommen aus drei Quellen:
@@ -3889,6 +3927,12 @@
         logEvent('warn', `Ruhemodus: HP ${hpPct.toFixed(0)} % und kein Trank auf F1`);
       }
       if (this.resting && hpPct >= 100 && !attackers.length) this.resting = false;
+
+      // 2b) Channel-Checker: außerhalb von Kämpfen auf den leersten Kanal der Map
+      if (!attackers.length && !(t && t.kind === 'mob' && t.hp > 0 && this.attackedId === t.id)) {
+        const cc = channelCheck(st, sc, now);
+        if (cc) { this.status = cc; return; }
+      }
 
       // 3) Ziel prüfen
       const diff = t ? t.level - p.level : 0;

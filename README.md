@@ -217,6 +217,13 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.15.0 – Channel-Checker
+- Neue Option im Reiter Kampf → Zielwahl: **„Channel-Checker: auf den leersten Kanal wechseln“** (standardmäßig aus).
+- Kurz nach jedem Map-Wechsel und danach etwa jede Minute schaut der Bot in die Kanalliste der Map. Hat ein anderer Kanal
+  nach dem Wechsel mindestens 2 Spieler weniger, wechselt er dorthin. Man selbst zählt dort mit, so gibt es kein Hin und Her.
+- Nur außerhalb von Kämpfen und Dialogen. Nicht in der Boss-Rotation und nicht bei Quest-Bossen, dort wählt der Bot den
+  Kanal nach den Spawn-Timern. In der Gruppe entscheidet der Leader, die Mitläufer folgen ihm.
+
 #### Neu in 2.14.2 – Tägliche Quests beim richtigen NPC
 - Manche NPCs gibt es mit derselben ID auf mehreren Maps (z. B. Gennai's Hologram), und jeder vergibt nur die Quests
   seiner Map. Der Bot ging bisher zu dem NPC, an dem die Story gerade steht (z. B. Myotismon's Castle), statt zur Map
