@@ -217,6 +217,15 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.14.0 – Einstellungen je Account, Account-Wahl loggt ein
+- **Einstellungen je Account:** Jeder Account (Login-Name) hat jetzt sein eigenes Profil: Betriebsart, Bosse, Kanäle,
+  Digitation, Skills, Heal usw. Die Fenster der Gruppe überschreiben sich nicht mehr gegenseitig. Beim ersten Login
+  übernimmt ein Account die bisherigen Einstellungen. Nur die Panel-Ansicht (Reiter, Breite, Kompakt) gilt für alle Fenster.
+- **Neuer Tab, anderer Account:** Ein neuer Tab landet in der Charakterauswahl des Accounts, der im anderen Tab
+  eingeloggt ist. Wählst du dort im Gruppen-Reiter „Dieses Fenster ist: Account 2“, meldet der Bot ab, loggt Account 2 ein
+  und betritt die Welt mit dessen Charakter. Das passiert nur in der Login- oder Charakterauswahl, nie in der Welt.
+  Ohne gespeichertes Passwort zeigt er „bitte als … einloggen“.
+
 #### Neu in 2.13.6 – Boss-Rotation digitiert
 - Die Boss-Rotation digitiert zwischen den Kämpfen jetzt in die eingestellte Form (Quest-Reiter → Digitation, auch
   „⬆ höchstmögliche Digitation“). Bisher tat das nur der Autopilot. Im Gruppen-Modus 👑 Bosse digitierten deshalb die

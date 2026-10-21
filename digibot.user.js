@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.13.6
+// @version      2.14.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -322,22 +322,68 @@
     routeEnd: '',         // Named-Runde: End-Map (leer = höchste)
     open: {},             // auf-/zugeklappte Gruppen im Panel
   };
-  try {
-    const saved = JSON.parse(localStorage.getItem(CFG_KEY) || '{}');
+  // Einstellungen je Account: Sobald der Login-Name bekannt ist, lädt das Fenster das Profil dieses Accounts
+  // (digibot.cfg@name) – so überschreiben sich die Fenster der Gruppe nicht mehr gegenseitig. Ein neuer Account
+  // startet mit den bisherigen Einstellungen. Nur die Panel-Ansicht (Reiter, Breite, …) gilt für alle Fenster.
+  const CFG_DEFAULTS = JSON.parse(JSON.stringify(cfg));
+  const UI_KEYS = ['tab', 'open', 'logFilter', 'width', 'compact', 'min'];
+  let cfgUser = null; // Login-Name, dessen Profil gerade geladen ist
+  const profileKey = (u) => `${CFG_KEY}@${u}`;
+  function applyCfg(saved) {
     Object.assign(cfg, saved, {
       skills: { ...cfg.skills, ...saved.skills }, heal: { ...saved.heal }, skillSets: { ...saved.skillSets }, mobs: { ...saved.mobs }, questOff: { ...saved.questOff },
     });
-  } catch {}
-  // Betriebsart (genau eine): Grinden, Quest-Jagd (Quest-Modus), Quest-Autopilot oder Bosse (Rotation/Named-Runde)
-  const MODES = { grind: 'Grinden', quest: 'Quest-Jagd', auto: 'Autopilot', farm: 'Bosse' };
-  const modeOf = () => (cfg.farm ? 'farm' : cfg.autopilot ? 'auto' : cfg.questMode ? 'quest' : 'grind');
-  {
     const m = modeOf(); // alte Einstellungen mit mehreren Schaltern auf eine Betriebsart bringen
     cfg.questMode = m === 'quest'; cfg.autopilot = m === 'auto'; cfg.farm = m === 'farm';
   }
+  // Betriebsart (genau eine): Grinden, Quest-Jagd (Quest-Modus), Quest-Autopilot oder Bosse (Rotation/Named-Runde)
+  const MODES = { grind: 'Grinden', quest: 'Quest-Jagd', auto: 'Autopilot', farm: 'Bosse' };
+  const modeOf = () => (cfg.farm ? 'farm' : cfg.autopilot ? 'auto' : cfg.questMode ? 'quest' : 'grind');
+  try { applyCfg(JSON.parse(localStorage.getItem(CFG_KEY) || '{}')); } catch {}
   if (cfg.tab === 'care') cfg.tab = 'attack';
   const mobOn = (mapId, key, cat) => cfg.mobs[mapId]?.[key] ?? cat !== 'boss';
-  const saveCfg = () => { try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch {} };
+  const saveCfg = () => {
+    try {
+      if (cfgUser) {
+        localStorage.setItem(profileKey(cfgUser), JSON.stringify(cfg));
+        // Panel-Ansicht gilt für alle Fenster
+        const shared = JSON.parse(localStorage.getItem(CFG_KEY) || '{}');
+        for (const k of UI_KEYS) shared[k] = cfg[k];
+        localStorage.setItem(CFG_KEY, JSON.stringify(shared));
+      } else localStorage.setItem(CFG_KEY, JSON.stringify(cfg));
+    } catch {}
+  };
+  // Profil des eingeloggten Accounts laden (oder mit den jetzigen Einstellungen anlegen)
+  function cfgProfile(st) {
+    const u = String(st?.session?.username || '').trim().toLowerCase();
+    if (!u || u === cfgUser) return;
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(profileKey(u)) || 'null'); } catch {}
+    const first = cfgUser === null;
+    cfgUser = u;
+    if (!saved) { saveCfg(); logEvent('bot', `Einstellungen: neues Profil für ${st.session.username} (aus den bisherigen Einstellungen)`); return; }
+    const ui = Object.fromEntries(UI_KEYS.map((k) => [k, cfg[k]]));
+    for (const k of Object.keys(cfg)) delete cfg[k];
+    Object.assign(cfg, JSON.parse(JSON.stringify(CFG_DEFAULTS)));
+    applyCfg(saved);
+    Object.assign(cfg, ui);
+    syncCfgInputs();
+    farm.reset(); autopilot.reset();
+    logEvent('bot', `Einstellungen: Profil von ${st.session.username}${first ? '' : ' geladen (Account gewechselt)'}`);
+    schedule();
+  }
+  // Panel-Elemente, die ihren Wert nur beim Aufbau aus cfg nehmen, nach einem Profilwechsel nachziehen
+  function syncCfgInputs() {
+    if (!panel) return;
+    panel.querySelectorAll('[data-apflag]').forEach((el) => { el.checked = !!cfg[el.dataset.apflag]; });
+    panel.querySelectorAll('input[data-cfg]').forEach((el) => {
+      const k = el.dataset.cfg; el.value = cfg[k];
+      const v = panel.querySelector(`[data-v="${k}"]`); if (v && LABELS[k]) v.textContent = LABELS[k](cfg[k]);
+    });
+    panel.querySelectorAll('[data-farmch]').forEach((el) => { el.checked = (cfg.farmChannels || []).includes(Number(el.dataset.farmch)); });
+    const g = panel.querySelector('[data-apgrind]'); if (g) g.checked = !!cfg.apGrind;
+    mobListSig = ''; questSig = ''; farmPickSig = '';
+  }
 
   // ---------- Accounts & Gruppe ----------
   // Bis zu 5 Accounts (localStorage, gilt für alle Fenster). Welcher Account in welchem Fenster läuft, steht in der
@@ -423,7 +469,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.13.6'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.14.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -1962,6 +2008,7 @@
     const st = getStore()?.getState?.();
     if (!st) return;
     const now = Date.now();
+    cfgProfile(st);
     noteCharacter(st, now);
     if (!group.active()) return;
     groupPush(true);
@@ -4691,6 +4738,14 @@
           group.talks = []; group.handled = new Set(); group.done = []; group.cur = null; group.leaderPos = null; group.msg = '';
           autopilot.reset();
           logEvent('bot', `Gruppe: dieses Fenster ist jetzt Account ${Number(v) + 1}${accounts.list[v]?.user ? ` (${accounts.list[v].user})` : ''} – ${group.role() === 'leader' ? 'Leader' : 'Mitläufer'}`);
+          // Noch nicht in der Welt (Login oder Charakterauswahl, z. B. neuer Tab mit dem Account des anderen Tabs):
+          // falschen Account abmelden, diesen einloggen und den Charakter betreten. In der Welt passiert nichts.
+          const acc = accounts.list[v], cst = getStore()?.getState?.();
+          if (acc?.user?.trim() && cst && cst.screen !== 'world') {
+            ss.set('digibot.login', '1');
+            group.login = { at: 0, tries: 0, outAt: 0, enterAt: 0, msg: '' };
+            logEvent('bot', `Gruppe: melde dieses Fenster als ${acc.user.trim()} an`);
+          }
         }
         e.target.blur();
         groupPush(true);
