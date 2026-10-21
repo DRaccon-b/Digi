@@ -217,6 +217,11 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.15.1 – Leader nutzt beim Spiegeln Tränke
+- Im Spiegel-Modus (👣 Spiegeln / ⚔️ + Angriff) spielst du den Leader selbst, sein Bot ist aus. Bisher setzten nur die
+  Mitläufer ihre Tränke ein. Jetzt nutzt auch der Leader F1–F3 automatisch (nach den Schwellen im Reiter Pflege),
+  ebenso den Heil-Skill. Laufen und Angreifen bleiben bei dir. Während du im Chat tippst, passiert nichts.
+
 #### Neu in 2.15.0 – Channel-Checker
 - Neue Option im Reiter Kampf → Zielwahl: **„Channel-Checker: auf den leersten Kanal wechseln“** (standardmäßig aus).
 - Kurz nach jedem Map-Wechsel und danach etwa jede Minute schaut der Bot in die Kanalliste der Map. Hat ein anderer Kanal

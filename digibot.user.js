@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.15.0
+// @version      2.15.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -470,7 +470,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.15.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.15.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -2050,6 +2050,7 @@
     if (!st || st.screen !== 'world' || !st.me) return;
     if (group.role() === 'leader' && group.mirroring) mirrorEnd();
     if (group.role() === 'leader') { // Position melden, sobald sie sich ändert (sonst 1× pro Sekunde)
+      if (!bot.on && !typingInField()) mirrorCare(st, now); // Leader spielt man selbst: Tränke/Heal trotzdem automatisch
       const me = controlled(st), lp = group.lastPos;
       if (!me || !group.bus) return;
       const ents = window.dmo?.net?.state?.entities;
@@ -2097,9 +2098,11 @@
   }
   // Angriff spiegeln: Ziel des Leaders anvisieren, mit 1 angreifen, Skills 2–6 (wie im Reiter Kampf), Tränke F1–F3,
   // Warnkreisen ausweichen, bei Spiegel/Reflexion nicht angreifen. Liefert { text, hold } oder null (kein Ziel).
-  function mirrorAttack(st, P, now) {
+  // Spiegeln: Tränke F1–F3 nach den eingestellten Schwellen und Heil-Skill – bei den Mitläufern und auch beim Leader,
+  // den man selbst spielt (sein Bot ist dabei aus)
+  function mirrorCare(st, now) {
     const me = st.me, p = me?.partner;
-    if (!p || p.fainted) return null;
+    if (!p || p.fainted) return;
     const potion = (fKey, below) => {
       if (below && potionCount(me, fKey) > 0 && bot.can('F' + fKey, POT_COOLDOWN_MS, now)) {
         bot.hit('F' + fKey, now);
@@ -2110,6 +2113,11 @@
     potion(2, cfg.dsPot > 0 && pct(p.ds, p.maxDs) < cfg.dsPot);
     potion(3, cfg.tdsPot > 0 && me.tamerMaxDs > 0 && pct(me.tamerDs, me.tamerMaxDs) < cfg.tdsPot);
     healSkill(st, now);
+  }
+  function mirrorAttack(st, P, now) {
+    const me = st.me, p = me?.partner;
+    if (!p || p.fainted) return null;
+    mirrorCare(st, now);
     noteBosses(now);
     const kh = keyOfHope(st, now);
     if (kh) return { text: kh, hold: true };
