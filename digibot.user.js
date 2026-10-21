@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.16.0
+// @version      2.16.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -470,7 +470,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.16.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.16.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -1741,6 +1741,8 @@
   }
 
   // Ziele verteilen: nur im Bot-Betrieb der Gruppe (nicht Spiegeln, nicht Boss-Rotation)
+  const spreadNear = (m) => { const L = group.role() === 'follower' ? groupLeader() : null; return !L || L.x == null || Math.hypot(m.x - L.x, m.y - L.y) <= SPREAD_LEASH; };
+  const SPREAD_LEASH = 250; // Ziele verteilen: Mitläufer greifen nur Monster in diesem Umkreis um den Leader an
   const spreadOn = () => group.active() && accounts.spread && !accounts.mirror && !cfg.farm;
   function groupTargets() {
     const out = new Map(), now = Date.now(), ents = window.dmo?.net?.state?.entities;
@@ -3794,8 +3796,12 @@
     const assist = group.role() === 'follower' && !spread ? groupAssist(sc) : null; // Mitläufer: Ziel des Leaders
     if (assist) return assist;
     if (spread) { // Ziele verteilen: zuerst ein Monster, das noch kein anderes Gruppenmitglied angreift (Bosse gemeinsam)
-      const free = sc.mobs.find((m) => usable(m) && (m.grpBy === null || m.cat === 'boss'));
+      // Mitläufer nur in der Nähe des Leaders – sonst wandern sie Kill für Kill aus der Gruppe weg
+      const L = group.role() === 'follower' ? groupLeader() : null;
+      const near = (m) => !L || L.x == null || Math.hypot(m.x - L.x, m.y - L.y) <= SPREAD_LEASH;
+      const free = sc.mobs.find((m) => usable(m) && near(m) && (m.grpBy === null || m.cat === 'boss'));
       if (free) return free;
+      if (L) return groupAssist(sc) || sc.mobs.find((m) => usable(m) && near(m)) || null;
     }
     return sc.mobs.find(usable) || null;
   }
@@ -3970,7 +3976,7 @@
       // Gesperrt, von anderen belegt oder in der Liste abgewählt -> nicht (neu) angreifen; laufenden Kampf aber beenden
       const blocked = !!info && (info.banned || (!fighting && (info.taken || !info.enabled)));
       const dup = !!info && spreadOn() && !isAttacker && info.cat !== 'boss' && info.grpBy !== null && info.grpBy < group.slot()
-        && info.maxHp > 0 && info.hp > info.maxHp * 0.5 && sc.mobs.some((m) => m.id !== info.id && usable(m) && m.grpBy === null);
+        && info.maxHp > 0 && info.hp > info.maxHp * 0.5 && sc.mobs.some((m) => m.id !== info.id && usable(m) && m.grpBy === null && spreadNear(m));
       // Angreifer werden immer bekämpft (auch außerhalb der Level-Range).
       // Im Ruhemodus nur den laufenden Kampf beenden, sonst passende Ziele suchen.
       // Level-Prüfung wie bei der Zielwahl (scan): im Quest-Modus/Autopilot sind schwächere Monster erlaubt.
