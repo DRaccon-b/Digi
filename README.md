@@ -217,6 +217,13 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.18.1 – Mitläufer bleiben stehen
+- Mit „🤝 Leader erledigt die Quests der Mitläufer“ bleiben die Mitläufer jetzt stehen. Sie folgen nicht, reisen nicht,
+  greifen nichts von sich aus an und wehren nur Angreifer ab. Nur der Leader bewegt sich und jagt, was ihnen fehlt.
+- Abgeben und Annehmen machst du bei den Mitläufern selbst. Der Knopf „📜 Abgeben & Annehmen“ geht dafür weiterhin.
+  Gibt es nichts mehr zu jagen, wartet der Leader, statt die Gruppe zu stoppen.
+- Wichtig: Ob Kills des Leaders bei weit entfernt stehenden Mitläufern zählen, hängt von der Party-Reichweite des Spiels ab.
+
 #### Neu in 2.18.0 – Gruppe: Leader erledigt die Quests der Mitläufer
 - Neuer Haken im Gruppen-Reiter: **„🤝 Leader erledigt die Quests der Mitläufer“** (nur im Modus 📜 Quests).
 - Der Leader plant dann nur noch mit den Quests der Mitläufer, seine eigenen sind egal. Er jagt, was ihnen fehlt

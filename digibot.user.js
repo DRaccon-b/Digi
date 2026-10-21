@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.18.0
+// @version      2.18.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -470,7 +470,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.18.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.18.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -600,7 +600,7 @@
           <button data-gmode="bots" title="Alle Fenster fahren ihren Bot: der Leader den Autopilot, die anderen folgen ihm und machen seine Quests mit.">📜 Quests</button><button data-gmode="boss" title="Alle Fenster fahren ihren Bot: der Leader die Boss-Rotation (Bosse im Tab Farmen auswählen), die anderen folgen ihm über Maps und Kanäle und kämpfen mit.">👑 Bosse</button><button data-gmode="move" title="Du spielst den Leader selbst – die anderen Fenster (Bot aus) laufen ihm nach, auch über Maps und Kanäle.">👣 Spiegeln</button><button data-gmode="both" title="Wie Spiegeln, und die anderen greifen das Ziel des Leaders mit an – mit ihren Skills, Tränken und Ausweichen.">⚔️ + Angriff</button>
         </div>
         <label class="digibot__skill digibot__chk" title="Jedes Gruppenmitglied greift ein anderes Quest-Monster an (statt alle dasselbe). Ist keins mehr frei, hilft man mit. Bosse greifen alle gemeinsam an. Nicht beim Spiegeln und nicht in der Boss-Rotation."><input type="checkbox" data-accspread ${accounts.spread ? 'checked' : ''}><span>🎯 Ziele verteilen: jeder ein anderes Monster</span></label>
-        <label class="digibot__skill digibot__chk" title="Der Leader kümmert sich nur um die Quests der Mitläufer (seine eigenen sind egal): er jagt, was ihnen fehlt, reist zu ihren Zielen und führt die Gruppe zum Abgabe-/Gesprächs-NPC. Dort geben die Mitläufer selbst ab, nehmen neue Quests an und erledigen Quest-Gespräche. Nur im Modus 📜 Quests."><input type="checkbox" data-accserve ${accounts.serve ? 'checked' : ''}><span>🤝 Leader erledigt die Quests der Mitläufer</span></label>
+        <label class="digibot__skill digibot__chk" title="Der Leader kümmert sich nur um die Quests der Mitläufer (seine eigenen sind egal) und jagt, was ihnen fehlt. Die Mitläufer bleiben stehen und wehren nur Angreifer ab. Abgeben/Annehmen macht man bei ihnen selbst. Nur im Modus 📜 Quests."><input type="checkbox" data-accserve ${accounts.serve ? 'checked' : ''}><span>🤝 Leader erledigt die Quests der Mitläufer</span></label>
         <div class="digibot__grpbtns three"><button class="digibot__btn" data-act="grp-login" title="Fehlende Fenster öffnen, alle Accounts einloggen und Charakter wählen">🔑 Einloggen</button><button class="digibot__btn" data-act="grp-start" title="Bots in allen Gruppenfenstern starten">▶ Starten</button><button class="digibot__btn" data-act="grp-stop" title="Bots in allen Gruppenfenstern stoppen">■ Stoppen</button></div>
         <div class="digibot__grpbtns"><button class="digibot__btn" data-act="grp-maptalk" title="In allen Gruppenfenstern: alle fertigen Quests auf der aktuellen Map abgeben und alle hier verfügbaren annehmen – jeder für sich. Danach geht es weiter wie vorher (lief der Bot nicht, stoppt er wieder).">📜 Abgeben &amp; Annehmen (diese Map)</button></div>
         <div class="digibot__gcards" data-f="gcards"></div>
@@ -1942,6 +1942,7 @@
   }
   function followLeader(st, sc, L, now) {
     const name = L.name || 'Leader';
+    if (L.serve) { autopilot.huntSpecies = new Set(); autopilot.nav = null; return `Gruppe: bleibe stehen – ${name} erledigt meine Quests`; }
     if (!L.inWorld || !L.mapId) { autopilot.huntSpecies = new Set(); return `Gruppe: ${name} ist nicht in der Spielwelt`; }
     if (st.world?.mapId !== L.mapId) {
       autopilot.huntSpecies = new Set();
@@ -2693,10 +2694,7 @@
     const now = Date.now();
     // Runde: nur Quests, deren Geber auf der aktuellen Runden-Map steht (Ziele dürfen woanders liegen)
     const M = cfg.apOrder === 'sweep' && !serveOn() ? autopilot.sweepAt : null;
-    if (serveOn()) { // Leader führt nur: Abgaben/Gespräche der Mitläufer erledigen sie am NPC selbst
-      tasks = tasks.filter((t) => t.purpose !== 'accept' && t.purpose !== 'daily' && !t.grind)
-        .map((t) => (t.kind === 'talk' ? { ...t, key: `escort:${t.key}`, purpose: 'escort', orig: t.purpose, label: `${t.label} (Mitläufer)` } : t));
-    }
+    if (serveOn()) tasks = tasks.filter((t) => t.kind === 'hunt' && !t.grind); // nur jagen, was den Mitläufern fehlt
     return tasks
       .filter((t) => !M || t.grind ? !M : t.purpose === 'daily' ? t.loc.mapId === M : questOnMap(t.def, M))
       .filter((t) => (autopilot.failed.get(t.key) || 0) < now && hops(mapId, t.loc.mapId) < Infinity)
@@ -2709,15 +2707,10 @@
   const taskPhase = (t) => (t.purpose === 'accept' || t.purpose === 'daily' ? 1 : t.purpose === 'turnin' ? 3 : 2);
   const PHASE_NAMES = { 1: 'Quests annehmen', 2: 'Ziele erledigen', 3: 'Quests abgeben' };
 
-  const ESCORT_MS = 45000;
   function taskDone(st, t) {
     if (t.grind) return (st?.me?.partner?.level ?? 0) >= t.targetLevel;
     if (t.purpose === 'daily') return autopilot.dailyVisited.has(t.visitKey);
     const q = planQuests(st)[t.questId];
-    if (t.purpose === 'escort') { // Mitläufer sind am NPC dran; nach ESCORT_MS weiter (kommt wieder, falls noch offen)
-      if (t.escortAt && Date.now() - t.escortAt > ESCORT_MS) return true;
-      return t.orig === 'turnin' ? q?.state !== 2 : !q || q.state !== 1 || (q.counters?.[t.objIndex] ?? 0) >= t.need;
-    }
     if (t.purpose === 'turnin') return q?.state !== 2;
     if (t.purpose === 'accept') return q?.state === 1 || q?.state === 2;
     return !q || q.state !== 1 || (q.counters?.[t.objIndex] ?? 0) >= t.need;
@@ -3077,6 +3070,7 @@
             const C = content();
             return `Gruppe: warte, bis die anderen bei ${held.map((id) => `„${questDef(C, id)?.name || id}“`).join(', ')} so weit sind`;
           }
+          if (serveOn()) return 'Gruppe: bei den Mitläufern gibt es nichts mehr zu jagen – Abgeben/Annehmen bitte selbst';
         }
         return null;
       }
@@ -3155,14 +3149,6 @@
       if (t.purpose === 'turnin') { // Abgabe mit dem gewählten Abgabe-Digimon
         const sw = ensurePartner(st, cfg.apTurninPartner || cfg.apQuestPartner, now);
         if (sw !== true) return `${t.label} · ${sw}`;
-      }
-      if (t.purpose === 'escort') { // Gruppe ist da: jeder Mitläufer gibt hier ab, nimmt an und spricht selbst
-        if (!t.escortAt) {
-          t.escortAt = now;
-          groupSend('maptalk');
-          logEvent('auto', `Gruppe: Mitläufer erledigen ihre Gespräche bei ${name}`);
-        }
-        return `${t.label} · warte, bis die Mitläufer fertig sind…`;
       }
       if (now - autopilot.lastTalk > 3000) {
         if (++autopilot.talkTries > 4) return fail(`${name} antwortet nicht`);
@@ -3864,6 +3850,7 @@
     const att = sc.attackers.filter((m) => !safeHeld(m.id));
     if (att.length) return att[0];
     if (resting) return null;
+    if (group.role() === 'follower' && groupLeader()?.serve) return null; // Leader erledigt meine Quests: stehen bleiben
     const spread = spreadOn();
     const assist = group.role() === 'follower' && !spread ? groupAssist(sc) : null; // Mitläufer: Ziel des Leaders
     if (assist) return assist;
