@@ -1,0 +1,43 @@
+// 2.7.1: Schutzzone – Bot muss erst heraus laufen, dann angreifen (statt „unerreichbar“ zu sperren)
+const { JSDOM, VirtualConsole } = require('jsdom');
+const fs = require('fs');
+const [script, fake] = process.argv.slice(2).map((f) => fs.readFileSync(f, 'utf8'));
+const dom = new JSDOM('<!doctype html><body></body>', { runScripts: 'outside-only', url: 'https://play.digimmo.com.br/', pretendToBeVisual: true, virtualConsole: new VirtualConsole() });
+const w = dom.window;
+w.HTMLCanvasElement.prototype.getContext = () => null;
+w.eval(fake);
+const F = w.__fake, scene = w.dmo.game.scene.getScene('world');
+const taps = [], order = [];
+scene.tapGround = (x, y) => { taps.push({ x, y }); order.push('tap'); const t = F.ents.get('t:me'), p = F.ents.get('p:me'); t.x = x; t.y = y; p.x = x - 5; p.y = y; };
+scene.controlledId = () => 't:me';
+scene.deps.commands = { partnerFollow() {} };
+scene.deps.assetsBase = '/assets/';
+scene.deps.manifest = { maps: { native_forest: { tmj: 'maps/native_forest.tmj' } } };
+// Schutzzone um den Tamer (480..560 x 470..540), Ziel m:1 bei 560,470 liegt am Rand -> wird verschoben
+w.fetch = async () => ({ json: async () => ({ layers: [{ type: 'objectgroup', objects: [{ type: 'safe', name: 'gate', x: 470, y: 480, width: 80, height: 60 }] }] }) });
+for (const id of ['m:2', 'm:3', 'm:4', 'm:5', 'm:6']) F.ents.delete(id);
+const m1 = F.ents.get('m:1'); m1.x = 640; m1.y = 510;
+const keys = [];
+w.addEventListener('keydown', (e) => { keys.push(e.code); if (e.code === 'Digit1') order.push('1'); }, true);
+w.localStorage.setItem('digibot.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0, lvlDiff: 10 }));
+w.eval(script);
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+(async () => {
+  await wait(600);
+  w.document.querySelector('[data-act="bot"]').click();
+  await wait(800);
+  F.store.setState({ target: F.toTarget('m:1') });
+  await wait(600);
+  const s1 = w.document.querySelector('[data-f="status"]').textContent;
+  const t = F.ents.get('t:me');
+  const out = !(t.x >= 460 && t.x <= 560 && t.y >= 470 && t.y <= 550);
+  await wait(2000);
+  const attacks = keys.filter((k) => k === 'Digit1').length;
+  const s2 = w.document.querySelector('[data-f="status"]').textContent;
+  console.log({ s1, tamer: [Math.round(t.x), Math.round(t.y)], taps: taps.length, out, attacks, s2 });
+  const firstTap = order.indexOf('tap'), firstAtk = order.indexOf('1');
+  console.log('Reihenfolge:', order.slice(0, 6).join(' '));
+  const ok = taps.length > 0 && firstTap >= 0 && (firstAtk < 0 || firstTap < firstAtk) && out && attacks > 0 && /Greife an/.test(s2);
+  console.log(ok ? 'OK – verlässt die Schutzzone und greift an' : 'FEHLER');
+  process.exit(ok ? 0 : 1);
+})();

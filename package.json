@@ -1,0 +1,11 @@
+{
+  "name": "digibot",
+  "private": true,
+  "description": "DigiBot – Tampermonkey-Userscript für Digi MMO. Die Tests laufen in nachgebauten Spielwelten (jsdom).",
+  "scripts": {
+    "test": "node tests/run.js"
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.3"
+  }
+}

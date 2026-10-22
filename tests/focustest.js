@@ -1,0 +1,30 @@
+// Regression 2.2.1: Dialog-Knopf fokussiert (inputFocus 'ui') darf den Bot nicht pausieren; Chat-Textfeld schon.
+const { JSDOM, VirtualConsole } = require('jsdom');
+const fs = require('fs');
+const [script, fake] = process.argv.slice(2).map((f) => fs.readFileSync(f, 'utf8'));
+const dom = new JSDOM('<!doctype html><body><button id="dlg">Choice</button><input id="chat" type="text"></body>', { runScripts: 'outside-only', url: 'https://play.digimmo.com.br/', pretendToBeVisual: true, virtualConsole: new VirtualConsole() });
+const w = dom.window;
+w.HTMLCanvasElement.prototype.getContext = () => null;
+w.eval(fake);
+const F = w.__fake;
+w.localStorage.setItem('digibot.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0 }));
+w.eval(script);
+const status = () => w.document.querySelector('[data-f="status"]').textContent;
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+(async () => {
+  await wait(600);
+  w.document.querySelector('[data-act="bot"]').click();
+  w.document.getElementById('dlg').focus();
+  F.store.setState({ inputFocus: 'ui', dialog: { npc: 'x', node: { id: 'root', choices: [] } } });
+  await wait(800);
+  const s1 = status();
+  F.store.setState({ dialog: null });
+  w.document.getElementById('chat').focus();
+  F.store.setState({ inputFocus: 'ui' });
+  await wait(800);
+  const s2 = status();
+  const ok = !/Pausiert/.test(s1) && /Pausiert/.test(s2);
+  console.log('Dialog:', s1, '| Chat:', s2);
+  console.log(ok ? 'OK – nur Chat pausiert' : 'FEHLER');
+  process.exit(ok ? 0 : 1);
+})();

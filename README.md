@@ -670,3 +670,17 @@ Direkter Installations-Link: https://raw.githubusercontent.com/DRaccon-b/Digi/ma
 Liest nur den Spielzustand `window.dmo.store` (`me.partner` inkl. `exp/expNext`, `me.tamerDs/tamerMaxDs`, `target`) –
 die Anzeige selbst sendet nichts an den Server. Nur wenn der Bot läuft, simuliert er Tastendrücke
 (Tab, 1, F1–F3), genau als hättest du sie selbst gedrückt.
+
+## Tests
+
+Die Tests laufen ohne Spiel in nachgebauten Spielwelten (jsdom) im Ordner `tests/`:
+
+```bash
+npm install
+npm test
+```
+
+- Einzelne Tests: `node tests/run.js kohtest dodgenear`
+- Ausgabe eines Tests sehen: `V=1 node tests/run.js kohtest`
+- `JOBS` (gleichzeitige Tests, Standard 8) und `TIMEOUT` (Sekunden pro Test, Standard 200) lassen sich setzen.
+- `tests/gw.js` ist die Spielwelt für Gruppen-/Autopilot-Tests, `tests/fakeworld.js` die ältere für Kampf-Tests.
