@@ -217,6 +217,11 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.33.0 – MaloMyotismon-Raid im Dungeon-Modus
+- Reiter Bosse → Dungeon → Modus „MaloMyotismon-Raid“, genauso wie Apocalymon: Der Bot reist zur Tür in Myotismon Castle, digitiert, betritt den Raid und wartet im Schutzbereich auf HP. Dann kommen zuerst die Phantomon-Adds und die Illusionstürme (sie stärken bzw. füttern den Boss), danach MaloMyotismon. Nach dem Sieg geht er hinaus und stoppt.
+- Aus den Spieldaten bekannt: Grisly Wing (Kreis unter jedem, 55 700 und −25 % Verteidigung, wird ausgewichen), Dream Mirror (200 %, Spiegel-Pause), Nightmare Mark, Pandæmonium bei 50 % (raumweit, 8 s Ansage, weiterkämpfen). MaloMyotismon weicht sehr oft aus (×3,5 Ausweichen) und ist gepanzert.
+- Test \`raidmodetest\` prüft jetzt beide Raids. Live noch nicht geprüft.
+
 #### Neu in 2.32.1 – raumweite Angriffe: weiterkämpfen
 - Erster Live-Lauf Apocalymon-Raid (Bauzel, solo): **geschafft in ~2 min**. Adds zuerst, Spiegel pausiert, Darkness Zone und Piedmon's Swords ausgewichen, danach hinaus und gestoppt.
 - Bei 5 % lädt Apocalymon „Total Annihilation“ (20 s, Kreis über den ganzen Raum). Der Bot fand keinen Fluchtpunkt und stand 20 s still, der Boss heilte sich in der Zeit von 5 auf 8 %. Jetzt gilt:

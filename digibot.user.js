@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.32.1
+// @version      2.33.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -338,7 +338,7 @@
     farmChannels: [1, 2], // nur diese Kanäle
     farmMode: 'boss',     // 'boss' = Boss-Rotation, 'named' = Named-Elite-Runde (Map für Map)
     dungeon: false,       // Dungeon-Modus (Kera): betreten, Räume räumen, Boss, raus
-    dgMode: 'easy',       // 'easy' = War Game, 'hard' = Revenge (allein kaum zu schaffen), 'apocalymon' = Apocalymon-Raid
+    dgMode: 'easy',       // 'easy' = War Game, 'hard' = Revenge (allein kaum zu schaffen), 'apocalymon' / 'malomyotismon' = Raid
     routeStart: '',       // Named-Runde: Start-Map (leer = niedrigste)
     routeEnd: '',         // Named-Runde: End-Map (leer = höchste)
     open: {},             // auf-/zugeklappte Gruppen im Panel
@@ -493,7 +493,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.32.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.33.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -625,9 +625,9 @@
           'Gilt für den Modus Bosse. Boss-Rotation: reist zum ausgewählten Boss, der als Nächstes da ist. Named-Elite-Runde: Maps von Start bis Ende ablaufen, je Kanal prüfen (lebt → kämpfen, Respawn unter 2 min → warten, sonst weiter), danach per Digi-Phone zurück. Kanalwechsel nur außerhalb des Kampfes; das Level-Limit gilt für diese Bosse nicht.', 'data-modes="farm"')}
         ${grp('dungeon', 'Dungeon (Kera)', `
           <div class="digibot__apcfg">
-            <label>Modus<select data-apsel="dgMode"><option value="easy">Easy – War Game</option><option value="hard">Hard – Revenge (Gruppe)</option><option value="apocalymon">Apocalymon-Raid</option></select></label>
+            <label>Modus<select data-apsel="dgMode"><option value="easy">Easy – War Game</option><option value="hard">Hard – Revenge (Gruppe)</option><option value="apocalymon">Apocalymon-Raid</option><option value="malomyotismon">MaloMyotismon-Raid</option></select></label>
           </div>`, true,
-          'Gilt für den Modus Dungeon: zur Tür auf der Map Network, betreten (in der Gruppe nur der Leader, die anderen kommen mit), Raum 1: Terminals schützen – Tsumemon, die zu einem Terminal laufen, zuerst; dann durchs Tor, Boss Keramon (Chrysalimon, Infermon) und zum Ausgang. Ausweichen, Spiegel und Skill-Timing wie bei Bossen. Hard (Revenge): Diaboromon mit Uhr, dann Armageddemon mit Kuramon-Herde – der geteilte Treffer (240 % der HP) ist allein tödlich, also nur in der Gruppe sinnvoll. Apocalymon-Raid: über Spiral Summit zur Tür, digitieren, betreten, Megadramon-Adds zuerst, dann Apocalymon; nach dem Sieg wieder hinaus.', 'data-modes="dungeon"')}
+          'Gilt für den Modus Dungeon: zur Tür auf der Map Network, betreten (in der Gruppe nur der Leader, die anderen kommen mit), Raum 1: Terminals schützen – Tsumemon, die zu einem Terminal laufen, zuerst; dann durchs Tor, Boss Keramon (Chrysalimon, Infermon) und zum Ausgang. Ausweichen, Spiegel und Skill-Timing wie bei Bossen. Hard (Revenge): Diaboromon mit Uhr, dann Armageddemon mit Kuramon-Herde – der geteilte Treffer (240 % der HP) ist allein tödlich, also nur in der Gruppe sinnvoll. Apocalymon-Raid: über Spiral Summit zur Tür, digitieren, betreten, Megadramon-Adds zuerst, dann Apocalymon; nach dem Sieg wieder hinaus. MaloMyotismon-Raid genauso über Myotismon Castle: Phantomon und Illusionstürme zuerst, dann MaloMyotismon.', 'data-modes="dungeon"')}
         ${grp('timers', 'Timer', `<div class="digibot__timers" data-f="timers"><div class="digibot__none">Keine Bosse ausgewählt.</div></div>`, true,
           'Aus dem Boss-Fenster des Spiels, der Map-Info deines Kanals und eigenen Siegen. ★ = aktuelles Ziel, „hier“ = dein Standort.', 'data-modes="farm"')}
         ${grp('bosspick', 'Bosse auswählen', `<input class="digibot__search" type="text" data-bosssearch placeholder="🔍 Boss oder Map suchen…" autocomplete="off" spellcheck="false">
@@ -4227,7 +4227,7 @@
   const dgRaid = (mapId) => { const r = content()?.spawns?.[mapId]?.raid; return r?.dungeon ? r : null; };
   // Einfacher Raid ohne Räume (z. B. Apocalymon): nur ein Boss mit Adds
   const plainRaid = (mapId) => { const r = content()?.spawns?.[mapId]?.raid; return r && !r.dungeon ? r : null; };
-  const DG_RAIDS = { apocalymon: 'apocalymon' }; // Auswahl im Panel -> Raid-ID in den Spieldaten
+  const DG_RAIDS = { apocalymon: 'apocalymon', malomyotismon: 'malomyotismon' }; // Auswahl im Panel -> Raid-ID in den Spieldaten
   // gewählter Modus -> Dungeon-Map und Raid (Easy = Modus-Reihenfolge 0)
   function dgPick() {
     if (DG_RAIDS[cfg.dgMode]) {
