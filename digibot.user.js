@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.29.1
+// @version      2.29.2
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -492,7 +492,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.29.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.29.2'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1606,8 +1606,10 @@
     if (mobHome.size > 800) mobHome.clear();
     // Leader erledigt meine Quests: ich bleibe stehen – nur, was mich selbst angreift, ist ein Angreifer
     const guardParty = !(group.role() === 'follower' && groupLeader()?.serve);
+    const dgZone = dgHereZone(st, self); // Dungeon: nur Monster im Raum, in dem ich stehe (Reste früherer Räume ignorieren)
     ents.forEach((e) => {
       if (e.kind !== KIND.Mob || e.hp <= 0 || (e.flags & (FLAG.Dead | FLAG.Hidden | FLAG.Untargetable))) return;
+      if (dgZone && !inRect(dgZone, e, 24)) return;
       // Angreifer: greift mich an – oder ein Gruppenmitglied in meiner Nähe
       const attacker = mine.has(e.targetId) || (guardParty && party.has(e.targetId) && Math.hypot(e.x - self.x, e.y - self.y) <= cfg.radius);
       const cat = catOf(e.flags), key = `${e.defId}|${cat}`;
@@ -4159,6 +4161,14 @@
     const here = rooms.findIndex((r, i) => inRect(zone(i), me));
     const h = dg.hud && dg.hud.raid === raid.id && Date.now() - dg.hudAt < 30 * 60000 ? dg.hud : null;
     return { rooms, here, cur: h ? Math.min(h.room, rooms.length) : Math.max(0, here), h, zone, m, me };
+  }
+  // Raum (Zone), in dem ich im Dungeon-Modus stehe – null außerhalb eines Dungeons oder zwischen den Räumen
+  function dgHereZone(st, self) {
+    if (!cfg.dungeon) return null;
+    const raid = dgRaid(st?.world?.mapId), m = world.maps[st?.world?.mapId];
+    if (!raid || !m || !self) return null;
+    for (const r of raid.dungeon.rooms) { const z = m.zones?.[r.area]; if (inRect(z, self)) return z; }
+    return null;
   }
   // Ziel im Dungeon (nur im eigenen Raum). Fresser zuerst – und zwar der, dessen Terminal noch zu retten ist:
   // Zeit bis zum Verlust (frisst schon: Rest der 8 s; unterwegs: Ankunft + Fresszeit) gegen die Zeit bis zum Kill

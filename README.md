@@ -217,6 +217,10 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.29.2 – Dungeon: nur der eigene Raum zählt
+- Im Dungeon-Modus sieht der Bot nur Monster in dem Raum, in dem er gerade steht. Übrig gebliebene Kuramon aus Raum 1 gelten in Raum 2 nicht mehr als Angreifer oder als „Add“ des Bosses.
+- Erster Live-Lauf solo (Imperialdramon Paladin): Raum 1 in 157 s (4/6 Terminals), Boss bis 6 %, dann Enrage nach 600 s. Grund waren die Infermon-Mahlzeiten (12 Stapel); dagegen helfen 2.29.1 und mehr Leute.
+
 #### Neu in 2.29.1 – kleine Boss-Treffer tanken, Infermons Mahlzeit abbrechen (aus dem ersten Live-Lauf)
 - Neuer Haken (Standard an) „Kleine Boss-Treffer tanken statt ausweichen“: Flächen mit festem Schaden bis 35 % der Max-HP (danach bleiben noch ≥ 40 %) werden nicht mehr ausgewichen. Der Bot greift weiter an, und die Tränke heilen. Beispiel: Keramon „Crazy Turn“ 28 000, Chrysalimon „Data Crusher“ 30 000. Infermons Ramme (60 000) und Spider Shooter (45 000, Zurück-Digitieren) weicht er weiterhin aus.
 - Infermon „NOT HERE“: Während er ein Terminal frisst, zählt nur Schaden. Der Bot zündet dann alle Skills sofort, ohne Zurückhalten fürs Ausweichen. Im Live-Lauf fehlten zum Abbrechen oft nur ~10 %, und jede durchgegangene Mahlzeit heilt ihn um 8 % und macht ihn stärker.
