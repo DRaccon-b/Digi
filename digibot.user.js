@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.30.5
+// @version      2.30.6
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -248,6 +248,7 @@
     .digibot__lage .mem .hp i{display:block;height:100%;background:#2ecc71}
     .digibot__lage .mem .hp.low i{background:#ff6b6b}
     .digibot__lage .mem .st{color:#9aa5c4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+    .digibot__offnote{font:500 9.5px system-ui;color:#ffb86b;font-style:normal}
     .digibot__scope{font:500 10.5px system-ui;color:#9aa5c4;background:#161c33;border:1px solid #2a3355;border-radius:5px;padding:4px 6px;margin:0 0 6px}
     .digibot__prof{font:600 10px system-ui;color:#9aa5c4;margin-left:auto;margin-right:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:110px}
     .digibot__prof:empty{display:none}
@@ -492,7 +493,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.30.5'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.30.6'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -638,7 +639,7 @@
         <div class="digibot__seg">
           <button data-gmode="bots" title="Alle Fenster fahren ihren Bot: der Leader den Autopilot, die anderen folgen ihm und machen seine Quests mit.">📜 Quests</button><button data-gmode="boss" title="Alle Fenster fahren ihren Bot: der Leader die Boss-Rotation (Bosse im Tab Farmen auswählen), die anderen folgen ihm über Maps und Kanäle und kämpfen mit.">👑 Bosse</button><button data-gmode="dungeon" title="Alle Fenster fahren den Dungeon-Modus: an der Tür sammeln, der Leader betritt den Dungeon (die Gruppe kommt mit), dann räumt jeder mit – Terminal-Fresser zuerst, danach Boss und Ausgang.">🏰 Dungeon</button><button data-gmode="move" title="Du spielst den Leader selbst – die anderen Fenster (Bot aus) laufen ihm nach, auch über Maps und Kanäle.">👣 Spiegeln</button><button data-gmode="both" title="Wie Spiegeln, und die anderen greifen das Ziel des Leaders mit an – mit ihren Skills, Tränken und Ausweichen.">⚔️ + Angriff</button>
         </div>
-        <label class="digibot__skill digibot__chk" title="Jedes Gruppenmitglied greift ein anderes Quest-Monster an (statt alle dasselbe). Ist keins mehr frei, hilft man mit. Bosse greifen alle gemeinsam an. Nicht beim Spiegeln und nicht in der Boss-Rotation."><input type="checkbox" data-accspread ${accounts.spread ? 'checked' : ''}><span>🎯 Ziele verteilen: jeder ein anderes Monster</span></label>
+        <label class="digibot__skill digibot__chk" title="Jedes Gruppenmitglied greift ein anderes Quest-Monster an (statt alle dasselbe). Ist keins mehr frei, hilft man mit. Bosse greifen alle gemeinsam an. Nicht beim Spiegeln und nicht in der Boss-Rotation."><input type="checkbox" data-accspread ${accounts.spread ? 'checked' : ''}><span>🎯 Ziele verteilen: jeder ein anderes Monster</span><em class="digibot__offnote" data-f="spreadoff"></em></label>
         <label class="digibot__skill digibot__chk" title="Der Leader kümmert sich nur um die Quests der Mitläufer (seine eigenen sind egal) und jagt, was ihnen fehlt. Die Mitläufer bleiben stehen und wehren nur Angreifer ab. Abgeben/Annehmen macht man bei ihnen selbst. Nur im Modus 📜 Quests."><input type="checkbox" data-accserve ${accounts.serve ? 'checked' : ''}><span>🤝 Leader erledigt die Quests der Mitläufer</span></label>
         <div class="digibot__grpbtns three"><button class="digibot__btn" data-act="grp-login" title="Fehlende Fenster öffnen, alle Accounts einloggen und Charakter wählen">🔑 Einloggen</button><button class="digibot__btn" data-act="grp-start" title="Bots in allen Gruppenfenstern starten">▶ Starten</button><button class="digibot__btn" data-act="grp-stop" title="Bots in allen Gruppenfenstern stoppen">■ Stoppen</button></div>
         <div class="digibot__grpbtns"><button class="digibot__btn" data-act="grp-invite" title="Der Leader lädt sofort alle Gruppenmitglieder in die Party ein, die noch nicht drin sind (geht aus jedem Gruppenfenster). Die Mitläufer nehmen automatisch an.">👥 Party einladen</button><button class="digibot__btn" data-act="grp-maptalk" title="In allen Gruppenfenstern: alle fertigen Quests auf der aktuellen Map abgeben und alle hier verfügbaren annehmen – jeder für sich. Danach geht es weiter wie vorher (lief der Bot nicht, stoppt er wieder).">📜 Abgeben &amp; Annehmen (diese Map)</button></div>
@@ -5235,6 +5236,10 @@
   function renderGroupCards(st, now) {
     const mode = !accounts.mirror ? (accounts.dungeon ? 'dungeon' : accounts.leadBoss ? 'boss' : 'bots') : accounts.mirrorAtk ? 'both' : 'move';
     const spr = panel.querySelector('[data-accspread]'); if (spr && spr !== document.activeElement) spr.checked = !!accounts.spread;
+    // Verteilen wirkt nur, wenn alle ihren Bot fahren (Modus Quests) – beim Spiegeln, in Bosse und Dungeon nicht: sichtbar machen
+    const sprOff = mode !== 'bots', sprNote = panel.querySelector('[data-f="spreadoff"]');
+    if (spr) spr.closest('label').style.opacity = sprOff ? '.5' : '';
+    if (sprNote && sprNote.textContent !== (sprOff ? ' · gilt nur im Modus 📜 Quests' : '')) sprNote.textContent = sprOff ? ' · gilt nur im Modus 📜 Quests' : '';
     const srv = panel.querySelector('[data-accserve]'); if (srv && srv !== document.activeElement) srv.checked = !!accounts.serve;
     panel.querySelectorAll('[data-gmode]').forEach((b) => b.classList.toggle('on', b.dataset.gmode === mode));
     const box = panel.querySelector('[data-f="gcards"]');

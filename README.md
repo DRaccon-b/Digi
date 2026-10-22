@@ -217,6 +217,9 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.30.6 – „Ziele verteilen“: sichtbar, wann es gilt
+- „Ziele verteilen“ wirkt nur im Gruppen-Modus 📜 Quests, wenn alle ihren Bot fahren. In 👣 Spiegeln, ⚔️ + Angriff, 👑 Bosse und 🏰 Dungeon ist es absichtlich aus; in + Angriff greifen alle das Ziel des Leaders an. Bisher stand das nur im Tooltip, live sah es aus, als sei der Haken kaputt. Jetzt ist der Haken in diesen Modi abgeblendet und zeigt „gilt nur im Modus 📜 Quests“.
+
 #### Neu in 2.30.5 – beim Warten auf einen Boss nichts angreifen
 - Wartet der Autopilot auf einen Quest-Boss, der noch nicht da ist, greift er nichts mehr an, nur Angreifer wehrt er ab. Bis 2.30.4 nahm er in der Wartezeit normale Monster in 250 px um den Spawnpunkt mit. Erscheint der Boss, geht er wie bisher sofort auf ihn.
 - Test `bossfilltest` angepasst: Beim Warten 0 Kills, ein Angreifer wird abgewehrt, ein anderes Monster in der Nähe bleibt in Ruhe, dann fällt der Boss.
