@@ -7,25 +7,39 @@
 //
 //   node sim/dungeon-keramon.js              Gruppe aus 3 Bots
 //   GRUPPE=1 node sim/dungeon-keramon.js     allein
-//   V=1 …                                    zusätzlich die Bot-Logs
-//   SCHADEN=3000 BOSS_HP=400000 HP=60000 DAUER=420 …
+//   V=1 …                                    zusätzlich jeder Statuswechsel der Bots
+//   SCHADEN=12000 HP=92660 BOSS_HP=3459500 DAUER=1000 …
 //   TRAENKE=40 TRANK_HP=15000 TRANK_AB=50 …        HP-Tränke auf F1 (Anzahl, Heilung, Schwelle in %)
-// Annahme: außerhalb des Kampfes erholt sich ein Digimon um 3 % HP pro Sekunde (Tränke modelliert das Skript nicht).
+//   SCHNELL=1 …                                    verkürzt (Boss-HP und Enrage ÷ 10) – für den Test
 //
-// Positionen, Wellen, Terminals und Boss-Attacken stammen aus den Spieldaten (Stand Okt. 2026). Unbekannt (Server):
-// wann die nächste Welle kommt (hier: 4 s, nachdem die Pflicht-Monster der letzten tot sind) und ob hungrige Tsumemon
-// sich wehren (hier: nein – sie fressen weiter, bis sie tot sind). Boss-HP und Schaden sind verkleinert, damit ein Lauf
-// ein paar Minuten dauert statt einer Viertelstunde.
+// Partner wie im ersten Live-Lauf (Okt. 2026): Imperialdramon Paladin Mode Lv 99 – 92 660 HP, 9 365 DS, Angriffstempo
+// 1 121 ms, Skills Invincible Sword (6 s), Holy Grace (15 s), Paladin Guard (30 s, Buff), Omega Blade (20 s).
+// Schaden ist auf die live gemessenen ~18 000 pro Sekunde (allein) kalibriert: Grundangriff SCHADEN, Skills 2–4×.
+// Positionen, Wellen, Terminals, Boss-HP (3 459 500 bei bis zu 3 Spielern, +10 % je weiterem), Formen, Attacken,
+// Enrage nach 600 s und Infermons Mahlzeit (5 s; abbrechen mit 2 % der Max-HP an Schaden, sonst +8 % HP und ein
+// Stapel) stammen aus den Spieldaten bzw. dem Live-Lauf. Annahmen (Server-Logik): nach einer Welle ohne Pflicht-Monster
+// kommt die nächste sofort, sonst 4 s nach der letzten; hungrige Tsumemon fressen weiter, auch wenn man sie schlägt;
+// außerhalb des Kampfes 3 % HP/s Erholung; Boss-Grundtreffer 2 500 (+4 % je Stapel).
 const path = require('path');
 const fs = require('fs');
 const { JSDOM, VirtualConsole } = require('jsdom');
 const { BroadcastChannel } = require('worker_threads');
 
 const N = Math.max(1, Math.min(5, Number(process.env.GRUPPE) || 3));
-const SCHADEN = Number(process.env.SCHADEN) || 3000;     // Schaden je Treffer eines Partners (alle 1,2 s)
-const HP = Number(process.env.HP) || 60000;               // Max-HP je Partner
-const BOSS_HP = Number(process.env.BOSS_HP) || 400000;
-const DAUER = (Number(process.env.DAUER) || 420) * 1000;
+const SCHNELL = !!process.env.SCHNELL;
+const SCHADEN = Number(process.env.SCHADEN) || 12000;    // Grundangriff je Treffer (alle AS ms)
+const AS = 1121;                                          // Angriffstempo Imperialdramon Paladin
+const HP = Number(process.env.HP) || 92660;               // Max-HP je Partner
+const BOSS_HP = Math.round((Number(process.env.BOSS_HP) || 3459500) * (1 + 0.1 * Math.max(0, N - 3)) / (SCHNELL ? 10 : 1));
+const ENRAGE_MS = 600000 / (SCHNELL ? 10 : 1);
+const DAUER = (Number(process.env.DAUER) || 1000) * 1000;
+// Skills auf 2–5 (Schaden als Vielfaches des Grundangriffs; Paladin Guard ist ein Buff)
+const PSK = [
+  { id: 'imperialdramon_paladin.invincible_sword', name: 'Invincible Sword', cooldownMs: 6000, dsCost: 370, range: 112, mult: 2 },
+  { id: 'imperialdramon_paladin.holy_grace', name: 'Holy Grace', cooldownMs: 15000, dsCost: 500, range: 32, mult: 2 },
+  { id: 'imperialdramon_paladin.paladin_guard', name: 'Paladin Guard', cooldownMs: 30000, dsCost: 600, range: 32, mult: 0 },
+  { id: 'imperialdramon_paladin.omega_blade', name: 'Omega Blade', cooldownMs: 20000, dsCost: 1050, range: 64, mult: 4 },
+];
 const TRAENKE = Number(process.env.TRAENKE ?? 40);          // HP-Tränke auf F1 je Bot
 const TRANK_HP = Number(process.env.TRANK_HP) || 15000;   // so viel heilt ein Trank
 const TRANK_AB = Number(process.env.TRANK_AB) || 50;      // Bot-Einstellung: F1 unter so viel % HP
@@ -103,9 +117,9 @@ const bossSkills = (sp) => Object.values(SKILLS).filter((s) => s.id.startsWith(s
 const RAID = { id: 'wargame', gate: { mapId: 'network', portal: 'network_wargame' }, party: { min: 1, max: 5, minLevel: 1 }, deathLimit: 3, landing: 'from_network',
   dungeon: { chain: 'keramon', offset: 0, mode: { order: 0, label: 'dg_mode_easy' }, rooms: ROOMS } };
 const CONTENT = () => ({
-  digimon: { kuramon: { name: 'Kuramon' }, tsumemon: { name: 'Tsumemon' }, chrysalimon: { name: 'Chrysalimon', skills: [SKILLS['chrysalimon.data_crusher']] }, keramon: { name: 'Keramon' },
+  digimon: { imperialdramon_paladin: { name: 'Imperialdramon Paladin Mode', base: { ms: 115, as: 1300 } }, kuramon: { name: 'Kuramon' }, tsumemon: { name: 'Tsumemon' }, chrysalimon: { name: 'Chrysalimon', skills: [SKILLS['chrysalimon.data_crusher']] }, keramon: { name: 'Keramon' },
     keramon_net: { name: 'Keramon', skills: bossSkills('keramon_net') }, chrysalimon_net: { name: 'Chrysalimon', skills: bossSkills('chrysalimon_net') }, infermon: { name: 'Infermon', skills: bossSkills('infermon') } },
-  skills: SKILLS, items: { hp_pot: { id: "hp_pot", name: "HP-Trank" } }, npcs: {}, quests: {}, dailyById: {},
+  skills: { ...SKILLS, ...Object.fromEntries(PSK.map((k) => [k.id, { ...k, castMs: 0, kind: k.mult ? 'damage' : 'buff', target: k.mult ? 'enemy' : 'self', shape: 'single' }])) }, items: { hp_pot: { id: "hp_pot", name: "HP-Trank" } }, npcs: {}, quests: {}, dailyById: {},
   maps: { network: { name: 'Network' }, network_wargame: { name: 'Network: War Game' } },
   spawns: {
     network: { zones: {} },
@@ -121,7 +135,7 @@ const ents = new Map(); // alle Entities, je mit .map
 const players = [];     // { i, G, map, goal, atk, hitAt, fainted, reviveAt, inside, gateOpen }
 const terms = ['terminal_1', 'terminal_2', 'terminal_3', 'terminal_4', 'terminal_5', 'terminal_6'].map((n) => ({ name: n, x: PT[n][0], y: PT[n][1], r: 18, s: 0, eatEnd: 0, eater: null }));
 const run = { inside: false, room: 0, pulled: false, wave: -1, nextWaveAt: 0, deaths: 0, roomDeaths: 0, cleared: false, failed: '', boss: null, zones: [], lines: [], mirror: null,
-  stats: { eaten: 0, kills: {}, reflectHits: 0, reflectDmg: 0, dodged: 0, hits: 0, bossDmgTaken: 0, notHere: 0, notHereBroken: 0, pots: 0 }, roomTime: [] };
+  stats: { skills: 0, eaten: 0, kills: {}, reflectHits: 0, reflectDmg: 0, dodged: 0, hits: 0, bossDmgTaken: 0, notHere: 0, notHereBroken: 0, pots: 0 }, roomTime: [] };
 let mobSeq = 0;
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
@@ -135,7 +149,7 @@ function makeWindow(i) {
   let state = {};
   const subs = [];
   const store = { getState: () => state, setState: (p) => { state = { ...state, ...p }; subs.forEach((f) => f()); }, subscribe: (f) => subs.push(f) };
-  const pl = { i, store, w, map: 'network', goal: null, atk: null, hitAt: 0, fainted: false, reviveAt: 0, inside: false, handlers: {}, doorAt: 0 };
+  const pl = { skillCd: {}, queued: null, i, store, w, map: 'network', goal: null, atk: null, hitAt: 0, fainted: false, reviveAt: 0, inside: false, handlers: {}, doorAt: 0 };
   // Sicht auf die Welt: nur Entities auf meiner Map
   const view = {
     get: (id) => { const e = ents.get(id); return e && e.map === pl.map ? e : undefined; },
@@ -171,6 +185,17 @@ function makeWindow(i) {
     pl.potAt = Date.now(); run.stats.pots++;
     store.setState({ me: { ...me, inventory: me.inventory.map((x) => (x === inv ? { ...x, qty: x.qty - 1 } : x)), partner: { ...me.partner, hp: Math.min(HP, me.partner.hp + TRANK_HP) } } });
   }, true);
+  w.addEventListener('keydown', (e) => { // 2–5: Skill auf das Ziel (trifft, sobald das Digimon in Reichweite ist)
+    const k = /^Digit([2-5])$/.exec(e.code)?.[1];
+    if (!k || pl.fainted || !state.target) return;
+    const n = Number(k) - 2, sk = PSK[n], me = state.me, now = Date.now();
+    if ((pl.skillCd[n] || 0) > now || me.partner.ds < sk.dsCost) return;
+    const m = ents.get(state.target.id);
+    if (!m || m.hp <= 0 || m.map !== pl.map) return;
+    pl.skillCd[n] = now + sk.cooldownMs;
+    store.setState({ cooldowns: { ...state.cooldowns, [`skill:${n}`]: { end: w.performance.now() + sk.cooldownMs } }, me: { ...me, partner: { ...me.partner, ds: me.partner.ds - sk.dsCost } } });
+    if (sk.mult) { pl.queued = { n, id: m.id }; pl.atk = m.id; }
+  }, true);
   w.addEventListener('keydown', (e) => {
     if (e.code !== 'Digit1' || !state.target || pl.fainted) return;
     const m = ents.get(state.target.id);
@@ -181,8 +206,9 @@ function makeWindow(i) {
   ents.set(`p:${i}`, { id: `p:${i}`, kind: 1, map: 'network', x: sx + 10, y: sy, hp: 1, flags: 0, targetId: '' });
   store.setState({ screen: 'world', inputFocus: 'game', cooldowns: {}, windows: {}, raid: null,
     session: { username: `u${i}`, characters: [{ id: `c${i}`, name: `Char${i + 1}` }] },
-    me: { tamerEntityId: `t:${i}`, tamerDs: 300, tamerMaxDs: 360, hotbar: ['cmd:attack', null, null, null, null, null, null, null, 'item:hp_pot'], inventory: TRAENKE ? [{ itemId: 'hp_pot', qty: TRAENKE }] : [], quests: {},
-      partner: { entityId: `p:${i}`, name: 'Partner', species: 'wargreymon', level: 75, hp: HP, maxHp: HP, ds: 5000, maxDs: 5000, exp: 1, expNext: 100, skills: [] } },
+    me: { tamerEntityId: `t:${i}`, tamerDs: 300, tamerMaxDs: 360, hotbar: ['cmd:attack', 'skill:0', 'skill:1', 'skill:2', 'skill:3', null, null, null, 'item:hp_pot'], inventory: TRAENKE ? [{ itemId: 'hp_pot', qty: TRAENKE }] : [], quests: {},
+      partner: { entityId: `p:${i}`, name: 'Imperialdramon Paladin Mode', species: 'imperialdramon_paladin', stage: 'super', level: 99, hp: HP, maxHp: HP, ds: 9365, maxDs: 9365, exp: 0, expNext: 0,
+        stats: { at: 12806, as: AS, ms: 120 }, skills: PSK.map((k) => ({ id: k.id, name: k.name, dsCost: k.dsCost, cooldownMs: k.cooldownMs, range: k.range, unlocked: true })) } },
     world: { mapId: 'network', mapName: 'Network', channel: 1 }, target: null });
   w.localStorage.setItem('digibot.cfg', JSON.stringify({ dungeon: true, autopilot: false, farm: false, questMode: false, hpPot: TRANK_AB, dsPot: 0, tdsPot: 0, tab: 'data', lvlDiff: 100, radius: 400 }));
   w.localStorage.setItem('digibot.accounts', JSON.stringify(accounts));
@@ -277,6 +303,7 @@ function stepPartners(now, dt) {
     // außerhalb des Kampfes erholt sich das Digimon (Annahme: 3 % der Max-HP pro Sekunde)
     const st0 = pl.store.getState(), p0 = st0.me.partner;
     if (p0.hp < HP && ![...ents.values()].some((e) => e.targetId === `p:${pl.i}`)) pl.store.setState({ me: { ...st0.me, partner: { ...p0, hp: Math.min(HP, p0.hp + HP * 0.03 * dt) } } });
+    if (p0.ds < 9365) { const s1 = pl.store.getState(); pl.store.setState({ me: { ...s1.me, partner: { ...s1.me.partner, ds: Math.min(9365, s1.me.partner.ds + 9365 * 0.01 * dt) } } }); }
     // Tamer laufen
     if (pl.goal) {
       const dx = pl.goal.x - t.x, dy = pl.goal.y - t.y, d = Math.hypot(dx, dy), step = 160 * dt;
@@ -288,7 +315,8 @@ function stepPartners(now, dt) {
       const d = dist(p, m), reach = 26;
       p.targetId = m.id;
       if (d > reach) { const step = 200 * dt; p.x += (m.x - p.x) / d * Math.min(step, d - reach + 1); p.y += (m.y - p.y) / d * Math.min(step, d - reach + 1); }
-      else if (now >= pl.hitAt) { pl.hitAt = now + 1200; hitMob(pl, m, SCHADEN, now); }
+      else if (now >= pl.hitAt) { pl.hitAt = now + AS; hitMob(pl, m, SCHADEN, now); }
+      if (pl.queued && pl.queued.id === m.id && d <= PSK[pl.queued.n].range + 26) { run.stats.skills++; const q = pl.queued; pl.queued = null; hitMob(pl, m, SCHADEN * PSK[q.n].mult, now); }
     } else {
       pl.atk = null; p.targetId = '';
       const d = dist(p, t);
@@ -306,7 +334,7 @@ function hitMob(pl, m, dmg, now) {
   }
   m.hp = Math.max(0, m.hp - dmg);
   if (!m.hungry && !m.boss) m.targetId ||= `p:${pl.i}`; // wer getroffen wird, wehrt sich (hungrige Tsumemon fressen weiter)
-  if (m.boss && run.boss.meal) run.boss.meal.dmg += dmg;
+  if (m.boss && run.boss.meal) run.boss.meal.dmg += dmg / (m.maxHp * 0.02); // Anteil bis zum Abbruch (wie im Spiel: 0..1)
   if (m.hp <= 0) killMob(m, pl);
 }
 function killMob(m, pl) {
@@ -352,7 +380,8 @@ function stepHello(now, dt) {
   }
   const mobs = [...ents.values()].filter((e) => e.kind === 2 && !e.boss);
   if (run.wave < ROOMS[0].waves.length && !mobs.some((m) => m.required)) {
-    if (!run.nextWaveAt) run.nextWaveAt = now + WAVE_GAP;
+    const lastReq = run.wave >= 0 && ROOMS[0].waves[run.wave].mobs.some((g) => g.required !== false);
+    if (!run.nextWaveAt) run.nextWaveAt = now + (lastReq ? WAVE_GAP : 700);
     if (now >= run.nextWaveAt) {
       run.wave++; run.nextWaveAt = 0;
       if (run.wave < ROOMS[0].waves.length) {
@@ -368,6 +397,10 @@ function stepHello(now, dt) {
       }
     }
   }
+  for (const tm of terms) { // bewacht (s = 3), solange ein Chrysalimon auf dem Terminal sitzt
+    if (tm.s === 2 || tm.s === 1) continue;
+    tm.s = mobs.some((m) => m.defId === 'chrysalimon' && dist(m, tm) <= 24) ? 3 : 0;
+  }
   for (const m of mobs) mobAct(m, now, dt);
 }
 function nearestPartner(m, range) {
@@ -380,7 +413,7 @@ function mobAct(m, now, dt) {
   if (m.hungry) { // Fresser: zum nächsten heilen Terminal, fressen, zu Keramon werden
     let tm = terms.find((x) => x.eater === m.id);
     if (!tm) {
-      tm = terms.filter((x) => x.s !== 2 && !x.eater).sort((a, b) => dist(a, m) - dist(b, m))[0];
+      tm = terms.filter((x) => x.s === 0 && !x.eater).sort((a, b) => dist(a, m) - dist(b, m))[0];
       if (!tm) { m.hungry = false; return; }
     }
     const d = walk(m, tm, MOB.tsumemon.ms, dt);
@@ -443,6 +476,7 @@ function stepPlay(now, dt) {
     }
     return;
   }
+  if (now - run.pullAt > ENRAGE_MS) { failRun(`Enrage nach ${ENRAGE_MS / 1000} s – Boss bei ${Math.round(b.hp / b.maxHp * 100)} %`); return; }
   const pct = b.hp / b.maxHp;
   const form = Math.max(b.form, pct <= 0.4 ? 2 : pct <= 0.7 ? 1 : 0); // Formen kommen nur nach vorn
   if (form !== b.form) {
@@ -450,7 +484,7 @@ function stepPlay(now, dt) {
     say(`🔁 Boss wird zu ${b.name} (${Math.round(pct * 100)} %)`);
   }
   if (b.meal) { // NOT HERE: frisst ein Terminal – genug Schaden bricht es ab
-    if (b.meal.dmg >= b.maxHp * 0.02) { run.stats.notHereBroken++; say(`✋ NOT HERE abgebrochen (${b.meal.dmg} Schaden)`); b.meal = null; }
+    if (b.meal.dmg >= 1) { run.stats.notHereBroken++; say(`✋ NOT HERE abgebrochen (nach ${((Date.now() - b.meal.start) / 1000).toFixed(1)} s)`); b.meal = null; }
     else if (now >= b.meal.end) { b.hp = Math.min(b.maxHp, b.hp + b.maxHp * 0.08); b.stacks++; say(`😈 Infermon frisst sich satt: +8 % HP, Stärke ${b.stacks}`); b.meal = null; }
     return;
   }
@@ -473,7 +507,7 @@ function stepPlay(now, dt) {
       setTimeout(() => {
         if (!ents.has(b.id)) return;
         const n = ['play_terminal_1', 'play_terminal_2', 'play_terminal_3', 'play_terminal_4'][Math.floor(Math.random() * 4)];
-        b.x = PT[n][0]; b.y = PT[n][1]; b.meal = { end: Date.now() + 5000, dmg: 0 };
+        b.x = PT[n][0]; b.y = PT[n][1]; b.meal = { start: Date.now(), end: Date.now() + 5000, dmg: 0 };
         say(`👻 NOT HERE: Infermon springt zu ${n} und frisst`);
       }, 2500);
       return;
@@ -503,7 +537,8 @@ function syncWindows() {
     sc.telegraphs.circles = zs.flatMap((z) => z.circles.map((c) => ({ x: c.x, y: c.y, r: c.r, end: conv(z.end) })));
     sc.mechB.lines = zs.filter((z) => z.line).map((z) => ({ src: z.src, fx: z.line.fx, fy: z.line.fy, tx: z.line.tx, ty: z.line.ty, r: z.line.r, skill: SKILLS[z.skill], end: conv(z.end), sweeping: false }));
     sc.telegraphs.mirrors = here && run.mirror && now < run.mirror.end ? [{ src: run.boss.id, tellEnd: conv(run.mirror.start), end: conv(run.mirror.end) }] : [];
-    sc.mechB.view = { t: 'mech', terminals: here && run.room === 0 ? terms.map((tm) => ({ x: tm.x, y: tm.y, r: tm.r, s: tm.s, ...(tm.s === 1 ? { left: tm.eatEnd - now, ms: 8000 } : {}) })) : [] };
+    sc.mechB.view = { t: 'mech', terminals: here && run.room === 0 ? terms.map((tm) => ({ x: tm.x, y: tm.y, r: tm.r, s: tm.s, ...(tm.s === 1 ? { left: tm.eatEnd - now, ms: 8000 } : {}) })) : [],
+      meals: here && run.boss?.meal ? [{ boss: run.boss.id, left: run.boss.meal.end - now, ms: 5000, dmg: run.boss.meal.dmg }] : [] };
     const st = pl.store.getState();
     if (st.target) { const e = ents.get(st.target.id); if (e && (e.hp !== st.target.hp || e.name !== st.target.name)) pl.store.setState({ target: targetOf(e) }); }
   }
@@ -538,13 +573,13 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   }
   clearInterval(loop);
   const total = run.enteredAt ? ((Date.now() - run.enteredAt) / 1000).toFixed(0) : '–';
-  console.log(`\nDungeon-Probelauf Kera Easy (War Game) – ${N} Bot${N > 1 ? 's' : ''} · Schaden ${SCHADEN}/Treffer · Partner-HP ${HP} · Boss-HP ${BOSS_HP} · ${TRAENKE} Tränke (F1 unter ${TRANK_AB} %)\n`);
+  console.log(`\nDungeon-Probelauf Kera Easy (War Game) – ${N} Bot${N > 1 ? 's' : ''} · Grundangriff ${SCHADEN}/${AS} ms + Skills · Partner-HP ${HP}${SCHNELL ? ' · SCHNELL' : ''} · Boss-HP ${BOSS_HP} · ${TRAENKE} Tränke (F1 unter ${TRANK_AB} %)\n`);
   for (const l of log) console.log(l);
   const s = run.stats;
   console.log(`\nErgebnis: ${run.cleared && players.every((pl) => !pl.inside) ? '✅ geschafft und draußen' : run.cleared ? '⚠ geschafft, aber nicht alle draußen' : run.failed ? `❌ gescheitert (${run.failed})` : '⏱ Zeit abgelaufen'}`);
   console.log(`Zeit im Dungeon ${total} s · Räume ${run.roomTime.map((t) => `${(t / 1000).toFixed(0)} s`).join(' / ') || '–'}`);
   console.log(`Terminals: ${6 - s.eaten}/6 heil (${s.eaten} gefressen) · Stürze ${run.deaths}`);
-  console.log(`Flächen: ${s.dodged} ausgewichen, ${s.hits} getroffen · Spiegel-Treffer ${s.reflectHits} · NOT HERE ${s.notHere}× (${s.notHereBroken} abgebrochen) · Tränke ${s.pots}`);
+  console.log(`Flächen: ${s.dodged} ausgewichen, ${s.hits} getroffen · Spiegel-Treffer ${s.reflectHits} · NOT HERE ${s.notHere}× (${s.notHereBroken} abgebrochen) · Tränke ${s.pots} · Skills ${s.skills}${run.boss ? ` · Boss-Stapel ${run.boss.stacks}` : ''}`);
   console.log(`Kills: ${Object.entries(s.kills).map(([k, v]) => `${v}× ${k}`).join(', ')}`);
   console.log(`Status am Ende: ${players.map((pl) => `Char${pl.i + 1}: ${pl.status()}`).join(' | ')}`);
   process.exit(run.cleared && players.every((pl) => !pl.inside) ? 0 : 1);

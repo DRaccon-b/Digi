@@ -732,11 +732,12 @@ npm test
 node sim/dungeon-keramon.js
 ```
 
-- `GRUPPE` (1–5, Standard 3), `SCHADEN` je Treffer (3000), `HP` je Digimon (60 000), `BOSS_HP` (400 000, verkleinert), `DAUER` (420 s)
+- Partner wie im ersten Live-Lauf: Imperialdramon Paladin Mode Lv 99 (92 660 HP, Skills, Angriffstempo 1 121 ms). Der Schaden ist auf die live gemessenen ~18 000 pro Sekunde kalibriert. Boss-HP (3,46 Mio.), Enrage nach 600 s und Infermons Mahlzeit (abbrechen mit 2 % der Max-HP in 5 s) sind wie im Spiel.
+- `GRUPPE` (1–5, Standard 3), `SCHADEN` (Grundangriff, 12 000), `HP` (92 660), `BOSS_HP` (3 459 500), `DAUER` (1000 s)
 - `TRAENKE` (40), `TRANK_HP` (15 000), `TRANK_AB` (50 %): HP-Tränke auf F1
-- `V=1` zeigt jeden Statuswechsel der Bots
-- Annahmen (Server-Logik ist nicht im Client): nächste Welle 4 s nach der letzten, hungrige Tsumemon wehren sich nicht, außerhalb des Kampfes 3 % HP/s Erholung.
-- Ergebnisse Okt. 2026: 3 Bots in 207 s geschafft (3/6 Terminals heil, 0 Stürze); allein in 547 s (24 Tränke, 0 Stürze, nur 1/6 Terminals heil – allein reicht der Schaden nicht gegen vier Fresser gleichzeitig).
+- `SCHNELL=1`: Boss-HP und Enrage ÷ 10 (für den Test). `V=1`: jeder Statuswechsel der Bots
+- Annahmen (Server-Logik ist nicht im Client): Nach einer Welle ohne Pflicht-Monster kommt die nächste sofort, sonst nach 4 s. Hungrige Tsumemon fressen weiter. Außerhalb des Kampfes 3 % HP/s Erholung.
+- Ergebnisse mit 2.29.2: allein in 393 s geschafft (Boss 308 s, 5 von 8 Mahlzeiten abgebrochen, 28 Tränke), zu dritt in 135 s. Der Simulator ist optimistischer als das Spiel: Live (noch 2.29.0, mit Ausweichen statt Tanken) schaffte der Bot in Raum 1 nur 4/6 Terminals, und Infermon fraß 12 Mahlzeiten bis zum Enrage.
 
 ## Raid-Probelauf
 

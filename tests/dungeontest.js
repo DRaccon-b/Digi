@@ -1,9 +1,9 @@
-// Dungeon-Modus (Kera Easy): ein ganzer Lauf im Simulator sim/dungeon-keramon.js – 2 Bots, verkürzt (mehr Schaden,
-// weniger Boss-HP). Erwartet: Tür, Betreten, 7 Wellen, Tor, Boss mit allen Formen, alle draußen, Bots gestoppt.
+// Dungeon-Modus (Kera Easy): ein ganzer Lauf im Simulator sim/dungeon-keramon.js – 2 Bots, verkürzt (SCHNELL: Boss-HP und Enrage ÷ 10,
+// echte Partner-Werte). Erwartet: Tür, Betreten, 7 Wellen, Tor, Boss mit allen Formen, alle draußen, Bots gestoppt.
 const { spawnSync } = require('child_process');
 const path = require('path');
 const r = spawnSync(process.execPath, [path.join(__dirname, '..', 'sim', 'dungeon-keramon.js')], {
-  env: { ...process.env, GRUPPE: '2', SCHADEN: '12000', BOSS_HP: '150000', DAUER: '170', V: '' }, encoding: 'utf8', timeout: 190000,
+  env: { ...process.env, GRUPPE: '2', SCHNELL: '1', DAUER: '170', V: '' }, encoding: 'utf8', timeout: 190000,
 });
 const out = (r.stdout || '') + (r.stderr || '');
 const fail = (m) => { console.log(out.split('\n').slice(-40).join('\n')); console.log('FAIL: ' + m); process.exit(1); };
