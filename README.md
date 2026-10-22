@@ -217,6 +217,10 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.30.3 – „Ziele verteilen“ repariert
+- Mit „Ziele verteilen“ zählte jedes Monster, das ein Gruppenmitglied angreift, für alle anderen als „Angreifer“, und Angreifer gehen vor. Sobald das Monster des Leaders zurückschlug, gingen also wieder alle darauf. Beim Verteilen ist das Monster eines anderen jetzt dessen Kampf. Jeder wehrt nur ab, was ihn selbst angreift, und sucht sich sonst ein freies Monster.
+- Neuer Test `spreadatktest` (vorher rot: 10/10 auf dem Monster des Leaders, jetzt 0/10). Der alte `spreadtest` hatte die Gegenwehr der Monster ständig zurückgesetzt und den Fehler deshalb nicht bemerkt.
+
 #### Neu in 2.30.2 – Dungeon digitiert vorher
 - Der Dungeon-Modus nimmt jetzt die eingestellte Digitation (Reiter Digimon → Digitation) an, wie Autopilot und Boss-Rotation. Das passiert schon an der Tür, vor dem Betreten, und im Dungeon zwischen den Kämpfen wieder, z. B. nach einem Zurück-Digitieren durch Infermons Spider Shooter. Fehlt Tamer-DS, füllt F3 auf. Klappt die Digitation nicht (Abklingzeit, zu wenig DS), geht es in der aktuellen Form weiter.
 
