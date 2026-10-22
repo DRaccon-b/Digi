@@ -7,6 +7,7 @@
 //   GRUPPE=3 node sim/dungeon-revenge.js     Gruppe
 //   TEMPO=4 …                                Zeitraffer (höchstens 4, darüber wird es ungenau)
 //   V=1 …                                    jeder Statuswechsel der Bots
+//   TEAM=clavis …                            Bauzel (Imperialdramon Paladin Lv 99) + 4 ClavisAngemon Lv 70 (Key of Hope)
 //   START=4 …                                gleich in Raum 4 (Bucht) beginnen
 //   SHARE_FOLGT=0 …                          geteilter Treffer bleibt liegen (ausweichbar) – Standard: folgt dem Ziel (live)
 //   SCHADEN=12000 HP=92660 TRAENKE=400 TRANK_HP=15000 TRANK_AB=50 BOSS_HIT=6000 DAUER=1400 …
@@ -39,7 +40,8 @@ function warp(g) {
 }
 warp(global);
 
-const N = Math.max(1, Math.min(5, Number(process.env.GRUPPE) || 1));
+const TEAM = process.env.TEAM || '';
+const N = TEAM === 'clavis' ? 5 : Math.max(1, Math.min(5, Number(process.env.GRUPPE) || 1));
 const SCHADEN = Number(process.env.SCHADEN) || 12000;
 const AS = 1121, P_SPEED = Number(process.env.P_SPEED) || 120;
 const HP = Number(process.env.HP) || 92660;
@@ -111,6 +113,21 @@ const PSK = [
   { id: 'imperialdramon_paladin.omega_blade', name: 'Omega Blade', cooldownMs: 20000, dsCost: 1050, range: 64, mult: 5, def: { kind: 'damage', target: 'enemy', shape: 'single', power: 890, castMs: 900 } },
 ];
 const lvHp = (base, g, l) => Math.round(base + g * (l - 1));
+// ClavisAngemon (Spieldaten): Key of Hope (2 s Schutz, 128 px, 45 s), Gate of Judgment, Divine Lock (Angriff −12 %), Sacred Seal (heilt 96 px)
+const CSK = [
+  { id: 'clavisangemon.key_of_hope', name: 'Key of Hope', cooldownMs: 45000, dsCost: 535, range: 128, mult: 0, koh: true, def: { kind: 'buff', target: 'self', shape: 'circle', radius: 128, power: 0, protectionMs: 2000, castMs: 0 } },
+  { id: 'clavisangemon.gate_of_judgment', name: 'Gate of Judgment', cooldownMs: 18000, dsCost: 895, range: 144, mult: 3.5, def: { kind: 'damage', target: 'enemy', shape: 'single', power: 650, castMs: 900 } },
+  { id: 'clavisangemon.divine_lock', name: 'Divine Lock', cooldownMs: 12000, dsCost: 535, range: 128, mult: 1.5, def: { kind: 'debuff', target: 'enemy', shape: 'single', power: 260, castMs: 300 } },
+  { id: 'clavisangemon.sacred_seal', name: 'Sacred Seal', cooldownMs: 18000, dsCost: 535, range: 128, mult: 0, healAll: 0.25, def: { kind: 'heal', target: 'ally', shape: 'circle', radius: 96, power: 870, castMs: 300 } },
+];
+// Team: Werte aus den Spieldaten (Grundwert + Wachstum × Level), dazu der live gemessene Aufschlag von Bauzel
+// (Ausrüstung/Boni: HP 92 660 statt 61 431 = ×1,51, Angriff 12 806 statt 9 725 = ×1,32)
+const PALADIN = { species: 'imperialdramon_paladin', name: 'Imperialdramon Paladin Mode', level: 99, hp: HP, ds: 9365, as: AS, dmg: SCHADEN, at: 12806, psk: PSK };
+const CLAVIS = (() => { const hp = Math.round(lvHp(2863, 345.6, 70) * 1.51), at = Math.round((586 + 82.3 * 69) * 1.32);
+  return { species: 'clavisangemon', name: 'ClavisAngemon', level: 70, hp, ds: Math.round(lvHp(1293, 77.6, 70) * 1.5), as: 1450, dmg: Math.round(SCHADEN * at / 12806), at, psk: CSK }; })();
+const MEMBERS = TEAM === 'clavis' ? [PALADIN, CLAVIS, CLAVIS, CLAVIS, CLAVIS] : Array.from({ length: N }, () => PALADIN);
+const protections = []; // Key of Hope: { at, x, y }
+const protectedAt = (p, now) => protections.some((pr) => now >= pr.at && now <= pr.at + 2000 && Math.hypot(p.x - pr.x, p.y - pr.y) <= 128);
 const DIABO_HP = Math.round(lvHp(226600, 27810, 99) * 1.5 * 0.8 * (1 + 0.45 * Math.max(0, N - 3)));
 const ARMA_HP = Math.round(lvHp(294600, 36150, 99) * 1.5 * 0.65 * (1 + 0.5 * Math.max(0, N - 3)));
 const RAID = { id: 'revenge', gate: { mapId: 'network', portal: 'network_wargame' }, party: { min: 1, max: 5, minLevel: 1 }, deathLimit: 3, landing: 'from_network',
@@ -119,12 +136,13 @@ const bossSk = (pre) => Object.values(SKILLS).filter((s) => s.id.startsWith(pre 
 const CONTENT = () => ({
   digimon: {
     imperialdramon_paladin: { name: 'Imperialdramon Paladin Mode', base: { ms: 115, as: 1300, at: 660 }, growth: { at: 92.5 } },
+    clavisangemon: { name: 'ClavisAngemon', base: { ms: 115, as: 1450, at: 586 }, growth: { at: 82.3 } },
     diaboromon: { name: 'Diaboromon', base: { hp: 226600, at: 450 }, growth: { hp: 27810, at: 63 }, skills: [] },
     armageddemon: { name: 'Armageddemon', base: { hp: 294600, at: 475 }, growth: { hp: 36150, at: 66 }, skills: [] },
     tentacle_bug_arm: { name: 'Tentacle Bug', base: { hp: 60000, at: 0 } }, mail_server: { name: 'Mail Server', base: { hp: 120000, at: 0 } },
     kuramon: { name: 'Kuramon', base: { hp: 1208, at: 42 }, growth: { hp: 145.3, at: 6 } }, kuramon_cluster: { name: 'Kuramon Cluster', base: { hp: 90000, at: 0 } },
   },
-  skills: { ...SKILLS, ...Object.fromEntries(PSK.map((k) => [k.id, { id: k.id, name: k.name, cooldownMs: k.cooldownMs, dsCost: k.dsCost, range: k.range, ...k.def }])) },
+  skills: { ...SKILLS, ...Object.fromEntries([...PSK, ...CSK].map((k) => [k.id, { id: k.id, name: k.name, cooldownMs: k.cooldownMs, dsCost: k.dsCost, range: k.range, ...k.def }])) },
   items: { hp_pot: { id: 'hp_pot', name: 'HP-Trank' } }, npcs: {}, quests: {}, dailyById: {},
   maps: { network: { name: 'Network' }, network_wargame: { name: 'Network: War Game' }, [MAP]: { name: 'Network: Revenge' } },
   spawns: {
@@ -160,7 +178,8 @@ function makeWindow(i) {
   let state = {};
   const subs = [];
   const store = { getState: () => state, setState: (p) => { state = { ...state, ...p }; subs.forEach((f) => f()); }, subscribe: (f) => subs.push(f) };
-  const pl = { skillCd: {}, queued: null, i, store, w, map: 'network', goal: null, atk: null, hitAt: 0, fainted: false, reviveAt: 0, inside: false, handlers: {}, doorAt: 0, grab: null };
+  const M = MEMBERS[i];
+  const pl = { M, skillCd: {}, queued: null, i, store, w, map: 'network', goal: null, atk: null, hitAt: 0, fainted: false, reviveAt: 0, inside: false, handlers: {}, doorAt: 0, grab: null };
   const view = {
     get: (id) => { const e = ents.get(id); return e && e.map === pl.map ? e : undefined; },
     has: (id) => !!view.get(id),
@@ -193,21 +212,24 @@ function makeWindow(i) {
     const me = state.me, inv = me.inventory.find((x) => x.itemId === 'hp_pot');
     if (!inv?.qty || Date.now() - (pl.potAt || 0) < 2000) return;
     pl.potAt = Date.now(); run.stats.pots++;
-    store.setState({ me: { ...me, inventory: me.inventory.map((x) => (x === inv ? { ...x, qty: x.qty - 1 } : x)), partner: { ...me.partner, hp: Math.min(HP, me.partner.hp + TRANK_HP) } } });
+    store.setState({ me: { ...me, inventory: me.inventory.map((x) => (x === inv ? { ...x, qty: x.qty - 1 } : x)), partner: { ...me.partner, hp: Math.min(M.hp, me.partner.hp + TRANK_HP) } } });
   }, true);
   w.addEventListener('keydown', (e) => { // 2–5: Skills (Animation castMs, Treffer am Ende)
     const k = /^Digit([2-5])$/.exec(e.code)?.[1];
-    if (!k || pl.fainted || !state.target) return;
-    const n = Number(k) - 2, sk = PSK[n], me = state.me, now = Date.now();
-    if ((pl.skillCd[n] || 0) > now || me.partner.ds < sk.dsCost) return;
-    const m = ents.get(state.target.id);
-    if (!m || m.hp <= 0 || m.map !== pl.map) return;
+    if (!k || pl.fainted) return;
+    const n = Number(k) - 2, sk = M.psk[n], me = state.me, now = Date.now();
+    if (!sk || (pl.skillCd[n] || 0) > now || me.partner.ds < sk.dsCost) return;
+    const selfCast = sk.koh || sk.healAll || sk.heal;
+    const m = state.target && ents.get(state.target.id);
+    if (!selfCast && (!m || m.hp <= 0 || m.map !== pl.map)) return;
+    if (sk.koh) { const pp = ents.get(`p:${i}`); protections.push({ at: now, x: pp.x, y: pp.y }); run.stats.koh = (run.stats.koh || 0) + 1; say(`🔑 Char${i + 1} zündet Key of Hope`); }
+    if (sk.healAll) { const pp = ents.get(`p:${i}`); for (const x of alivePlayers()) if (dist(partnerOf(x), pp) <= 96) { const s3 = x.store.getState(); x.store.setState({ me: { ...s3.me, partner: { ...s3.me.partner, hp: Math.min(x.M.hp, s3.me.partner.hp + x.M.hp * sk.healAll) } } }); } }
     pl.skillCd[n] = now + sk.cooldownMs;
     store.setState({ cooldowns: { ...state.cooldowns, [`skill:${n}`]: { end: w.performance.now() + sk.cooldownMs } }, me: { ...me, partner: { ...me.partner, ds: me.partner.ds - sk.dsCost } } });
     const evAll = (phase) => { for (const x of players) if (x.map === pl.map) x.handlers.evs?.([{ t: 'skill', src: `p:${i}`, skill: sk.id, phase }]); };
     evAll('cast'); setTimeout(() => evAll('release'), sk.def.castMs || 0);
-    if (sk.heal) { const s2 = store.getState(); store.setState({ me: { ...s2.me, partner: { ...s2.me.partner, hp: Math.min(HP, s2.me.partner.hp + HP * sk.heal) } } }); }
-    if (sk.mult) { pl.queued = { n, id: m.id }; pl.atk = m.id; }
+    if (sk.heal) { const s2 = store.getState(); store.setState({ me: { ...s2.me, partner: { ...s2.me.partner, hp: Math.min(M.hp, s2.me.partner.hp + M.hp * sk.heal) } } }); }
+    if (sk.mult && m) { pl.queued = { n, id: m.id }; pl.atk = m.id; }
   }, true);
   w.addEventListener('keydown', (e) => {
     if (e.code !== 'Digit1' || !state.target || pl.fainted) return;
@@ -218,11 +240,11 @@ function makeWindow(i) {
   ents.set(`t:${i}`, { id: `t:${i}`, kind: 0, map: 'network', x: sx, y: sy, hp: 1, flags: 0, targetId: '' });
   ents.set(`p:${i}`, { id: `p:${i}`, kind: 1, map: 'network', x: sx + 10, y: sy, hp: 1, flags: 0, targetId: '' });
   store.setState({ screen: 'world', inputFocus: 'game', cooldowns: {}, windows: {}, raid: null,
-    session: { username: `u${i}`, characters: [{ id: `c${i}`, name: `Char${i + 1}` }] },
+    session: { username: `u${i}`, characters: [{ id: `c${i}`, name: i === 0 && TEAM ? 'Bauzel' : `Char${i + 1}` }] },
     me: { tamerEntityId: `t:${i}`, tamerDs: 300, tamerMaxDs: 360, hotbar: ['cmd:attack', 'skill:0', 'skill:1', 'skill:2', 'skill:3', null, null, null, 'item:hp_pot'],
       inventory: TRAENKE ? [{ itemId: 'hp_pot', qty: TRAENKE }] : [], quests: {},
-      partner: { entityId: `p:${i}`, name: 'Imperialdramon Paladin Mode', species: 'imperialdramon_paladin', stage: 'super', level: 99, hp: HP, maxHp: HP, ds: 9365, maxDs: 9365, exp: 0, expNext: 0,
-        stats: { at: 12806, as: AS, ms: 120 }, skills: PSK.map((k) => ({ id: k.id, name: k.name, dsCost: k.dsCost, cooldownMs: k.cooldownMs, range: k.range, unlocked: true })) } },
+      partner: { entityId: `p:${i}`, name: M.name, species: M.species, stage: 'mega', level: M.level, hp: M.hp, maxHp: M.hp, ds: M.ds, maxDs: M.ds, exp: 0, expNext: 0,
+        stats: { at: M.at, as: M.as, ms: 120 }, skills: M.psk.map((k) => ({ id: k.id, name: k.name, dsCost: k.dsCost, cooldownMs: k.cooldownMs, range: k.range, unlocked: true })) } },
     world: { mapId: 'network', mapName: 'Network', channel: 1 }, target: null });
   w.localStorage.setItem('digibot.cfg', JSON.stringify({ dungeon: true, dgMode: 'hard', autopilot: false, farm: false, questMode: false, hpPot: TRANK_AB, dsPot: 0, tdsPot: 0, tab: 'data', lvlDiff: 100, radius: 400 }));
   w.localStorage.setItem('digibot.accounts', JSON.stringify(accounts));
@@ -303,7 +325,7 @@ function stepPartners(now, dt) {
       if (now >= pl.reviveAt && !run.failed) {
         pl.fainted = false;
         const st = pl.store.getState();
-        pl.store.setState({ me: { ...st.me, partner: { ...st.me.partner, hp: HP, fainted: false } } });
+        pl.store.setState({ me: { ...st.me, partner: { ...st.me.partner, hp: pl.M.hp, fainted: false } } });
         const sp = at(ROOMS[Math.min(run.room, ROOMS.length - 1)].landing);
         t.x = sp.x; t.y = sp.y; p.x = sp.x + 10; p.y = sp.y; pl.goal = null;
         say(`Char${pl.i + 1} ist wieder da (Raumeingang)`);
@@ -311,8 +333,8 @@ function stepPartners(now, dt) {
       continue;
     }
     const st0 = pl.store.getState(), p0 = st0.me.partner;
-    if (p0.hp < HP && ![...ents.values()].some((e) => e.targetId === `p:${pl.i}`) && !pl.grab) pl.store.setState({ me: { ...st0.me, partner: { ...p0, hp: Math.min(HP, p0.hp + HP * 0.03 * dt) } } });
-    if (p0.ds < 9365) { const s1 = pl.store.getState(); pl.store.setState({ me: { ...s1.me, partner: { ...s1.me.partner, ds: Math.min(9365, s1.me.partner.ds + 9365 * 0.01 * dt) } } }); }
+    if (p0.hp < pl.M.hp && ![...ents.values()].some((e) => e.targetId === `p:${pl.i}`) && !pl.grab) pl.store.setState({ me: { ...st0.me, partner: { ...p0, hp: Math.min(pl.M.hp, p0.hp + pl.M.hp * 0.03 * dt) } } });
+    if (p0.ds < pl.M.ds) { const s1 = pl.store.getState(); pl.store.setState({ me: { ...s1.me, partner: { ...s1.me.partner, ds: Math.min(pl.M.ds, s1.me.partner.ds + pl.M.ds * 0.01 * dt) } } }); }
     if (pl.grab) { // gepackt: wird zum Boss gezogen und ausgesaugt, bis der Arm bricht
       const arm = ents.get(pl.grab.arm);
       if (!arm) { pl.grab = null; say(`Char${pl.i + 1} ist frei (Arm zerbrochen)`); }
@@ -320,7 +342,7 @@ function stepPartners(now, dt) {
         const b = run.boss; const d = dist(p, b);
         if (d > 40) { p.x += (b.x - p.x) / d * 90 * dt; p.y += (b.y - p.y) / d * 90 * dt; t.x = p.x - 10; t.y = p.y; }
         arm.x = p.x; arm.y = p.y;
-        if (now >= pl.grab.next) { pl.grab.next = now + 1000; damagePlayer(pl, HP * 0.04, 'Tentacle Bug (Saugen)'); b.hp = Math.min(b.maxHp, b.hp + HP * 0.02); }
+        if (now >= pl.grab.next) { pl.grab.next = now + 1000; damagePlayer(pl, pl.M.hp * 0.04, 'Tentacle Bug (Saugen)'); b.hp = Math.min(b.maxHp, b.hp + pl.M.hp * 0.02); }
       }
     }
     if (pl.goal && !pl.grab) {
@@ -332,10 +354,10 @@ function stepPartners(now, dt) {
       const d = dist(p, m), reach = 26;
       p.targetId = m.id;
       if (d > reach && !pl.grab) { const step = P_SPEED * dt; p.x += (m.x - p.x) / d * Math.min(step, d - reach + 1); p.y += (m.y - p.y) / d * Math.min(step, d - reach + 1); }
-      else if (now >= pl.hitAt && now >= (pl.castUntil || 0)) { pl.hitAt = now + AS; hitMob(pl, m, SCHADEN); }
-      if (pl.queued && pl.queued.id === m.id && d <= PSK[pl.queued.n].range + 26 && now >= (pl.castUntil || 0)) {
-        run.stats.skills++; const q = pl.queued; pl.queued = null; const ms = PSK[q.n].def.castMs || 0; pl.castUntil = now + ms;
-        setTimeout(() => { const mm = ents.get(q.id); if (mm && mm.hp > 0 && !pl.fainted) hitMob(pl, mm, SCHADEN * PSK[q.n].mult); }, ms);
+      else if (now >= pl.hitAt && now >= (pl.castUntil || 0)) { pl.hitAt = now + pl.M.as; hitMob(pl, m, pl.M.dmg); }
+      if (pl.queued && pl.queued.id === m.id && d <= pl.M.psk[pl.queued.n].range + 26 && now >= (pl.castUntil || 0)) {
+        run.stats.skills++; const q = pl.queued; pl.queued = null; const ms = pl.M.psk[q.n].def.castMs || 0; pl.castUntil = now + ms;
+        setTimeout(() => { const mm = ents.get(q.id); if (mm && mm.hp > 0 && !pl.fainted) hitMob(pl, mm, pl.M.dmg * pl.M.psk[q.n].mult); }, ms);
       }
     } else if (!pl.grab) {
       pl.atk = null; p.targetId = '';
@@ -414,16 +436,18 @@ function evalZone(src, skill, z, opt) {
       const tgt = opt.share; if (tgt.fainted || !tgt.inside) return;
       const c = SHARE_FOLGT ? partnerOf(tgt) : z.circles[0], inn = alivePlayers().filter((pl) => (SHARE_FOLGT && pl === tgt) || dist(partnerOf(pl), c) <= 40);
       if (!inn.length) { ps.dodged++; say(`${SKILLS[skill].name} (geteilt): niemand im Kreis – ausgewichen`); return; }
-      const each = Math.round(HP * sharePct() / inn.length);
-      ps.hit += inn.length;
-      say(`💥 ${SKILLS[skill].name} (geteilt) auf Char${tgt.i + 1}: ${inn.length} im Kreis → je ${each}`);
-      for (const pl of inn) damagePlayer(pl, each, `${SKILLS[skill].name} (geteilt)`);
+      const each = Math.round(tgt.M.hp * sharePct() / inn.length), now2 = Date.now();
+      const open = inn.filter((pl) => !protectedAt(partnerOf(pl), now2));
+      ps.hit += open.length; ps.blocked = (ps.blocked || 0) + inn.length - open.length;
+      say(`💥 ${SKILLS[skill].name} (geteilt) auf Char${tgt.i + 1}: ${inn.length} im Kreis → je ${each}${inn.length > open.length ? ` · ${inn.length - open.length} von Key of Hope geschützt` : ''}`);
+      for (const pl of open) damagePlayer(pl, each, `${SKILLS[skill].name} (geteilt)`);
       return;
     }
     for (const pl of alivePlayers()) {
       const p = partnerOf(pl);
       const inside = z.circles.some((cc) => dist(p, cc) <= cc.r) || (z.line && inLine(p, z.line));
       if (!inside) { ps.dodged++; continue; }
+      if (protectedAt(p, Date.now())) { ps.blocked = (ps.blocked || 0) + 1; continue; }
       ps.hit++;
       damagePlayer(pl, opt.dmg, SKILLS[skill].name);
       opt.onHit?.(pl);
@@ -585,7 +609,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const b = run.boss;
   console.log(`\nErgebnis: ${run.cleared ? '✅ geschafft' : run.failed ? `❌ gescheitert (${run.failed})` : '⏱ Zeit abgelaufen'}${!run.cleared && b ? ` – ${b.name} bei ${Math.round(b.hp / b.maxHp * 100)} %` : ''}`);
   console.log(`Räume ${run.roomTime.map((t) => `${(t / 1000).toFixed(0)} s`).join(' / ') || '–'} · Stürze ${run.deaths} · Tränke ${run.stats.pots} · Skills ${run.stats.skills}${run.room >= 1 ? ` · Herde: ${run.herd.captures} erledigt, ${run.herd.arrived} am Ei, Boss-Stärke ${run.herd.stacks}` : ''}`);
-  console.log(`Attacken (Ansagen · getroffen · ausgewichen): ${Object.entries(run.perSkill).map(([k, v]) => `${k} ${v.casts} · ${v.hit} · ${v.dodged}`).join(' | ')}`);
+  console.log(`Attacken (Ansagen · getroffen · ausgewichen · geblockt): ${Object.entries(run.perSkill).map(([k, v]) => `${k} ${v.casts} · ${v.hit} · ${v.dodged} · ${v.blocked || 0}`).join(' | ')}`);
+  if (TEAM) console.log(`Key of Hope gezündet: ${run.stats.koh || 0}× · Team: ${MEMBERS.map((m, i) => `Char${i + 1} ${m.name} Lv ${m.level} (${m.hp} HP)`).join(', ')}`);
   console.log(`Status am Ende: ${players.map((pl) => `Char${pl.i + 1}: ${pl.status()}`).join(' | ')}`);
   process.exit(run.cleared ? 0 : 1);
 })();
