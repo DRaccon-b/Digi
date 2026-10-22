@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.29.0
+// @version      2.29.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -316,6 +316,7 @@
     dodge: true,      // Flächenangriffen (Warnkreisen) ausweichen
     mirror: true,     // bei Spiegel/Reflexion des Ziels nicht angreifen
     koh: true,        // ClavisAngemon: große Raid-Angriffe mit „Key of Hope“ blocken
+    tank: true,       // kleine Boss-Flächen (fester Schaden, höchstens ~1/3 der HP) tanken statt ausweichen
     skipTaken: true,  // keine Gegner angreifen, die andere Spieler gerade bekämpfen
     chCheck: false,   // Channel-Checker: auf den Kanal mit den wenigsten Spielern wechseln (nicht in der Boss-Rotation)
     safeCast: true,   // gegen Bosse: Skills nur, wenn danach noch Zeit zum Ausweichen bleibt (und kein Spiegel droht)
@@ -491,7 +492,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.29.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.29.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -575,6 +576,7 @@
           'Schwächere Monster werden immer angegriffen, nur zu starke (über +Level) nicht. Angreifer werden immer abgewehrt. Channel-Checker: etwa jede Minute und nach jedem Map-Wechsel wechselt der Bot auf den Kanal mit den wenigsten Spielern (mind. 2 weniger) – nur außerhalb von Kämpfen, nicht in der Boss-Rotation; in der Gruppe entscheidet der Leader, die anderen folgen.')}
         ${grp('mech', 'Boss-Mechaniken', `
           ${check('dodge', 'Warnkreisen/-strahlen ausweichen')}
+          ${check('tank', 'Kleine Boss-Treffer tanken statt ausweichen (mehr Schaden, Tränke heilen)')}
           ${check('koh', 'ClavisAngemon: große Raid-Angriffe mit Key of Hope blocken')}`, true,
           'Ausweichen: raus aus Kreisen, Strahlen und Fächern, möglichst nah am Boss. Immer aktiv: kein Angriff, solange das Ziel Schaden zurückwirft (Spiegel), und lange Casts nur, wenn eine mögliche Boss-Attacke noch Zeit zum Ausweichen lässt.')}
 
@@ -859,8 +861,37 @@
   const DODGE_WALK_PX_S = 130;   // vorsichtig geschätzte Laufgeschwindigkeit beim Ausweichen
   const DODGE_HOLD_RANGE = 220; // so nah an einer noch aktiven Zone wird nach dem Ausweichen gewartet
   const dodgeState = { active: false, lastTap: 0, lastFollow: 0 };
+  // Kleine Boss-Treffer tanken: Ausweichen kostet Schaden pro Sekunde, ein Trank ist billiger. Tankbar ist eine Fläche
+  // mit festem Schaden bis TANK_MAX_PCT der Max-HP, nach der noch TANK_KEEP_PCT übrig bleiben – ohne Zurück-Digitieren
+  // und ohne geteilten Treffer (z. B. Keramon „Crazy Turn“ 28 000, Chrysalimon „Data Crusher“ 30 000 gegen ~90 000 HP;
+  // Infermons Ramme 60 000 und Spider Shooter 45 000 + Zurück-Digitieren nicht). Gilt nur, wenn ALLE gerade angesagten
+  // Flächen tankbar sind; unbekannte Flächen (ohne festen Schaden) weicht der Bot weiter aus.
+  const TANK_MAX_PCT = 35, TANK_KEEP_PCT = 40;
+  function tankable(sk, p) {
+    if (!cfg.tank || !sk?.fixedDamage || sk.devolve || sk.share || sk.mark || !p?.maxHp) return false;
+    return sk.fixedDamage <= p.maxHp * TANK_MAX_PCT / 100 && (p.hp - sk.fixedDamage) >= p.maxHp * TANK_KEEP_PCT / 100;
+  }
+  function tankNow(now) {
+    if (!cfg.tank) return false;
+    const p = getStore()?.getState?.()?.me?.partner;
+    let any = false;
+    for (const log of bossSkillLog.values()) {
+      for (const [id, e] of log) {
+        if (e.phase !== 'cast' || !(e.castEnd > now - 300)) continue;
+        const sk = content()?.skills?.[id];
+        if (!sk || sk.kind === 'buff' || sk.target === 'self' || (sk.shape !== 'circle' && sk.shape !== 'line')) continue;
+        if (!tankable(sk, p)) return false;
+        any = true;
+      }
+    }
+    return any;
+  }
+  // Infermon „NOT HERE“: frisst ein Terminal (scene.mechB.view.meals = [{ boss, left, ms, dmg }], dmg 0..1 = Anteil des
+  // Schadens, der die Mahlzeit abbricht). Dann zählt nur Schaden – alle Skills sofort, ohne Zurückhalten.
+  const mealOn = (id) => { try { return (worldScene()?.mechB?.view?.meals || []).some((m) => m.boss === id && (m.dmg ?? 0) < 1); } catch { return false; } };
   function dangerZones() {
     const sc = worldScene(), zones = [];
+    const tank = tankNow(Date.now());
     // Markierungen (z. B. Apocalymons „Big Bang Mark“): ein Kreis folgt einem Spieler und trifft beim Einschlag alle darin.
     // Ein anderer ist markiert -> sein Kreis ist Gefahrenzone. Ich bin markiert -> weg von allen anderen Spielern/Digimon.
     try {
@@ -879,12 +910,12 @@
         }
       }
     } catch { /* ignore */ }
-    try {
+    if (!tank) try {
       for (const c of sc?.telegraphs?.active || []) {
         if (c && c.r > 0 && isFinite(c.x) && isFinite(c.y)) zones.push({ kind: 'circle', x: c.x, y: c.y, r: c.r });
       }
     } catch { /* ignore */ }
-    try {
+    if (!tank) try {
       const t = performance.now();
       for (const l of sc?.mechB?.lines || []) {
         if (!l || !isFinite(l.fx) || !isFinite(l.tx) || (l.end && t > l.end + 150)) continue;
@@ -1139,7 +1170,7 @@
   const CAST_LATENCY_MS = 400;   // Reaktion + Ping
   const DEFAULT_MOVE = 90;       // px/s, falls die Laufgeschwindigkeit unbekannt ist
   function skillUnsafe(st, t, skill, now, slot) {
-    if (!cfg.safeCast || !t) return null;
+    if (!cfg.safeCast || !t || mealOn(t.id)) return null;
     const boss = currentBoss(st);
     if (!boss || boss.id !== t.id) return null;
     const ownCast = skill.castMs ?? content()?.skills?.[skill.id]?.castMs
@@ -1160,7 +1191,7 @@
       }
       const zone = (sk.shape === 'circle' || sk.shape === 'line') && r.castMs > 0 && !sk.islands && !sk.protectionMs
         && sk.kind !== 'heal' && sk.kind !== 'buff' && sk.target !== 'self';
-      if (!zone || r.state === 'cast') continue; // laufende Ansage: darum kümmert sich das Ausweichen
+      if (!zone || r.state === 'cast' || tankable(sk, st.me?.partner)) continue; // laufende Ansage: Ausweichen; tankbar: egal
       let dist;
       if (sk.shape === 'line') dist = sk.sweep ? 80 : (sk.radius || 16) + DODGE_MARGIN;
       else if (sk.origin === 'caster' && pe && be) dist = Math.max(0, (sk.radius || 40) - Math.hypot(pe.x - be.x, pe.y - be.y)) + DODGE_MARGIN;

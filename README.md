@@ -217,6 +217,10 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.29.1 – kleine Boss-Treffer tanken, Infermons Mahlzeit abbrechen (aus dem ersten Live-Lauf)
+- Neuer Haken (Standard an) „Kleine Boss-Treffer tanken statt ausweichen“: Flächen mit festem Schaden bis 35 % der Max-HP (danach bleiben noch ≥ 40 %) werden nicht mehr ausgewichen. Der Bot greift weiter an, und die Tränke heilen. Beispiel: Keramon „Crazy Turn“ 28 000, Chrysalimon „Data Crusher“ 30 000. Infermons Ramme (60 000) und Spider Shooter (45 000, Zurück-Digitieren) weicht er weiterhin aus.
+- Infermon „NOT HERE“: Während er ein Terminal frisst, zählt nur Schaden. Der Bot zündet dann alle Skills sofort, ohne Zurückhalten fürs Ausweichen. Im Live-Lauf fehlten zum Abbrechen oft nur ~10 %, und jede durchgegangene Mahlzeit heilt ihn um 8 % und macht ihn stärker.
+
 #### Neu in 2.29.0 – Dungeon-Modus (Kera, Easy)
 - Neuer Modus **Dungeon** und Gruppen-Modus **🏰 Dungeon**: zur Tür auf der Map Network, an der Tür auf die Gruppe warten (max. 20 s), der Leader betritt Easy („War Game“), die Gruppe an der Tür kommt mit.
 - Raum 1: Terminals schützen. Der Bot nimmt zuerst den Tsumemon, dessen Terminal noch zu retten ist. Er rechnet dafür die Zeit bis zum Verlust (8 s Fressen) gegen den gemessenen Schaden pro Sekunde. Danach kommen nicht mehr rettbare Fresser, Angreifer und die übrigen Pflicht-Monster. Kuramon (keine Pflicht) bleiben in Ruhe.
