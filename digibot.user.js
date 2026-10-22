@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.21.0
+// @version      2.21.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -472,7 +472,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.21.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.21.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -2748,7 +2748,7 @@
     return tasks
       .filter((t) => !M || t.grind ? !M : t.purpose === 'daily' ? t.loc.mapId === M : questOnMap(t.def, M))
       .filter((t) => (autopilot.failed.get(t.key) || 0) < now && hops(mapId, t.loc.mapId) < Infinity)
-      .map((t) => ({ ...t, cost: hops(mapId, t.loc.mapId) * 10 + t.prio, phase: M ? taskPhase(t) : cfg.apBatch ? batchRank(t) : 0 }))
+      .map((t) => ({ ...t, cost: hops(mapId, t.loc.mapId) * 10 + t.prio, phase: M ? taskPhase(t) : cfg.apBatch ? batchRank(t, mapId) : 0 }))
       .sort((a, b) => a.phase - b.phase || a.cost - b.cost);
   }
   // Phasen der Map-für-Map-Runde: 1 = Quests annehmen, 2 = Ziele erledigen, 3 = abgeben.
@@ -2757,10 +2757,12 @@
   const taskPhase = (t) => (t.purpose === 'accept' || t.purpose === 'daily' ? 1 : t.purpose === 'turnin' ? 3 : 2);
   const PHASE_NAMES = { 1: 'Quests annehmen', 2: 'Ziele erledigen', 3: 'Quests abgeben' };
   // „Erst alle Quests erledigen, dann gemeinsam abgeben“: Reihenfolge Ziele -> Abgaben -> Annahmen. Hat das Annehmen
-  // begonnen, werden erst alle verfügbaren Quests angenommen (sonst ginge es nach der ersten Annahme gleich jagen).
-  function batchRank(t) {
+  // begonnen, werden erst alle Quests auf dieser Map angenommen (sonst ginge es nach der ersten Annahme gleich jagen).
+  // Annahmen auf anderen Maps kommen erst, wenn hier nichts mehr zu tun ist – sonst reist der Bot quer durch die Welt.
+  function batchRank(t, mapId) {
     if (t.grind) return 9;
     const p = taskPhase(t);
+    if (p === 1 && t.loc?.mapId !== mapId) return 3;
     return (autopilot.batchPhase === 'accept' ? { 1: 0, 2: 1, 3: 2 } : { 2: 0, 3: 1, 1: 2 })[p];
   }
 

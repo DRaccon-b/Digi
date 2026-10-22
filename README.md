@@ -217,6 +217,11 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.21.1 – Gemeinsam abgeben: Annahmen nur auf dieser Map zuerst
+- Mit „Erst alle Quests erledigen, dann gemeinsam abgeben“ zog der Bot in der Annahme-Phase auch Quests auf ganz anderen
+  Maps vor, z. B. eine Tagesquest in Factorial Town direkt nach einer Annahme in The Kaiser's Canyon. Jetzt nimmt er
+  erst alle Quests auf der aktuellen Map an und erledigt sie. Quests woanders nimmt er erst an, wenn hier nichts mehr zu tun ist.
+
 #### Neu in 2.21.0 – Erst alle Quests erledigen, dann gemeinsam abgeben
 - Neuer Haken im Quest-Reiter: **„Erst alle Quests erledigen, dann gemeinsam abgeben“**. Der Autopilot arbeitet dann in
   Runden: erst alle Ziele der angenommenen Quests, dann alle fertigen Quests abgeben, dann alle verfügbaren annehmen,
