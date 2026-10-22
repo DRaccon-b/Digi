@@ -217,6 +217,13 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.31.1 – nicht in die Volley zurücklaufen, ein Block pro Cannon
+- Ist ein Einschlag in weniger als 1,2 s fällig und steht das Ziel neben der Warnzone, greift der Bot erst danach wieder an, auch nicht mit einem Fernangriff. Bosse laufen weiter, und das Digimon folgte ihnen in den Kreis (Probelauf: 3 Clavis auf einmal durch eine Volley).
+- Key of Hope: Die Staffelung zwischen den Clavis zählt ab dem Moment, ab dem gezündet werden darf. Wird eine Volley mit abgedeckt, springt dieser Zeitpunkt nach vorn, und vorher zündeten zwei Clavis gleichzeitig. Jetzt zündet genau einer pro Cannon.
+- Probelauf Hard (Bauzel + 4 ClavisAngemon Lv 70, ×4):
+  - 5 Läufe à 200 s: 0 Volley-Treffer, 0 Stürze (vorher 2–5 Stürze pro Lauf).
+  - 2 volle Läufe: **beide geschafft**. Raum 3 in 240/255 s (Uhr 360 s), Raum 4 in 297/318 s (Enrage 480 s), Catastrophe Cannon und Black-Rain-Hülle zu 100 % geblockt, 0–2 Stürze.
+
 #### Neu in 2.31.0 – Key of Hope nur für unausweichbare Treffer
 - Key of Hope zündet nur noch gegen Treffer, denen man nicht ausweichen kann: Catastrophe Cannon, Black-Rain-Hülle, Ultimate Flare (dazu Infermons geladener Spider Shooter und die Ramme). Cannon Volley, Tentacle Bug, Kopien-Strahlen und Black Rain weicht man aus.
 - Fällt so eine Ausweich-Attacke bis zu 1 s vor einen Block-Treffer, zündet der Clavis früher, damit der Schutz (2 s) beides abdeckt. Die Gruppe steht dann schon zusammen und weicht nicht mehr aus.

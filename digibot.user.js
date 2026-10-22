@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.31.0
+// @version      2.31.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -493,7 +493,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.31.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.31.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -861,6 +861,9 @@
   const MELEE_EDGE = 12;         // Mindestabstand dieses Punkts zum Rand eines Warnkreises
   const DODGE_WALK_PX_S = 130;   // vorsichtig geschätzte Laufgeschwindigkeit beim Ausweichen
   const DODGE_HOLD_RANGE = 220; // so nah an einer noch aktiven Zone wird nach dem Ausweichen gewartet
+  // Kurz vor dem Einschlag nicht wieder angreifen, wenn das Ziel neben einer Zone steht: Bosse laufen weiter, das
+  // Digimon folgt ihnen in den Kreis (Probelauf Hard: Volley 0,3 s vor dem Einschlag – 3 Clavis auf einmal)
+  const DODGE_SOON_MS = 1200, DODGE_SOON_PAD = 70;
   const dodgeState = { active: false, lastTap: 0, lastFollow: 0 };
   // Kleine Boss-Treffer tanken: Ausweichen kostet Schaden pro Sekunde, ein Trank ist billiger. Tankbar ist eine Fläche
   // mit festem Schaden bis TANK_MAX_PCT der Max-HP, nach der noch TANK_KEEP_PCT übrig bleiben – ohne Zurück-Digitieren
@@ -949,7 +952,7 @@
           zones.push({ kind: 'fan', x: l.fx, y: l.fy, len: len + (l.r || 16), dir: Math.atan2(l.ty - l.fy, l.tx - l.fx),
             half: (l.skill.sweep.arc || 90) * Math.PI / 360 });
         } else {
-          zones.push({ kind: 'line', x: l.fx, y: l.fy, tx: l.tx, ty: l.ty, len, r: l.r || 16 });
+          zones.push({ kind: 'line', x: l.fx, y: l.fy, tx: l.tx, ty: l.ty, len, r: l.r || 16, end: l.end || 0 });
         }
       }
     } catch { /* ignore */ }
@@ -1051,7 +1054,11 @@
         const at = { x: target.x + (partner.x - target.x) * k, y: target.y + (partner.y - target.y) * k };
         return !zones.some((c) => zoneDist(c, at).d < MELEE_EDGE);
       })();
-      const blocked = target && !reach ? !!inZone(target) || (from && !lineClear(from, target, zones)) : target ? false : dodgeState.active;
+      const soonNear = !!target && zones.some((c) => {
+        const left = c.end ? c.end - performance.now() : zoneLeftMs(c);
+        return left != null && left < DODGE_SOON_MS && zoneDist(c, target).d < DODGE_SOON_PAD;
+      });
+      const blocked = soonNear || (target && !reach ? !!inZone(target) || (from && !lineClear(from, target, zones)) : target ? false : dodgeState.active);
       if (near && blocked) {
         if (!dodgeState.active) { dodgeState.active = true; logEvent('warn', 'Ziel steht in einer Warnzone – warte draußen'); }
         const close = partner && tamer && Math.hypot(partner.x - tamer.x, partner.y - tamer.y) <= 40;
@@ -1059,7 +1066,7 @@
           dodgeState.lastFollow = now; commands()?.partnerFollow?.();
         }
         // Fernkampf-Skills reichen oft bis zum Boss, ohne dass das Digimon in den Kreis muss
-        const ra = target && close ? rangedFromOutside(st, target, partner, now) : null;
+        const ra = target && close && !soonNear ? rangedFromOutside(st, target, partner, now) : null; // kurz vor dem Einschlag nicht: danach läuft das Digimon zum Nahkampf hinein
         return ra ? `Warte außerhalb · Fernangriff: ${ra}` : 'Warte außerhalb, bis der Flächenangriff vorbei ist…';
       }
       if (dodgeState.active) { dodgeState.active = false; logEvent('auto', 'Ausweichen beendet – weiter'); }
@@ -1596,7 +1603,11 @@
     if (!hit || hit.left > KOH_LEAD_MS) return null;
     if (!kohReady(st, own)) return null;
     // Reihenfolge: bereite Clavis auf derselben Map mit kleinerer Slot-Nummer sind vor mir dran
-    if (KOH_LEAD_MS - hit.left < kohRank(st, now) * KOH_STEP_MS) return null;
+    // Staffelung ab dem Moment, ab dem gezündet werden darf (der Zeitpunkt kann nach vorn springen, wenn eine Ausweich-
+    // Attacke mit abgedeckt wird – sonst zünden zwei Clavis gleichzeitig)
+    const dueKey = `${hit.src}|${hit.main}`;
+    if (kohState.dueKey !== dueKey) { kohState.dueKey = dueKey; kohState.dueAt = now; }
+    if (now - kohState.dueAt < kohRank(st, now) * KOH_STEP_MS) return null;
     if (!bot.can('Digit' + own.k, 300, now)) return null;
     kohState.claims.set(hit.src, now);
     try { group.bus?.postMessage({ type: 'koh', slot: group.slot(), src: hit.src, skill: hit.sid }); } catch { /* ignore */ }
