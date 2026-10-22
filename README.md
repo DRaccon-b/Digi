@@ -217,6 +217,12 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.24.1 – Leader wartet beim NPC statt wegzulaufen
+- Hält der Leader eine Abgabe für die Gruppe zurück, weil ein Mitläufer noch nicht so weit ist, macht er in der
+  Wartezeit nur noch Aufgaben auf derselben Map. Gibt es dort keine, wartet er. Bisher lief er z. B. nach „The Shrine
+  Stone“ zur Tagesquest in Sunset Bay und musste danach den ganzen Weg zurück zu Magnamon.
+- Die Log-Zeile „Runde null: Phase -1/3 – undefined“ erscheint nicht mehr. Phasen werden nur im Map-für-Map-Modus gemeldet.
+
 #### Neu in 2.24.0 – Zum Boss hin ausweichen
 - Beim Ausweichen aus einem Warnkreis nimmt der Bot jetzt den freien Punkt, der **dem Boss am nächsten** liegt und vor
   dem Einschlag noch erreichbar ist. Die Restzeit liest er aus dem Warnkreis des Spiels. Bisher ging er immer weg von

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.24.0
+// @version      2.24.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -472,7 +472,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.24.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.24.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -3191,7 +3191,21 @@
           t.label += ` (+${same.length} weitere${same.length > 1 ? '' : 's'} Ziel${same.length > 1 ? 'e' : ''})`;
         }
       }
-      if (t && t.phase && t.phase !== autopilot.phase) {
+      // Leader hält eine Abgabe für die Gruppe zurück (die anderen sind noch nicht so weit): in der Wartezeit nichts auf
+      // einer anderen Map anfangen – sonst läuft er weg und muss danach den ganzen Weg zurück
+      if (t && group.role() === 'leader' && t.loc?.mapId && t.loc.mapId !== st.world?.mapId) {
+        const own = st.me?.quests || {}, pq = planQuests(st);
+        const held = Object.keys(pq).filter((id) => pq[id]?.group && own[id]?.state === 2);
+        if (held.length) {
+          const local = all.find((o) => o.loc?.mapId === st.world?.mapId);
+          t = autopilot.task = local || null;
+          if (!t) {
+            const C = content();
+            return `Gruppe: warte hier, bis die anderen bei ${held.map((id) => `„${questDef(C, id)?.name || id}“`).join(', ')} so weit sind`;
+          }
+        }
+      }
+      if (t && t.phase > 0 && cfg.apOrder === 'sweep' && autopilot.sweepAt && t.phase !== autopilot.phase) {
         autopilot.phase = t.phase;
         logEvent('map', `Runde ${content()?.maps?.[autopilot.sweepAt]?.name || autopilot.sweepAt}: Phase ${t.phase}/3 – ${PHASE_NAMES[t.phase]}`);
       }
