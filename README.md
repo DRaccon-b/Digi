@@ -217,6 +217,12 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.21.0 – Erst alle Quests erledigen, dann gemeinsam abgeben
+- Neuer Haken im Quest-Reiter: **„Erst alle Quests erledigen, dann gemeinsam abgeben“**. Der Autopilot arbeitet dann in
+  Runden: erst alle Ziele der angenommenen Quests, dann alle fertigen Quests abgeben, dann alle verfügbaren annehmen,
+  dann wieder von vorn. Er unterbricht keine Quest mehr, um zwischendurch eine andere abzugeben.
+- In der Map-für-Map-Runde passiert das ohnehin pro Map. Der Haken ist für die Reihenfolge „nächste Aufgabe zuerst“ gedacht.
+
 #### Neu in 2.20.1 – Nach dem Umkippen weiter bei der Quest
 - Nach einem langen Kampf oder nach dem Wiederbeleben hielt der Bot den Weg zurück ins Jagdgebiet fälschlich für
   „nicht erreichbar“. Die Weg-Messung stammte noch von vor dem Kampf. Er übersprang die Quest dann 5 min und fing

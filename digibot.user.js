@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.20.1
+// @version      2.21.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -306,6 +306,7 @@
     safeCast: true,   // gegen Bosse: Skills nur, wenn danach noch Zeit zum Ausweichen bleibt (und kein Spiegel droht)
     autopilot: false, // Quests annehmen, hinreisen, erledigen, abgeben
     apGrind: true,    // Autopilot: bei Level-Sperren/Level-Zielen grinden statt stoppen
+    apBatch: false,   // Autopilot: erst alle Ziele erledigen, dann alles abgeben, dann alles annehmen (keine Abgabe zwischendurch)
     apOrder: 'near',  // 'near' = nächste Aufgabe zuerst, 'sweep' = Map für Map absteigend
     apStartMap: '',   // Start-Map der Runde ('' = höchste erreichbare)
     apSweepMap: '',   // aktuelle Map der laufenden Runde (Fortschritt, überlebt Neuladen)
@@ -383,6 +384,7 @@
     });
     panel.querySelectorAll('[data-farmch]').forEach((el) => { el.checked = (cfg.farmChannels || []).includes(Number(el.dataset.farmch)); });
     const g = panel.querySelector('[data-apgrind]'); if (g) g.checked = !!cfg.apGrind;
+    const bt = panel.querySelector('[data-apbatch]'); if (bt) bt.checked = !!cfg.apBatch;
     mobListSig = ''; questSig = ''; farmPickSig = '';
   }
 
@@ -470,7 +472,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.20.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.21.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -555,6 +557,7 @@
         <div class="digibot__apinfo" data-f="apinfo"></div>
         ${grp('apcfg', 'Autopilot-Einstellungen', `
           <label class="digibot__skill"><input type="checkbox" data-apgrind ${cfg.apGrind ? 'checked' : ''}><span>Bei Level-Sperren grinden statt stoppen</span></label>
+          <label class="digibot__skill" title="Statt zwischendurch abzugeben: erst alle Ziele der angenommenen Quests erledigen, dann alle fertigen Quests abgeben, dann alle verfügbaren annehmen – und wieder von vorn. (In der Map-für-Map-Runde passiert das ohnehin pro Map.)"><input type="checkbox" data-apbatch ${cfg.apBatch ? 'checked' : ''}><span>Erst alle Quests erledigen, dann gemeinsam abgeben</span></label>
           <div class="digibot__apcfg">
             <label>Reihenfolge<select data-apsel="apOrder">
               <option value="near">Nächste Aufgabe zuerst</option>
@@ -2745,7 +2748,7 @@
     return tasks
       .filter((t) => !M || t.grind ? !M : t.purpose === 'daily' ? t.loc.mapId === M : questOnMap(t.def, M))
       .filter((t) => (autopilot.failed.get(t.key) || 0) < now && hops(mapId, t.loc.mapId) < Infinity)
-      .map((t) => ({ ...t, cost: hops(mapId, t.loc.mapId) * 10 + t.prio, phase: M ? taskPhase(t) : 0 }))
+      .map((t) => ({ ...t, cost: hops(mapId, t.loc.mapId) * 10 + t.prio, phase: M ? taskPhase(t) : cfg.apBatch ? batchRank(t) : 0 }))
       .sort((a, b) => a.phase - b.phase || a.cost - b.cost);
   }
   // Phasen der Map-für-Map-Runde: 1 = Quests annehmen, 2 = Ziele erledigen, 3 = abgeben.
@@ -2753,6 +2756,13 @@
   // Digimon-Wechsel und Zurück-Digitation passieren nur einmal, beim Übergang zum Abgeben.
   const taskPhase = (t) => (t.purpose === 'accept' || t.purpose === 'daily' ? 1 : t.purpose === 'turnin' ? 3 : 2);
   const PHASE_NAMES = { 1: 'Quests annehmen', 2: 'Ziele erledigen', 3: 'Quests abgeben' };
+  // „Erst alle Quests erledigen, dann gemeinsam abgeben“: Reihenfolge Ziele -> Abgaben -> Annahmen. Hat das Annehmen
+  // begonnen, werden erst alle verfügbaren Quests angenommen (sonst ginge es nach der ersten Annahme gleich jagen).
+  function batchRank(t) {
+    if (t.grind) return 9;
+    const p = taskPhase(t);
+    return (autopilot.batchPhase === 'accept' ? { 1: 0, 2: 1, 3: 2 } : { 2: 0, 3: 1, 1: 2 })[p];
+  }
 
   function taskDone(st, t) {
     if (t.grind) return (st?.me?.partner?.level ?? 0) >= t.targetLevel;
@@ -3041,7 +3051,7 @@
         return;
       }
     }
-    if (cfg.apOrder !== 'sweep' && world.state === 'ready' && now - (autopilot.peekAt || 0) > 5000) {
+    if (cfg.apOrder !== 'sweep' && !cfg.apBatch && world.state === 'ready' && now - (autopilot.peekAt || 0) > 5000) {
       autopilot.peekAt = now;
       const nt = questTasks(st)[0];
       if (nt?.kind === 'talk' && nt.purpose === 'turnin' && nt.loc.mapId === st.world?.mapId) {
@@ -3095,6 +3105,7 @@
         all = questTasks(st);
       }
       t = autopilot.task = all[0] || null;
+      if (cfg.apBatch) autopilot.batchPhase = t && (t.purpose === 'accept' || t.purpose === 'daily') ? 'accept' : 'do';
       if (t?.kind === 'hunt' && !t.grind) {
         const same = all.filter((o) => o.kind === 'hunt' && !o.grind && o.loc.mapId === t.loc.mapId && o !== t);
         if (same.length) {
@@ -5044,6 +5055,11 @@
       if (flag) {
         cfg[flag] = e.target.checked; saveCfg(); e.target.blur(); autopilot.reset(); schedule();
         logEvent('auto', `Einstellung: ${e.target.nextElementSibling?.textContent} = ${e.target.checked ? 'an' : 'aus'}`);
+        return;
+      }
+      if (e.target.matches('[data-apbatch]')) {
+        cfg.apBatch = e.target.checked; saveCfg(); e.target.blur(); autopilot.reset(); autopilot.batchPhase = 'do'; schedule();
+        logEvent('auto', `Erst alle Quests erledigen, dann gemeinsam abgeben: ${cfg.apBatch ? 'an' : 'aus'}`);
         return;
       }
       if (e.target.matches('[data-apgrind]')) {
