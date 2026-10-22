@@ -217,6 +217,10 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.33.1 – Tür ohne Leader, MaloMyotismon live gemessen
+- An der Dungeon-/Raid-Tür wartet ein als Mitläufer eingetragenes Fenster nur, wenn sein Leader online ist, den Bot fährt und auf derselben Map steht; sonst geht es allein hinein. Live hing es sonst bei „warte auf den Leader“, obwohl der Leader gar nicht da war. Der Leader wartet an der Tür nur auf Mitglieder, die gerade online sind. Neuer Test `doorleadertest`.
+- MaloMyotismon live (Bauzel allein): Die HP (2 435 384) stimmen genau mit den Daten. Bauzel macht ~5 000 Schaden/s (evasiv und gepanzert); nach 171 s stand der Boss bei 65 %. Mit Enrage nach 7 min ist das allein nicht zu schaffen. Der Probelauf `sim/raid-malomyotismon.js` ist darauf abgestimmt (Trefferchance 0,85, seine normalen Attacken ergänzt) und endet ebenso im Enrage bei 22–31 %.
+
 #### Neu in 2.33.0 – MaloMyotismon-Raid im Dungeon-Modus
 - Reiter Bosse → Dungeon → Modus „MaloMyotismon-Raid“, genauso wie Apocalymon: Der Bot reist zur Tür in Myotismon Castle, digitiert, betritt den Raid und wartet im Schutzbereich auf HP. Dann kommen zuerst die Phantomon-Adds und die Illusionstürme (sie stärken bzw. füttern den Boss), danach MaloMyotismon. Nach dem Sieg geht er hinaus und stoppt.
 - Aus den Spieldaten bekannt: Grisly Wing (Kreis unter jedem, 55 700 und −25 % Verteidigung, wird ausgewichen), Dream Mirror (200 %, Spiegel-Pause), Nightmare Mark, Pandæmonium bei 50 % (raumweit, 8 s Ansage, weiterkämpfen). MaloMyotismon weicht sehr oft aus (×3,5 Ausweichen) und ist gepanzert.

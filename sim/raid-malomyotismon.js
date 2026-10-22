@@ -11,7 +11,7 @@
 // Dream Mirror (200 %, 3 s), Nightmare Mark, Pandæmonium bei 50 % (raumweit, 8 s Ansage, abbrechbar nur über
 // Angriffstempo – allein nicht). Evasiv (Ausweichen ×3,5) und gepanzert (normale Treffer prallen ab, Krits gehen durch).
 // UNBEKANNT – einstellbar, Standard geschätzt:
-//   TREFFER  Trefferchance gegen MaloMyotismon (0,57: Bauzels Trefferwert 1 063 gegen Ausweichen ~788)
+//   TREFFER  Trefferchance gegen MaloMyotismon (0,85: so passt der Verlauf zum Live-Lauf; aus den Werten geschätzt 0,57)
 //   KRIT     Anteil kritischer Treffer (0,25), Krit ×1,5 und geht durch den Panzer
 //   PANZER   so viel eines normalen Treffers prallt ab (0,85 = „armor 0.85“ aus den Daten)
 //   BOSS_HIT Grundtreffer des Bosses (9 000 alle 2 s), PANDA=1: Pandæmonium tötet (0 = überlebbar)
@@ -34,7 +34,8 @@ function warp(g) {
 warp(global);
 
 const num = (k, d) => (process.env[k] != null && process.env[k] !== '' ? Number(process.env[k]) : d);
-const TREFFER = num('TREFFER', 0.57), KRIT = num('KRIT', 0.25), PANZER = num('PANZER', 0.85), BOSS_HIT = num('BOSS_HIT', 9000), PANDA = num('PANDA', 1);
+// TREFFER an den Live-Lauf angepasst (Okt. 2026: 89 % nach 45 s, 65 % nach 171 s Kampf)
+const TREFFER = num('TREFFER', 0.85), KRIT = num('KRIT', 0.25), PANZER = num('PANZER', 0.85), BOSS_HIT = num('BOSS_HIT', 9000), PANDA = num('PANDA', 1);
 const SCHADEN = 12000, AS = 1121, P_SPEED = 120, HP = 92660;
 const TRAENKE = 400, TRANK_HP = 15000, TRANK_AB = 50;
 const DAUER = num('DAUER', 600) * 1000;
@@ -68,6 +69,11 @@ const SKILLS = Object.fromEntries([
   SK('malomyotismon.grisly_wing', { name: 'Grisly Wing', shape: 'circle', radius: 48, telegraph: true, each: true, power: 0, fixedDamage: 55700, cooldownMs: 30000, castMs: 2000, range: 640, effects: [{ stat: 'de', pct: -25, durationMs: 15000 }] }),
   SK('malomyotismon.pandaemonium_full', { name: 'Pandæmonium Nightmare', shape: 'circle', origin: 'caster', radius: 640, power: 6000, cooldownMs: 600000, castMs: 8000, range: 640 }),
   SK('malomyotismon.dream_mirror', { name: 'Dream Mirror', kind: 'buff', target: 'self', shape: 'single', power: 0, cooldownMs: 90000, castMs: 2500, range: 1, reflect: { pct: 200, durationMs: 3000 } }),
+  // seine normalen Attacken (live gesehen): Crimson Lightning (Einzelziel), Nightmare Zone (Kreis 96 px am Ziel, 55 700),
+  // Pandæmonium Lost (raumweit, 1,5 s – live ~28 000)
+  SK('malomyotismon.crimson_lightning', { name: 'Crimson Lightning', shape: 'single', power: 240, cooldownMs: 20000, castMs: 1000, range: 640 }),
+  SK('malomyotismon.nightmare_zone', { name: 'Nightmare Zone', shape: 'circle', radius: 96, telegraph: true, power: 0, fixedDamage: 55700, cooldownMs: 25000, castMs: 2500, range: 192 }),
+  SK('malomyotismon.pandaemonium_lost', { name: 'Pandæmonium Lost', shape: 'circle', origin: 'caster', radius: 640, power: 110, cooldownMs: 20000, castMs: 1500, range: 640 }),
   SK('malomyotismon.nightmare_mark', { name: 'Nightmare Mark', shape: 'circle', radius: 56, power: 1800, cooldownMs: 60000, castMs: 6000, range: 640, mark: { othersPct: 125 } }),
 ]);
 const PSK = [
@@ -286,6 +292,9 @@ function stepBoss(now, dt) {
   if (ready('mirror')) { b.cd.mirror = now + jit(90000); b.casting = now + 2500; run.mirror = { start: now + 2500, end: now + 5500 };
     for (const pl of players) pl.handlers.evs?.([{ t: 'skill', src: b.id, skill: 'malomyotismon.dream_mirror', phase: 'cast' }]); return; }
   if (ready('wing')) { b.cd.wing = now + jit(30000); b.casting = now + 2000; castZone(b, 'malomyotismon.grisly_wing', alive().map((pl) => ({ x: partnerOf(pl).x, y: partnerOf(pl).y, r: 48 })), 2000, () => 55700); return; }
+  if (ready('zone')) { b.cd.zone = now + jit(25000); b.casting = now + 2500; castZone(b, 'malomyotismon.nightmare_zone', [{ x: tp.x, y: tp.y, r: 96 }], 2500, () => 55700); return; }
+  if (ready('lost')) { b.cd.lost = now + jit(20000); b.casting = now + 1500; castZone(b, 'malomyotismon.pandaemonium_lost', [{ x: b.x, y: b.y, r: 640 }], 1500, () => 28000); return; }
+  if (ready('crimson')) { b.cd.crimson = now + jit(20000); setTimeout(() => { if (!tank.fainted && ents.has(b.id)) damagePlayer(tank, 12000, 'Crimson Lightning'); }, 1000); }
   if (ready('mark')) { b.cd.mark = now + jit(60000); b.casting = now + 1000; say('🎯 Nightmare Mark'); setTimeout(() => { if (!tank.fainted && ents.has(b.id)) damagePlayer(tank, 20000, 'Nightmare Mark'); }, 6000); }
 }
 function syncWindows() {

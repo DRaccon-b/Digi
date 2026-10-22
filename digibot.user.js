@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.33.0
+// @version      2.33.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -493,7 +493,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.33.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.33.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -4412,7 +4412,10 @@
     const portal = world.maps[gate.mapId]?.portals.find((p) => p.name === gate.portal) || world.maps[gate.mapId]?.portals.find((p) => p.toMap === pick.mapId);
     if (!portal) return 'Dungeon-Tür nicht gefunden';
     const label = !pick.raid.dungeon ? (content()?.maps?.[pick.mapId]?.name || pick.raid.id) : pick.raid.dungeon.mode?.label === 'dg_mode_hard' ? 'Hard' : 'Easy';
-    const lead = group.role() !== 'follower';
+    // Mitläufer warten an der Tür nur, wenn ihr Leader online ist, den Bot fährt und auf dieser Map steht – sonst gehen
+    // sie allein hinein (live: Fenster als Mitläufer eingetragen, Leader gar nicht da – ewiges „warte auf den Leader“)
+    const L = groupLeader(now);
+    const lead = group.role() !== 'follower' || !(L && L.inWorld && L.bot && L.mapId === gate.mapId);
     // Tür-Fenster des Spiels ist offen: Leader (oder allein) betritt den gewählten Modus, die Gruppe an der Tür kommt mit
     if (st.raid && !st.raid.inside) {
       if (!lead) { commands()?.closeRaidGate?.(); return 'Warte, bis der Leader den Dungeon betritt…'; }
@@ -4425,7 +4428,8 @@
     if (d > 20 && !dg.doorAt) { walkTo(st, door.x, door.y, now); return 'Gehe zur Dungeon-Tür'; }
     dg.doorAt ||= now;
     if (group.active()) {
-      const want = accounts.list.filter((a, i) => a.on && a.user.trim() && i !== group.slot()).length;
+      // nur Mitglieder, die gerade online sind (Fenster offen, in der Welt) – auf Ausgeloggte nicht 20 s warten
+      const want = [...group.peers.values()].filter((p) => fresh(p, now) && p.inWorld && accounts.list[p.slot]?.on).length;
       const here = [...group.peers.values()].filter((p) => fresh(p, now) && p.mapId === gate.mapId && p.x != null && Math.hypot(p.x - door.x, p.y - door.y) <= DG_DOOR_NEAR).length;
       if (here < want && now - dg.doorAt < DG_DOOR_WAIT_MS) return `An der Tür: warte auf die Gruppe (${here + 1}/${want + 1})…`;
     }
