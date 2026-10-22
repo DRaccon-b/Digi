@@ -3,7 +3,7 @@
 const { spawnSync } = require('child_process');
 const path = require('path');
 const r = spawnSync(process.execPath, [path.join(__dirname, '..', 'sim', 'dungeon-keramon.js')], {
-  env: { ...process.env, GRUPPE: '2', SCHNELL: '1', DAUER: '170', V: '' }, encoding: 'utf8', timeout: 190000,
+  env: { ...process.env, GRUPPE: '2', SCHNELL: '1', TEMPO: '3', DAUER: '170', V: '' }, encoding: 'utf8', timeout: 190000,
 });
 const out = (r.stdout || '') + (r.stderr || '');
 const fail = (m) => { console.log(out.split('\n').slice(-40).join('\n')); console.log('FAIL: ' + m); process.exit(1); };

@@ -10,6 +10,7 @@
 //   V=1 …                                    zusätzlich jeder Statuswechsel der Bots
 //   SCHADEN=12000 HP=92660 BOSS_HP=3459500 DAUER=1000 …
 //   TRAENKE=40 TRANK_HP=15000 TRANK_AB=50 …        HP-Tränke auf F1 (Anzahl, Heilung, Schwelle in %)
+//   TEMPO=4 …                                      Zeitraffer: alle Uhren und Timer (Skript und Bot) laufen 4× schneller
 //   SCHNELL=1 …                                    verkürzt (Boss-HP und Enrage ÷ 10) – für den Test
 //
 // Partner wie im ersten Live-Lauf (Okt. 2026): Imperialdramon Paladin Mode Lv 99 – 92 660 HP, 9 365 DS, Angriffstempo
@@ -25,6 +26,20 @@ const fs = require('fs');
 const { JSDOM, VirtualConsole } = require('jsdom');
 const { BroadcastChannel } = require('worker_threads');
 
+// Zeitraffer: Date.now, performance.now und alle Timer (hier und in den Bot-Fenstern) laufen TEMPO-mal so schnell.
+// Der Bot merkt davon nichts – sein Takt, die Cooldowns und die Laufwege bleiben im Verhältnis gleich.
+const TEMPO = Math.max(1, Number(process.env.TEMPO) || 1);
+const REAL0 = Date.now(), realNow = Date.now.bind(Date);
+const vnow = () => REAL0 + (realNow() - REAL0) * TEMPO;
+function warp(g) {
+  if (TEMPO === 1) return;
+  const st = g.setTimeout.bind(g), si = g.setInterval.bind(g);
+  g.setTimeout = (f, ms = 0, ...a) => st(f, ms / TEMPO, ...a);
+  g.setInterval = (f, ms = 0, ...a) => si(f, ms / TEMPO, ...a);
+  g.Date.now = vnow;
+  if (g.performance) { const p0 = g.performance.now(), r0 = realNow(); g.performance.now = () => p0 + (realNow() - r0) * TEMPO; }
+}
+warp(global);
 const N = Math.max(1, Math.min(5, Number(process.env.GRUPPE) || 3));
 const SCHNELL = !!process.env.SCHNELL;
 const SCHADEN = Number(process.env.SCHADEN) || 12000;    // Grundangriff je Treffer (alle AS ms)
@@ -111,20 +126,20 @@ const SKILLS = Object.fromEntries([
   SK('infermon.cocoon_attack', { name: 'Cocoon Attack', kind: 'buff', target: 'self', shape: 'single', cooldownMs: 1000, castMs: 1500, range: 1, reflect: { pct: 250, durationMs: 4000 } }),
   SK('infermon.cocoon_ram', { name: 'Cocoon Attack', shape: 'line', radius: 18, range: 220, telegraph: true, fixedDamage: 60000, cooldownMs: 18000, castMs: 2500, dash: { speed: 520 } }),
   SK('infermon.spider_shooter_charged', { name: 'Spider Shooter', shape: 'circle', radius: 64, telegraph: true, fixedDamage: 45000, devolve: true, cooldownMs: 26000, castMs: 2600, range: 192 }),
-  SK('infermon.not_here', { name: 'NOT HERE NOT HERE BOO', kind: 'buff', target: 'self', shape: 'single', cooldownMs: 24000, castMs: 2500, range: 1 }),
+  SK('infermon.not_here', { name: 'NOT HERE NOT HERE BOO', kind: 'buff', target: 'self', shape: 'single', cooldownMs: 24000, castMs: 2500, range: 1, blink: { points: ['play_terminal_1', 'play_terminal_2', 'play_terminal_3', 'play_terminal_4'], radius: 24, healPct: 8, stacks: 1, meal: { ms: 5000, breakPct: 2 } } }),
 ]);
 const bossSkills = (sp) => Object.values(SKILLS).filter((s) => s.id.startsWith(sp + '.'));
 const RAID = { id: 'wargame', gate: { mapId: 'network', portal: 'network_wargame' }, party: { min: 1, max: 5, minLevel: 1 }, deathLimit: 3, landing: 'from_network',
   dungeon: { chain: 'keramon', offset: 0, mode: { order: 0, label: 'dg_mode_easy' }, rooms: ROOMS } };
 const CONTENT = () => ({
   digimon: { imperialdramon_paladin: { name: 'Imperialdramon Paladin Mode', base: { ms: 115, as: 1300 } }, kuramon: { name: 'Kuramon' }, tsumemon: { name: 'Tsumemon' }, chrysalimon: { name: 'Chrysalimon', skills: [SKILLS['chrysalimon.data_crusher']] }, keramon: { name: 'Keramon' },
-    keramon_net: { name: 'Keramon', skills: bossSkills('keramon_net') }, chrysalimon_net: { name: 'Chrysalimon', skills: bossSkills('chrysalimon_net') }, infermon: { name: 'Infermon', skills: bossSkills('infermon') } },
+    keramon_net: { name: 'Keramon', skills: bossSkills('keramon_net') }, chrysalimon_net: { name: 'Chrysalimon', skills: bossSkills('chrysalimon_net') }, infermon: { name: 'Infermon', skills: [] } }, // wie im Spiel: die Boss-Attacken stehen nur bei der Form
   skills: { ...SKILLS, ...Object.fromEntries(PSK.map((k) => [k.id, { ...k, castMs: 0, kind: k.mult ? 'damage' : 'buff', target: k.mult ? 'enemy' : 'self', shape: 'single' }])) }, items: { hp_pot: { id: "hp_pot", name: "HP-Trank" } }, npcs: {}, quests: {}, dailyById: {},
   maps: { network: { name: 'Network' }, network_wargame: { name: 'Network: War Game' } },
   spawns: {
     network: { zones: {} },
     network_wargame: { zones: {}, raid: RAID,
-      bosses: [{ species: 'keramon_net', level: 75, at: 'boss_play', forms: [{ atHp: 0.7, species: 'chrysalimon_net', immobile: true }, { atHp: 0.4, species: 'infermon' }] }],
+      bosses: [{ species: 'keramon_net', level: 75, at: 'boss_play', forms: [{ atHp: 0.7, species: 'chrysalimon_net', immobile: true }, { atHp: 0.4, species: 'infermon', skills: bossSkills('infermon') }] }],
       terminals: [{ id: 'hello', points: ['terminal_1', 'terminal_2', 'terminal_3', 'terminal_4', 'terminal_5', 'terminal_6'], radius: 18, eatMs: 8000,
         eaters: [{ species: 'tsumemon', into: 'keramon', aggressive: true }], guards: ['chrysalimon'] }] },
   },
@@ -146,6 +161,7 @@ function makeWindow(i) {
   const w = dom.window;
   w.HTMLCanvasElement.prototype.getContext = () => null;
   w.BroadcastChannel = BroadcastChannel;
+  warp(w);
   let state = {};
   const subs = [];
   const store = { getState: () => state, setState: (p) => { state = { ...state, ...p }; subs.forEach((f) => f()); }, subscribe: (f) => subs.push(f) };
@@ -573,7 +589,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   }
   clearInterval(loop);
   const total = run.enteredAt ? ((Date.now() - run.enteredAt) / 1000).toFixed(0) : '–';
-  console.log(`\nDungeon-Probelauf Kera Easy (War Game) – ${N} Bot${N > 1 ? 's' : ''} · Grundangriff ${SCHADEN}/${AS} ms + Skills · Partner-HP ${HP}${SCHNELL ? ' · SCHNELL' : ''} · Boss-HP ${BOSS_HP} · ${TRAENKE} Tränke (F1 unter ${TRANK_AB} %)\n`);
+  console.log(`\nDungeon-Probelauf Kera Easy (War Game) – ${N} Bot${N > 1 ? 's' : ''} · Grundangriff ${SCHADEN}/${AS} ms + Skills · Partner-HP ${HP}${SCHNELL ? ' · SCHNELL' : ''}${TEMPO > 1 ? ` · Zeitraffer ×${TEMPO} (Zeiten in Spielzeit)` : ''} · Boss-HP ${BOSS_HP} · ${TRAENKE} Tränke (F1 unter ${TRANK_AB} %)\n`);
   for (const l of log) console.log(l);
   const s = run.stats;
   console.log(`\nErgebnis: ${run.cleared && players.every((pl) => !pl.inside) ? '✅ geschafft und draußen' : run.cleared ? '⚠ geschafft, aber nicht alle draußen' : run.failed ? `❌ gescheitert (${run.failed})` : '⏱ Zeit abgelaufen'}`);

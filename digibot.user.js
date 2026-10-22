@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.29.3
+// @version      2.29.4
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -492,7 +492,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.29.3'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.29.4'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1148,10 +1148,21 @@
     return null;
   }
   // Liste der Attacken mit Zustand
+  // Attacken eines Bosses: die der Art plus die seiner Boss-Formen aus den Spawn-Daten (z. B. Infermon im Kera-Dungeon:
+  // Ramme, Spider Shooter, Kokon, NOT HERE stehen nur bei der Form, nicht beim Digimon Infermon)
+  function bossSkillDefs(species) {
+    const C = content(), list = [...(C?.digimon?.[species]?.skills || [])];
+    for (const sp of Object.values(C?.spawns || {})) {
+      for (const b of sp.bosses || []) for (const fm of b.forms || []) {
+        if (fm.species !== species) continue;
+        for (const sk of fm.skills || []) if (!list.some((x) => x.id === sk.id)) list.push(sk);
+      }
+    }
+    return list;
+  }
   function bossSkillRows(boss, now) {
-    const def = content()?.digimon?.[boss.species];
     const log = bossSkillLog.get(boss.id) || new Map();
-    return (def?.skills || []).map((sk) => {
+    return bossSkillDefs(boss.species).map((sk) => {
       const e = log.get(sk.id);
       let state = 'unk', left = 0;
       if (e) {
@@ -1173,6 +1184,12 @@
     if (!cfg.safeCast || !t || mealOn(t.id)) return null;
     const boss = currentBoss(st);
     if (!boss || boss.id !== t.id) return null;
+    // Skills für die nächste Mahlzeit des Bosses (Infermon „NOT HERE“) aufheben: wäre der Skill dann noch im Cooldown,
+    // jetzt nicht wirken – beim Fressen zählt jeder Schaden (Abbruch nur mit 2 % der Max-HP in 5 s)
+    const ownCd = skill.cooldownMs ?? content()?.skills?.[skill.id]?.cooldownMs ?? 0;
+    for (const r of ownCd > 0 ? bossSkillRows(boss, now) : []) {
+      if (r.sk.blink?.meal && r.state === 'cd' && r.left + r.castMs < ownCd) return `aufgehoben für „${r.name}“ (in ${Math.ceil(r.left / 1000)} s)`;
+    }
     const ownCast = skill.castMs ?? content()?.skills?.[skill.id]?.castMs
       ?? content()?.digimon?.[st.me?.partner?.species]?.skills?.[slot]?.castMs ?? 0;
     const ents = window.dmo?.net?.state?.entities;

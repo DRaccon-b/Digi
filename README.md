@@ -217,6 +217,11 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.29.4 – Skills für Infermons Mahlzeit aufheben
+- Live wirkte der Bot während „NOT HERE“ keinen einzigen Skill, weil alle kurz vorher verbraucht waren. Mit dem Grundangriff allein kam er nur auf 60–80 % des Abbruchschadens. Jetzt hebt er einen Skill auf, wenn dieser bei der nächsten Mahlzeit (Cooldown von NOT HERE: 24 s) sonst noch abkühlen würde.
+- Die Boss-Attacken einer Boss-Form (z. B. Infermon im Kera-Dungeon: Ramme, Spider Shooter, Kokon, NOT HERE) stehen nur in den Spawn-Daten der Form. Skill-Timing und die Attacken-Liste kennen sie jetzt auch.
+- Dungeon-Probelauf mit Zeitraffer: `TEMPO=4` lässt alle Uhren und Timer 4× schneller laufen. Ein Solo-Lauf dauert so 98 s statt ~6,5 min und liefert dasselbe Ergebnis wie in Echtzeit (385 s gegenüber 388 s Spielzeit, je 5 von 7 Mahlzeiten abgebrochen).
+
 #### Neu in 2.29.3 – Dungeon: Fresser nach Zeitpuffer
 - Raum 1: Zuerst nimmt der Bot den Fresser mit dem kleinsten Zeitpuffer (Zeit bis zum Verlust minus Laufweg minus Kill-Zeit). Ein gewähltes Ziel behält er, bis ein anderes mindestens 1,5 s dringender ist. Live hatte er zwischen zwei Fressern hin und her gewechselt und dabei 1,5 s verloren.
 
@@ -738,7 +743,7 @@ node sim/dungeon-keramon.js
 - Partner wie im ersten Live-Lauf: Imperialdramon Paladin Mode Lv 99 (92 660 HP, Skills, Angriffstempo 1 121 ms). Der Schaden ist auf die live gemessenen ~18 000 pro Sekunde kalibriert. Boss-HP (3,46 Mio.), Enrage nach 600 s und Infermons Mahlzeit (abbrechen mit 2 % der Max-HP in 5 s) sind wie im Spiel.
 - `GRUPPE` (1–5, Standard 3), `SCHADEN` (Grundangriff, 12 000), `HP` (92 660), `BOSS_HP` (3 459 500), `DAUER` (1000 s)
 - `TRAENKE` (40), `TRANK_HP` (15 000), `TRANK_AB` (50 %): HP-Tränke auf F1
-- `SCHNELL=1`: Boss-HP und Enrage ÷ 10 (für den Test). `V=1`: jeder Statuswechsel der Bots
+- `TEMPO=4`: Zeitraffer, alles läuft 4× schneller. `SCHNELL=1`: Boss-HP und Enrage ÷ 10 (für den Test). `V=1`: jeder Statuswechsel der Bots
 - Annahmen (Server-Logik ist nicht im Client): Nach einer Welle ohne Pflicht-Monster kommt die nächste sofort, sonst nach 4 s. Hungrige Tsumemon fressen weiter. Außerhalb des Kampfes 3 % HP/s Erholung.
 - Ergebnisse mit 2.29.2: allein in 393 s geschafft (Boss 308 s, 5 von 8 Mahlzeiten abgebrochen, 28 Tränke), zu dritt in 135 s. Der Simulator ist optimistischer als das Spiel: Live (noch 2.29.0, mit Ausweichen statt Tanken) schaffte der Bot in Raum 1 nur 4/6 Terminals, und Infermon fraß 12 Mahlzeiten bis zum Enrage.
 
