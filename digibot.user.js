@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.28.0
+// @version      2.28.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -489,7 +489,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.28.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.28.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1386,7 +1386,9 @@
   const KOH_BLOCK = new Set([
     'infermon.spider_shooter', 'infermon.spider_shooter_charged', 'infermon.cocoon_ram',
     'diaboromon.catastrophe_cannon', 'diaboromon.cannon_volley', 'diaboromon.tentacle_bug',
-    'armageddemon.black_rain', 'armageddemon.black_rain_storm', 'armageddemon.black_rain_shell', 'armageddemon.ultimate_flare',
+    // Armageddemons einfacher Black Rain (Kreis unter jedem) nicht: dem weicht man aus – Key of Hope für die Hülle
+    // (geteilter Schaden, nicht ausweichbar) und Ultimate Flare aufheben (Raid-Probelauf: 0 statt 252 000 Schaden)
+    'armageddemon.black_rain_storm', 'armageddemon.black_rain_shell', 'armageddemon.ultimate_flare',
   ]);
   const KOH_LEAD_MS = 700;    // so lange vor dem Einschlag zündet der erste Clavis (Schutz hält 2 s)
   const KOH_STEP_MS = 200;    // Abstand, bis der nächste Clavis einspringt

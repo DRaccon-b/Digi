@@ -217,6 +217,11 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.28.1 – Key of Hope gezielter (aus dem Raid-Probelauf)
+- Gegen Armageddemons einfachen **Black Rain** (Kreis unter jedem Spieler) wird kein Key of Hope mehr verbraucht, dem
+  weicht der Bot aus. Key of Hope bleibt für die **Hülle** von Black Rain (geteilter Schaden, nicht ausweichbar) und
+  für **Ultimate Flare**. Im Raid-Probelauf (150 s, 5er-Gruppe) sank der Schaden damit von 252 000 auf 0.
+
 #### Neu in 2.28.0 – Lage-Karte, weniger Haken
 - **Übersicht → Lage:** Auf einen Blick siehst du Modus und ob der Bot läuft, Map und Kanal, das aktuelle Ziel mit
   HP, die Aufgabe und den Status. In der Gruppe kommt eine Zeile je Bot dazu: Leader (◉), HP-Balken (rot unter 35 %),
@@ -702,3 +707,17 @@ npm test
 - Ausgabe eines Tests sehen: `V=1 node tests/run.js kohtest`
 - `JOBS` (gleichzeitige Tests, Standard 8) und `TIMEOUT` (Sekunden pro Test, Standard 200) lassen sich setzen.
 - `tests/gw.js` ist die Spielwelt für Gruppen-/Autopilot-Tests, `tests/fakeworld.js` die ältere für Kampf-Tests.
+
+## Raid-Probelauf
+
+`sim/raid-armageddemon.js` lässt fünf echte DigiBot-Fenster (Imperialdramon + 4 ClavisAngemon) gegen einen
+nachgebauten Armageddemon antreten. Die Angriffswerte kommen aus den Spieldaten. Ausgegeben werden Ablauf und
+Tabelle: getroffen, ausgewichen, von Key of Hope geblockt, umgekippt.
+
+```bash
+node sim/raid-armageddemon.js
+```
+
+- `--ohne`: zum Vergleich ohne Ausweichen und ohne Key of Hope
+- `DAUER` (Sekunden, Standard 100) und `HP` (HP je Digimon, Standard 80 000 – die echten Werte kennt der Client nicht)
+- Vereinfacht: kein Nahkampfschaden des Bosses, keine Heilung, keine Deckung hinter den Platten bei Ultimate Flare.
