@@ -757,12 +757,18 @@ npm test
 node sim/dungeon-keramon.js
 ```
 
+- `SKRIPT=pfad/zu/digibot.user.js`: andere Bot-Version laufen lassen (A/B-Vergleich).
 - Partner wie im ersten Live-Lauf: Imperialdramon Paladin Mode Lv 99 (92 660 HP, Skills, Angriffstempo 1 121 ms). Der Schaden ist auf die live gemessenen ~18 000 pro Sekunde kalibriert. Boss-HP (3,46 Mio.), Enrage nach 600 s und Infermons Mahlzeit (abbrechen mit 2 % der Max-HP in 5 s) sind wie im Spiel.
 - `GRUPPE` (1–5, Standard 3), `SCHADEN` (Grundangriff, 12 000), `HP` (92 660), `BOSS_HP` (3 459 500), `DAUER` (1000 s)
 - `TRAENKE` (40), `TRANK_HP` (15 000), `TRANK_AB` (50 %): HP-Tränke auf F1
 - `TEMPO=4`: Zeitraffer, alles läuft 4× schneller (höchstens 4, darüber weichen die Ergebnisse ab). `SCHNELL=1`: Boss-HP und Enrage ÷ 10 (für den Test). `V=1`: jeder Statuswechsel der Bots
 - Annahmen (Server-Logik ist nicht im Client): Nach einer Welle ohne Pflicht-Monster kommt die nächste sofort, sonst nach 4 s. Hungrige Tsumemon fressen weiter. Außerhalb des Kampfes 3 % HP/s Erholung.
 - Ergebnisse mit 2.29.2: allein in 393 s geschafft (Boss 308 s, 5 von 8 Mahlzeiten abgebrochen, 28 Tränke), zu dritt in 135 s. Der Simulator ist optimistischer als das Spiel: Live (noch 2.29.0, mit Ausweichen statt Tanken) schaffte der Bot in Raum 1 nur 4/6 Terminals, und Infermon fraß 12 Mahlzeiten bis zum Enrage.
+
+### Was in Raum 1 nicht hilft (A/B-Vergleich, Okt. 2026)
+Simulator kalibriert auf live: Digimon läuft 120 px/s, Skill-Animationen (Invincible Sword 0,6 s, Omega Blade 0,9 s) blockieren den Grundangriff. Allein, je 6–12 Läufe, Terminals heil im Schnitt:
+- wie 2.29.8 (Raummitte): 3,0 · Abfangen an den Startpunkten der nächsten Welle: 2,8 · zusätzlich lange Skills weglassen: 2,0 (langsamer) · Monster erst töten, dann wechseln: 2,9.
+- Engpass ist der Schaden allein: 4–6 Fresser à ~13 000 HP in ~9 s, und sie erscheinen nur ~150 px vor ihrem Terminal. Allein sind ~3/6 realistisch (live 3–4), zu dritt 6/6. Jedes Terminal bringt nur 5 Kuramon-Daten Bonus.
 
 ## Raid-Probelauf
 

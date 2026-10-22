@@ -44,6 +44,7 @@ const N = Math.max(1, Math.min(5, Number(process.env.GRUPPE) || 3));
 const SCHNELL = !!process.env.SCHNELL;
 const SCHADEN = Number(process.env.SCHADEN) || 12000;    // Grundangriff je Treffer (alle AS ms)
 const AS = 1121;                                          // Angriffstempo Imperialdramon Paladin
+const P_SPEED = Number(process.env.P_SPEED) || 120;       // Laufen des Digimons in px/s (Wert ms 120; live gemessen ~190 px in ~1,6 s)
 const HP = Number(process.env.HP) || 92660;               // Max-HP je Partner
 const BOSS_HP = Math.round((Number(process.env.BOSS_HP) || 3459500) * (1 + 0.1 * Math.max(0, N - 3)) / (SCHNELL ? 10 : 1));
 const ENRAGE_MS = 600000 / (SCHNELL ? 10 : 1);
@@ -61,7 +62,7 @@ const TRANK_HP = Number(process.env.TRANK_HP) || 15000;   // so viel heilt ein T
 const TRANK_AB = Number(process.env.TRANK_AB) || 50;      // Bot-Einstellung: F1 unter so viel % HP
 const MOB_HIT = 1200;                                      // normaler Treffer eines Monsters
 const WAVE_GAP = 4000;
-const script = fs.readFileSync(path.join(__dirname, '..', 'digibot.user.js'), 'utf8');
+const script = fs.readFileSync(process.env.SKRIPT || path.join(__dirname, '..', 'digibot.user.js'), 'utf8'); // SKRIPT=… andere Bot-Version testen
 const t0 = Date.now();
 const sec = () => ((Date.now() - t0) / 1000).toFixed(1).padStart(6);
 const log = [];
@@ -78,6 +79,8 @@ const MAPS = {
   network_wargame: [
     { type: 'spawn', name: 'from_network', x: 600, y: 840 },
     { type: 'spawn', name: 'land_play', x: 1112, y: 840 },
+    ...Object.entries({ terminal_1: [888, 712], terminal_2: [824, 616], terminal_3: [712, 616], terminal_4: [664, 712], terminal_5: [712, 808], terminal_6: [824, 808],
+      hungry_1: [568, 568], hungry_2: [776, 552], hungry_3: [968, 568], hungry_4: [968, 872], hungry_5: [776, 888], hungry_6: [552, 696] }).map(([name, [x, y]]) => ({ type: 'spawn', name, x, y })),
     { type: 'zone', name: 'room_hello', x: 544, y: 544, width: 448, height: 352 },
     { type: 'zone', name: 'room_play', x: 1056, y: 544, width: 448, height: 352 },
     { type: 'safe', name: 'landing_hello', x: 560, y: 800, width: 96, height: 96 },
@@ -133,7 +136,7 @@ const bossSkills = (sp) => Object.values(SKILLS).filter((s) => s.id.startsWith(s
 const RAID = { id: 'wargame', gate: { mapId: 'network', portal: 'network_wargame' }, party: { min: 1, max: 5, minLevel: 1 }, deathLimit: 3, landing: 'from_network',
   dungeon: { chain: 'keramon', offset: 0, mode: { order: 0, label: 'dg_mode_easy' }, rooms: ROOMS } };
 const CONTENT = () => ({
-  digimon: { imperialdramon_paladin: { name: 'Imperialdramon Paladin Mode', base: { ms: 115, as: 1300, at: 660 }, growth: { at: 92.5 } }, kuramon: { name: 'Kuramon' }, tsumemon: { name: 'Tsumemon' }, chrysalimon: { name: 'Chrysalimon', base: { at: 91 }, growth: { at: 13.2 }, skills: [SKILLS['chrysalimon.data_crusher']] }, keramon: { name: 'Keramon' },
+  digimon: { imperialdramon_paladin: { name: 'Imperialdramon Paladin Mode', base: { ms: 115, as: 1300, at: 660 }, growth: { at: 92.5 } }, kuramon: { name: 'Kuramon' }, tsumemon: { name: 'Tsumemon', base: { hp: 1932 }, growth: { hp: 232.4 } }, chrysalimon: { name: 'Chrysalimon', base: { at: 91 }, growth: { at: 13.2 }, skills: [SKILLS['chrysalimon.data_crusher']] }, keramon: { name: 'Keramon' },
     keramon_net: { name: 'Keramon', skills: bossSkills('keramon_net') }, chrysalimon_net: { name: 'Chrysalimon', skills: bossSkills('chrysalimon_net') }, infermon: { name: 'Infermon', skills: [] } }, // wie im Spiel: die Boss-Attacken stehen nur bei der Form
   skills: { ...SKILLS, ...Object.fromEntries(PSK.map((k) => [k.id, { id: k.id, name: k.name, cooldownMs: k.cooldownMs, dsCost: k.dsCost, range: k.range, ...k.def }])) }, items: { hp_pot: { id: "hp_pot", name: "HP-Trank" } }, npcs: {}, quests: {}, dailyById: {},
   maps: { network: { name: 'Network' }, network_wargame: { name: 'Network: War Game' } },
@@ -335,13 +338,17 @@ function stepPartners(now, dt) {
     if (m && m.hp > 0 && m.map === pl.map) {
       const d = dist(p, m), reach = 26;
       p.targetId = m.id;
-      if (d > reach) { const step = 200 * dt; p.x += (m.x - p.x) / d * Math.min(step, d - reach + 1); p.y += (m.y - p.y) / d * Math.min(step, d - reach + 1); }
-      else if (now >= pl.hitAt) { pl.hitAt = now + AS; hitMob(pl, m, SCHADEN, now); }
-      if (pl.queued && pl.queued.id === m.id && d <= PSK[pl.queued.n].range + 26) { run.stats.skills++; const q = pl.queued; pl.queued = null; hitMob(pl, m, SCHADEN * PSK[q.n].mult, now); }
+      if (d > reach) { const step = P_SPEED * dt; p.x += (m.x - p.x) / d * Math.min(step, d - reach + 1); p.y += (m.y - p.y) / d * Math.min(step, d - reach + 1); }
+      else if (now >= pl.hitAt && now >= (pl.castUntil || 0)) { pl.hitAt = now + AS; hitMob(pl, m, SCHADEN, now); }
+      // Skill: Animation (castMs) – so lange kein Grundangriff, der Treffer kommt am Ende
+      if (pl.queued && pl.queued.id === m.id && d <= PSK[pl.queued.n].range + 26 && now >= (pl.castUntil || 0)) {
+        run.stats.skills++; const q = pl.queued; pl.queued = null; const ms = PSK[q.n].def.castMs || 0; pl.castUntil = now + ms;
+        setTimeout(() => { const mm = ents.get(q.id); if (mm && mm.hp > 0 && !pl.fainted) hitMob(pl, mm, SCHADEN * PSK[q.n].mult, Date.now()); }, ms);
+      }
     } else {
       pl.atk = null; p.targetId = '';
       const d = dist(p, t);
-      if (d > 14) { const step = 220 * dt; p.x += (t.x + 10 - p.x) / d * Math.min(step, d); p.y += (t.y - p.y) / d * Math.min(step, d); }
+      if (d > 14) { const step = P_SPEED * 1.1 * dt; p.x += (t.x + 10 - p.x) / d * Math.min(step, d); p.y += (t.y - p.y) / d * Math.min(step, d); }
     }
     portals(pl, t, now);
   }
