@@ -8,7 +8,7 @@
 //   TEMPO=4 …                                Zeitraffer (höchstens 4, darüber wird es ungenau)
 //   V=1 …                                    jeder Statuswechsel der Bots
 //   START=4 …                                gleich in Raum 4 (Bucht) beginnen
-//   SHARE_FOLGT=1 …                          geteilter Treffer folgt dem Ziel (nicht ausweichbar) – sonst bleibt der Kreis liegen
+//   SHARE_FOLGT=0 …                          geteilter Treffer bleibt liegen (ausweichbar) – Standard: folgt dem Ziel (live)
 //   SCHADEN=12000 HP=92660 TRAENKE=400 TRANK_HP=15000 TRANK_AB=50 BOSS_HIT=6000 DAUER=1400 …
 //
 // Aus den Spieldaten (Okt. 2026): Positionen, Boss-HP (Diaboromon 3 542 376, Armageddemon 3 741 367 bei bis zu 3
@@ -46,8 +46,10 @@ const HP = Number(process.env.HP) || 92660;
 const TRAENKE = Number(process.env.TRAENKE ?? 400), TRANK_HP = Number(process.env.TRANK_HP) || 15000, TRANK_AB = Number(process.env.TRANK_AB) || 50;
 const BOSS_HIT = Number(process.env.BOSS_HIT) || 6000;
 // Geteilter Treffer: folgt der Kreis dem Ziel (SHARE_FOLGT=1, Ziel immer getroffen) oder bleibt er an der Stelle der Ansage
-// liegen (Standard – dann kann man ihm ausweichen)? Im Client steht es nicht; live prüfen.
-const SHARE_FOLGT = !!Number(process.env.SHARE_FOLGT || 0);
+// liegen (SHARE_FOLGT=0 – dann kann man ihm ausweichen)? Live (Okt. 2026): er folgt, kein Warnkreis am Boden, Einschlag
+// genau beim Digimon. Schaden laut Spieldaten 240 % × Gruppengröße/3 (baseParty 3, damagePerExtra 1/3): allein 80 %.
+const SHARE_FOLGT = !!Number(process.env.SHARE_FOLGT ?? 1);
+const sharePct = () => 2.4 * Math.max(1 / 3, 1 + (alivePlayers().length - 3) / 3);
 const DAUER = (Number(process.env.DAUER) || 1400) * 1000;
 const MAP = 'network_revenge';
 const script = fs.readFileSync(process.env.SKRIPT || path.join(__dirname, '..', 'digibot.user.js'), 'utf8');
@@ -399,13 +401,20 @@ function castZone(src, skill, opt) {
     run.zones = run.zones.filter((x) => x !== z);
     for (const pl of players) pl.handlers.evs?.([{ t: 'skill', src: src.id, skill, phase: 'release', ...(z.line ? { x: z.line.tx, y: z.line.ty } : {}) }]);
     if (!ents.has(src.id) || run.failed) return;
+    if (opt.after) { const o = { ...opt, after: 0, castMs: 0 }; return void setTimeout(() => evalZone(src, skill, z, o), opt.after); }
+    evalZone(src, skill, z, opt);
+  }, opt.castMs);
+}
+function evalZone(src, skill, z, opt) {
+  {
+    if (!ents.has(src.id) || run.failed) return;
     const ps = run.perSkill[skill] ||= { casts: 0, hit: 0, dodged: 0 };
     ps.casts++;
     if (opt.share) { // geteilt: Ziel immer getroffen, Schaden durch alle im Kreis um das Ziel
       const tgt = opt.share; if (tgt.fainted || !tgt.inside) return;
       const c = SHARE_FOLGT ? partnerOf(tgt) : z.circles[0], inn = alivePlayers().filter((pl) => (SHARE_FOLGT && pl === tgt) || dist(partnerOf(pl), c) <= 40);
       if (!inn.length) { ps.dodged++; say(`${SKILLS[skill].name} (geteilt): niemand im Kreis – ausgewichen`); return; }
-      const each = Math.round(HP * 2.4 / inn.length);
+      const each = Math.round(HP * sharePct() / inn.length);
       ps.hit += inn.length;
       say(`💥 ${SKILLS[skill].name} (geteilt) auf Char${tgt.i + 1}: ${inn.length} im Kreis → je ${each}`);
       for (const pl of inn) damagePlayer(pl, each, `${SKILLS[skill].name} (geteilt)`);
@@ -420,7 +429,7 @@ function castZone(src, skill, opt) {
       opt.onHit?.(pl);
       if (opt.first) break;
     }
-  }, opt.castMs);
+  }
 }
 function inLine(p, l) {
   if (l.sweep) { // Fächer um den Boss
@@ -478,12 +487,12 @@ function stepClock(now) {
   const alive = alivePlayers();
   if (id === 'diaboromon.catastrophe_cannon') {
     const tgt = alive[shareRot++ % alive.length], tp = partnerOf(tgt);
-    castZone(b, id, { circles: [{ x: tp.x, y: tp.y, r: 40 }], castMs: sk.castMs, share: tgt });
+    castZone(b, id, { circles: SHARE_FOLGT ? [] : [{ x: tp.x, y: tp.y, r: 40 }], castMs: sk.castMs, share: tgt }); // live: kein Warnkreis am Boden
     say(`⚠ Catastrophe Cannon zielt auf Char${tgt.i + 1} (5 s)`);
   } else if (id === 'diaboromon.cannon_volley') {
     castZone(b, id, { circles: alive.map((pl) => ({ x: partnerOf(pl).x, y: partnerOf(pl).y, r: 48 })), castMs: sk.castMs, dmg: 45000 });
   } else if (id === 'diaboromon.tentacle_bug') {
-    castZone(b, id, { line: lineTo(b, partnerOf(tank), 260, 12), castMs: sk.castMs, dmg: 8000, first: true, onHit: (pl) => {
+    castZone(b, id, { line: lineTo(b, partnerOf(tank), 260, 12), castMs: sk.castMs, after: 250 /* wie live: der Arm packt erst ~0,2 s nach dem Ende der Ansage */, dmg: 8000, first: true, onHit: (pl) => {
       const arm = spawnMob('tentacle_bug_arm', 'Tentacle Bug', 120000, partnerOf(pl), { targetId: `p:${pl.i}` });
       pl.grab = { arm: arm.id, next: Date.now() + 1000 }; pl.goal = null;
       say(`🦑 Char${pl.i + 1} gepackt – Arm zerschlagen!`);
@@ -527,7 +536,7 @@ function stepBay(now, dt) {
     castZone(b, id, { circles: alive.map((pl) => ({ x: partnerOf(pl).x, y: partnerOf(pl).y, r: 48 })), castMs: sk.castMs, dmg: 40000 });
     const tgt = alive[shareRot++ % alive.length], tp = partnerOf(tgt);
     b.cd['armageddemon.black_rain_shell'] = now + sk.cooldownMs;
-    castZone(b, 'armageddemon.black_rain_shell', { circles: [{ x: tp.x, y: tp.y, r: 40 }], castMs: sk.castMs, share: tgt });
+    castZone(b, 'armageddemon.black_rain_shell', { circles: SHARE_FOLGT ? [] : [{ x: tp.x, y: tp.y, r: 40 }], castMs: sk.castMs, share: tgt });
   }
 }
 function syncWindows() {

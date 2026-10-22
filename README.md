@@ -217,6 +217,12 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.30.4 – aus dem ersten Hard-Live-Lauf
+- **Tentacle Bug:** Der Arm packt erst ~0,2 s nach dem Ende der Ansage, der Strahl ist dann schon vom Boden verschwunden. Live griff der Bot genau in diesem Moment wieder an und wurde gepackt (24 s festgehalten). Strahlen mit Greifarm oder Ansturm gelten jetzt noch 0,8 s nach dem Verschwinden als Gefahr. Simulator: 0 von 18 gepackt (vorher 2 von 18).
+- **Digitation abwarten:** An der Tür und vor dem Anziehen eines Raums wartet der Bot, bis die eingestellte Digitation erreicht ist. Live ging er sonst als ExVeemon hinein. Er wartet höchstens 90 s, z. B. wenn Tamer-DS fehlt.
+- **Geteilter Treffer:** Die Catastrophe Cannon folgt dem Ziel, live gab es keinen Warnkreis am Boden. Allein macht sie laut Spieldaten ⅓ von 240 % = 80 % der Max-HP. Wird ein geteilter Treffer angesagt, trinkt der Bot F1, bis er bei ≥ 95 % HP ist, unabhängig von der normalen Schwelle.
+- Probelauf Hard (allein, ×4, Cannon folgt dem Ziel): Raum 3 in 310 s geschafft. Raum 4 scheitert an der Black-Rain-Hülle (80 % alle ~25 s), während der Boss mit Herden-Stapeln weiter zuschlägt. Die Nahkampfwerte von Armageddemon sind aber nur angenommen; dafür braucht es Live-Daten aus Raum 4.
+
 #### Neu in 2.30.3 – „Ziele verteilen“ repariert
 - Mit „Ziele verteilen“ zählte jedes Monster, das ein Gruppenmitglied angreift, für alle anderen als „Angreifer“, und Angreifer gehen vor. Sobald das Monster des Leaders zurückschlug, gingen also wieder alle darauf. Beim Verteilen ist das Monster eines anderen jetzt dessen Kampf. Jeder wehrt nur ab, was ihn selbst angreift, und sucht sich sonst ein freies Monster.
 - Neuer Test `spreadatktest` (vorher rot: 10/10 auf dem Monster des Leaders, jetzt 0/10). Der alte `spreadtest` hatte die Gegenwehr der Monster ständig zurückgesetzt und den Fehler deshalb nicht bemerkt.

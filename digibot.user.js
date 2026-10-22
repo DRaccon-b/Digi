@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.30.3
+// @version      2.30.4
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -492,7 +492,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.30.3'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.30.4'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -908,6 +908,7 @@
   // Infermon „NOT HERE“: frisst ein Terminal (scene.mechB.view.meals = [{ boss, left, ms, dmg }], dmg 0..1 = Anteil des
   // Schadens, der die Mahlzeit abbricht). Dann zählt nur Schaden – alle Skills sofort, ohne Zurückhalten.
   const mealOn = (id) => { try { return (worldScene()?.mechB?.view?.meals || []).some((m) => m.boss === id && (m.dmg ?? 0) < 1); } catch { return false; } };
+  const LINE_AFTER_MS = 800, lineMemo = new Map();
   function dangerZones() {
     const sc = worldScene(), zones = [];
     const tank = tankNow(Date.now());
@@ -936,8 +937,12 @@
     } catch { /* ignore */ }
     if (!tank) try {
       const t = performance.now();
-      for (const l of sc?.mechB?.lines || []) {
-        if (!l || !isFinite(l.fx) || !isFinite(l.tx) || (l.end && t > l.end + 150)) continue;
+      // Greifarm (Tentacle Bug) und Ansturm treffen erst NACH der Ansage – deren Strahl verschwindet aber schon vorher:
+      // noch LINE_AFTER_MS als Gefahr behalten
+      const now = Date.now(), live = (sc?.mechB?.lines || []).filter((l) => l && isFinite(l.fx) && isFinite(l.tx) && !(l.end && t > l.end + 150));
+      for (const l of live) if (l.skill?.grab || l.skill?.dash) lineMemo.set(`${l.src}|${l.skill.id}|${Math.round(l.tx)}|${Math.round(l.ty)}`, { l, until: now + LINE_AFTER_MS });
+      for (const [k, m] of lineMemo) { if (m.until < now) lineMemo.delete(k); else if (!live.some((l) => l.src === m.l.src && l.skill?.id === m.l.skill?.id)) live.push({ ...m.l, end: 0 }); }
+      for (const l of live) {
         const len = Math.hypot(l.tx - l.fx, l.ty - l.fy);
         if (l.skill?.sweep) {
           zones.push({ kind: 'fan', x: l.fx, y: l.fy, len: len + (l.r || 16), dir: Math.atan2(l.ty - l.fy, l.tx - l.fx),
@@ -4306,6 +4311,8 @@
     const n = `Raum ${R.cur + 1}/${R.rooms.length}`;
     // Kampf hat noch nicht begonnen: erst mit (fast) vollen HP aus dem Schutzbereich heraus – sonst fällt man beim Boss sofort
     const hp = pct(st.me?.partner?.hp, st.me?.partner?.maxHp);
+    const evo = !R.h?.pulled && safeRectAt(st.world?.mapId, R.me) ? dgEvoPending(st) : null;
+    if (dgEvoWait(evo, Date.now())) return `${n}: warte im Schutzbereich auf die Digitation zu ${evo}…`;
     if (!R.h?.pulled && hp < DG_PULL_HP && safeRectAt(st.world?.mapId, R.me)) return `${n}: warte im Schutzbereich auf HP (${hp.toFixed(0)} %/${DG_PULL_HP} %)…`;
     if (Math.hypot(R.me.x - cx, R.me.y - cy) > 40) return go(cx, cy, R.h?.pulled ? `${n}: zurück in die Raummitte` : `${n}: gehe hinein – der Kampf beginnt`);
     return R.h?.pulled ? `${n}: warte auf die nächste Welle…` : `${n}: warte in der Raummitte…`;
@@ -4351,8 +4358,29 @@
       const here = [...group.peers.values()].filter((p) => fresh(p, now) && p.mapId === gate.mapId && p.x != null && Math.hypot(p.x - door.x, p.y - door.y) <= DG_DOOR_NEAR).length;
       if (here < want && now - dg.doorAt < DG_DOOR_WAIT_MS) return `An der Tür: warte auf die Gruppe (${here + 1}/${want + 1})…`;
     }
+    const evo = dgEvoPending(st);
+    if (dgEvoWait(evo, now)) return `An der Tür: warte auf die Digitation zu ${evo}…`; // digitiert wird im Bot-Takt (ensureEvolution)
     walkTo(st, door.x, portal.y + portal.h / 2, now);
     return 'Gehe durch die Dungeon-Tür';
+  }
+  // Eingestellte Digitation noch nicht erreicht (z. B. Abklingzeit)? Liefert den Namen der Zielform, sonst null.
+  function dgEvoPending(st) {
+    const p = st?.me?.partner;
+    let sp = cfg.apEvo;
+    if (!sp || !p) return null;
+    if (sp === EVO_MAX) sp = maxEvolution(p);
+    if (!sp || p.species === sp || autopilot.evoGiveUp === sp) return null;
+    const t = (p.evolutions || []).find((e) => e.species === sp);
+    return t && t.unlocked !== false ? speciesName(sp) : null;
+  }
+  // höchstens DG_EVO_WAIT_MS warten (z. B. kein Tamer-DS und kein F3) – dann in der aktuellen Form weiter
+  const DG_EVO_WAIT_MS = 90000;
+  function dgEvoWait(evo, now) {
+    if (!evo) { dg.evoWait = 0; return false; }
+    dg.evoWait ||= now;
+    if (now - dg.evoWait < DG_EVO_WAIT_MS) return true;
+    if (!dg.evoWarned) { dg.evoWarned = true; logEvent('warn', `Dungeon: Digitation zu ${evo} klappt nicht – gehe in der aktuellen Form`); }
+    return false;
   }
   function dungeonLabel() {
     const h = dg.hud;
@@ -4423,6 +4451,15 @@
 
   const TICK_MS = 250;
   const POT_COOLDOWN_MS = 2000;  // gleichen Trank höchstens alle 2 s drücken
+  // Geteilter Treffer (share: % der Max-HP des Ziels, auf alle im Kreis verteilt – allein nach den Spieldaten ⅓ von
+  // 240 % = 80 %): wird gerade einer angesagt, vorher mit F1 auf SHARE_TOPUP % auffüllen
+  const SHARE_TOPUP = 95;
+  function shareIncoming(now) {
+    for (const log of bossSkillLog.values()) for (const [id, e] of log) {
+      if (e.phase === 'cast' && e.castEnd > now && content()?.skills?.[id]?.share) return true;
+    }
+    return false;
+  }
   const TAB_COOLDOWN_MS = 600;   // Pause zwischen zwei Tab-Drücken
   const ATTACK_REPEAT_MS = 1500; // Taste 1 erneut drücken, solange das Ziel lebt
   const SKILL_GAP_MS = 800;      // Abstand zwischen zwei Skills (bis der Server den Cooldown meldet)
@@ -4492,7 +4529,8 @@
           logEvent('potion', `F${fKey}: ${content()?.items?.[me.hotbar[7 + fKey].slice(5)]?.name || 'Trank'} benutzt`);
         }
       };
-      potion(1, cfg.hpPot > 0 && pct(p.hp, p.maxHp) < cfg.hpPot);
+      // geteilter Treffer angesagt (Catastrophe Cannon, Black-Rain-Hülle): bis zum Einschlag möglichst volle HP
+      potion(1, (cfg.hpPot > 0 && pct(p.hp, p.maxHp) < cfg.hpPot) || (shareIncoming(now) && pct(p.hp, p.maxHp) < SHARE_TOPUP));
       potion(2, cfg.dsPot > 0 && pct(p.ds, p.maxDs) < cfg.dsPot);
       potion(3, cfg.tdsPot > 0 && me.tamerMaxDs > 0 && pct(me.tamerDs, me.tamerMaxDs) < cfg.tdsPot);
 
