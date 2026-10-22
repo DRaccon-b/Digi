@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.25.0
+// @version      2.26.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -472,7 +472,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.25.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.26.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -3617,17 +3617,22 @@
     leave: false,       // Boss-Ziel lebt woanders: nicht kämpfen, sofort hin
     reset() { this.goal = null; this.fight = null; this.switchTries = 0; this.route = null; this.opening = null; },
   };
-  // Lebt das nächste Boss-Ziel auf einem anderen Kanal/einer anderen Map (oder spawnt dort in wenigen Sekunden)?
-  // Dann hält jeder Kampf gegen normale Monster nur auf – auch gegen Angreifer, die immer wieder nachkommen.
+  // Boss-Rotation unterwegs zum Boss (andere Map, anderer Kanal oder noch nicht am Spawnpunkt): keine Kämpfe – auch
+  // nicht gegen Angreifer, die hinterherlaufen. Am Spawnpunkt darf er sie erledigen, solange der Boss nicht da ist.
   // Nur bei mindestens halben HP; sonst erst normal zu Ende kämpfen.
-  const FARM_LEAVE_SOON_MS = 15000;
-  function farmGoalElsewhere(st, p, now) {
+  const FARM_ARRIVE = 200;         // so nah am Spawnpunkt gilt der Bot als angekommen
+  function farmGoalElsewhere(st, p, now, sc) {
     if (cfg.farmMode === 'named' || world.state !== 'ready' || !farmChannels().length || !farmSelected().length) return false;
     if (p.maxHp > 0 && p.hp / p.maxHp < 0.5) return false;
     const o = farmPlan(st, now);
-    if (!o || (o.map === st.world?.mapId && o.ch === (st.world?.channel ?? 1))) return false;
-    return o.s.state === 'up' || (o.s.state === 'down' && o.s.readyAt - now < FARM_LEAVE_SOON_MS);
+    if (!o) return false;
+    if (o.map !== st.world?.mapId || o.ch !== (st.world?.channel ?? 1)) return true;
+    if (sc?.mobs?.some((m) => m.enabled && m.cat !== 'normal' && m.d <= cfg.radius * 1.5)) return false; // Boss in Sicht: kämpfen
+    const spot = farmSpot(o.b), me = controlled(st);
+    return !!spot && !!me && Math.hypot(me.x - spot.x, me.y - spot.y) > FARM_ARRIVE;
   }
+  // Boss-Rotation: steht ein gewählter Boss in Reichweite, geht er vor jedem Angreifer (erst der Boss, dann der Rest)
+  const farmBossNear = (sc) => (cfg.farm && sc ? sc.mobs.find((m) => m.enabled && m.cat !== 'normal' && !m.banned && m.d <= cfg.radius * 1.5) || null : null);
   // Bosse nehmen die ersten 3 s nach dem Respawn kaum Schaden (99 % Reduktion). Solange ein Boss frisch
   // aufgetaucht ist und volle HP hat, nur normal angreifen – Skills (Abklingzeit, DS) erst danach.
   // Gilt für jeden Boss und in allen Modi (Bot, Mitläufer, Spiegeln mit Angriff), nicht nur für die Boss-Rotation.
@@ -4043,6 +4048,8 @@
     if (!sc) return null;
     const focus = resting ? null : focusAssist(sc);
     if (focus && !safeHeld(focus.id)) return focus;
+    const fb = resting ? null : farmBossNear(sc);
+    if (fb && !safeHeld(fb.id)) return fb;
     const att = sc.attackers.filter((m) => !safeHeld(m.id));
     // Leader hat gerade kein Ziel (sein Monster ist tot): wie er den Angreifer nehmen, der ihm am nächsten ist –
     // so geht die ganze Gruppe sofort gemeinsam auf dasselbe Monster (bei wenig HP: was mich angreift)
@@ -4208,7 +4215,7 @@
         autopilot.dlgIdleAt ||= now;
         if (now - autopilot.dlgIdleAt > 1500) { commands()?.closeDialog?.(); autopilot.dlgIdleAt = 0; }
       } else autopilot.dlgIdleAt = 0;
-      farm.leave = cfg.farm && !this.resting && farmGoalElsewhere(st, p, now);
+      farm.leave = cfg.farm && !this.resting && farmGoalElsewhere(st, p, now, sc);
       const noFight = (cfg.autopilot && !cfg.farm && nextIsTurnin(st, now)) || farm.leave;
       if (group.role() === 'leader') group.noFight = noFight; // Mitläufer kämpfen dann auch nicht
       if (noFight) {
@@ -4255,8 +4262,8 @@
       // Sonst wählt der Bot ein Ziel aus und verwirft es gleich wieder – endlos.
       const lvlOk = info ? info.inLvl : diff <= cfg.lvlDiff;
       const addTarget = !!add && alive && t.id === add.id; // Add des Bosses: immer bekämpfen, auch außerhalb der Level-/Monster-Auswahl
-      const focus = this.resting ? null : focusAssist(sc);
-      const onFocus = !!focus && alive && t.id === focus.id, offFocus = !!focus && !onFocus && !addTarget; // anderes Ziel als der Leader -> wechseln
+      const focus = this.resting ? null : focusAssist(sc) || farmBossNear(sc); // Leader-Ziel bzw. Boss der Rotation zuerst
+      const onFocus = !!focus && alive && t.id === focus.id, offFocus = !!focus && !onFocus && !addTarget; // anderes Ziel -> wechseln
       const valid = !noFight && !dup && !offFocus && !(alive && safeHeld(t.id, now)) && (isAttacker || addTarget || onFocus || (!blocked && (this.resting ? fighting : alive && lvlOk)));
       if (!valid) {
         this.attackedId = null;

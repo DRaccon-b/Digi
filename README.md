@@ -217,6 +217,14 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.26.0 – Boss-Rotation: unterwegs nicht kämpfen, am Platz erst der Boss
+- **Unterwegs zum Boss** (andere Map, anderer Kanal oder noch nicht am Spawnpunkt) kämpft der Bot nicht mehr gegen
+  aggressive Monster, die ihn angreifen. Er ruft das Digimon zurück und läuft weiter. Ein Kanalwechsel geht auch
+  mit Verfolgern. Unter 50 % HP wehrt er sich wie bisher.
+- **Am Spawnpunkt, Boss noch nicht da:** Verfolger, die mitgekommen sind, darf er erledigen. Von sich aus greift er
+  beim Warten nichts an.
+- **Boss da:** Erst der Boss, dann die Verfolger. Er wechselt auch mitten im Kampf auf den Boss.
+
 #### Neu in 2.25.0 – Boss-Wartezeit nutzen, Golemon nicht wegkiten
 - **Warten auf einen Quest-Boss:** Ist der Boss nicht da, bekämpft der Bot in der Wartezeit normale Monster im Umkreis
   von 250 px um den Spawnpunkt. Sobald der Boss zu sehen ist, nimmt er keine neuen Füllmonster mehr und geht auf den Boss.
