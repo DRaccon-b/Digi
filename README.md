@@ -217,6 +217,11 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.29.6 – Tanken greift wirklich
+- Bisher tankte der Bot nur, wenn nach dem Treffer noch 40 % HP übrig blieben. Bei Crazy Turn (28 000) und 92 660 Max-HP hieß das: erst ab ~65 000 HP. Im Kampf lag er meist darunter und wich deshalb doch aus. Jetzt reichen > 15 % HP danach; ab 50 % trinkt er ohnehin F1.
+- Direkt nach dem Einschlag steht der Kreis noch kurz da. Auch dann läuft der Bot nicht mehr heraus (0,8 s).
+- Simulator (allein, ×4): getankt 14–15× statt 5×, Boss-Raum ~280–330 s statt ~310 s. Die Streuung kommt daher, dass Infermon zufällig ein Terminal wählt. Die Tränke im Probelauf stehen jetzt auf 400 (live: über 400 Feast).
+
 #### Neu in 2.29.5 – nicht in die Schutzzone ausweichen
 - Ausweichen wählt keine Fluchtpunkte mehr in Schutzzonen. Dort kann man nicht kämpfen, live kostete das in Raum 2 jedes Mal 1–2 s fürs Herauslaufen. Eine Schutzzone nimmt der Bot nur noch, wenn es gar keinen anderen freien Punkt gibt.
 - Zeitraffer geprüft (Solo-Lauf, Spielzeit im Dungeon): ×1 388 s, ×4 398 s, ×8 592 s, ×16 484 s. Bis ×4 stimmt das Ergebnis mit Echtzeit überein; ab ×8 wird der Ablauf zu grob (Windows-Timer ~15 ms), und die Ergebnisse weichen deutlich ab. Für Probeläufe also höchstens `TEMPO=4`.

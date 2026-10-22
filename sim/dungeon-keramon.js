@@ -55,7 +55,7 @@ const PSK = [
   { id: 'imperialdramon_paladin.paladin_guard', name: 'Paladin Guard', cooldownMs: 30000, dsCost: 600, range: 32, mult: 0 },
   { id: 'imperialdramon_paladin.omega_blade', name: 'Omega Blade', cooldownMs: 20000, dsCost: 1050, range: 64, mult: 4 },
 ];
-const TRAENKE = Number(process.env.TRAENKE ?? 40);          // HP-Tränke auf F1 je Bot
+const TRAENKE = Number(process.env.TRAENKE ?? 400);         // HP-Tränke auf F1 je Bot (live: über 400 Feast)
 const TRANK_HP = Number(process.env.TRANK_HP) || 15000;   // so viel heilt ein Trank
 const TRANK_AB = Number(process.env.TRANK_AB) || 50;      // Bot-Einstellung: F1 unter so viel % HP
 const MOB_HIT = 1200;                                      // normaler Treffer eines Monsters
