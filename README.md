@@ -217,6 +217,14 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.24.0 – Zum Boss hin ausweichen
+- Beim Ausweichen aus einem Warnkreis nimmt der Bot jetzt den freien Punkt, der **dem Boss am nächsten** liegt und vor
+  dem Einschlag noch erreichbar ist. Die Restzeit liest er aus dem Warnkreis des Spiels. Bisher ging er immer weg von
+  der Kreismitte, oft auf die Seite gegenüber vom Boss.
+- Steht das Digimon draußen direkt am Boss (Boss halb im Kreis), greift es mit dem normalen Angriff weiter an, sofern
+  der Punkt zum Zuschlagen außerhalb des Kreises liegt. Steht der Boss tief im Kreis, wartet der Bot wie bisher draußen
+  (und nutzt Fernkampf-Skills).
+
 #### Neu in 2.23.0 – Fernangriff beim Ausweichen
 - Steht der Boss in einem Warnkreis oder führt der Weg zu ihm durch einen, wartet der Bot draußen. Dabei setzt er jetzt
   bereite **Fernkampf-Skills** ein, deren Reichweite vom aktuellen Platz des Digimons bis zum Boss reicht. So macht er

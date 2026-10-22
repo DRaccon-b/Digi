@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.23.0
+// @version      2.24.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -472,7 +472,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.23.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.24.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -819,6 +819,10 @@
   //    Zielpunkt (tx/ty) mit halber Breite r; mit skill.sweep ein Fächer, der um den Boss schwenkt.
   // Steht der Tamer oder das Digimon in einer Zone, läuft der Tamer zum nächsten freien Punkt und ruft das Digimon.
   const DODGE_MARGIN = 28;
+  const MELEE_REACH = 72;        // so nah am Ziel geht der normale Angriff von draußen (Nahkampf 20–40 px + Körper; Rand-Abstand 42 px)
+  const MELEE_STAND = 40;        // so weit vor dem Ziel steht das Digimon beim Zuschlagen
+  const MELEE_EDGE = 12;         // Mindestabstand dieses Punkts zum Rand eines Warnkreises
+  const DODGE_WALK_PX_S = 130;   // vorsichtig geschätzte Laufgeschwindigkeit beim Ausweichen
   const DODGE_HOLD_RANGE = 220; // so nah an einer noch aktiven Zone wird nach dem Ausweichen gewartet
   const dodgeState = { active: false, lastTap: 0, lastFollow: 0 };
   function dangerZones() {
@@ -923,6 +927,14 @@
     }
     return null;
   }
+  // Restzeit eines Warnkreises (ms) aus den Daten des Spiels – null, wenn unbekannt (Strahlen, Markierungen)
+  function zoneLeftMs(z) {
+    if (z?.kind !== 'circle') return null;
+    try {
+      const c = (worldScene()?.telegraphs?.circles || []).find((o) => Math.abs(o.x - z.x) < 2 && Math.abs(o.y - z.y) < 2 && o.end);
+      return c ? Math.max(0, c.end - performance.now()) : null;
+    } catch { return null; }
+  }
   const zoneName = (z) => (z.kind === 'circle' ? `Warnkreis (Radius ${Math.round(z.r)})` : z.kind === 'fan' ? 'Warnfächer' : 'Warnstrahl');
   function dodge(st, now) {
     if (!cfg.dodge) return null;
@@ -939,7 +951,17 @@
       // Ohne Ziel: warten, bis alle Zonen in der Nähe verschwunden sind. Das Digimon bleibt so lange beim Tamer.
       const near = tamer && zones.some((c) => zoneDist(c, tamer).d < DODGE_HOLD_RANGE);
       const from = partner && tamer && Math.hypot(partner.x - tamer.x, partner.y - tamer.y) < 60 ? partner : tamer;
-      const blocked = target ? !!inZone(target) || (from && !lineClear(from, target, zones)) : dodgeState.active;
+      // Digimon steht draußen direkt am Ziel (Boss halb im Kreis): Nahkampf geht ohne in den Kreis zu laufen
+      // – aber nur, wenn auch der Punkt, an dem das Digimon zum Zuschlagen steht (MELEE_STAND vor dem Ziel), draußen liegt
+      const reach = (() => {
+        if (!target || !partner || inZone(partner)) return false;
+        const d = Math.hypot(partner.x - target.x, partner.y - target.y);
+        if (d > MELEE_REACH) return false;
+        const k = d > MELEE_STAND ? MELEE_STAND / d : 1;
+        const at = { x: target.x + (partner.x - target.x) * k, y: target.y + (partner.y - target.y) * k };
+        return !zones.some((c) => zoneDist(c, at).d < MELEE_EDGE);
+      })();
+      const blocked = target && !reach ? !!inZone(target) || (from && !lineClear(from, target, zones)) : target ? false : dodgeState.active;
       if (near && blocked) {
         if (!dodgeState.active) { dodgeState.active = true; logEvent('warn', 'Ziel steht in einer Warnzone – warte draußen'); }
         const close = partner && tamer && Math.hypot(partner.x - tamer.x, partner.y - tamer.y) <= 40;
@@ -963,18 +985,23 @@
     const nz = zoneDist(z, me);
     let base = Math.atan2(me.y - nz.ny, me.x - nz.nx);
     if (!isFinite(base) || (me.x === nz.nx && me.y === nz.ny)) base = z.kind === 'line' ? Math.atan2(z.ty - z.y, z.tx - z.x) + Math.PI / 2 : 0;
-    // Möglichst einen Punkt, von dem aus die gerade Linie zum Ziel frei ist – dann kann das Digimon nach dem
-    // Ausweichen sofort wieder angreifen. Dafür höchstens 3 Ringe (72 px) weiter laufen als zum nächsten freien Punkt.
-    let best = null, first = null, firstRad = 0;
-    for (let rad = 40; rad <= 328 && !best; rad += 24) {
-      if (first && rad > firstRad + 72) break;
+    // Mit Ziel: unter allen freien Punkten, die vor dem Einschlag noch erreichbar sind, den nächsten am Ziel – dann
+    // kann das Digimon von dort weiter angreifen (oft sogar mit der 1). Erreichbar = Laufweg passt in die Restzeit
+    // des Warnkreises (unbekannt: höchstens 72 px weiter als zum nächsten freien Punkt).
+    const left = zoneLeftMs(z);
+    let first = null, firstRad = 0, best = null, bestScore = Infinity;
+    for (let rad = 40; rad <= 328; rad += 24) {
+      const budget = left != null ? Math.max(firstRad, (left - 300) / 1000 * DODGE_WALK_PX_S) : firstRad + 72;
+      if (first && rad > budget) break;
       for (let i = 0; i < 16; i++) {
         const ang = base + (i % 2 ? 1 : -1) * Math.ceil(i / 2) * (Math.PI / 8);
         const p = { x: me.x + Math.cos(ang) * rad, y: me.y + Math.sin(ang) * rad };
         if (!walkable(p.x, p.y) || zones.some((c) => zoneDist(c, p).d < DODGE_MARGIN * 1.5)) continue;
-        if (!first) { first = p; firstRad = rad; }
-        if (!target || (!inZone(target) && lineClear(p, target, zones))) { best = p; break; }
+        if (!first) { first = p; firstRad = rad; if (!target) break; }
+        const score = !target ? rad : Math.hypot(p.x - target.x, p.y - target.y) + (lineClear(p, target, zones) || inZone(target) ? 0 : 200);
+        if (score < bestScore) { bestScore = score; best = p; }
       }
+      if (first && !target) break;
     }
     best ||= first;
     if (best && now - dodgeState.lastTap > 400) { dodgeState.lastTap = now; worldScene()?.tapGround?.(best.x, best.y); }
