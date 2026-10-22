@@ -217,6 +217,10 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.29.8 – nicht vor dem eigenen Schwert weglaufen
+- Die Tank-Regel hat auch eigene Skills mitgezählt. Invincible Sword ist eine Kreis-Fläche mit viel Schaden und galt deshalb als „nicht tankbar“: Nach jedem eigenen Schwerthieb wich der Bot doch aus (live: 2 von 3 Crazy Turns). Jetzt zählen nur Attacken von Monstern.
+- Probelauf: Die Partner-Skills senden jetzt Skill-Ereignisse wie im Spiel, damit so ein Fehler auffällt. Holy Grace heilt (in den Spieldaten ein Heil-Skill), statt Schaden zu machen. Ergebnis (allein, ×4): Crazy Turn 6 von 7 getankt (vorher 4), Data Crusher 10 von 10 (vorher 8).
+
 #### Neu in 2.29.7 – auch die Wächter in Raum 1 tanken
 - Flächen ohne festen Schaden schätzt der Bot jetzt aus dem Angriffswert des Wirkers: AT × Power % × 1,5 Reserve. Die Chrysalimon-Wächter in Raum 1 (Data Crusher, Power 220, Lv 51) kommen so auf ~2 500 und werden getankt statt ausgewichen.
 - Simulator (allein, ×4): in Raum 1 kein einziges Ausweichen mehr; Keramon und Chrysalimon 15 von 16 getankt; Infermons Ramme 9/9 und Spider Shooter 7/7 ausgewichen.

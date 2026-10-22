@@ -48,12 +48,13 @@ const HP = Number(process.env.HP) || 92660;               // Max-HP je Partner
 const BOSS_HP = Math.round((Number(process.env.BOSS_HP) || 3459500) * (1 + 0.1 * Math.max(0, N - 3)) / (SCHNELL ? 10 : 1));
 const ENRAGE_MS = 600000 / (SCHNELL ? 10 : 1);
 const DAUER = (Number(process.env.DAUER) || 1000) * 1000;
-// Skills auf 2–5 (Schaden als Vielfaches des Grundangriffs; Paladin Guard ist ein Buff)
+// Skills auf 2–5 wie in den Spieldaten (Schaden als Vielfaches des Grundangriffs, grob nach Power; Holy Grace heilt,
+// Paladin Guard ist ein Buff). Invincible Sword ist eine Kreis-Fläche – sein Skill-Ereignis geht wie im Spiel an alle.
 const PSK = [
-  { id: 'imperialdramon_paladin.invincible_sword', name: 'Invincible Sword', cooldownMs: 6000, dsCost: 370, range: 112, mult: 2 },
-  { id: 'imperialdramon_paladin.holy_grace', name: 'Holy Grace', cooldownMs: 15000, dsCost: 500, range: 32, mult: 2 },
-  { id: 'imperialdramon_paladin.paladin_guard', name: 'Paladin Guard', cooldownMs: 30000, dsCost: 600, range: 32, mult: 0 },
-  { id: 'imperialdramon_paladin.omega_blade', name: 'Omega Blade', cooldownMs: 20000, dsCost: 1050, range: 64, mult: 4 },
+  { id: 'imperialdramon_paladin.invincible_sword', name: 'Invincible Sword', cooldownMs: 6000, dsCost: 370, range: 112, mult: 2, def: { kind: 'damage', target: 'enemy', shape: 'circle', radius: 56, power: 352, castMs: 600 } },
+  { id: 'imperialdramon_paladin.holy_grace', name: 'Holy Grace', cooldownMs: 15000, dsCost: 500, range: 32, mult: 0, heal: 0.15, def: { kind: 'heal', target: 'self', shape: 'single', power: 350, castMs: 300 } },
+  { id: 'imperialdramon_paladin.paladin_guard', name: 'Paladin Guard', cooldownMs: 30000, dsCost: 600, range: 32, mult: 0, def: { kind: 'buff', target: 'self', shape: 'single', power: 0, castMs: 0 } },
+  { id: 'imperialdramon_paladin.omega_blade', name: 'Omega Blade', cooldownMs: 20000, dsCost: 1050, range: 64, mult: 5, def: { kind: 'damage', target: 'enemy', shape: 'single', power: 890, castMs: 900 } },
 ];
 const TRAENKE = Number(process.env.TRAENKE ?? 400);         // HP-Tränke auf F1 je Bot (live: über 400 Feast)
 const TRANK_HP = Number(process.env.TRANK_HP) || 15000;   // so viel heilt ein Trank
@@ -132,9 +133,9 @@ const bossSkills = (sp) => Object.values(SKILLS).filter((s) => s.id.startsWith(s
 const RAID = { id: 'wargame', gate: { mapId: 'network', portal: 'network_wargame' }, party: { min: 1, max: 5, minLevel: 1 }, deathLimit: 3, landing: 'from_network',
   dungeon: { chain: 'keramon', offset: 0, mode: { order: 0, label: 'dg_mode_easy' }, rooms: ROOMS } };
 const CONTENT = () => ({
-  digimon: { imperialdramon_paladin: { name: 'Imperialdramon Paladin Mode', base: { ms: 115, as: 1300 } }, kuramon: { name: 'Kuramon' }, tsumemon: { name: 'Tsumemon' }, chrysalimon: { name: 'Chrysalimon', base: { at: 91 }, growth: { at: 13.2 }, skills: [SKILLS['chrysalimon.data_crusher']] }, keramon: { name: 'Keramon' },
+  digimon: { imperialdramon_paladin: { name: 'Imperialdramon Paladin Mode', base: { ms: 115, as: 1300, at: 660 }, growth: { at: 92.5 } }, kuramon: { name: 'Kuramon' }, tsumemon: { name: 'Tsumemon' }, chrysalimon: { name: 'Chrysalimon', base: { at: 91 }, growth: { at: 13.2 }, skills: [SKILLS['chrysalimon.data_crusher']] }, keramon: { name: 'Keramon' },
     keramon_net: { name: 'Keramon', skills: bossSkills('keramon_net') }, chrysalimon_net: { name: 'Chrysalimon', skills: bossSkills('chrysalimon_net') }, infermon: { name: 'Infermon', skills: [] } }, // wie im Spiel: die Boss-Attacken stehen nur bei der Form
-  skills: { ...SKILLS, ...Object.fromEntries(PSK.map((k) => [k.id, { ...k, castMs: 0, kind: k.mult ? 'damage' : 'buff', target: k.mult ? 'enemy' : 'self', shape: 'single' }])) }, items: { hp_pot: { id: "hp_pot", name: "HP-Trank" } }, npcs: {}, quests: {}, dailyById: {},
+  skills: { ...SKILLS, ...Object.fromEntries(PSK.map((k) => [k.id, { id: k.id, name: k.name, cooldownMs: k.cooldownMs, dsCost: k.dsCost, range: k.range, ...k.def }])) }, items: { hp_pot: { id: "hp_pot", name: "HP-Trank" } }, npcs: {}, quests: {}, dailyById: {},
   maps: { network: { name: 'Network' }, network_wargame: { name: 'Network: War Game' } },
   spawns: {
     network: { zones: {} },
@@ -211,6 +212,9 @@ function makeWindow(i) {
     if (!m || m.hp <= 0 || m.map !== pl.map) return;
     pl.skillCd[n] = now + sk.cooldownMs;
     store.setState({ cooldowns: { ...state.cooldowns, [`skill:${n}`]: { end: w.performance.now() + sk.cooldownMs } }, me: { ...me, partner: { ...me.partner, ds: me.partner.ds - sk.dsCost } } });
+    const evAll = (phase) => { for (const x of players) if (x.map === pl.map) x.handlers.evs?.([{ t: 'skill', src: `p:${i}`, skill: sk.id, phase }]); };
+    evAll('cast'); setTimeout(() => evAll('release'), sk.def.castMs || 0);
+    if (sk.heal) { const s2 = store.getState(); store.setState({ me: { ...s2.me, partner: { ...s2.me.partner, hp: Math.min(HP, s2.me.partner.hp + HP * sk.heal) } } }); }
     if (sk.mult) { pl.queued = { n, id: m.id }; pl.atk = m.id; }
   }, true);
   w.addEventListener('keydown', (e) => {

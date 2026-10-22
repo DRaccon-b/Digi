@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.29.7
+// @version      2.29.8
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -492,7 +492,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.29.7'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.29.8'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -885,7 +885,9 @@
     if (!cfg.tank) return false;
     const p = getStore()?.getState?.()?.me?.partner;
     let any = false;
+    const ents = window.dmo?.net?.state?.entities;
     for (const [src, log] of bossSkillLog) {
+      if (ents?.get?.(src)?.kind !== KIND.Mob) continue; // nur Monster – eigene/verbündete Skills (z. B. Invincible Sword, Kreis) zählen nicht
       for (const [id, e] of log) {
         const live = (e.phase === 'cast' && e.castEnd > now - 300) || (e.phase === 'release' && now - (e.relAt || 0) < TANK_AFTER_MS);
         if (!live) continue;
