@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.28.1
+// @version      2.29.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -335,6 +335,8 @@
     farmBosses: ['tower_forest#arukenimon', 'kaiser_canyon#metalgreymon_spiral'], // "map#art"
     farmChannels: [1, 2], // nur diese Kanäle
     farmMode: 'boss',     // 'boss' = Boss-Rotation, 'named' = Named-Elite-Runde (Map für Map)
+    dungeon: false,       // Dungeon-Modus (Kera): betreten, Räume räumen, Boss, raus
+    dgMode: 'easy',       // 'easy' = War Game (Hard folgt)
     routeStart: '',       // Named-Runde: Start-Map (leer = niedrigste)
     routeEnd: '',         // Named-Runde: End-Map (leer = höchste)
     open: {},             // auf-/zugeklappte Gruppen im Panel
@@ -351,12 +353,12 @@
       skills: { ...cfg.skills, ...saved.skills }, heal: { ...saved.heal }, skillSets: { ...saved.skillSets }, mobs: { ...saved.mobs }, questOff: { ...saved.questOff },
     });
     const m = modeOf(); // alte Einstellungen mit mehreren Schaltern auf eine Betriebsart bringen
-    cfg.questMode = m === 'quest'; cfg.autopilot = m === 'auto'; cfg.farm = m === 'farm';
+    cfg.questMode = m === 'quest'; cfg.autopilot = m === 'auto'; cfg.farm = m === 'farm'; cfg.dungeon = m === 'dungeon';
     cfg.mirror = true; cfg.safeCast = true; // immer an (siehe ALWAYS_ON)
   }
   // Betriebsart (genau eine): Grinden, Quest-Jagd (Quest-Modus), Quest-Autopilot oder Bosse (Rotation/Named-Runde)
-  const MODES = { grind: 'Grinden', quest: 'Quest-Jagd', auto: 'Autopilot', farm: 'Bosse' };
-  const modeOf = () => (cfg.farm ? 'farm' : cfg.autopilot ? 'auto' : cfg.questMode ? 'quest' : 'grind');
+  const MODES = { grind: 'Grinden', quest: 'Quest-Jagd', auto: 'Autopilot', farm: 'Bosse', dungeon: 'Dungeon' };
+  const modeOf = () => (cfg.dungeon ? 'dungeon' : cfg.farm ? 'farm' : cfg.autopilot ? 'auto' : cfg.questMode ? 'quest' : 'grind');
   try { applyCfg(JSON.parse(localStorage.getItem(CFG_KEY) || '{}')); } catch {}
   const ALWAYS_ON = ['mirror', 'safeCast']; // früher Haken – ausgeschaltet schadete man sich nur selbst
   if (cfg.tab === 'care') cfg.tab = 'attack';
@@ -410,12 +412,12 @@
   // sessionStorage des Fensters (Slot) – die Bot-Einstellungen in localStorage teilen sich ja alle Fenster.
   const ACC_KEY = 'digibot.accounts';
   const ACC_MAX = 5;
-  const accounts = { leader: 0, popup: true, mirror: false, mirrorAtk: true, leadBoss: false, spread: false, serve: false, list: [] };
+  const accounts = { leader: 0, popup: true, mirror: false, mirrorAtk: true, leadBoss: false, dungeon: false, spread: false, serve: false, list: [] };
   function reloadAcc() {
     try {
       const a = JSON.parse(localStorage.getItem(ACC_KEY) || 'null');
       if (a && Array.isArray(a.list)) {
-        accounts.leader = Number(a.leader) || 0; accounts.popup = a.popup !== false; accounts.mirror = !!a.mirror; accounts.mirrorAtk = a.mirrorAtk !== false; accounts.leadBoss = !!a.leadBoss; accounts.spread = !!a.spread; accounts.serve = !!a.serve;
+        accounts.leader = Number(a.leader) || 0; accounts.popup = a.popup !== false; accounts.mirror = !!a.mirror; accounts.mirrorAtk = a.mirrorAtk !== false; accounts.leadBoss = !!a.leadBoss; accounts.dungeon = !!a.dungeon; accounts.spread = !!a.spread; accounts.serve = !!a.serve;
         accounts.list = a.list.slice(0, ACC_MAX);
       }
     } catch {}
@@ -489,7 +491,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.28.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.29.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -502,6 +504,7 @@
         quest: 'Nur Monster für offene Quest-Ziele auf dieser Map jagen, danach stoppen',
         auto: 'Quests annehmen, hinreisen, erledigen und abgeben (Reiter Quests)',
         farm: 'Boss-Rotation oder Named-Elite-Runde (Reiter Bosse)',
+        dungeon: 'Kera-Dungeon: zur Tür, betreten, Räume räumen, Boss, wieder hinaus (Reiter Bosse)',
       }[k])}">${l}</button>`).join('')}</div>
       <button class="digibot__btn digibot__run" data-act="bot" title="Alt+B">▶ Start</button>
       <div class="digibot__status" data-f="status">Bot aus</div>
@@ -617,6 +620,11 @@
           <div class="digibot__title">Kanäle</div>
           <div class="digibot__farmch">${[1, 2, 3, 4].map((c) => `<label><input type="checkbox" data-farmch="${c}" ${(cfg.farmChannels || []).includes(c) ? 'checked' : ''}>Ch ${c}</label>`).join('')}</div>`, true,
           'Gilt für den Modus Bosse. Boss-Rotation: reist zum ausgewählten Boss, der als Nächstes da ist. Named-Elite-Runde: Maps von Start bis Ende ablaufen, je Kanal prüfen (lebt → kämpfen, Respawn unter 2 min → warten, sonst weiter), danach per Digi-Phone zurück. Kanalwechsel nur außerhalb des Kampfes; das Level-Limit gilt für diese Bosse nicht.', 'data-modes="farm"')}
+        ${grp('dungeon', 'Dungeon (Kera)', `
+          <div class="digibot__apcfg">
+            <label>Modus<select data-apsel="dgMode"><option value="easy">Easy – War Game</option></select></label>
+          </div>`, true,
+          'Gilt für den Modus Dungeon: zur Tür auf der Map Network, betreten (in der Gruppe nur der Leader, die anderen kommen mit), Raum 1: Terminals schützen – Tsumemon, die zu einem Terminal laufen, zuerst; dann durchs Tor, Boss Keramon (Chrysalimon, Infermon) und zum Ausgang. Ausweichen, Spiegel und Skill-Timing wie bei Bossen. Hard folgt.', 'data-modes="dungeon"')}
         ${grp('timers', 'Timer', `<div class="digibot__timers" data-f="timers"><div class="digibot__none">Keine Bosse ausgewählt.</div></div>`, true,
           'Aus dem Boss-Fenster des Spiels, der Map-Info deines Kanals und eigenen Siegen. ★ = aktuelles Ziel, „hier“ = dein Standort.', 'data-modes="farm"')}
         ${grp('bosspick', 'Bosse auswählen', `<input class="digibot__search" type="text" data-bosssearch placeholder="🔍 Boss oder Map suchen…" autocomplete="off" spellcheck="false">
@@ -626,7 +634,7 @@
       <section data-page="acc">
         <div class="digibot__scope">👥 Alles in diesem Reiter gilt für alle Gruppenfenster – außer „Dieses Fenster ist“.</div>
         <div class="digibot__seg">
-          <button data-gmode="bots" title="Alle Fenster fahren ihren Bot: der Leader den Autopilot, die anderen folgen ihm und machen seine Quests mit.">📜 Quests</button><button data-gmode="boss" title="Alle Fenster fahren ihren Bot: der Leader die Boss-Rotation (Bosse im Tab Farmen auswählen), die anderen folgen ihm über Maps und Kanäle und kämpfen mit.">👑 Bosse</button><button data-gmode="move" title="Du spielst den Leader selbst – die anderen Fenster (Bot aus) laufen ihm nach, auch über Maps und Kanäle.">👣 Spiegeln</button><button data-gmode="both" title="Wie Spiegeln, und die anderen greifen das Ziel des Leaders mit an – mit ihren Skills, Tränken und Ausweichen.">⚔️ + Angriff</button>
+          <button data-gmode="bots" title="Alle Fenster fahren ihren Bot: der Leader den Autopilot, die anderen folgen ihm und machen seine Quests mit.">📜 Quests</button><button data-gmode="boss" title="Alle Fenster fahren ihren Bot: der Leader die Boss-Rotation (Bosse im Tab Farmen auswählen), die anderen folgen ihm über Maps und Kanäle und kämpfen mit.">👑 Bosse</button><button data-gmode="dungeon" title="Alle Fenster fahren den Dungeon-Modus: an der Tür sammeln, der Leader betritt den Dungeon (die Gruppe kommt mit), dann räumt jeder mit – Terminal-Fresser zuerst, danach Boss und Ausgang.">🏰 Dungeon</button><button data-gmode="move" title="Du spielst den Leader selbst – die anderen Fenster (Bot aus) laufen ihm nach, auch über Maps und Kanäle.">👣 Spiegeln</button><button data-gmode="both" title="Wie Spiegeln, und die anderen greifen das Ziel des Leaders mit an – mit ihren Skills, Tränken und Ausweichen.">⚔️ + Angriff</button>
         </div>
         <label class="digibot__skill digibot__chk" title="Jedes Gruppenmitglied greift ein anderes Quest-Monster an (statt alle dasselbe). Ist keins mehr frei, hilft man mit. Bosse greifen alle gemeinsam an. Nicht beim Spiegeln und nicht in der Boss-Rotation."><input type="checkbox" data-accspread ${accounts.spread ? 'checked' : ''}><span>🎯 Ziele verteilen: jeder ein anderes Monster</span></label>
         <label class="digibot__skill digibot__chk" title="Der Leader kümmert sich nur um die Quests der Mitläufer (seine eigenen sind egal) und jagt, was ihnen fehlt. Die Mitläufer bleiben stehen und wehren nur Angreifer ab. Abgeben/Annehmen macht man bei ihnen selbst. Nur im Modus 📜 Quests."><input type="checkbox" data-accserve ${accounts.serve ? 'checked' : ''}><span>🤝 Leader erledigt die Quests der Mitläufer</span></label>
@@ -1052,6 +1060,9 @@
     if (!net?.on || net === evNet) return;
     evNet = net;
     try {
+      net.on('me', (list) => { // privat: Dungeon-Stand (Raum, Welle begonnen, Stürze)
+        for (const ev of Array.isArray(list) ? list : [list]) if (ev?.t === 'dungeon') dgNote(ev);
+      });
       net.on('evs', (list) => {
         const now = Date.now();
         for (const ev of Array.isArray(list) ? list : [list]) {
@@ -1692,7 +1703,7 @@
           for (const o of layer.objects || []) {
             const type = o.type ?? o.class;
             const rect = { x: o.x, y: o.y, w: o.width || 0, h: o.height || 0 };
-            if (type === 'portal' && prop(o, 'toMap')) m.portals.push({ toMap: prop(o, 'toMap'), ...rect });
+            if (type === 'portal' && prop(o, 'toMap')) m.portals.push({ toMap: prop(o, 'toMap'), name: o.name || '', toSpawn: prop(o, 'toSpawn') || '', ...rect });
             else if (type === 'npc') m.npcs.push({ npcId: prop(o, 'npcId') || o.name, x: o.x, y: o.y });
             else if (type === 'zone') m.zones[o.name] = rect;
             else if (type === 'spawn') m.spawns[o.name] = { x: o.x, y: o.y };
@@ -2400,7 +2411,9 @@
     if (st?.screen !== 'world' || !st.me?.partner) { ss.set('digibot.go', '1'); group.worldAt = 0; return; }
     reloadAcc();
     const boss = group.role() === 'leader' && accounts.leadBoss && !accounts.mirror;
-    cfg.questMode = false; cfg.autopilot = !boss; cfg.farm = boss;
+    const dgOn = accounts.dungeon && !accounts.mirror; // Dungeon: alle Fenster im Dungeon-Modus
+    cfg.questMode = false; cfg.autopilot = !boss && !dgOn; cfg.farm = boss && !dgOn; cfg.dungeon = dgOn;
+    if (dgOn) dg.reset();
     if (boss) cfg.farmMode = 'boss';
     loadWorld();
     if (!bot.on) bot.toggle();
@@ -2411,8 +2424,8 @@
   function startMapTalk(why) {
     const st = getStore()?.getState?.();
     if (st?.screen !== 'world' || !st.me?.partner || autopilot.mapTalk) return;
-    autopilot.mapTalk = { mapId: st.world?.mapId, n: 0, prev: { autopilot: cfg.autopilot, farm: cfg.farm, questMode: cfg.questMode, on: bot.on } };
-    cfg.autopilot = true; cfg.farm = false; cfg.questMode = false;
+    autopilot.mapTalk = { mapId: st.world?.mapId, n: 0, prev: { autopilot: cfg.autopilot, farm: cfg.farm, questMode: cfg.questMode, dungeon: cfg.dungeon, on: bot.on } };
+    cfg.autopilot = true; cfg.farm = false; cfg.questMode = false; cfg.dungeon = false;
     autopilot.reset();
     loadWorld();
     if (!bot.on) bot.toggle(true); // still: kein Start/Stopp an die ganze Gruppe
@@ -2423,7 +2436,7 @@
     const mt = autopilot.mapTalk;
     if (!mt) return;
     autopilot.mapTalk = null;
-    Object.assign(cfg, { autopilot: mt.prev.autopilot, farm: mt.prev.farm, questMode: mt.prev.questMode });
+    Object.assign(cfg, { autopilot: mt.prev.autopilot, farm: mt.prev.farm, questMode: mt.prev.questMode, dungeon: !!mt.prev.dungeon });
     autopilot.reset();
     logEvent('auto', `Abgeben & Annehmen fertig${mt.n ? ` (${mt.n} erledigt)` : ' – hier gab es nichts'}${mt.prev.on ? ' – weiter wie vorher' : ''}`);
     if (!mt.prev.on && bot.on) bot.toggle(true); // nur dieses Fenster – die anderen sind evtl. noch dabei
@@ -3560,7 +3573,7 @@
   const CH_CHECK_MS = 60000, CH_CHECK_ARRIVE_MS = 5000, CH_CHECK_MIN_GAIN = 2, CH_CHECK_WAIT_MS = 8000;
   const chCheckState = { mapId: null, arrived: 0, last: 0, switching: null };
   function channelCheck(st, sc, now) {
-    if (!cfg.chCheck || cfg.farm || group.role() === 'follower' || world.state !== 'ready' || st.dialog) return null;
+    if (!cfg.chCheck || cfg.farm || cfg.dungeon || group.role() === 'follower' || world.state !== 'ready' || st.dialog) return null;
     if (questBossSel(autopilot.task).length) return null;
     const C = chCheckState, mapId = st.world?.mapId, cur = st.world?.channel ?? 1;
     if (C.mapId !== mapId) { C.mapId = mapId; C.arrived = now; C.last = 0; C.switching = null; }
@@ -4072,8 +4085,184 @@
       : s.state === 'up' ? `${label} · laut Timer da – suche…` : `${label} · prüfe Timer…`;
   }
 
+  // ---------- Dungeon (Kera: Easy „War Game“) ----------
+  // Aufbau aus den Spieldaten: spawns[map].raid = { id, gate: { mapId, portal }, dungeon: { rooms: [{ id, area, landing,
+  // gate, waves, clear }], mode } }; spawns[map].terminals = [{ points, radius, eaters: [{ species, into }] }].
+  // Der Server meldet den Stand privat (net "me": { t: 'dungeon', raid, room, rooms, roomId, pulled, deaths, deathLimit });
+  // room === rooms heißt: alle Räume frei, der Ausgang ist offen. Terminals stehen in scene.mechB.view.terminals
+  // ({ x, y, r, s }: s 0 = heil, 1 = wird gefressen, 2 = zerstört). Tsumemon laufen zu den Terminals und fressen sie
+  // (8 s) – jedes zerstörte Terminal kostet Bonus und macht aus dem Fresser ein Keramon. Darum: Fresser zuerst,
+  // der dem nächsten heilen Terminal am nächsten ist.
+  const DG_DOOR_WAIT_MS = 20000; // Leader wartet so lange an der Tür auf die Gruppe
+  const DG_DOOR_NEAR = 90;       // so nah an der Tür gilt ein Mitglied als „da“
+  const DG_ENTER_MS = 4000;      // Betreten frühestens so oft versuchen
+  const DG_TRIES = 3;            // gescheiterte Läufe so oft neu versuchen
+  const DG_PULL_HP = 90;         // einen neuen Raum (Kampf beginnt beim Hineingehen) erst ab so viel HP betreten
+  const dg = {
+    dps: 0, dpsTrack: null, hud: null, hudAt: 0, inside: false, enterAt: 0, doorAt: 0, fails: 0, cleared: false, logRoom: -1,
+    reset() { this.hud = null; this.hudAt = 0; this.inside = false; this.enterAt = 0; this.doorAt = 0; this.fails = 0; this.cleared = false; this.logRoom = -1; },
+  };
+  function dgNote(ev) {
+    dg.hud = { raid: ev.raid, room: ev.room ?? 0, rooms: ev.rooms ?? 0, roomId: ev.roomId, pulled: !!ev.pulled, deaths: ev.deaths ?? 0, deathLimit: ev.deathLimit ?? 0 };
+    dg.hudAt = Date.now();
+    if (dg.hud.rooms && dg.hud.room >= dg.hud.rooms) dg.cleared = true;
+    if (dg.logRoom !== dg.hud.room) {
+      if (dg.logRoom >= 0 && dg.hud.room > dg.logRoom) logEvent('bot', `Dungeon: Raum ${dg.logRoom + 1} frei${dg.cleared ? ' – alle Räume geschafft' : ''}`);
+      dg.logRoom = dg.hud.room;
+    }
+  }
+  const dgRaid = (mapId) => { const r = content()?.spawns?.[mapId]?.raid; return r?.dungeon ? r : null; };
+  // gewählter Modus -> Dungeon-Map und Raid (Easy = Modus-Reihenfolge 0)
+  function dgPick() {
+    const want = cfg.dgMode === 'hard' ? 1 : 0;
+    for (const [mapId, sp] of Object.entries(content()?.spawns || {})) {
+      if (sp.raid?.dungeon && (sp.raid.dungeon.mode?.order ?? 0) === want) return { mapId, raid: sp.raid };
+    }
+    return null;
+  }
+  const inRect = (z, p, pad = 0) => !!z && !!p && p.x >= z.x - pad && p.x <= z.x + z.w + pad && p.y >= z.y - pad && p.y <= z.y + z.h + pad;
+  // Raum, in dem ich stehe, und Raum, der gerade dran ist (nach Server-Stand; ohne Stand: der, in dem ich stehe)
+  function dgRoom(st, raid) {
+    const rooms = raid.dungeon.rooms, m = world.maps[st.world?.mapId], me = controlled(st);
+    const zone = (i) => m?.zones?.[rooms[i]?.area];
+    const here = rooms.findIndex((r, i) => inRect(zone(i), me));
+    const h = dg.hud && dg.hud.raid === raid.id && Date.now() - dg.hudAt < 30 * 60000 ? dg.hud : null;
+    return { rooms, here, cur: h ? Math.min(h.room, rooms.length) : Math.max(0, here), h, zone, m, me };
+  }
+  // Ziel im Dungeon (nur im eigenen Raum). Fresser zuerst – und zwar der, dessen Terminal noch zu retten ist:
+  // Zeit bis zum Verlust (frisst schon: Rest der 8 s; unterwegs: Ankunft + Fresszeit) gegen die Zeit bis zum Kill
+  // (HP / gemessener Schaden pro Sekunde + Laufweg des Digimons). Rettbare nach Dringlichkeit, dann nicht mehr
+  // rettbare Fresser (sonst werden sie zu stärkeren Keramon), dann Angreifer, dann der Rest der Pflicht-Monster.
+  const DG_EAT_MS = 8000, DG_EATER_SPEED = 110, DG_PARTNER_SPEED = 200, DG_DPS0 = 3000;
+  function dgDps(t, now) { // Schaden pro Sekunde am aktuellen Ziel (alle Angreifer zusammen), gleitend gemittelt
+    const k = dg.dpsTrack;
+    if (t?.kind === 'mob' && t.hp > 0) {
+      if (k && k.id === t.id && t.hp < k.hp && now - k.at >= 500) {
+        const v = (k.hp - t.hp) / ((now - k.at) / 1000);
+        dg.dps = dg.dps ? dg.dps * 0.6 + v * 0.4 : v;
+        dg.dpsTrack = { id: t.id, hp: t.hp, at: now };
+      } else if (!k || k.id !== t.id || t.hp > k.hp) dg.dpsTrack = { id: t.id, hp: t.hp, at: now };
+    }
+    return Math.max(500, dg.dps || DG_DPS0);
+  }
+  function dungeonFocus(sc) {
+    if (!cfg.dungeon || !sc) return null;
+    const st = getStore()?.getState?.(), raid = dgRaid(sc.mapId);
+    if (!st || !raid) return null;
+    const R = dgRoom(st, raid);
+    if (R.here < 0) return null;
+    const now = Date.now(), dps = dgDps(st.target, now);
+    const z = R.zone(R.here), spawn = content()?.spawns?.[sc.mapId];
+    const eaters = new Set((spawn?.terminals || []).flatMap((t) => (t.eaters || []).map((e) => e.species)));
+    const optional = new Set();
+    for (const w of R.rooms[R.here]?.waves || []) for (const g of w.mobs || []) if (g.required === false) optional.add(g.species);
+    const mb = worldScene()?.mechB, age = mb?.viewAt ? Math.max(0, performance.now() - mb.viewAt) : 0;
+    const terms = (mb?.view?.terminals || []).filter((t) => t.s === 0 || t.s === 1);
+    const partner = window.dmo?.net?.state?.entities?.get?.(st.me?.partner?.entityId) || sc.self;
+    const rate = (m) => { // { urgent: ms bis zum Verlust, save: rechtzeitig zu schaffen? } – nur für Fresser
+      if (!eaters.has(m.species) || !terms.length) return null;
+      let best = null;
+      for (const t of terms) {
+        const d = Math.hypot(m.x - t.x, m.y - t.y) - (t.r || 18);
+        const ms = t.s === 1 && d <= 8 ? Math.max(0, (t.left ?? DG_EAT_MS) - age) : Math.max(0, d) / DG_EATER_SPEED * 1000 + DG_EAT_MS;
+        if (!best || ms < best) best = ms;
+      }
+      const ttk = m.hp / dps * 1000 + Math.hypot(partner.x - m.x, partner.y - m.y) / DG_PARTNER_SPEED * 1000;
+      return { urgent: best, save: ttk <= best + 300 };
+    };
+    const score = (m) => {
+      const r = rate(m);
+      if (r) return r.save ? r.urgent / 10 : 3000 + r.urgent / 10;
+      return m.attacker ? 5000 + m.d : 10000 + m.d;
+    };
+    const list = sc.mobs.filter((m) => inRect(z, m, 24) && !m.banned && !safeHeld(m.id) && (m.attacker || !optional.has(m.species)));
+    if (!list.length) return null;
+    list.sort((a, b) => score(a) - score(b));
+    const cur = st.target, keep = cur && list.find((m) => m.id === cur.id);
+    // laufenden Kill nicht für einen anderen Fresser abbrechen, solange er rechtzeitig fällt
+    if (keep && rate(keep)?.save && score(list[0]) < 3000) return keep;
+    return list[0];
+  }
+  // Laufen ohne Ziel: zur Tür, betreten, in den Raum, durchs Tor, zum Ausgang. Liefert den Status.
+  function dungeonStep(st, sc, now) {
+    const mapId = st.world?.mapId, raid = dgRaid(mapId);
+    if (!raid) return dungeonOutside(st, now);
+    if (!dg.inside) { dg.inside = true; dg.doorAt = 0; logEvent('bot', `Dungeon betreten: ${content()?.maps?.[mapId]?.name || mapId}`); }
+    const R = dgRoom(st, raid);
+    if (!R.m || !R.me) return 'Lade Kartendaten…';
+    const go = (x, y, what) => (walkTo(st, x, y, now) === 'stuck' ? `${what} – Weg blockiert` : what);
+    if (R.cur >= R.rooms.length) { // alles frei -> Ausgang (Portal zur Tür-Map, das mir am nächsten ist)
+      const exit = R.m.portals.filter((p) => p.toMap === raid.gate.mapId)
+        .sort((a, b) => Math.hypot(a.x - R.me.x, a.y - R.me.y) - Math.hypot(b.x - R.me.x, b.y - R.me.y))[0];
+      return exit ? go(exit.x + exit.w / 2, exit.y + exit.h / 2, 'Alle Räume frei – gehe zum Ausgang') : 'Alle Räume frei – Ausgang nicht gefunden';
+    }
+    if (R.here >= 0 && R.here < R.cur) { // mein Raum ist schon frei -> durch sein Tor
+      const gate = R.m.portals.find((p) => p.name === R.rooms[R.here].gate);
+      if (gate) return go(gate.x + gate.w / 2, gate.y + gate.h / 2, `Raum ${R.here + 1} frei – gehe durchs Tor`);
+    }
+    const z = R.zone(R.cur);
+    if (!z) return 'Raum unbekannt';
+    const cx = z.x + z.w / 2, cy = z.y + z.h / 2;
+    const n = `Raum ${R.cur + 1}/${R.rooms.length}`;
+    // Kampf hat noch nicht begonnen: erst mit (fast) vollen HP aus dem Schutzbereich heraus – sonst fällt man beim Boss sofort
+    const hp = pct(st.me?.partner?.hp, st.me?.partner?.maxHp);
+    if (!R.h?.pulled && hp < DG_PULL_HP && safeRectAt(st.world?.mapId, R.me)) return `${n}: warte im Schutzbereich auf HP (${hp.toFixed(0)} %/${DG_PULL_HP} %)…`;
+    if (Math.hypot(R.me.x - cx, R.me.y - cy) > 40) return go(cx, cy, R.h?.pulled ? `${n}: zurück in die Raummitte` : `${n}: gehe hinein – der Kampf beginnt`);
+    return R.h?.pulled ? `${n}: warte auf die nächste Welle…` : `${n}: warte in der Raummitte…`;
+  }
+  // Außerhalb: Lauf vorbei? Sonst zur Tür, auf die Gruppe warten, betreten (Leader bzw. allein)
+  function dungeonOutside(st, now) {
+    if (dg.inside) { // gerade herausgekommen
+      dg.inside = false; dg.doorAt = 0;
+      if (dg.cleared) {
+        logEvent('bot', 'Dungeon geschafft – Bot gestoppt');
+        notify('Dungeon geschafft.');
+        bot.toggle(true);
+        return 'Dungeon geschafft – Bot gestoppt';
+      }
+      dg.fails++;
+      logEvent('warn', `Dungeon-Lauf gescheitert (${dg.fails}/${DG_TRIES})`);
+      if (dg.fails >= DG_TRIES) { bot.toggle(true); return `Dungeon ${DG_TRIES}× gescheitert – Bot gestoppt`; }
+      dg.hud = null;
+    }
+    const pick = dgPick();
+    if (!pick) return 'Kein Dungeon in den Spieldaten';
+    if (world.state !== 'ready') return 'Lade Kartendaten…';
+    const gate = pick.raid.gate;
+    const tr = travel(st, gate.mapId, now);
+    if (tr !== true) return tr;
+    const portal = world.maps[gate.mapId]?.portals.find((p) => p.name === gate.portal) || world.maps[gate.mapId]?.portals.find((p) => p.toMap === pick.mapId);
+    if (!portal) return 'Dungeon-Tür nicht gefunden';
+    const label = pick.raid.dungeon.mode?.label === 'dg_mode_hard' ? 'Hard' : 'Easy';
+    const lead = group.role() !== 'follower';
+    // Tür-Fenster des Spiels ist offen: Leader (oder allein) betritt den gewählten Modus, die Gruppe an der Tür kommt mit
+    if (st.raid && !st.raid.inside) {
+      if (!lead) { commands()?.closeRaidGate?.(); return 'Warte, bis der Leader den Dungeon betritt…'; }
+      if (now - dg.enterAt > DG_ENTER_MS) { dg.enterAt = now; commands()?.raidEnter?.(pick.raid.id); logEvent('bot', `Dungeon: betrete ${label}`); }
+      return `Betrete den Dungeon (${label})…`;
+    }
+    const me = controlled(st), door = { x: portal.x + portal.w / 2, y: portal.y + portal.h + 28 };
+    const d = me ? Math.hypot(me.x - door.x, me.y - door.y) : Infinity;
+    if (!lead) { if (d > 20) walkTo(st, door.x, door.y, now); return 'An der Dungeon-Tür – warte auf den Leader'; }
+    if (d > 20 && !dg.doorAt) { walkTo(st, door.x, door.y, now); return 'Gehe zur Dungeon-Tür'; }
+    dg.doorAt ||= now;
+    if (group.active()) {
+      const want = accounts.list.filter((a, i) => a.on && a.user.trim() && i !== group.slot()).length;
+      const here = [...group.peers.values()].filter((p) => fresh(p, now) && p.mapId === gate.mapId && p.x != null && Math.hypot(p.x - door.x, p.y - door.y) <= DG_DOOR_NEAR).length;
+      if (here < want && now - dg.doorAt < DG_DOOR_WAIT_MS) return `An der Tür: warte auf die Gruppe (${here + 1}/${want + 1})…`;
+    }
+    walkTo(st, door.x, portal.y + portal.h / 2, now);
+    return 'Gehe durch die Dungeon-Tür';
+  }
+  function dungeonLabel() {
+    const h = dg.hud;
+    if (!dg.inside || !h) return 'Dungeon: zur Tür / betreten';
+    return h.room >= h.rooms ? 'Dungeon: alle Räume frei – zum Ausgang' : `Dungeon: Raum ${h.room + 1}/${h.rooms}${h.pulled ? ' · Kampf' : ''} · Stürze ${h.deaths}/${h.deathLimit}`;
+  }
+
   function pickTarget(sc, resting) {
     if (!sc) return null;
+    if (cfg.dungeon) { const att = sc.attackers.filter((m) => !safeHeld(m.id)); return (resting ? null : dungeonFocus(sc)) || att[0] || null; }
     const focus = resting ? null : focusAssist(sc);
     if (focus && !safeHeld(focus.id)) return focus;
     const fb = resting ? null : farmBossNear(sc);
@@ -4166,6 +4355,7 @@
       // Map-für-Map-Runde: bei jedem Start an der eingestellten Start-Map beginnen (nicht beim gespeicherten Fortschritt,
       // sonst fehlt z. B. eine Map, die beim letzten Lauf noch nichts zu tun hatte, inzwischen aber schon)
       if (this.on && cfg.apOrder === 'sweep' && cfg.apSweepMap) { cfg.apSweepMap = ''; saveCfg(); }
+      if (this.on && cfg.dungeon && !dg.inside) dg.fails = 0;
       if (this.on) loadWorld(); // Kartendaten (Portale, Zonen, Schutzzonen) für alle Modi
       if (this.on) this.timer = setInterval(() => this.tick(), TICK_MS);
       this.status = this.on ? 'Bot läuft' : 'Bot aus';
@@ -4290,7 +4480,7 @@
       // Sonst wählt der Bot ein Ziel aus und verwirft es gleich wieder – endlos.
       const lvlOk = info ? info.inLvl : diff <= cfg.lvlDiff;
       const addTarget = !!add && alive && t.id === add.id; // Add des Bosses: immer bekämpfen, auch außerhalb der Level-/Monster-Auswahl
-      const focus = this.resting ? null : focusAssist(sc) || farmBossNear(sc); // Leader-Ziel bzw. Boss der Rotation zuerst
+      const focus = this.resting ? null : dungeonFocus(sc) || focusAssist(sc) || farmBossNear(sc); // Leader-Ziel bzw. Boss der Rotation zuerst
       const onFocus = !!focus && alive && t.id === focus.id, offFocus = !!focus && !onFocus && !addTarget; // anderes Ziel -> wechseln
       const valid = !noFight && !dup && !offFocus && !(alive && safeHeld(t.id, now)) && (isAttacker || addTarget || onFocus || (!blocked && (this.resting ? fighting : alive && lvlOk)));
       if (!valid) {
@@ -4315,6 +4505,8 @@
           if (next) {
             if (this.can('select', SELECT_GAP_MS, now)) { this.lastPress.select = now; scene.select(next.id); }
             this.status = `${next.attacker ? 'Angreifer' : 'Nächstes Ziel'}: Lv ${next.level} · ${Math.round(next.d)} px`;
+          } else if (cfg.dungeon) {
+            this.status = `Dungeon: ${dungeonStep(st, sc, now)}`;
           } else if (cfg.farm && !this.resting) {
             this.status = `Bosse: ${farmStep(st, sc, now)}`;
           } else if (cfg.autopilot && (!this.resting || noFight)) {
@@ -4742,7 +4934,7 @@
 
   const pageOn = (p) => !!panel.querySelector(`[data-page="${p}"]`)?.classList.contains('on');
   // Bereiche, die im aktuellen Modus nicht gelten, abblenden (z. B. Autopilot-Optionen in der Boss-Rotation)
-  const MODE_NAMES = { grind: 'Grinden', quest: 'Quest-Jagd', auto: 'Autopilot', farm: 'Bosse' };
+  const MODE_NAMES = { grind: 'Grinden', quest: 'Quest-Jagd', auto: 'Autopilot', farm: 'Bosse', dungeon: 'Dungeon' };
   function syncModeScope() {
     const m = modeOf();
     panel.querySelectorAll('[data-modes]').forEach((el) => {
@@ -4909,7 +5101,7 @@
   }
   // Gruppe: Modus-Schalter und eine Karte pro Mitglied (Name, Rolle, Ort, HP, Status, Quest-Abgleich mit dem Leader)
   function renderGroupCards(st, now) {
-    const mode = !accounts.mirror ? (accounts.leadBoss ? 'boss' : 'bots') : accounts.mirrorAtk ? 'both' : 'move';
+    const mode = !accounts.mirror ? (accounts.dungeon ? 'dungeon' : accounts.leadBoss ? 'boss' : 'bots') : accounts.mirrorAtk ? 'both' : 'move';
     const spr = panel.querySelector('[data-accspread]'); if (spr && spr !== document.activeElement) spr.checked = !!accounts.spread;
     const srv = panel.querySelector('[data-accserve]'); if (srv && srv !== document.activeElement) srv.checked = !!accounts.serve;
     panel.querySelectorAll('[data-gmode]').forEach((b) => b.classList.toggle('on', b.dataset.gmode === mode));
@@ -4951,7 +5143,7 @@
     rows.push(row(bot.on ? '▶' : '■', `${MODE_NAMES[modeOf()]} · ${bot.on ? 'läuft' : 'aus'} · ${st?.world ? `${mapName(st.world.mapId)} Ch ${st.world.channel ?? 1}` : 'nicht in der Welt'}`));
     const t = st?.target;
     if (t && t.hp > 0) rows.push(row('🎯', `${t.name ?? '?'}${t.level ? ` Lv ${t.level}` : ''} · ${t.maxHp ? Math.round(t.hp / t.maxHp * 100) : '?'} %`));
-    const task = cfg.farm ? (farm.goal ? `Boss: ${content()?.digimon?.[farm.goal.species]?.name || farm.goal.species} (${mapName(farm.goal.map)} Ch ${farm.goal.ch})` : '')
+    const task = cfg.dungeon ? dungeonLabel() : cfg.farm ? (farm.goal ? `Boss: ${content()?.digimon?.[farm.goal.species]?.name || farm.goal.species} (${mapName(farm.goal.map)} Ch ${farm.goal.ch})` : '')
       : autopilot.mapTalk ? 'Abgeben & Annehmen auf dieser Map' : autopilot.task?.label || '';
     if (task) rows.push(row('📌', task));
     if (bot.status) rows.push(row('💬', bot.status));
@@ -5141,8 +5333,8 @@
       if (act === 'compact') { cfg.compact = panel.classList.toggle('is-compact'); saveCfg(); }
       const gm = e.target.closest('[data-gmode]')?.dataset.gmode;
       if (gm) {
-        reloadAcc(); accounts.mirror = gm === 'move' || gm === 'both'; accounts.mirrorAtk = gm === 'both'; accounts.leadBoss = gm === 'boss'; saveAcc();
-        logEvent('bot', `Gruppe: Modus ${{ bots: 'Quests (Autopilot)', boss: 'Bosse (Rotation)', move: 'Bewegungen spiegeln', both: 'Bewegungen + Angriffe spiegeln' }[gm]}`);
+        reloadAcc(); accounts.mirror = gm === 'move' || gm === 'both'; accounts.mirrorAtk = gm === 'both'; accounts.leadBoss = gm === 'boss'; accounts.dungeon = gm === 'dungeon'; saveAcc();
+        logEvent('bot', `Gruppe: Modus ${{ bots: 'Quests (Autopilot)', boss: 'Bosse (Rotation)', dungeon: 'Dungeon', move: 'Bewegungen spiegeln', both: 'Bewegungen + Angriffe spiegeln' }[gm]}`);
         schedule();
       }
       const lf = e.target.closest('[data-logf]')?.dataset.logf;
@@ -5161,7 +5353,8 @@
       if (tab) setTab(tab);
       const mode = e.target.closest('[data-mode]')?.dataset.mode;
       if (mode && mode !== modeOf()) {
-        cfg.questMode = mode === 'quest'; cfg.autopilot = mode === 'auto'; cfg.farm = mode === 'farm';
+        cfg.questMode = mode === 'quest'; cfg.autopilot = mode === 'auto'; cfg.farm = mode === 'farm'; cfg.dungeon = mode === 'dungeon';
+        dg.reset();
         saveCfg(); autopilot.reset(); farm.reset(); questSig = '';
         if (mode === 'auto' || mode === 'farm') loadWorld();
         logEvent('auto', `Modus: ${MODES[mode]}`);

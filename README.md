@@ -217,6 +217,14 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.29.0 – Dungeon-Modus (Kera, Easy)
+- Neuer Modus **Dungeon** und Gruppen-Modus **🏰 Dungeon**: zur Tür auf der Map Network, an der Tür auf die Gruppe warten (max. 20 s), der Leader betritt Easy („War Game“), die Gruppe an der Tür kommt mit.
+- Raum 1: Terminals schützen. Der Bot nimmt zuerst den Tsumemon, dessen Terminal noch zu retten ist. Er rechnet dafür die Zeit bis zum Verlust (8 s Fressen) gegen den gemessenen Schaden pro Sekunde. Danach kommen nicht mehr rettbare Fresser, Angreifer und die übrigen Pflicht-Monster. Kuramon (keine Pflicht) bleiben in Ruhe.
+- Zwischen den Wellen wartet der Bot in der Raummitte. Ist der Raum frei, geht er durchs Tor. Einen neuen Raum betritt er erst mit mindestens 90 % HP aus dem Schutzbereich heraus.
+- Raum 2: Keramon → Chrysalimon → Infermon mit Ausweichen, Spiegel-Pause und Skill-Timing wie bei Bossen. Danach geht es zum Ausgang, und der Bot stoppt.
+- Ein gescheiterter Lauf wird bis zu 3× neu versucht. Hard („Revenge“) folgt.
+- Probelauf: `node sim/dungeon-keramon.js` (siehe unten).
+
 #### Neu in 2.28.1 – Key of Hope gezielter (aus dem Raid-Probelauf)
 - Gegen Armageddemons einfachen **Black Rain** (Kreis unter jedem Spieler) wird kein Key of Hope mehr verbraucht, dem
   weicht der Bot aus. Key of Hope bleibt für die **Hülle** von Black Rain (geteilter Schaden, nicht ausweichbar) und
@@ -707,6 +715,20 @@ npm test
 - Ausgabe eines Tests sehen: `V=1 node tests/run.js kohtest`
 - `JOBS` (gleichzeitige Tests, Standard 8) und `TIMEOUT` (Sekunden pro Test, Standard 200) lassen sich setzen.
 - `tests/gw.js` ist die Spielwelt für Gruppen-/Autopilot-Tests, `tests/fakeworld.js` die ältere für Kampf-Tests.
+
+## Dungeon-Probelauf
+
+`sim/dungeon-keramon.js` spielt einen ganzen Kera-Easy-Lauf mit echten DigiBot-Fenstern: Tür, Betreten, 7 Wellen mit Terminal-Fressern und Wächtern, Tor, Boss in drei Formen (Warnkreise, Strahl, Spiegel, „NOT HERE“), Stürze und Ausgang. Positionen, Wellen und Boss-Attacken stammen aus den Spieldaten.
+
+```bash
+node sim/dungeon-keramon.js
+```
+
+- `GRUPPE` (1–5, Standard 3), `SCHADEN` je Treffer (3000), `HP` je Digimon (60 000), `BOSS_HP` (400 000, verkleinert), `DAUER` (420 s)
+- `TRAENKE` (40), `TRANK_HP` (15 000), `TRANK_AB` (50 %): HP-Tränke auf F1
+- `V=1` zeigt jeden Statuswechsel der Bots
+- Annahmen (Server-Logik ist nicht im Client): nächste Welle 4 s nach der letzten, hungrige Tsumemon wehren sich nicht, außerhalb des Kampfes 3 % HP/s Erholung.
+- Ergebnisse Okt. 2026: 3 Bots in 207 s geschafft (3/6 Terminals heil, 0 Stürze); allein in 547 s (24 Tränke, 0 Stürze, nur 1/6 Terminals heil – allein reicht der Schaden nicht gegen vier Fresser gleichzeitig).
 
 ## Raid-Probelauf
 
