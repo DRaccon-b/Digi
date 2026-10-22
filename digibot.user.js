@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.31.1
+// @version      2.32.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -338,7 +338,7 @@
     farmChannels: [1, 2], // nur diese Kanäle
     farmMode: 'boss',     // 'boss' = Boss-Rotation, 'named' = Named-Elite-Runde (Map für Map)
     dungeon: false,       // Dungeon-Modus (Kera): betreten, Räume räumen, Boss, raus
-    dgMode: 'easy',       // 'easy' = War Game, 'hard' = Revenge (allein kaum zu schaffen)
+    dgMode: 'easy',       // 'easy' = War Game, 'hard' = Revenge (allein kaum zu schaffen), 'apocalymon' = Apocalymon-Raid
     routeStart: '',       // Named-Runde: Start-Map (leer = niedrigste)
     routeEnd: '',         // Named-Runde: End-Map (leer = höchste)
     open: {},             // auf-/zugeklappte Gruppen im Panel
@@ -493,7 +493,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.31.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.32.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -625,9 +625,9 @@
           'Gilt für den Modus Bosse. Boss-Rotation: reist zum ausgewählten Boss, der als Nächstes da ist. Named-Elite-Runde: Maps von Start bis Ende ablaufen, je Kanal prüfen (lebt → kämpfen, Respawn unter 2 min → warten, sonst weiter), danach per Digi-Phone zurück. Kanalwechsel nur außerhalb des Kampfes; das Level-Limit gilt für diese Bosse nicht.', 'data-modes="farm"')}
         ${grp('dungeon', 'Dungeon (Kera)', `
           <div class="digibot__apcfg">
-            <label>Modus<select data-apsel="dgMode"><option value="easy">Easy – War Game</option><option value="hard">Hard – Revenge (Gruppe)</option></select></label>
+            <label>Modus<select data-apsel="dgMode"><option value="easy">Easy – War Game</option><option value="hard">Hard – Revenge (Gruppe)</option><option value="apocalymon">Apocalymon-Raid</option></select></label>
           </div>`, true,
-          'Gilt für den Modus Dungeon: zur Tür auf der Map Network, betreten (in der Gruppe nur der Leader, die anderen kommen mit), Raum 1: Terminals schützen – Tsumemon, die zu einem Terminal laufen, zuerst; dann durchs Tor, Boss Keramon (Chrysalimon, Infermon) und zum Ausgang. Ausweichen, Spiegel und Skill-Timing wie bei Bossen. Hard (Revenge): Diaboromon mit Uhr, dann Armageddemon mit Kuramon-Herde – der geteilte Treffer (240 % der HP) ist allein tödlich, also nur in der Gruppe sinnvoll.', 'data-modes="dungeon"')}
+          'Gilt für den Modus Dungeon: zur Tür auf der Map Network, betreten (in der Gruppe nur der Leader, die anderen kommen mit), Raum 1: Terminals schützen – Tsumemon, die zu einem Terminal laufen, zuerst; dann durchs Tor, Boss Keramon (Chrysalimon, Infermon) und zum Ausgang. Ausweichen, Spiegel und Skill-Timing wie bei Bossen. Hard (Revenge): Diaboromon mit Uhr, dann Armageddemon mit Kuramon-Herde – der geteilte Treffer (240 % der HP) ist allein tödlich, also nur in der Gruppe sinnvoll. Apocalymon-Raid: über Spiral Summit zur Tür, digitieren, betreten, Megadramon-Adds zuerst, dann Apocalymon; nach dem Sieg wieder hinaus.', 'data-modes="dungeon"')}
         ${grp('timers', 'Timer', `<div class="digibot__timers" data-f="timers"><div class="digibot__none">Keine Bosse ausgewählt.</div></div>`, true,
           'Aus dem Boss-Fenster des Spiels, der Map-Info deines Kanals und eigenen Siegen. ★ = aktuelles Ziel, „hier“ = dein Standort.', 'data-modes="farm"')}
         ${grp('bosspick', 'Bosse auswählen', `<input class="digibot__search" type="text" data-bosssearch placeholder="🔍 Boss oder Map suchen…" autocomplete="off" spellcheck="false">
@@ -4221,8 +4221,15 @@
     }
   }
   const dgRaid = (mapId) => { const r = content()?.spawns?.[mapId]?.raid; return r?.dungeon ? r : null; };
+  // Einfacher Raid ohne Räume (z. B. Apocalymon): nur ein Boss mit Adds
+  const plainRaid = (mapId) => { const r = content()?.spawns?.[mapId]?.raid; return r && !r.dungeon ? r : null; };
+  const DG_RAIDS = { apocalymon: 'apocalymon' }; // Auswahl im Panel -> Raid-ID in den Spieldaten
   // gewählter Modus -> Dungeon-Map und Raid (Easy = Modus-Reihenfolge 0)
   function dgPick() {
+    if (DG_RAIDS[cfg.dgMode]) {
+      for (const [mapId, sp] of Object.entries(content()?.spawns || {})) if (sp.raid?.id === DG_RAIDS[cfg.dgMode]) return { mapId, raid: sp.raid };
+      return null;
+    }
     const want = cfg.dgMode === 'hard' ? 1 : 0;
     for (const [mapId, sp] of Object.entries(content()?.spawns || {})) {
       if (sp.raid?.dungeon && (sp.raid.dungeon.mode?.order ?? 0) === want) return { mapId, raid: sp.raid };
@@ -4263,9 +4270,19 @@
     }
     return Math.max(500, dg.dps || DG_DPS0);
   }
+  // Einfacher Raid: Adds des Bosses (füttern ihn sonst) vor dem Boss, Angreifer dazwischen, sonst nichts
+  function raidFocus(sc) {
+    const spawn = content()?.spawns?.[sc.mapId], adds = new Set();
+    for (const b of spawn?.bosses || []) for (const a of [b.adds, ...(b.moreAdds || [])]) if (a?.species) adds.add(a.species);
+    const score = (m) => (adds.has(m.species) ? 100 + m.d : m.cat === 'boss' ? 1000 + m.d : m.attacker ? 5000 + m.d : Infinity);
+    const list = sc.mobs.filter((m) => !m.banned && !safeHeld(m.id) && score(m) < Infinity).sort((a, b) => score(a) - score(b));
+    const cur = getStore()?.getState?.()?.target, keep = cur && list.find((m) => m.id === cur.id);
+    return keep && score(keep) - score(list[0] || keep) < 150 ? keep : list[0] || null;
+  }
   function dungeonFocus(sc) {
     if (!cfg.dungeon || !sc) return null;
     const st = getStore()?.getState?.(), raid = dgRaid(sc.mapId);
+    if (st && !raid && plainRaid(sc.mapId)) return raidFocus(sc);
     if (!st || !raid) return null;
     const R = dgRoom(st, raid);
     if (R.here < 0) return null;
@@ -4319,6 +4336,7 @@
   // Laufen ohne Ziel: zur Tür, betreten, in den Raum, durchs Tor, zum Ausgang. Liefert den Status.
   function dungeonStep(st, sc, now) {
     const mapId = st.world?.mapId, raid = dgRaid(mapId);
+    if (!raid && plainRaid(mapId)) return raidStep(st, now, plainRaid(mapId));
     if (!raid) return dungeonOutside(st, now);
     if (!dg.inside) { dg.inside = true; dg.doorAt = 0; logEvent('bot', `Dungeon betreten: ${content()?.maps?.[mapId]?.name || mapId}`); }
     const R = dgRoom(st, raid);
@@ -4345,6 +4363,27 @@
     if (Math.hypot(R.me.x - cx, R.me.y - cy) > 40) return go(cx, cy, R.h?.pulled ? `${n}: zurück in die Raummitte` : `${n}: gehe hinein – der Kampf beginnt`);
     return R.h?.pulled ? `${n}: warte auf die nächste Welle…` : `${n}: warte in der Raummitte…`;
   }
+  // Einfacher Raid: zum Boss (aus dem Schutzbereich erst mit Digitation und ~voller HP), nach dem Sieg hinaus
+  function raidStep(st, now, raid) {
+    const mapId = st.world?.mapId, m = world.maps[mapId], me = controlled(st);
+    const name = content()?.maps?.[mapId]?.name || mapId;
+    if (!dg.inside) { dg.inside = true; dg.doorAt = 0; logEvent('bot', `Raid betreten: ${name}`); }
+    if (!m || !me) return 'Lade Kartendaten…';
+    const go = (x, y, what) => (walkTo(st, x, y, now) === 'stuck' ? `${what} – Weg blockiert` : what);
+    if (st.raid?.cleared) { // geschafft -> hinaus (Portal zur Tür-Map, das mir am nächsten ist)
+      if (!dg.cleared) { dg.cleared = true; logEvent('bot', `Raid geschafft: ${name}`); }
+      const exit = m.portals.filter((p) => p.toMap === raid.gate.mapId).sort((a, b) => Math.hypot(a.x - me.x, a.y - me.y) - Math.hypot(b.x - me.x, b.y - me.y))[0];
+      return exit ? go(exit.x + exit.w / 2, exit.y + exit.h / 2, 'Raid geschafft – gehe hinaus') : 'Raid geschafft – Ausgang nicht gefunden';
+    }
+    if (safeRectAt(mapId, me)) {
+      const evo = dgEvoPending(st), hp = pct(st.me?.partner?.hp, st.me?.partner?.maxHp);
+      if (dgEvoWait(evo, now)) return `Raid: warte im Schutzbereich auf die Digitation zu ${evo}…`;
+      if (hp < DG_PULL_HP) return `Raid: warte im Schutzbereich auf HP (${hp.toFixed(0)} %/${DG_PULL_HP} %)…`;
+    }
+    const at = content()?.spawns?.[mapId]?.bosses?.[0]?.at, spot = at && m.spawns?.[at];
+    if (!spot) return 'Raid: Boss-Platz unbekannt';
+    return Math.hypot(me.x - spot.x, me.y - spot.y) > 80 ? go(spot.x, spot.y, 'Raid: gehe zum Boss') : 'Raid: warte auf den Boss…';
+  }
   // Außerhalb: Lauf vorbei? Sonst zur Tür, auf die Gruppe warten, betreten (Leader bzw. allein)
   function dungeonOutside(st, now) {
     if (dg.inside) { // gerade herausgekommen
@@ -4368,7 +4407,7 @@
     if (tr !== true) return tr;
     const portal = world.maps[gate.mapId]?.portals.find((p) => p.name === gate.portal) || world.maps[gate.mapId]?.portals.find((p) => p.toMap === pick.mapId);
     if (!portal) return 'Dungeon-Tür nicht gefunden';
-    const label = pick.raid.dungeon.mode?.label === 'dg_mode_hard' ? 'Hard' : 'Easy';
+    const label = !pick.raid.dungeon ? (content()?.maps?.[pick.mapId]?.name || pick.raid.id) : pick.raid.dungeon.mode?.label === 'dg_mode_hard' ? 'Hard' : 'Easy';
     const lead = group.role() !== 'follower';
     // Tür-Fenster des Spiels ist offen: Leader (oder allein) betritt den gewählten Modus, die Gruppe an der Tür kommt mit
     if (st.raid && !st.raid.inside) {

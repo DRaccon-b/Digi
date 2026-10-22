@@ -217,6 +217,12 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.32.0 – Apocalymon-Raid im Dungeon-Modus
+- Reiter Bosse → Dungeon → Modus „Apocalymon-Raid“. Der Bot reist selbst nach Spiral Summit zur Tür und digitiert dort in die eingestellte Form (Reiter Digimon). Dann betritt er den Raid, wartet im Schutzbereich auf ~volle HP und geht zum Boss.
+- Im Raid: Megadramon-Adds zuerst (sie füttern den Boss sonst), dann Apocalymon. Ausweichen, Spiegel-Pause, Markierung und Tanken wie bei allen Bossen. Nach dem Sieg geht er hinaus, und der Bot stoppt. Scheitert der Lauf, versucht er es bis zu 3× neu.
+- Allgemein gebaut: Jeder einfache Raid ohne Räume (ein Boss mit Adds) lässt sich so ergänzen.
+- Neuer Test `raidmodetest`. Live noch nicht geprüft.
+
 #### Neu in 2.31.1 – nicht in die Volley zurücklaufen, ein Block pro Cannon
 - Ist ein Einschlag in weniger als 1,2 s fällig und steht das Ziel neben der Warnzone, greift der Bot erst danach wieder an, auch nicht mit einem Fernangriff. Bosse laufen weiter, und das Digimon folgte ihnen in den Kreis (Probelauf: 3 Clavis auf einmal durch eine Volley).
 - Key of Hope: Die Staffelung zwischen den Clavis zählt ab dem Moment, ab dem gezündet werden darf. Wird eine Volley mit abgedeckt, springt dieser Zeitpunkt nach vorn, und vorher zündeten zwei Clavis gleichzeitig. Jetzt zündet genau einer pro Cannon.
