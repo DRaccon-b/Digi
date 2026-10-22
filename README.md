@@ -217,6 +217,9 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.29.3 – Dungeon: Fresser nach Zeitpuffer
+- Raum 1: Zuerst nimmt der Bot den Fresser mit dem kleinsten Zeitpuffer (Zeit bis zum Verlust minus Laufweg minus Kill-Zeit). Ein gewähltes Ziel behält er, bis ein anderes mindestens 1,5 s dringender ist. Live hatte er zwischen zwei Fressern hin und her gewechselt und dabei 1,5 s verloren.
+
 #### Neu in 2.29.2 – Dungeon: nur der eigene Raum zählt
 - Im Dungeon-Modus sieht der Bot nur Monster in dem Raum, in dem er gerade steht. Übrig gebliebene Kuramon aus Raum 1 gelten in Raum 2 nicht mehr als Angreifer oder als „Add“ des Bosses.
 - Erster Live-Lauf solo (Imperialdramon Paladin): Raum 1 in 157 s (4/6 Terminals), Boss bis 6 %, dann Enrage nach 600 s. Grund waren die Infermon-Mahlzeiten (12 Stapel); dagegen helfen 2.29.1 und mehr Leute.

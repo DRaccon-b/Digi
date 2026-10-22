@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.29.2
+// @version      2.29.3
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -492,7 +492,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.29.2'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.29.3'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -4174,6 +4174,7 @@
   // Zeit bis zum Verlust (frisst schon: Rest der 8 s; unterwegs: Ankunft + Fresszeit) gegen die Zeit bis zum Kill
   // (HP / gemessener Schaden pro Sekunde + Laufweg des Digimons). Rettbare nach Dringlichkeit, dann nicht mehr
   // rettbare Fresser (sonst werden sie zu stärkeren Keramon), dann Angreifer, dann der Rest der Pflicht-Monster.
+  const DG_SWITCH_MS = 1500; // Zielwechsel im Dungeon erst, wenn ein anderes Ziel so viel dringender ist
   const DG_EAT_MS = 8000, DG_EATER_SPEED = 110, DG_PARTNER_SPEED = 200, DG_DPS0 = 3000;
   function dgDps(t, now) { // Schaden pro Sekunde am aktuellen Ziel (alle Angreifer zusammen), gleitend gemittelt
     const k = dg.dpsTrack;
@@ -4209,19 +4210,19 @@
         if (!best || ms < best) best = ms;
       }
       const ttk = m.hp / dps * 1000 + Math.hypot(partner.x - m.x, partner.y - m.y) / DG_PARTNER_SPEED * 1000;
-      return { urgent: best, save: ttk <= best + 300 };
+      return { urgent: best, save: ttk <= best + 300, slack: best - ttk };
     };
     const score = (m) => {
       const r = rate(m);
-      if (r) return r.save ? r.urgent / 10 : 3000 + r.urgent / 10;
+      if (r) return r.save ? Math.max(0, r.slack) / 10 : 3000 + r.urgent / 10; // rettbar: kleinster Zeitpuffer zuerst
       return m.attacker ? 5000 + m.d : 10000 + m.d;
     };
     const list = sc.mobs.filter((m) => inRect(z, m, 24) && !m.banned && !safeHeld(m.id) && (m.attacker || !optional.has(m.species)));
     if (!list.length) return null;
     list.sort((a, b) => score(a) - score(b));
     const cur = st.target, keep = cur && list.find((m) => m.id === cur.id);
-    // laufenden Kill nicht für einen anderen Fresser abbrechen, solange er rechtzeitig fällt
-    if (keep && rate(keep)?.save && score(list[0]) < 3000) return keep;
+    // gewähltes Ziel behalten, solange kein anderes deutlich (DG_SWITCH_MS) dringender ist – kein Hin und Her
+    if (keep && score(keep) - score(list[0]) < DG_SWITCH_MS / 10) return keep;
     return list[0];
   }
   // Laufen ohne Ziel: zur Tür, betreten, in den Raum, durchs Tor, zum Ausgang. Liefert den Status.
