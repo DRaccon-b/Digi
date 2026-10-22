@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.30.1
+// @version      2.30.2
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -492,7 +492,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.30.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.30.2'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -552,7 +552,7 @@
             <label>Quest-Digimon<select data-apsel="apQuestPartner"></select></label>
             <label>Digitation<select data-apsel="apEvo"></select></label>
             <label>Abgabe-Digimon<select data-apsel="apTurninPartner"></select></label>
-          </div>`, true, 'Quest-Digimon: mit ihm werden Quests angenommen und erledigt. Digitation: diese Form nimmt es dafür an (gilt auch in der Boss-Rotation). Abgabe-Digimon: zum Abgeben wird beim NPC zurück-digitiert und gewechselt.')}
+          </div>`, true, 'Quest-Digimon: mit ihm werden Quests angenommen und erledigt. Digitation: diese Form nimmt es dafür an (gilt auch in der Boss-Rotation und im Dungeon – dort schon an der Tür, vor dem Betreten). Abgabe-Digimon: zum Abgeben wird beim NPC zurück-digitiert und gewechselt.')}
         ${grp('skills', 'Skills (Tasten 2–6) <i class="digibot__for" data-f="skillsfor"></i>', `<div class="digibot__skills">${SKILL_KEYS.map((k) => `
           <label class="digibot__skill" data-skill="${k}">
             <input type="checkbox" data-skillcfg="${k}" ${cfg.skills[k] ? 'checked' : ''}>
@@ -4593,9 +4593,10 @@
           const folIdle = group.role() === 'follower' && !at; // Mitläufer zwischen den Kämpfen
           const questMon = !cfg.apQuestPartner || activePartner(st)?.partnerId === cfg.apQuestPartner;
           const farmEvo = cfg.farm && questMon;
-          if (!attackers.length && (farmEvo || (!cfg.farm && cfg.autopilot && (folIdle || (at?.kind === 'hunt' && st.world?.mapId === at.loc.mapId && questMon))))) {
+          // Dungeon: vor dem Betreten (an der Tür) und zwischen den Kämpfen – z. B. nach einem Zurück-Digitieren durch Infermon
+          if (!attackers.length && (farmEvo || (cfg.dungeon && questMon) || (!cfg.farm && cfg.autopilot && (folIdle || (at?.kind === 'hunt' && st.world?.mapId === at.loc.mapId && questMon))))) {
             const ev = ensureEvolution(st, cfg.apEvo, now);
-            if (ev !== true) { this.status = `${cfg.farm ? 'Bosse' : 'Autopilot'}: ${ev}`; return; }
+            if (ev !== true) { this.status = `${cfg.farm ? 'Bosse' : cfg.dungeon ? 'Dungeon' : 'Autopilot'}: ${ev}`; return; }
           }
           // Direkt das beste Ziel anvisieren
           // Mitläufer: vor dem nächsten Kampf prüfen, ob ein Gespräch nachzumachen oder aufzuholen ist

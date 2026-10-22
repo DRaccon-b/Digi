@@ -217,6 +217,9 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.30.2 – Dungeon digitiert vorher
+- Der Dungeon-Modus nimmt jetzt die eingestellte Digitation (Reiter Digimon → Digitation) an, wie Autopilot und Boss-Rotation. Das passiert schon an der Tür, vor dem Betreten, und im Dungeon zwischen den Kämpfen wieder, z. B. nach einem Zurück-Digitieren durch Infermons Spider Shooter. Fehlt Tamer-DS, füllt F3 auf. Klappt die Digitation nicht (Abklingzeit, zu wenig DS), geht es in der aktuellen Form weiter.
+
 #### Neu in 2.30.1 – Diaboromon komplett ausweichen
 - Was mehr als Schaden macht, tankt der Bot nie: Packen (Tentacle Bug, 8 000 plus Festhalten und Aussaugen), Zurück-Digitieren, Markieren, geteilter Treffer, Spiegel, Debuffs. Diese Attacken weicht er immer aus.
 - Dieselbe Attacke mehrfach gleichzeitig (4 Kopien von Diaboromon, je 30 000) steht nur einmal im Protokoll. Der Bot zählt jetzt die Warnzonen am Boden mit und tankt solche Salven nicht mehr.
