@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.22.2
+// @version      2.23.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -472,7 +472,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.22.2'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.23.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -900,6 +900,29 @@
       return (tg?.mirrorsActive || []).some((m) => m.src === id && !m.telling);
     } catch { return false; }
   }
+  // Draußen warten, Ziel steht in einer Warnzone: einen bereiten Fernkampf-Skill wirken, dessen Reichweite vom
+  // aktuellen Platz des Digimons bis zum Ziel reicht (der normale Angriff ist bei allen Digimon Nahkampf).
+  // Nur Skills auf ein Gegner-Ziel ab RANGED_MIN Reichweite, kein Ansturm (der würde in den Kreis führen).
+  const RANGED_MIN = 64;
+  function rangedFromOutside(st, target, partner, now) {
+    const p = st?.me?.partner;
+    if (!p || p.evolving || p.fainted || st.target?.id !== target.id) return null;
+    if (!bot.can('skill', SKILL_GAP_MS, now) || farmShielded(target, now) || (cfg.mirror && mirrorActive(target.id))) return null;
+    const d = Math.hypot(target.x - partner.x, target.y - partner.y), C = content();
+    for (const k of SKILL_KEYS) {
+      if (!skillOn(st, k) || healAt(st, k)) continue;
+      const s = skillOnKey(st, k);
+      if (!s || isKoh(s.skill) || s.cdLeft > 0 || s.skill.unlocked === false || p.ds < (s.skill.dsCost || 0)) continue;
+      const def = (s.skill.id && C?.skills?.[s.skill.id]) || {};
+      const range = s.skill.range ?? def.range ?? 0, tgt = s.skill.target ?? def.target;
+      if (range < RANGED_MIN || d > range || (tgt && tgt !== 'enemy') || s.skill.dash || def.dash) continue;
+      if (!bot.can('Digit' + k, SKILL_GAP_MS * 2, now)) continue;
+      bot.lastPress.skill = now;
+      bot.hit('Digit' + k, now);
+      return s.skill.name || `Skill ${k}`;
+    }
+    return null;
+  }
   const zoneName = (z) => (z.kind === 'circle' ? `Warnkreis (Radius ${Math.round(z.r)})` : z.kind === 'fan' ? 'Warnfächer' : 'Warnstrahl');
   function dodge(st, now) {
     if (!cfg.dodge) return null;
@@ -919,10 +942,13 @@
       const blocked = target ? !!inZone(target) || (from && !lineClear(from, target, zones)) : dodgeState.active;
       if (near && blocked) {
         if (!dodgeState.active) { dodgeState.active = true; logEvent('warn', 'Ziel steht in einer Warnzone – warte draußen'); }
-        if (partner && tamer && Math.hypot(partner.x - tamer.x, partner.y - tamer.y) > 40 && now - dodgeState.lastFollow > 1500) {
+        const close = partner && tamer && Math.hypot(partner.x - tamer.x, partner.y - tamer.y) <= 40;
+        if (partner && tamer && !close && now - dodgeState.lastFollow > 1500) {
           dodgeState.lastFollow = now; commands()?.partnerFollow?.();
         }
-        return 'Warte außerhalb, bis der Flächenangriff vorbei ist…';
+        // Fernkampf-Skills reichen oft bis zum Boss, ohne dass das Digimon in den Kreis muss
+        const ra = target && close ? rangedFromOutside(st, target, partner, now) : null;
+        return ra ? `Warte außerhalb · Fernangriff: ${ra}` : 'Warte außerhalb, bis der Flächenangriff vorbei ist…';
       }
       if (dodgeState.active) { dodgeState.active = false; logEvent('auto', 'Ausweichen beendet – weiter'); }
       return null;

@@ -217,6 +217,14 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.23.0 – Fernangriff beim Ausweichen
+- Steht der Boss in einem Warnkreis oder führt der Weg zu ihm durch einen, wartet der Bot draußen. Dabei setzt er jetzt
+  bereite **Fernkampf-Skills** ein, deren Reichweite vom aktuellen Platz des Digimons bis zum Boss reicht. So macht er
+  weiter Schaden, ohne in den Kreis zu laufen.
+- Genutzt werden nur angehakte Skills auf ein Gegner-Ziel mit mindestens 64 Reichweite. Heil-Skills, Key of Hope und
+  Ansturm-Skills bleiben aus. Der normale Angriff ist bei allen Digimon Nahkampf und bleibt deshalb ebenfalls aus.
+  Spiegel und Spawn-Schutz werden beachtet.
+
 #### Neu in 2.22.2 – Nach dem Kill gemeinsam aufs nächste Monster
 - Stirbt das Monster des Leaders, nehmen die Mitläufer sofort den Angreifer, der dem Leader am nächsten ist. Diesen
   nimmt auch der Leader als Nächstes. Bisher griff in dieser kurzen Lücke jeder sein eigenes angreifendes Monster an.
