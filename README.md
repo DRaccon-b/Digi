@@ -217,6 +217,13 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.32.1 – raumweite Angriffe: weiterkämpfen
+- Erster Live-Lauf Apocalymon-Raid (Bauzel, solo): **geschafft in ~2 min**. Adds zuerst, Spiegel pausiert, Darkness Zone und Piedmon's Swords ausgewichen, danach hinaus und gestoppt.
+- Bei 5 % lädt Apocalymon „Total Annihilation“ (20 s, Kreis über den ganzen Raum). Der Bot fand keinen Fluchtpunkt und stand 20 s still, der Boss heilte sich in der Zeit von 5 auf 8 %. Jetzt gilt:
+  - Kreise ab 320 px Radius (raumweit, nicht ausweichbar) ignoriert das Ausweichen; der Bot greift weiter an, um die Ladung durch den Sieg abzubrechen.
+  - Findet er allgemein keinen Fluchtpunkt, kämpft er weiter, statt stehen zu bleiben.
+- Neuer Test `hugezonetest` (vorher rot).
+
 #### Neu in 2.32.0 – Apocalymon-Raid im Dungeon-Modus
 - Reiter Bosse → Dungeon → Modus „Apocalymon-Raid“. Der Bot reist selbst nach Spiral Summit zur Tür und digitiert dort in die eingestellte Form (Reiter Digimon). Dann betritt er den Raid, wartet im Schutzbereich auf ~volle HP und geht zum Boss.
 - Im Raid: Megadramon-Adds zuerst (sie füttern den Boss sonst), dann Apocalymon. Ausweichen, Spiegel-Pause, Markierung und Tanken wie bei allen Bossen. Nach dem Sieg geht er hinaus, und der Bot stoppt. Scheitert der Lauf, versucht er es bis zu 3× neu.

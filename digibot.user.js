@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.32.0
+// @version      2.32.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -493,7 +493,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.32.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.32.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -912,6 +912,7 @@
   // Infermon „NOT HERE“: frisst ein Terminal (scene.mechB.view.meals = [{ boss, left, ms, dmg }], dmg 0..1 = Anteil des
   // Schadens, der die Mahlzeit abbricht). Dann zählt nur Schaden – alle Skills sofort, ohne Zurückhalten.
   const mealOn = (id) => { try { return (worldScene()?.mechB?.view?.meals || []).some((m) => m.boss === id && (m.dmg ?? 0) < 1); } catch { return false; } };
+  const ZONE_HUGE_R = 320;
   const LINE_AFTER_MS = 800, lineMemo = new Map();
   function dangerZones() {
     const sc = worldScene(), zones = [];
@@ -936,7 +937,9 @@
     } catch { /* ignore */ }
     if (!tank) try {
       for (const c of sc?.telegraphs?.active || []) {
-        if (c && c.r > 0 && isFinite(c.x) && isFinite(c.y)) zones.push({ kind: 'circle', x: c.x, y: c.y, r: c.r });
+        // Raumweite Kreise (z. B. Apocalymons „Total Annihilation“, 640 px) kann man nicht verlassen – nur den Boss vorher
+        // erledigen: nicht ausweichen, weiter angreifen (live: 20 s stillgestanden, Boss heilte sich von 5 auf 8 %)
+        if (c && c.r > 0 && c.r < ZONE_HUGE_R && isFinite(c.x) && isFinite(c.y)) zones.push({ kind: 'circle', x: c.x, y: c.y, r: c.r });
       }
     } catch { /* ignore */ }
     if (!tank) try {
@@ -1109,9 +1112,10 @@
       if (first && !target) break;
     }
     best ||= first || safeOnly;
-    if (best && now - dodgeState.lastTap > 400) { dodgeState.lastTap = now; worldScene()?.tapGround?.(best.x, best.y); }
+    if (!best) { dodgeState.active = false; return null; } // kein Fluchtpunkt: stehen bleiben hilft nicht – weiterkämpfen
+    if (now - dodgeState.lastTap > 400) { dodgeState.lastTap = now; worldScene()?.tapGround?.(best.x, best.y); }
     if (inZone(partner) && now - dodgeState.lastFollow > 1500) { dodgeState.lastFollow = now; commands()?.partnerFollow?.(); }
-    return best ? 'Weiche Flächenangriff aus…' : 'Kein freier Fluchtpunkt gefunden – bleibe stehen';
+    return 'Weiche Flächenangriff aus…';
   }
 
   // ---------- Boss-Attacken (Cooldowns) ----------
