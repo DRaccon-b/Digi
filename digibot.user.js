@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.29.4
+// @version      2.29.5
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -492,7 +492,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.29.4'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.29.5'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1059,7 +1059,9 @@
     const home = kg ? mobHome.get(target.id) : null;
     const leash = home ? (content()?.digimon?.[target.defId]?.mob?.leashRange || 320) - 80 : Infinity;
     const inLeash = (p) => !home || Math.hypot(p.x - home.x, p.y - home.y) <= leash;
-    let first = null, firstRad = 0, best = null, bestScore = Infinity;
+    let first = null, firstRad = 0, best = null, bestScore = Infinity, safeOnly = null;
+    // Schutzzonen meiden: dort kann man nicht kämpfen (danach erst wieder herauslaufen) – nur als letzter Ausweg
+    const mapId = st.world?.mapId;
     for (let rad = 40; rad <= 328; rad += 24) {
       const budget = left != null ? Math.max(firstRad, (left - 300) / 1000 * DODGE_WALK_PX_S) : firstRad + 72;
       if (first && rad > budget) break;
@@ -1067,13 +1069,14 @@
         const ang = base + (i % 2 ? 1 : -1) * Math.ceil(i / 2) * (Math.PI / 8);
         const p = { x: me.x + Math.cos(ang) * rad, y: me.y + Math.sin(ang) * rad };
         if (!walkable(p.x, p.y) || zones.some((c) => zoneDist(c, p).d < DODGE_MARGIN * 1.5)) continue;
+        if (safeRectAt(mapId, p)) { safeOnly ||= p; continue; }
         if (!first) { first = p; firstRad = rad; if (!target) break; }
         const score = !target ? rad : Math.hypot(p.x - target.x, p.y - target.y) + (lineClear(p, target, zones) || inZone(target) ? 0 : 200) + (inLeash(p) ? 0 : 1000);
         if (score < bestScore) { bestScore = score; best = p; }
       }
       if (first && !target) break;
     }
-    best ||= first;
+    best ||= first || safeOnly;
     if (best && now - dodgeState.lastTap > 400) { dodgeState.lastTap = now; worldScene()?.tapGround?.(best.x, best.y); }
     if (inZone(partner) && now - dodgeState.lastFollow > 1500) { dodgeState.lastFollow = now; commands()?.partnerFollow?.(); }
     return best ? 'Weiche Flächenangriff aus…' : 'Kein freier Fluchtpunkt gefunden – bleibe stehen';

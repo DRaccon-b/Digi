@@ -10,7 +10,7 @@
 //   V=1 …                                    zusätzlich jeder Statuswechsel der Bots
 //   SCHADEN=12000 HP=92660 BOSS_HP=3459500 DAUER=1000 …
 //   TRAENKE=40 TRANK_HP=15000 TRANK_AB=50 …        HP-Tränke auf F1 (Anzahl, Heilung, Schwelle in %)
-//   TEMPO=4 …                                      Zeitraffer: alle Uhren und Timer (Skript und Bot) laufen 4× schneller
+//   TEMPO=4 …                                      Zeitraffer: alle Uhren und Timer laufen 4× schneller (über 4 wird es zu ungenau)
 //   SCHNELL=1 …                                    verkürzt (Boss-HP und Enrage ÷ 10) – für den Test
 //
 // Partner wie im ersten Live-Lauf (Okt. 2026): Imperialdramon Paladin Mode Lv 99 – 92 660 HP, 9 365 DS, Angriffstempo
