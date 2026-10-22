@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.21.1
+// @version      2.22.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -472,7 +472,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.21.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.22.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -2745,10 +2745,15 @@
     // Runde: nur Quests, deren Geber auf der aktuellen Runden-Map steht (Ziele dürfen woanders liegen)
     const M = cfg.apOrder === 'sweep' && !serveOn() ? autopilot.sweepAt : null;
     if (serveOn()) tasks = tasks.filter((t) => t.kind === 'hunt' && !t.grind); // nur jagen, was den Mitläufern fehlt
+    // Gerade mit einem NPC gesprochen: was es bei ihm noch abzugeben/anzunehmen gibt, sofort erledigen –
+    // nicht erst zum nächsten NPC und später wieder zurück
+    const ln = autopilot.lastNpc;
+    const sameNpc = (t) => !!ln && now - ln.at < SAME_NPC_MS && t.kind === 'talk' && (t.purpose === 'accept' || t.purpose === 'turnin')
+      && t.npcId === ln.npcId && t.loc?.mapId === ln.mapId;
     return tasks
       .filter((t) => !M || t.grind ? !M : t.purpose === 'daily' ? t.loc.mapId === M : questOnMap(t.def, M))
       .filter((t) => (autopilot.failed.get(t.key) || 0) < now && hops(mapId, t.loc.mapId) < Infinity)
-      .map((t) => ({ ...t, cost: hops(mapId, t.loc.mapId) * 10 + t.prio, phase: M ? taskPhase(t) : cfg.apBatch ? batchRank(t, mapId) : 0 }))
+      .map((t) => { const same = sameNpc(t); return { ...t, sameNpc: same, cost: hops(mapId, t.loc.mapId) * 10 + t.prio, phase: same ? -1 : M ? taskPhase(t) : cfg.apBatch ? batchRank(t, mapId) : 0 }; })
       .sort((a, b) => a.phase - b.phase || a.cost - b.cost);
   }
   // Phasen der Map-für-Map-Runde: 1 = Quests annehmen, 2 = Ziele erledigen, 3 = abgeben.
@@ -2759,11 +2764,13 @@
   // „Erst alle Quests erledigen, dann gemeinsam abgeben“: Reihenfolge Ziele -> Abgaben -> Annahmen. Hat das Annehmen
   // begonnen, werden erst alle Quests auf dieser Map angenommen (sonst ginge es nach der ersten Annahme gleich jagen).
   // Annahmen auf anderen Maps kommen erst, wenn hier nichts mehr zu tun ist – sonst reist der Bot quer durch die Welt.
+  const SAME_NPC_MS = 60000;
   function batchRank(t, mapId) {
     if (t.grind) return 9;
     const p = taskPhase(t);
     if (p === 1 && t.loc?.mapId !== mapId) return 3;
-    return (autopilot.batchPhase === 'accept' ? { 1: 0, 2: 1, 3: 2 } : { 2: 0, 3: 1, 1: 2 })[p];
+    // Phase bleibt, bis es darin nichts mehr gibt: erledigen -> abgeben -> annehmen -> erledigen …
+    return ({ accept: { 1: 0, 2: 1, 3: 2 }, turnin: { 3: 0, 1: 1, 2: 2 } }[autopilot.batchPhase] || { 2: 0, 3: 1, 1: 2 })[p];
   }
 
   function taskDone(st, t) {
@@ -3082,7 +3089,10 @@
     } else autopilot.sweepAt = null;
     if (!follower) {
       t = autopilot.task;
-      if (t && taskDone(st, t)) { t = null; autopilot.reset(); if (mt) mt.n++; }
+      if (t && taskDone(st, t)) {
+        if (t.kind === 'talk' && (t.purpose === 'accept' || t.purpose === 'turnin')) autopilot.lastNpc = { npcId: t.npcId, mapId: t.loc?.mapId, at: Date.now() };
+        t = null; autopilot.reset(); if (mt) mt.n++;
+      }
     }
     if (!t && mt) { // Abgeben & Annehmen: nur Gespräche auf dieser Map
       t = autopilot.task = questTasks(st).find((o) => o.kind === 'talk' && (o.purpose === 'turnin' || o.purpose === 'accept' || o.purpose === 'objective') && o.loc?.mapId === mt.mapId) || null;
@@ -3107,7 +3117,7 @@
         all = questTasks(st);
       }
       t = autopilot.task = all[0] || null;
-      if (cfg.apBatch) autopilot.batchPhase = t && (t.purpose === 'accept' || t.purpose === 'daily') ? 'accept' : 'do';
+      if (cfg.apBatch && !t?.sameNpc) autopilot.batchPhase = !t ? 'do' : t.purpose === 'accept' || t.purpose === 'daily' ? 'accept' : t.purpose === 'turnin' ? 'turnin' : 'do';
       if (t?.kind === 'hunt' && !t.grind) {
         const same = all.filter((o) => o.kind === 'hunt' && !o.grind && o.loc.mapId === t.loc.mapId && o !== t);
         if (same.length) {

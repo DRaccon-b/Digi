@@ -217,6 +217,13 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.22.0 – Beim selben NPC alles auf einmal
+- Nach einer Abgabe nimmt der Bot beim selben NPC gleich die Quests an, die es dort gibt, und gibt dort auch alles
+  Weitere ab. Erst dann geht er zum nächsten NPC. Vorher lief er z. B. Elder abgeben → Sage abgeben → zurück zu Elder
+  zum Annehmen. Das gilt in allen Modi.
+- Mit „Erst alle Quests erledigen, dann gemeinsam abgeben“ bleibt die Abgabe-Runde bestehen: Erst werden alle Abgaben
+  erledigt, unterwegs wird beim selben NPC gleich angenommen, dann folgen die übrigen Annahmen, dann geht es auf die Jagd.
+
 #### Neu in 2.21.1 – Gemeinsam abgeben: Annahmen nur auf dieser Map zuerst
 - Mit „Erst alle Quests erledigen, dann gemeinsam abgeben“ zog der Bot in der Annahme-Phase auch Quests auf ganz anderen
   Maps vor, z. B. eine Tagesquest in Factorial Town direkt nach einer Annahme in The Kaiser's Canyon. Jetzt nimmt er
