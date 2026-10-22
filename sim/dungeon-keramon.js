@@ -150,6 +150,7 @@ const ents = new Map(); // alle Entities, je mit .map
 const players = [];     // { i, G, map, goal, atk, hitAt, fainted, reviveAt, inside, gateOpen }
 const terms = ['terminal_1', 'terminal_2', 'terminal_3', 'terminal_4', 'terminal_5', 'terminal_6'].map((n) => ({ name: n, x: PT[n][0], y: PT[n][1], r: 18, s: 0, eatEnd: 0, eater: null }));
 const run = { inside: false, room: 0, pulled: false, wave: -1, nextWaveAt: 0, deaths: 0, roomDeaths: 0, cleared: false, failed: '', boss: null, zones: [], lines: [], mirror: null,
+  perSkill: {}, // Attacke -> { casts, hit, dodged }
   stats: { skills: 0, eaten: 0, kills: {}, reflectHits: 0, reflectDmg: 0, dodged: 0, hits: 0, bossDmgTaken: 0, notHere: 0, notHereBroken: 0, pots: 0 }, roomTime: [] };
 let mobSeq = 0;
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -465,10 +466,13 @@ function castZone(src, skill, circles, line, castMs, dmg, onHit) {
     run.zones = run.zones.filter((x) => x !== z);
     for (const pl of players) pl.handlers.evs?.([{ t: 'skill', src: src.id, skill, phase: 'release', ...(line ? { x: line.tx, y: line.ty } : {}) }]);
     if (!ents.has(src.id)) return;
+    const ps = run.perSkill[skill] ||= { casts: 0, hit: 0, dodged: 0 };
+    ps.casts++;
     for (const pl of alivePlayers()) {
       const p = partnerOf(pl);
       const inside = circles.some((c) => dist(p, c) <= c.r) || (line && segDist(p, line) <= line.r);
-      if (!inside) { run.stats.dodged++; continue; }
+      if (!inside) { run.stats.dodged++; ps.dodged++; continue; }
+      ps.hit++;
       run.stats.hits++; if (src.boss) run.stats.bossDmgTaken += dmg;
       say(`💢 Char${pl.i + 1} getroffen: ${SKILLS[skill].name} (−${dmg})`);
       damagePlayer(pl, dmg, SKILLS[skill].name);
@@ -596,6 +600,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   console.log(`Zeit im Dungeon ${total} s · Räume ${run.roomTime.map((t) => `${(t / 1000).toFixed(0)} s`).join(' / ') || '–'}`);
   console.log(`Terminals: ${6 - s.eaten}/6 heil (${s.eaten} gefressen) · Stürze ${run.deaths}`);
   console.log(`Flächen: ${s.dodged} ausgewichen, ${s.hits} getroffen · Spiegel-Treffer ${s.reflectHits} · NOT HERE ${s.notHere}× (${s.notHereBroken} abgebrochen) · Tränke ${s.pots} · Skills ${s.skills}${run.boss ? ` · Boss-Stapel ${run.boss.stacks}` : ''}`);
+  console.log(`Attacken (Ansagen · getroffen · ausgewichen): ${Object.entries(run.perSkill).map(([k, v]) => `${k} ${v.casts} · ${v.hit} · ${v.dodged}`).join(' | ')}`);
   console.log(`Kills: ${Object.entries(s.kills).map(([k, v]) => `${v}× ${k}`).join(', ')}`);
   console.log(`Status am Ende: ${players.map((pl) => `Char${pl.i + 1}: ${pl.status()}`).join(' | ')}`);
   process.exit(run.cleared && players.every((pl) => !pl.inside) ? 0 : 1);
