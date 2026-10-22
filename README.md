@@ -217,6 +217,13 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.25.0 – Boss-Wartezeit nutzen, Golemon nicht wegkiten
+- **Warten auf einen Quest-Boss:** Ist der Boss nicht da, bekämpft der Bot in der Wartezeit normale Monster im Umkreis
+  von 250 px um den Spawnpunkt. Sobald der Boss zu sehen ist, nimmt er keine neuen Füllmonster mehr und geht auf den Boss.
+- **Golemon auf Holy Peaks:** Golemon macht einen Flächenangriff um sich herum. Das Ausweichen zog ihn bisher Stück für
+  Stück aus seiner Verfolgungsreichweite (320), bis er zurücklief. Beim Ausweichen vor ihm wählt der Bot jetzt nur noch
+  Punkte, die höchstens 240 px von seinem Startplatz entfernt sind. Weitere Monster lassen sich in KITE_GUARD ergänzen.
+
 #### Neu in 2.24.1 – Leader wartet beim NPC statt wegzulaufen
 - Hält der Leader eine Abgabe für die Gruppe zurück, weil ein Mitläufer noch nicht so weit ist, macht er in der
   Wartezeit nur noch Aufgaben auf derselben Map. Gibt es dort keine, wartet er. Bisher lief er z. B. nach „The Shrine
