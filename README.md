@@ -217,6 +217,11 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.22.2 – Nach dem Kill gemeinsam aufs nächste Monster
+- Stirbt das Monster des Leaders, nehmen die Mitläufer sofort den Angreifer, der dem Leader am nächsten ist. Diesen
+  nimmt auch der Leader als Nächstes. Bisher griff in dieser kurzen Lücke jeder sein eigenes angreifendes Monster an.
+  Mit weniger als 50 % HP wehrt sich ein Mitläufer weiterhin zuerst selbst.
+
 #### Neu in 2.22.1 – Gemeinsamer Fokus auf das Ziel des Leaders
 - Ohne „🎯 Ziele verteilen“ greifen die Mitläufer jetzt zuverlässig das Ziel des Leaders an. Bisher wehrte jeder zuerst
   das Monster ab, das ihn selbst angriff. In Gebieten mit aggressiven Monstern sah das aus, als würde verteilt.

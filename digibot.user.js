@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.22.1
+// @version      2.22.2
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -472,7 +472,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.22.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.22.2'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -3957,6 +3957,13 @@
     const focus = resting ? null : focusAssist(sc);
     if (focus && !safeHeld(focus.id)) return focus;
     const att = sc.attackers.filter((m) => !safeHeld(m.id));
+    // Leader hat gerade kein Ziel (sein Monster ist tot): wie er den Angreifer nehmen, der ihm am nächsten ist –
+    // so geht die ganze Gruppe sofort gemeinsam auf dasselbe Monster (bei wenig HP: was mich angreift)
+    if (att.length > 1 && !resting && group.role() === 'follower' && !spreadOn()) {
+      const L = groupLeader(), p = getStore()?.getState?.()?.me?.partner;
+      const lowHp = p && p.maxHp > 0 && p.hp / p.maxHp * 100 < FOCUS_MIN_HP;
+      if (L && L.x != null && !L.serve && !lowHp) return att.slice().sort((a, b) => Math.hypot(a.x - L.x, a.y - L.y) - Math.hypot(b.x - L.x, b.y - L.y))[0];
+    }
     if (att.length) return att[0];
     if (resting) return null;
     if (group.role() === 'follower' && groupLeader()?.serve) return null; // Leader erledigt meine Quests: stehen bleiben
