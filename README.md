@@ -217,6 +217,13 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.28.0 – Lage-Karte, weniger Haken
+- **Übersicht → Lage:** Auf einen Blick siehst du Modus und ob der Bot läuft, Map und Kanal, das aktuelle Ziel mit
+  HP, die Aufgabe und den Status. In der Gruppe kommt eine Zeile je Bot dazu: Leader (◉), HP-Balken (rot unter 35 %),
+  Map und Kanal, bei ClavisAngemon „🔑 bereit“ oder die Restzeit, und der Status.
+- **Weniger Haken:** „Bei Spiegel/Reflexion nicht angreifen“ und „Skills nur, wenn danach noch Zeit zum Ausweichen
+  bleibt“ sind jetzt immer an. Ausgeschaltet schadete man sich nur selbst.
+
 #### Neu in 2.27.0 – Panel neu geordnet
 - **Neuer Reiter 🐣 Digimon:** Hier steht alles zum eigenen Digimon an einer Stelle: Quest-Digimon, Digitation und
   Abgabe-Digimon (bisher im Quest-Reiter), Skills und Heal je Digitationsform sowie Tränke F1–F3 (bisher im

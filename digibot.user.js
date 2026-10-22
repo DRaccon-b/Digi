@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.27.0
+// @version      2.28.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -238,6 +238,16 @@
     .digibot__queue span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .digibot__grp.is-off{opacity:.45}
     .digibot__grp.is-off>summary::after{content:attr(data-offnote);font:500 9.5px system-ui;color:#ffb86b;margin-left:6px}
+    .digibot__lage{display:grid;gap:3px;font:500 11px system-ui;color:#c9d1e6}
+    .digibot__lage .row{display:flex;gap:6px;align-items:baseline;min-width:0}
+    .digibot__lage .row>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+    .digibot__lage .k{color:#7c8496;flex:none;width:16px;text-align:center}
+    .digibot__lage .mem{display:grid;grid-template-columns:auto 34px 1fr;gap:6px;align-items:center;padding:2px 0;border-top:1px solid #222a44}
+    .digibot__lage .mem b{font-weight:700;white-space:nowrap}
+    .digibot__lage .mem .hp{height:5px;background:#2a3355;border-radius:3px;overflow:hidden}
+    .digibot__lage .mem .hp i{display:block;height:100%;background:#2ecc71}
+    .digibot__lage .mem .hp.low i{background:#ff6b6b}
+    .digibot__lage .mem .st{color:#9aa5c4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
     .digibot__scope{font:500 10.5px system-ui;color:#9aa5c4;background:#161c33;border:1px solid #2a3355;border-radius:5px;padding:4px 6px;margin:0 0 6px}
     .digibot__prof{font:600 10px system-ui;color:#9aa5c4;margin-left:auto;margin-right:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:110px}
     .digibot__prof:empty{display:none}
@@ -342,11 +352,13 @@
     });
     const m = modeOf(); // alte Einstellungen mit mehreren Schaltern auf eine Betriebsart bringen
     cfg.questMode = m === 'quest'; cfg.autopilot = m === 'auto'; cfg.farm = m === 'farm';
+    cfg.mirror = true; cfg.safeCast = true; // immer an (siehe ALWAYS_ON)
   }
   // Betriebsart (genau eine): Grinden, Quest-Jagd (Quest-Modus), Quest-Autopilot oder Bosse (Rotation/Named-Runde)
   const MODES = { grind: 'Grinden', quest: 'Quest-Jagd', auto: 'Autopilot', farm: 'Bosse' };
   const modeOf = () => (cfg.farm ? 'farm' : cfg.autopilot ? 'auto' : cfg.questMode ? 'quest' : 'grind');
   try { applyCfg(JSON.parse(localStorage.getItem(CFG_KEY) || '{}')); } catch {}
+  const ALWAYS_ON = ['mirror', 'safeCast']; // früher Haken – ausgeschaltet schadete man sich nur selbst
   if (cfg.tab === 'care') cfg.tab = 'attack';
   const mobOn = (mapId, key, cat) => cfg.mobs[mapId]?.[key] ?? cat !== 'boss';
   const saveCfg = () => {
@@ -477,7 +489,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.27.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.28.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -501,6 +513,8 @@
     </nav>
     <div class="digibot__body">
       <section data-page="data">
+        ${grp('lage', 'Lage', '<div class="digibot__lage" data-f="lage"><div class="digibot__none">–</div></div>', true,
+          'Auf einen Blick: Modus, Ort, aktuelles Ziel und Aufgabe – in der Gruppe eine Zeile je Bot (Rolle, HP, Ort, Status, bei ClavisAngemon Key of Hope).')}
         ${grp('digimon', '<span data-f="partner">Digimon</span>', `
           ${bar('exp', 'EXP')}
           <div class="digibot__tiles">
@@ -558,10 +572,8 @@
           'Schwächere Monster werden immer angegriffen, nur zu starke (über +Level) nicht. Angreifer werden immer abgewehrt. Channel-Checker: etwa jede Minute und nach jedem Map-Wechsel wechselt der Bot auf den Kanal mit den wenigsten Spielern (mind. 2 weniger) – nur außerhalb von Kämpfen, nicht in der Boss-Rotation; in der Gruppe entscheidet der Leader, die anderen folgen.')}
         ${grp('mech', 'Boss-Mechaniken', `
           ${check('dodge', 'Warnkreisen/-strahlen ausweichen')}
-          ${check('mirror', 'Bei Spiegel/Reflexion nicht angreifen')}
-          ${check('safeCast', 'Skills nur, wenn danach noch Zeit zum Ausweichen bleibt')}
           ${check('koh', 'ClavisAngemon: große Raid-Angriffe mit Key of Hope blocken')}`, true,
-          'Ausweichen: raus aus Kreisen, Strahlen und Fächern, möglichst mit freier Linie zum Ziel. Spiegel: weder 1 noch Skills, solange das Ziel Schaden zurückwirft. Skill-Timing: lange Casts nur, wenn eine mögliche Boss-Attacke noch Zeit zum Ausweichen lässt.')}
+          'Ausweichen: raus aus Kreisen, Strahlen und Fächern, möglichst nah am Boss. Immer aktiv: kein Angriff, solange das Ziel Schaden zurückwirft (Spiegel), und lange Casts nur, wenn eine mögliche Boss-Attacke noch Zeit zum Ausweichen lässt.')}
 
         ${grp('bskills', 'Attacken des Bosses', `<div class="digibot__bskills" data-f="bskills"><div class="digibot__none">Kein Boss im Kampf – Attacken erscheinen hier, sobald du einen Boss anvisierst.</div></div>`, true,
           'Form, Ansage und Cooldown jeder Attacke. Der Countdown läuft ab dem ersten beobachteten Einsatz; „bereit“ heißt „kann jederzeit kommen“.')}
@@ -4546,6 +4558,7 @@
     renderQuests(st, sc);
     renderFarm(st);
     syncModeScope();
+    renderLage(st, Date.now());
     renderAccounts(st);
     renderTop(st);
     renderQueue(st);
@@ -4922,6 +4935,39 @@
       </div>`;
     });
     const html = cards.length ? cards.join('') : '<div class="digibot__none">Noch keine Accounts – unten unter „Accounts verwalten“ eintragen.</div>';
+    if (box.innerHTML !== html) box.innerHTML = html;
+  }
+  // Übersicht „Lage“: Modus, Ort, Ziel, Aufgabe; in der Gruppe eine Zeile je Bot
+  function renderLage(st, now) {
+    if (!pageOn('data')) return;
+    const box = panel.querySelector('[data-f="lage"]');
+    if (!box) return;
+    const C = content(), esc = (x) => String(x ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const mapName = (id) => C?.maps?.[id]?.name || id || '?';
+    const row = (k, txt, title = txt) => `<div class="row"><span class="k">${k}</span><span title="${esc(title)}">${esc(txt)}</span></div>`;
+    const rows = [];
+    rows.push(row(bot.on ? '▶' : '■', `${MODE_NAMES[modeOf()]} · ${bot.on ? 'läuft' : 'aus'} · ${st?.world ? `${mapName(st.world.mapId)} Ch ${st.world.channel ?? 1}` : 'nicht in der Welt'}`));
+    const t = st?.target;
+    if (t && t.hp > 0) rows.push(row('🎯', `${t.name ?? '?'}${t.level ? ` Lv ${t.level}` : ''} · ${t.maxHp ? Math.round(t.hp / t.maxHp * 100) : '?'} %`));
+    const task = cfg.farm ? (farm.goal ? `Boss: ${content()?.digimon?.[farm.goal.species]?.name || farm.goal.species} (${mapName(farm.goal.map)} Ch ${farm.goal.ch})` : '')
+      : autopilot.mapTalk ? 'Abgeben & Annehmen auf dieser Map' : autopilot.task?.label || '';
+    if (task) rows.push(row('📌', task));
+    if (bot.status) rows.push(row('💬', bot.status));
+    if (group.active()) {
+      const stateOf = (i) => (group.slot() === i ? groupState(st, now) : fresh(group.peers.get(i), now) ? group.peers.get(i) : null);
+      for (const [i, a] of accounts.list.entries()) {
+        if (!a.on || !a.user.trim()) continue;
+        const p = stateOf(i), lead = i === accounts.leader;
+        const name = (lead ? '◉ ' : '') + (p?.name || a.char || a.user);
+        if (!p) { rows.push(`<div class="mem"><b>${esc(name)}</b><span></span><span class="st">offline</span></div>`); continue; }
+        const koh = p.kohAt == null ? '' : p.kohAt <= now ? ' · 🔑 bereit' : ` · 🔑 ${Math.ceil((p.kohAt - now) / 1000)} s`;
+        const where = p.inWorld ? `${mapName(p.mapId)} Ch ${p.channel}` : 'nicht in der Welt';
+        const stt = `${where}${koh} · ${p.bot ? p.status : 'Bot aus'}`;
+        const hp = p.hp ?? 0;
+        rows.push(`<div class="mem"><b>${esc(name)}</b><span class="hp${hp < 35 ? ' low' : ''}" title="HP ${hp} %"><i style="width:${hp}%"></i></span><span class="st" title="${esc(stt)}">${esc(stt)}</span></div>`);
+      }
+    }
+    const html = rows.join('');
     if (box.innerHTML !== html) box.innerHTML = html;
   }
   // Kopfbereich: Gruppen-Chip und aktuelle Aufgabe mit Fortschritt
