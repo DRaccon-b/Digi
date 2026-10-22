@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.30.6
+// @version      2.31.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -493,7 +493,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.30.6'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.31.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1474,13 +1474,20 @@
   // dem Einschlag. Mehrere Clavis in der Gruppe wechseln sich ab: der bereite mit der kleinsten Slot-Nummer zuerst; er
   // meldet es sofort an die anderen Fenster. Kommt von ihm nichts, springt KOH_STEP_MS später der nächste ein.
   const KOH_ID = 'clavisangemon.key_of_hope';
+  // Nur, was man nicht ausweichen kann (geteilte Treffer, Fächer über die halbe Arena). Allem anderen weicht man aus –
+  // 4 Clavis haben 4 Blocks pro 45 s, Diaboromon feuert in der Zeit ~6 blockbare Attacken (Probelauf Hard: mit allen
+  // Attacken im Block war für die Catastrophe Cannon oft keiner mehr bereit; nur für sie: 100 % geblockt).
   const KOH_BLOCK = new Set([
-    'infermon.spider_shooter', 'infermon.spider_shooter_charged', 'infermon.cocoon_ram',
-    'diaboromon.catastrophe_cannon', 'diaboromon.cannon_volley', 'diaboromon.tentacle_bug',
-    // Armageddemons einfacher Black Rain (Kreis unter jedem) nicht: dem weicht man aus – Key of Hope für die Hülle
-    // (geteilter Schaden, nicht ausweichbar) und Ultimate Flare aufheben (Raid-Probelauf: 0 statt 252 000 Schaden)
-    'armageddemon.black_rain_storm', 'armageddemon.black_rain_shell', 'armageddemon.ultimate_flare',
+    'diaboromon.catastrophe_cannon', 'armageddemon.black_rain_shell', 'armageddemon.ultimate_flare',
+    'infermon.spider_shooter_charged', 'infermon.cocoon_ram',
   ]);
+  // Diese weicht man aus – schlagen sie aber kurz vor einem Block-Treffer ein, zündet der Clavis so früh, dass der
+  // Schutz (2 s) beides abdeckt (die Gruppe steht dann schon gesammelt und weicht nicht mehr aus)
+  const KOH_ALSO = new Set([
+    'diaboromon.cannon_volley', 'diaboromon.tentacle_bug', 'diaboromon.copy_cannon',
+    'armageddemon.black_rain', 'armageddemon.black_rain_storm', 'infermon.spider_shooter',
+  ]);
+  const KOH_GATHER_MS = 2000; // so lange vor dem Einschlag sammeln (vorher wird noch ausgewichen)
   const KOH_LEAD_MS = 700;    // so lange vor dem Einschlag zündet der erste Clavis (Schutz hält 2 s)
   const KOH_STEP_MS = 200;    // Abstand, bis der nächste Clavis einspringt
   const KOH_COVER_MS = 1700;  // Einschläge bis so lange nach dem Zünden gelten als abgedeckt
@@ -1517,7 +1524,15 @@
         if (b && me && Math.hypot(b.x - me.x, b.y - me.y) > KOH_RANGE) continue;
         const claim = kohState.claims.get(src);
         if (claim && e.castEnd <= claim + KOH_COVER_MS) continue; // ein Clavis hat schon gezündet
-        if (!hit || left < hit.left) hit = { src, sid, left, castEnd: e.castEnd };
+        if (!hit || left < hit.left) hit = { src, sid, left, castEnd: e.castEnd, main: e.castEnd };
+      }
+    }
+    // Ausweich-Attacken, die kurz vor dem Block-Treffer einschlagen, gleich mit abdecken: früher zünden
+    if (hit) {
+      const win = KOH_COVER_MS - KOH_LEAD_MS; // so weit vor dem Haupt-Einschlag reicht ein Block noch
+      for (const [, log] of bossSkillLog) for (const [sid, e] of log) {
+        if (!KOH_ALSO.has(sid) || e.phase !== 'cast' || e.castEnd < now - 300) continue;
+        if (e.castEnd < hit.castEnd && e.castEnd >= hit.main - win) { hit.castEnd = e.castEnd; hit.left = e.castEnd - now; hit.also = sid; }
       }
     }
     return hit;
@@ -1548,13 +1563,20 @@
   // Der Clavis, der zündet, bleibt stehen.
   function kohGather(st, now) {
     if (!cfg.koh || !group.active()) return null;
-    if (kohState.anchor && kohState.anchor.end > now) return 'Key of Hope gleich – halte Position, Gruppe sammelt sich';
+    // Bis kurz vor dem Einschlag gilt Ausweichen (z. B. eine Volley davor): erst in den letzten KOH_GATHER_MS sammeln
+    const inDanger = () => { const z = dangerZones(), ents0 = window.dmo?.net?.state?.entities, me0 = [controlled(st), ents0?.get?.(st?.me?.partner?.entityId)];
+      return me0.some((e) => e && z.some((zz) => zoneDist(zz, e).d < DODGE_MARGIN)); };
+    if (kohState.anchor && kohState.anchor.end > now) {
+      if (kohState.anchor.end - 500 - now > KOH_GATHER_MS && inDanger()) return null;
+      return 'Key of Hope gleich – halte Position, Gruppe sammelt sich';
+    }
     let plan = null;
     for (const [slot, pl] of kohState.plans) {
       if (pl.end <= now) { kohState.plans.delete(slot); continue; }
       if (pl.mapId === st.world?.mapId && (!plan || slot < plan.slot)) plan = pl;
     }
     if (!plan) return null;
+    if (plan.end - 500 - now > KOH_GATHER_MS && inDanger()) return null; // erst ausweichen, gleich danach sammeln
     const ents = window.dmo?.net?.state?.entities;
     const partner = ents?.get?.(st?.me?.partner?.entityId), tamer = controlled(st);
     const who = group.peers.get(plan.slot)?.name || `Slot ${plan.slot + 1}`;
@@ -1580,7 +1602,7 @@
     try { group.bus?.postMessage({ type: 'koh', slot: group.slot(), src: hit.src, skill: hit.sid }); } catch { /* ignore */ }
     bot.lastPress.skill = now;
     bot.hit('Digit' + own.k, now);
-    const name = content()?.skills?.[hit.sid]?.name || hit.sid;
+    const name = (content()?.skills?.[hit.sid]?.name || hit.sid) + (hit.also ? ` (+ ${content()?.skills?.[hit.also]?.name || hit.also})` : '');
     logEvent('warn', `Key of Hope gegen ${name}`);
     return `Key of Hope gegen ${name}`;
   }
@@ -4274,7 +4296,8 @@
       if (r) return r.save ? Math.max(0, r.slack) / 10 : 3000 + r.urgent / 10; // rettbar: kleinster Zeitpuffer zuerst
       return m.attacker ? 5000 + m.d : 10000 + m.d;
     };
-    const list = sc.mobs.filter((m) => inRect(z, m, 24) && !m.banned && !safeHeld(m.id) && (m.attacker || !optional.has(m.species)));
+    const copies = new Set((mb?.view?.copies || []).flatMap((c) => c.ids || [])); // Diaboromons Kopien: nur das Original angreifen
+    const list = sc.mobs.filter((m) => inRect(z, m, 24) && !m.banned && !safeHeld(m.id) && !copies.has(m.id) && (m.attacker || !optional.has(m.species)));
     if (!list.length) return null;
     list.sort((a, b) => score(a) - score(b));
     const cur = st.target, keep = cur && list.find((m) => m.id === cur.id);

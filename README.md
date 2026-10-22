@@ -217,6 +217,13 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.31.0 – Key of Hope nur für unausweichbare Treffer
+- Key of Hope zündet nur noch gegen Treffer, denen man nicht ausweichen kann: Catastrophe Cannon, Black-Rain-Hülle, Ultimate Flare (dazu Infermons geladener Spider Shooter und die Ramme). Cannon Volley, Tentacle Bug, Kopien-Strahlen und Black Rain weicht man aus.
+- Fällt so eine Ausweich-Attacke bis zu 1 s vor einen Block-Treffer, zündet der Clavis früher, damit der Schutz (2 s) beides abdeckt. Die Gruppe steht dann schon zusammen und weicht nicht mehr aus.
+- Gesammelt wird erst in den letzten 2 s vor dem Einschlag; bis dahin weicht der Bot noch aus, etwa einer Volley.
+- Diaboromons Kopien (Liste des Spiels `mechB.view.copies`) greift der Bot nie an, nur das Original.
+- Grund (Probelauf Hard, Bauzel + 4 ClavisAngemon Lv 70): 4 Clavis haben 4 Blocks pro 45 s, Diaboromon feuert in der Zeit ~6 blockbare Attacken. Mit allen im Block war für die Cannon oft keiner bereit (3 von 5 geblockt). Jetzt sind es 100 %, und in einem Lauf wurde Hard komplett geschafft (Raum 3 in 223 s, Raum 4 in 320 s). Offen: Kurz vor einer Volley laufen die Digimon einem wandernden Boss hinterher in die Kreise.
+
 #### Neu in 2.30.6 – „Ziele verteilen“: sichtbar, wann es gilt
 - „Ziele verteilen“ wirkt nur im Gruppen-Modus 📜 Quests, wenn alle ihren Bot fahren. In 👣 Spiegeln, ⚔️ + Angriff, 👑 Bosse und 🏰 Dungeon ist es absichtlich aus; in + Angriff greifen alle das Ziel des Leaders an. Bisher stand das nur im Tooltip, live sah es aus, als sei der Haken kaputt. Jetzt ist der Haken in diesen Modi abgeblendet und zeigt „gilt nur im Modus 📜 Quests“.
 
