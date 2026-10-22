@@ -217,6 +217,10 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.30.5 – beim Warten auf einen Boss nichts angreifen
+- Wartet der Autopilot auf einen Quest-Boss, der noch nicht da ist, greift er nichts mehr an, nur Angreifer wehrt er ab. Bis 2.30.4 nahm er in der Wartezeit normale Monster in 250 px um den Spawnpunkt mit. Erscheint der Boss, geht er wie bisher sofort auf ihn.
+- Test `bossfilltest` angepasst: Beim Warten 0 Kills, ein Angreifer wird abgewehrt, ein anderes Monster in der Nähe bleibt in Ruhe, dann fällt der Boss.
+
 #### Neu in 2.30.4 – aus dem ersten Hard-Live-Lauf
 - **Tentacle Bug:** Der Arm packt erst ~0,2 s nach dem Ende der Ansage, der Strahl ist dann schon vom Boden verschwunden. Live griff der Bot genau in diesem Moment wieder an und wurde gepackt (24 s festgehalten). Strahlen mit Greifarm oder Ansturm gelten jetzt noch 0,8 s nach dem Verschwinden als Gefahr. Simulator: 0 von 18 gepackt (vorher 2 von 18).
 - **Digitation abwarten:** An der Tür und vor dem Anziehen eines Raums wartet der Bot, bis die eingestellte Digitation erreicht ist. Live ging er sonst als ExVeemon hinein. Er wartet höchstens 90 s, z. B. wenn Tamer-DS fehlt.

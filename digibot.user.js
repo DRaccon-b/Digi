@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.30.4
+// @version      2.30.5
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -492,7 +492,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.30.4'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.30.5'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1599,7 +1599,6 @@
   // ---------- Umgebung scannen ----------
   const KIND = { Tamer: 0, Partner: 1, Mob: 2, Npc: 3 };
   const FLAG = { Dead: 2, InCombat: 8, Boss: 16, Aggressive: 32, Hidden: 64, Untargetable: 256, Elite: 1024 };
-  const WAIT_FILL_R = 250;          // Boss-Wartezeit: normale Monster so nah am Spawnpunkt mitnehmen
   const mobHome = new Map();         // Monster-Entity -> zuerst gesehene Position (Startplatz für die Verfolgungsreichweite)
   // Monster mit Flächenangriff um sich herum: beim Ausweichen in ihrer Verfolgungsreichweite bleiben (sonst kitet man sie
   // Stück für Stück weg, bis sie zurücklaufen). Art -> Map (leer = überall)
@@ -1644,11 +1643,6 @@
     const farmSp = cfg.farm ? farmTargets(mapId) : null;
     const assistId = group.role() === 'follower' ? leaderTargetId(now) : null;
     const mobs = [];
-    // Warten auf einen Quest-Boss: normale Monster im Umkreis des Spawnpunkts sind erlaubt (Meldung der Jagd frisch halten)
-    let preyHere = false; // Boss (Jagdziel) zu sehen -> keine Füllmonster mehr
-    if (quest?.species?.size) ents.forEach((e) => { if (e.kind === KIND.Mob && e.hp > 0 && !(e.flags & FLAG.Dead) && quest.species.has(e.defId)) preyHere = true; });
-    const wf = !preyHere && autopilot.waitFill && now - autopilot.waitFill.at < 3000 ? autopilot.waitFill : null;
-    const fillOk = (e, cat) => !!wf && cat === 'normal' && Math.hypot(e.x - wf.x, e.y - wf.y) <= WAIT_FILL_R;
     // Kiten: erste gesehene Position jedes Monsters (≈ Startplatz) merken
     ents.forEach((e) => { if (e.kind === KIND.Mob && !mobHome.has(e.id)) mobHome.set(e.id, { x: e.x, y: e.y }); });
     if (mobHome.size > 800) mobHome.clear();
@@ -1674,7 +1668,7 @@
           && (takenByOthers.has(e.id) || (!!e.targetId && !ours.has(e.targetId))),
         // nur zu starke Monster sind tabu, schwächere immer erlaubt; Farm-Bosse immer
         inLvl: e.level <= pLvl + cfg.lvlDiff || isFarmMob(farmSp, e.defId, cat, e.level),
-        enabled: farmSp ? isFarmMob(farmSp, e.defId, cat, e.level) : quest ? quest.species.has(e.defId) || e.id === assistId || fillOk(e, cat, now) : mobOn(mapId, key, cat),
+        enabled: farmSp ? isFarmMob(farmSp, e.defId, cat, e.level) : quest ? quest.species.has(e.defId) || e.id === assistId : mobOn(mapId, key, cat),
         aggressive,
         banned: (blacklist.get(e.id) || 0) > now,
         grpBy: grpTgt?.get(e.id) ?? null, // Slot des Gruppenmitglieds, das es schon angreift (Ziele verteilen)
@@ -3468,8 +3462,7 @@
       return r === 'stuck' ? fail('Jagdgebiet nicht erreichbar') : `${t.label} · laufe ins Jagdgebiet (${Math.round(dz)} px)`;
     }
     autopilot.idleSince ||= now;
-    // Boss nicht da: in der Wartezeit normale Monster nahe am Spawnpunkt mitnehmen (der Bot-Takt greift sie an)
-    if (t.loc.boss) autopilot.waitFill = { x: t.loc.x, y: t.loc.y, at: now };
+    // Boss nicht da: warten – nichts angreifen außer Angreifern (2.30.5; vorher wurden normale Monster am Spawn mitgenommen)
     if (t.loc.boss) { // Feldboss nicht da (Respawn oft 10 min): Kanal mit dem kürzesten Respawn wählen
       const bc = questBossSel(t).length ? bossChannelPlan(st, sc, t, now) : bossChannelHop(st, sc, t, now);
       if (bc) return `${t.label} · ${bc}`;
