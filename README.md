@@ -217,6 +217,18 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.30.0 – Kera Hard („Revenge“) im Dungeon-Modus
+- Reiter Bosse → Dungeon → Modus „Hard – Revenge (Gruppe)“. Der Bot betritt Hard an derselben Tür und räumt Raum 3 (Diaboromon, 6-Minuten-Uhr) und Raum 4 (Armageddemon mit Kuramon-Herde).
+- Zielwahl aus den Spawn-Daten:
+  1. Greifarm, der mich festhält (sofort zerschlagen)
+  2. Herden-Kuramon (die dem Ei am nächsten zuerst, jedes bringt Kuramon-Daten)
+  3. Mail-Server und Cluster
+  4. der Boss
+- Boss-Attacken am Boss-Eintrag der Spawn-Daten (Diaboromon, Armageddemon) kennen jetzt auch Skill-Timing und Attacken-Liste.
+- Tanken zählt gleichzeitige Treffer zusammen: 4 Kopien-Strahlen à 30 000 sind zusammen nicht tankbar.
+- Hard ist für Gruppen gedacht. Den geteilten Treffer (Catastrophe Cannon, Black-Rain-Hülle: 240 % der Max-HP auf alle im Kreis verteilt) überlebt man allein nicht. Das Zusammenstellen dafür in der Gruppe folgt.
+- Neuer Probelauf `sim/dungeon-revenge.js`: allein (×4) ist Raum 3 nach ~80 s verloren, Diaboromon bei 74–83 %.
+
 #### Neu in 2.29.8 – nicht vor dem eigenen Schwert weglaufen
 - Die Tank-Regel hat auch eigene Skills mitgezählt. Invincible Sword ist eine Kreis-Fläche mit viel Schaden und galt deshalb als „nicht tankbar“: Nach jedem eigenen Schwerthieb wich der Bot doch aus (live: 2 von 3 Crazy Turns). Jetzt zählen nur Attacken von Monstern.
 - Probelauf: Die Partner-Skills senden jetzt Skill-Ereignisse wie im Spiel, damit so ein Fehler auffällt. Holy Grace heilt (in den Spieldaten ein Heil-Skill), statt Schaden zu machen. Ergebnis (allein, ×4): Crazy Turn 6 von 7 getankt (vorher 4), Data Crusher 10 von 10 (vorher 8).
@@ -764,6 +776,9 @@ node sim/dungeon-keramon.js
 - `TEMPO=4`: Zeitraffer, alles läuft 4× schneller (höchstens 4, darüber weichen die Ergebnisse ab). `SCHNELL=1`: Boss-HP und Enrage ÷ 10 (für den Test). `V=1`: jeder Statuswechsel der Bots
 - Annahmen (Server-Logik ist nicht im Client): Nach einer Welle ohne Pflicht-Monster kommt die nächste sofort, sonst nach 4 s. Hungrige Tsumemon fressen weiter. Außerhalb des Kampfes 3 % HP/s Erholung.
 - Ergebnisse mit 2.29.2: allein in 393 s geschafft (Boss 308 s, 5 von 8 Mahlzeiten abgebrochen, 28 Tränke), zu dritt in 135 s. Der Simulator ist optimistischer als das Spiel: Live (noch 2.29.0, mit Ausweichen statt Tanken) schaffte der Bot in Raum 1 nur 4/6 Terminals, und Infermon fraß 12 Mahlzeiten bis zum Enrage.
+
+### Hard („Revenge“)
+`node sim/dungeon-revenge.js` (Standard: allein; `GRUPPE=3` für eine Gruppe, `TEMPO=4`). Gleiche Partner-Werte wie Easy; Boss-HP, Uhr, Enrage und alle Attacken stammen aus den Spieldaten. Angenommen sind der Grundtreffer der Bosse (`BOSS_HIT`, 6 000 alle ~2 s), dass Kopien nicht angreifbar sind und die Aufteilung der Herde.
 
 ### Was in Raum 1 nicht hilft (A/B-Vergleich, Okt. 2026)
 Simulator kalibriert auf live: Digimon läuft 120 px/s, Skill-Animationen (Invincible Sword 0,6 s, Omega Blade 0,9 s) blockieren den Grundangriff. Allein, je 6–12 Läufe, Terminals heil im Schnitt:

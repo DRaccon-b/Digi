@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.29.8
+// @version      2.30.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -337,7 +337,7 @@
     farmChannels: [1, 2], // nur diese Kanäle
     farmMode: 'boss',     // 'boss' = Boss-Rotation, 'named' = Named-Elite-Runde (Map für Map)
     dungeon: false,       // Dungeon-Modus (Kera): betreten, Räume räumen, Boss, raus
-    dgMode: 'easy',       // 'easy' = War Game (Hard folgt)
+    dgMode: 'easy',       // 'easy' = War Game, 'hard' = Revenge (allein kaum zu schaffen)
     routeStart: '',       // Named-Runde: Start-Map (leer = niedrigste)
     routeEnd: '',         // Named-Runde: End-Map (leer = höchste)
     open: {},             // auf-/zugeklappte Gruppen im Panel
@@ -492,7 +492,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.29.8'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.30.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -624,9 +624,9 @@
           'Gilt für den Modus Bosse. Boss-Rotation: reist zum ausgewählten Boss, der als Nächstes da ist. Named-Elite-Runde: Maps von Start bis Ende ablaufen, je Kanal prüfen (lebt → kämpfen, Respawn unter 2 min → warten, sonst weiter), danach per Digi-Phone zurück. Kanalwechsel nur außerhalb des Kampfes; das Level-Limit gilt für diese Bosse nicht.', 'data-modes="farm"')}
         ${grp('dungeon', 'Dungeon (Kera)', `
           <div class="digibot__apcfg">
-            <label>Modus<select data-apsel="dgMode"><option value="easy">Easy – War Game</option></select></label>
+            <label>Modus<select data-apsel="dgMode"><option value="easy">Easy – War Game</option><option value="hard">Hard – Revenge (Gruppe)</option></select></label>
           </div>`, true,
-          'Gilt für den Modus Dungeon: zur Tür auf der Map Network, betreten (in der Gruppe nur der Leader, die anderen kommen mit), Raum 1: Terminals schützen – Tsumemon, die zu einem Terminal laufen, zuerst; dann durchs Tor, Boss Keramon (Chrysalimon, Infermon) und zum Ausgang. Ausweichen, Spiegel und Skill-Timing wie bei Bossen. Hard folgt.', 'data-modes="dungeon"')}
+          'Gilt für den Modus Dungeon: zur Tür auf der Map Network, betreten (in der Gruppe nur der Leader, die anderen kommen mit), Raum 1: Terminals schützen – Tsumemon, die zu einem Terminal laufen, zuerst; dann durchs Tor, Boss Keramon (Chrysalimon, Infermon) und zum Ausgang. Ausweichen, Spiegel und Skill-Timing wie bei Bossen. Hard (Revenge): Diaboromon mit Uhr, dann Armageddemon mit Kuramon-Herde – der geteilte Treffer (240 % der HP) ist allein tödlich, also nur in der Gruppe sinnvoll.', 'data-modes="dungeon"')}
         ${grp('timers', 'Timer', `<div class="digibot__timers" data-f="timers"><div class="digibot__none">Keine Bosse ausgewählt.</div></div>`, true,
           'Aus dem Boss-Fenster des Spiels, der Map-Info deines Kanals und eigenen Siegen. ★ = aktuelles Ziel, „hier“ = dein Standort.', 'data-modes="farm"')}
         ${grp('bosspick', 'Bosse auswählen', `<input class="digibot__search" type="text" data-bosssearch placeholder="🔍 Boss oder Map suchen…" autocomplete="off" spellcheck="false">
@@ -884,7 +884,7 @@
   function tankNow(now) {
     if (!cfg.tank) return false;
     const p = getStore()?.getState?.()?.me?.partner;
-    let any = false;
+    let any = false, sum = 0;
     const ents = window.dmo?.net?.state?.entities;
     for (const [src, log] of bossSkillLog) {
       if (ents?.get?.(src)?.kind !== KIND.Mob) continue; // nur Monster – eigene/verbündete Skills (z. B. Invincible Sword, Kreis) zählen nicht
@@ -894,10 +894,11 @@
         const sk = content()?.skills?.[id];
         if (!sk || sk.kind === 'buff' || sk.target === 'self' || (sk.shape !== 'circle' && sk.shape !== 'line')) continue;
         if (!tankable(sk, p, src)) return false;
-        any = true;
+        any = true; sum += skillDamage(sk, src) || 0;
       }
     }
-    return any;
+    // gleichzeitige Treffer zusammen: höchstens so viel, wie auch ein einzelner tankbarer Treffer sein dürfte
+    return any && sum <= p.maxHp * TANK_MAX_PCT / 100 && p.hp - sum >= p.maxHp * TANK_KEEP_PCT / 100;
   }
   // Infermon „NOT HERE“: frisst ein Terminal (scene.mechB.view.meals = [{ boss, left, ms, dmg }], dmg 0..1 = Anteil des
   // Schadens, der die Mahlzeit abbricht). Dann zählt nur Schaden – alle Skills sofort, ohne Zurückhalten.
@@ -1165,14 +1166,17 @@
     return null;
   }
   // Liste der Attacken mit Zustand
-  // Attacken eines Bosses: die der Art plus die seiner Boss-Formen aus den Spawn-Daten (z. B. Infermon im Kera-Dungeon:
+  // Attacken eines Bosses: die der Art plus die aus den Spawn-Daten (Boss-Eintrag und Formen) (z. B. Infermon im Kera-Dungeon:
   // Ramme, Spider Shooter, Kokon, NOT HERE stehen nur bei der Form, nicht beim Digimon Infermon)
   function bossSkillDefs(species) {
     const C = content(), list = [...(C?.digimon?.[species]?.skills || [])];
     for (const sp of Object.values(C?.spawns || {})) {
-      for (const b of sp.bosses || []) for (const fm of b.forms || []) {
-        if (fm.species !== species) continue;
-        for (const sk of fm.skills || []) if (!list.some((x) => x.id === sk.id)) list.push(sk);
+      for (const b of sp.bosses || []) {
+        // Attacken am Boss-Eintrag selbst (z. B. Diaboromon, Armageddemon im Kera-Dungeon) und an seinen Formen
+        for (const fm of [b, ...(b.forms || [])]) {
+          if (fm.species !== species) continue;
+          for (const sk of fm.skills || []) if (!list.some((x) => x.id === sk.id)) list.push(sk);
+        }
       }
     }
     return list;
@@ -4246,7 +4250,19 @@
       const ttk = m.hp / dps * 1000 + Math.hypot(partner.x - m.x, partner.y - m.y) / DG_PARTNER_SPEED * 1000;
       return { urgent: best, save: ttk <= best + 300, slack: best - ttk };
     };
+    // Boss-Mechaniken aus den Spawn-Daten: Greifarme (grab.arm), Herde (herd: läuft zum Ei), Brechbares (breakables)
+    const arms = new Set(), breaks = new Set(); let herd = null;
+    for (const b of spawn?.bosses || []) {
+      for (const sk of b.skills || []) if (sk.grab?.arm) arms.add(sk.grab.arm);
+      for (const br of b.breakables || []) if (br.species) breaks.add(br.species);
+      if (b.herd?.species) herd = { species: b.herd.species, to: R.m?.spawns?.[b.herd.to] };
+    }
+    const mine = new Set([st.me?.tamerEntityId, st.me?.partner?.entityId]);
+    const ents0 = window.dmo?.net?.state?.entities;
     const score = (m) => {
+      if (arms.has(m.species)) return mine.has(ents0?.get?.(m.id)?.targetId) || m.attacker ? -20 : 150; // hält mich fest: sofort brechen
+      if (herd && m.species === herd.species && herd.to) return 100 + Math.hypot(m.x - herd.to.x, m.y - herd.to.y) / 10; // vor dem Ei abfangen
+      if (breaks.has(m.species)) return 400 + m.d / 10;
       const r = rate(m);
       if (r) return r.save ? Math.max(0, r.slack) / 10 : 3000 + r.urgent / 10; // rettbar: kleinster Zeitpuffer zuerst
       return m.attacker ? 5000 + m.d : 10000 + m.d;
