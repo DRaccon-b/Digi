@@ -11,6 +11,7 @@
 //   SCHADEN=12000 HP=92660 BOSS_HP=3459500 DAUER=1000 …
 //   TRAENKE=40 TRANK_HP=15000 TRANK_AB=50 …        HP-Tränke auf F1 (Anzahl, Heilung, Schwelle in %)
 //   TEMPO=4 …                                      Zeitraffer: alle Uhren und Timer laufen 4× schneller (über 4 wird es zu ungenau)
+//   TEAM=clavis …                                  Bauzel (Imperialdramon Paladin Lv 99) + 4 ClavisAngemon Lv 70
 //   SCHNELL=1 …                                    verkürzt (Boss-HP und Enrage ÷ 10) – für den Test
 //
 // Partner wie im ersten Live-Lauf (Okt. 2026): Imperialdramon Paladin Mode Lv 99 – 92 660 HP, 9 365 DS, Angriffstempo
@@ -40,7 +41,8 @@ function warp(g) {
   if (g.performance) { const p0 = g.performance.now(), r0 = realNow(); g.performance.now = () => p0 + (realNow() - r0) * TEMPO; }
 }
 warp(global);
-const N = Math.max(1, Math.min(5, Number(process.env.GRUPPE) || 3));
+const TEAM = process.env.TEAM || '';
+const N = TEAM === 'clavis' ? 5 : Math.max(1, Math.min(5, Number(process.env.GRUPPE) || 3));
 const SCHNELL = !!process.env.SCHNELL;
 const SCHADEN = Number(process.env.SCHADEN) || 12000;    // Grundangriff je Treffer (alle AS ms)
 const AS = 1121;                                          // Angriffstempo Imperialdramon Paladin
@@ -57,6 +59,19 @@ const PSK = [
   { id: 'imperialdramon_paladin.paladin_guard', name: 'Paladin Guard', cooldownMs: 30000, dsCost: 600, range: 32, mult: 0, def: { kind: 'buff', target: 'self', shape: 'single', power: 0, castMs: 0 } },
   { id: 'imperialdramon_paladin.omega_blade', name: 'Omega Blade', cooldownMs: 20000, dsCost: 1050, range: 64, mult: 5, def: { kind: 'damage', target: 'enemy', shape: 'single', power: 890, castMs: 900 } },
 ];
+// ClavisAngemon (Spieldaten) und Team – Werte wie im Hard-Probelauf (Grundwert + Wachstum × Level, Bauzels Aufschlag)
+const CSK = [
+  { id: 'clavisangemon.key_of_hope', name: 'Key of Hope', cooldownMs: 45000, dsCost: 535, range: 128, mult: 0, koh: true, def: { kind: 'buff', target: 'self', shape: 'circle', radius: 128, power: 0, protectionMs: 2000, castMs: 0 } },
+  { id: 'clavisangemon.gate_of_judgment', name: 'Gate of Judgment', cooldownMs: 18000, dsCost: 895, range: 144, mult: 3.5, def: { kind: 'damage', target: 'enemy', shape: 'single', power: 650, castMs: 900 } },
+  { id: 'clavisangemon.divine_lock', name: 'Divine Lock', cooldownMs: 12000, dsCost: 535, range: 128, mult: 1.5, def: { kind: 'debuff', target: 'enemy', shape: 'single', power: 260, castMs: 300 } },
+  { id: 'clavisangemon.sacred_seal', name: 'Sacred Seal', cooldownMs: 18000, dsCost: 535, range: 128, mult: 0, healAll: 0.25, def: { kind: 'heal', target: 'ally', shape: 'circle', radius: 96, power: 870, castMs: 300 } },
+];
+const PALADIN = { species: 'imperialdramon_paladin', name: 'Imperialdramon Paladin Mode', level: 99, hp: HP, ds: 9365, as: AS, dmg: SCHADEN, at: 12806, psk: PSK };
+const CLAVIS = (() => { const hp = Math.round((2863 + 345.6 * 69) * 1.51), at = Math.round((586 + 82.3 * 69) * 1.32);
+  return { species: 'clavisangemon', name: 'ClavisAngemon', level: 70, hp, ds: Math.round((1293 + 77.6 * 69) * 1.5), as: 1450, dmg: Math.round(SCHADEN * at / 12806), at, psk: CSK }; })();
+const MEMBERS = TEAM === 'clavis' ? [PALADIN, CLAVIS, CLAVIS, CLAVIS, CLAVIS] : Array.from({ length: N }, () => PALADIN);
+const protections = [];
+const protectedAt = (p, now) => protections.some((pr) => now >= pr.at && now <= pr.at + 2000 && Math.hypot(p.x - pr.x, p.y - pr.y) <= 128);
 const TRAENKE = Number(process.env.TRAENKE ?? 400);         // HP-Tränke auf F1 je Bot (live: über 400 Feast)
 const TRANK_HP = Number(process.env.TRANK_HP) || 15000;   // so viel heilt ein Trank
 const TRANK_AB = Number(process.env.TRANK_AB) || 50;      // Bot-Einstellung: F1 unter so viel % HP
@@ -136,9 +151,10 @@ const bossSkills = (sp) => Object.values(SKILLS).filter((s) => s.id.startsWith(s
 const RAID = { id: 'wargame', gate: { mapId: 'network', portal: 'network_wargame' }, party: { min: 1, max: 5, minLevel: 1 }, deathLimit: 3, landing: 'from_network',
   dungeon: { chain: 'keramon', offset: 0, mode: { order: 0, label: 'dg_mode_easy' }, rooms: ROOMS } };
 const CONTENT = () => ({
-  digimon: { imperialdramon_paladin: { name: 'Imperialdramon Paladin Mode', base: { ms: 115, as: 1300, at: 660 }, growth: { at: 92.5 } }, kuramon: { name: 'Kuramon' }, tsumemon: { name: 'Tsumemon', base: { hp: 1932 }, growth: { hp: 232.4 } }, chrysalimon: { name: 'Chrysalimon', base: { at: 91 }, growth: { at: 13.2 }, skills: [SKILLS['chrysalimon.data_crusher']] }, keramon: { name: 'Keramon' },
+  digimon: { imperialdramon_paladin: { name: 'Imperialdramon Paladin Mode', base: { ms: 115, as: 1300, at: 660 }, growth: { at: 92.5 } },
+    clavisangemon: { name: 'ClavisAngemon', base: { ms: 115, as: 1450, at: 586 }, growth: { at: 82.3 } }, kuramon: { name: 'Kuramon' }, tsumemon: { name: 'Tsumemon', base: { hp: 1932 }, growth: { hp: 232.4 } }, chrysalimon: { name: 'Chrysalimon', base: { at: 91 }, growth: { at: 13.2 }, skills: [SKILLS['chrysalimon.data_crusher']] }, keramon: { name: 'Keramon' },
     keramon_net: { name: 'Keramon', skills: bossSkills('keramon_net') }, chrysalimon_net: { name: 'Chrysalimon', skills: bossSkills('chrysalimon_net') }, infermon: { name: 'Infermon', skills: [] } }, // wie im Spiel: die Boss-Attacken stehen nur bei der Form
-  skills: { ...SKILLS, ...Object.fromEntries(PSK.map((k) => [k.id, { id: k.id, name: k.name, cooldownMs: k.cooldownMs, dsCost: k.dsCost, range: k.range, ...k.def }])) }, items: { hp_pot: { id: "hp_pot", name: "HP-Trank" } }, npcs: {}, quests: {}, dailyById: {},
+  skills: { ...SKILLS, ...Object.fromEntries([...PSK, ...CSK].map((k) => [k.id, { id: k.id, name: k.name, cooldownMs: k.cooldownMs, dsCost: k.dsCost, range: k.range, ...k.def }])) }, items: { hp_pot: { id: "hp_pot", name: "HP-Trank" } }, npcs: {}, quests: {}, dailyById: {},
   maps: { network: { name: 'Network' }, network_wargame: { name: 'Network: War Game' } },
   spawns: {
     network: { zones: {} },
@@ -170,7 +186,8 @@ function makeWindow(i) {
   let state = {};
   const subs = [];
   const store = { getState: () => state, setState: (p) => { state = { ...state, ...p }; subs.forEach((f) => f()); }, subscribe: (f) => subs.push(f) };
-  const pl = { skillCd: {}, queued: null, i, store, w, map: 'network', goal: null, atk: null, hitAt: 0, fainted: false, reviveAt: 0, inside: false, handlers: {}, doorAt: 0 };
+  const M = MEMBERS[i];
+  const pl = { M, skillCd: {}, queued: null, i, store, w, map: 'network', goal: null, atk: null, hitAt: 0, fainted: false, reviveAt: 0, inside: false, handlers: {}, doorAt: 0 };
   // Sicht auf die Welt: nur Entities auf meiner Map
   const view = {
     get: (id) => { const e = ents.get(id); return e && e.map === pl.map ? e : undefined; },
@@ -204,21 +221,24 @@ function makeWindow(i) {
     const me = state.me, inv = me.inventory.find((x) => x.itemId === 'hp_pot');
     if (!inv?.qty || Date.now() - (pl.potAt || 0) < 2000) return;
     pl.potAt = Date.now(); run.stats.pots++;
-    store.setState({ me: { ...me, inventory: me.inventory.map((x) => (x === inv ? { ...x, qty: x.qty - 1 } : x)), partner: { ...me.partner, hp: Math.min(HP, me.partner.hp + TRANK_HP) } } });
+    store.setState({ me: { ...me, inventory: me.inventory.map((x) => (x === inv ? { ...x, qty: x.qty - 1 } : x)), partner: { ...me.partner, hp: Math.min(M.hp, me.partner.hp + TRANK_HP) } } });
   }, true);
   w.addEventListener('keydown', (e) => { // 2–5: Skill auf das Ziel (trifft, sobald das Digimon in Reichweite ist)
     const k = /^Digit([2-5])$/.exec(e.code)?.[1];
-    if (!k || pl.fainted || !state.target) return;
-    const n = Number(k) - 2, sk = PSK[n], me = state.me, now = Date.now();
-    if ((pl.skillCd[n] || 0) > now || me.partner.ds < sk.dsCost) return;
-    const m = ents.get(state.target.id);
-    if (!m || m.hp <= 0 || m.map !== pl.map) return;
+    if (!k || pl.fainted) return;
+    const n = Number(k) - 2, sk = M.psk[n], me = state.me, now = Date.now();
+    if (!sk || (pl.skillCd[n] || 0) > now || me.partner.ds < sk.dsCost) return;
+    const selfCast = sk.koh || sk.healAll || sk.heal;
+    const m = state.target && ents.get(state.target.id);
+    if (!selfCast && (!m || m.hp <= 0 || m.map !== pl.map)) return;
+    if (sk.koh) { const pp = ents.get(`p:${i}`); protections.push({ at: now, x: pp.x, y: pp.y }); run.stats.koh = (run.stats.koh || 0) + 1; }
+    if (sk.healAll) { const pp = ents.get(`p:${i}`); for (const x of alivePlayers()) if (dist(partnerOf(x), pp) <= 96) { const s3 = x.store.getState(); x.store.setState({ me: { ...s3.me, partner: { ...s3.me.partner, hp: Math.min(x.M.hp, s3.me.partner.hp + x.M.hp * sk.healAll) } } }); } }
     pl.skillCd[n] = now + sk.cooldownMs;
     store.setState({ cooldowns: { ...state.cooldowns, [`skill:${n}`]: { end: w.performance.now() + sk.cooldownMs } }, me: { ...me, partner: { ...me.partner, ds: me.partner.ds - sk.dsCost } } });
     const evAll = (phase) => { for (const x of players) if (x.map === pl.map) x.handlers.evs?.([{ t: 'skill', src: `p:${i}`, skill: sk.id, phase }]); };
     evAll('cast'); setTimeout(() => evAll('release'), sk.def.castMs || 0);
-    if (sk.heal) { const s2 = store.getState(); store.setState({ me: { ...s2.me, partner: { ...s2.me.partner, hp: Math.min(HP, s2.me.partner.hp + HP * sk.heal) } } }); }
-    if (sk.mult) { pl.queued = { n, id: m.id }; pl.atk = m.id; }
+    if (sk.heal) { const s2 = store.getState(); store.setState({ me: { ...s2.me, partner: { ...s2.me.partner, hp: Math.min(M.hp, s2.me.partner.hp + M.hp * sk.heal) } } }); }
+    if (sk.mult && m) { pl.queued = { n, id: m.id }; pl.atk = m.id; }
   }, true);
   w.addEventListener('keydown', (e) => {
     if (e.code !== 'Digit1' || !state.target || pl.fainted) return;
@@ -231,8 +251,8 @@ function makeWindow(i) {
   store.setState({ screen: 'world', inputFocus: 'game', cooldowns: {}, windows: {}, raid: null,
     session: { username: `u${i}`, characters: [{ id: `c${i}`, name: `Char${i + 1}` }] },
     me: { tamerEntityId: `t:${i}`, tamerDs: 300, tamerMaxDs: 360, hotbar: ['cmd:attack', 'skill:0', 'skill:1', 'skill:2', 'skill:3', null, null, null, 'item:hp_pot'], inventory: TRAENKE ? [{ itemId: 'hp_pot', qty: TRAENKE }] : [], quests: {},
-      partner: { entityId: `p:${i}`, name: 'Imperialdramon Paladin Mode', species: 'imperialdramon_paladin', stage: 'super', level: 99, hp: HP, maxHp: HP, ds: 9365, maxDs: 9365, exp: 0, expNext: 0,
-        stats: { at: 12806, as: AS, ms: 120 }, skills: PSK.map((k) => ({ id: k.id, name: k.name, dsCost: k.dsCost, cooldownMs: k.cooldownMs, range: k.range, unlocked: true })) } },
+      partner: { entityId: `p:${i}`, name: M.name, species: M.species, stage: 'mega', level: M.level, hp: M.hp, maxHp: M.hp, ds: M.ds, maxDs: M.ds, exp: 0, expNext: 0,
+        stats: { at: M.at, as: M.as, ms: 120 }, skills: M.psk.map((k) => ({ id: k.id, name: k.name, dsCost: k.dsCost, cooldownMs: k.cooldownMs, range: k.range, unlocked: true })) } },
     world: { mapId: 'network', mapName: 'Network', channel: 1 }, target: null });
   w.localStorage.setItem('digibot.cfg', JSON.stringify({ dungeon: true, autopilot: false, farm: false, questMode: false, hpPot: TRANK_AB, dsPot: 0, tdsPot: 0, tab: 'data', lvlDiff: 100, radius: 400 }));
   w.localStorage.setItem('digibot.accounts', JSON.stringify(accounts));
@@ -316,7 +336,7 @@ function stepPartners(now, dt) {
       if (now >= pl.reviveAt && !run.failed) { // in der Gruppe: wieder am Raumeingang
         pl.fainted = false;
         const st = pl.store.getState();
-        pl.store.setState({ me: { ...st.me, partner: { ...st.me.partner, hp: HP, fainted: false } } });
+        pl.store.setState({ me: { ...st.me, partner: { ...st.me.partner, hp: pl.M.hp, fainted: false } } });
         const land = ROOMS[Math.min(run.room, ROOMS.length - 1)].landing;
         const sp = objOf('network_wargame', land);
         t.x = sp.x; t.y = sp.y; p.x = sp.x + 10; p.y = sp.y; pl.goal = null;
@@ -326,8 +346,8 @@ function stepPartners(now, dt) {
     }
     // außerhalb des Kampfes erholt sich das Digimon (Annahme: 3 % der Max-HP pro Sekunde)
     const st0 = pl.store.getState(), p0 = st0.me.partner;
-    if (p0.hp < HP && ![...ents.values()].some((e) => e.targetId === `p:${pl.i}`)) pl.store.setState({ me: { ...st0.me, partner: { ...p0, hp: Math.min(HP, p0.hp + HP * 0.03 * dt) } } });
-    if (p0.ds < 9365) { const s1 = pl.store.getState(); pl.store.setState({ me: { ...s1.me, partner: { ...s1.me.partner, ds: Math.min(9365, s1.me.partner.ds + 9365 * 0.01 * dt) } } }); }
+    if (p0.hp < pl.M.hp && ![...ents.values()].some((e) => e.targetId === `p:${pl.i}`)) pl.store.setState({ me: { ...st0.me, partner: { ...p0, hp: Math.min(pl.M.hp, p0.hp + pl.M.hp * 0.03 * dt) } } });
+    if (p0.ds < pl.M.ds) { const s1 = pl.store.getState(); pl.store.setState({ me: { ...s1.me, partner: { ...s1.me.partner, ds: Math.min(pl.M.ds, s1.me.partner.ds + pl.M.ds * 0.01 * dt) } } }); }
     // Tamer laufen
     if (pl.goal) {
       const dx = pl.goal.x - t.x, dy = pl.goal.y - t.y, d = Math.hypot(dx, dy), step = 160 * dt;
@@ -339,11 +359,11 @@ function stepPartners(now, dt) {
       const d = dist(p, m), reach = 26;
       p.targetId = m.id;
       if (d > reach) { const step = P_SPEED * dt; p.x += (m.x - p.x) / d * Math.min(step, d - reach + 1); p.y += (m.y - p.y) / d * Math.min(step, d - reach + 1); }
-      else if (now >= pl.hitAt && now >= (pl.castUntil || 0)) { pl.hitAt = now + AS; hitMob(pl, m, SCHADEN, now); }
+      else if (now >= pl.hitAt && now >= (pl.castUntil || 0)) { pl.hitAt = now + pl.M.as; hitMob(pl, m, pl.M.dmg, now); }
       // Skill: Animation (castMs) – so lange kein Grundangriff, der Treffer kommt am Ende
-      if (pl.queued && pl.queued.id === m.id && d <= PSK[pl.queued.n].range + 26 && now >= (pl.castUntil || 0)) {
-        run.stats.skills++; const q = pl.queued; pl.queued = null; const ms = PSK[q.n].def.castMs || 0; pl.castUntil = now + ms;
-        setTimeout(() => { const mm = ents.get(q.id); if (mm && mm.hp > 0 && !pl.fainted) hitMob(pl, mm, SCHADEN * PSK[q.n].mult, Date.now()); }, ms);
+      if (pl.queued && pl.queued.id === m.id && d <= pl.M.psk[pl.queued.n].range + 26 && now >= (pl.castUntil || 0)) {
+        run.stats.skills++; const q = pl.queued; pl.queued = null; const ms = pl.M.psk[q.n].def.castMs || 0; pl.castUntil = now + ms;
+        setTimeout(() => { const mm = ents.get(q.id); if (mm && mm.hp > 0 && !pl.fainted) hitMob(pl, mm, pl.M.dmg * pl.M.psk[q.n].mult, Date.now(), now); }, ms);
       }
     } else {
       pl.atk = null; p.targetId = '';
@@ -353,8 +373,9 @@ function stepPartners(now, dt) {
     portals(pl, t, now);
   }
 }
-function hitMob(pl, m, dmg, now) {
-  if (m.boss && run.mirror && now >= run.mirror.start && now < run.mirror.end) { // Spiegel: Schaden geht zurück
+function hitMob(pl, m, dmg, now, committedAt = now) {
+  // Spiegel: Schaden geht zurück – außer bei Angriffen, die schon vor dem Spiegel liefen (Spieldaten: protectCommitted)
+  if (m.boss && run.mirror && now >= run.mirror.start && now < run.mirror.end && committedAt >= run.mirror.start) {
     run.stats.reflectHits++; run.stats.reflectDmg += Math.round(dmg * 2.5);
     say(`🪞 Char${pl.i + 1} schlägt in den Spiegel (−${Math.round(dmg * 2.5)})`);
     damagePlayer(pl, Math.round(dmg * 2.5), 'Spiegel');
@@ -483,6 +504,7 @@ function castZone(src, skill, circles, line, castMs, dmg, onHit) {
       const p = partnerOf(pl);
       const inside = circles.some((c) => dist(p, c) <= c.r) || (line && segDist(p, line) <= line.r);
       if (!inside) { run.stats.dodged++; ps.dodged++; continue; }
+      if (protectedAt(p, Date.now())) { ps.blocked = (ps.blocked || 0) + 1; continue; }
       ps.hit++;
       run.stats.hits++; if (src.boss) run.stats.bossDmgTaken += dmg;
       say(`💢 Char${pl.i + 1} getroffen: ${SKILLS[skill].name} (−${dmg})`);
@@ -612,6 +634,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   console.log(`Terminals: ${6 - s.eaten}/6 heil (${s.eaten} gefressen) · Stürze ${run.deaths}`);
   console.log(`Flächen: ${s.dodged} ausgewichen, ${s.hits} getroffen · Spiegel-Treffer ${s.reflectHits} · NOT HERE ${s.notHere}× (${s.notHereBroken} abgebrochen) · Tränke ${s.pots} · Skills ${s.skills}${run.boss ? ` · Boss-Stapel ${run.boss.stacks}` : ''}`);
   console.log(`Attacken (Ansagen · getroffen · ausgewichen): ${Object.entries(run.perSkill).map(([k, v]) => `${k} ${v.casts} · ${v.hit} · ${v.dodged}`).join(' | ')}`);
+  if (TEAM) console.log(`Key of Hope gezündet: ${run.stats.koh || 0}× · Team: ${MEMBERS.map((m, i) => `Char${i + 1} ${m.name} Lv ${m.level} (${m.hp} HP)`).join(', ')}`);
   console.log(`Kills: ${Object.entries(s.kills).map(([k, v]) => `${v}× ${k}`).join(', ')}`);
   console.log(`Status am Ende: ${players.map((pl) => `Char${pl.i + 1}: ${pl.status()}`).join(' | ')}`);
   process.exit(run.cleared && players.every((pl) => !pl.inside) ? 0 : 1);
