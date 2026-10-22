@@ -217,6 +217,13 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.22.1 – Gemeinsamer Fokus auf das Ziel des Leaders
+- Ohne „🎯 Ziele verteilen“ greifen die Mitläufer jetzt zuverlässig das Ziel des Leaders an. Bisher wehrte jeder zuerst
+  das Monster ab, das ihn selbst angriff. In Gebieten mit aggressiven Monstern sah das aus, als würde verteilt.
+  Nur mit weniger als 50 % HP wehrt sich ein Mitläufer zuerst selbst.
+- Beim Mithelfen gilt das Level-Limit des Mitläufers nicht mehr. Bisher half er nicht mit, wenn das Ziel des Leaders
+  über seinem „Max. Level über dem Digimon“ lag.
+
 #### Neu in 2.22.0 – Beim selben NPC alles auf einmal
 - Nach einer Abgabe nimmt der Bot beim selben NPC gleich die Quests an, die es dort gibt, und gibt dort auch alles
   Weitere ab. Erst dann geht er zum nächsten NPC. Vorher lief er z. B. Elder abgeben → Sage abgeben → zurück zu Elder

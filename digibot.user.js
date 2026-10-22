@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.22.0
+// @version      2.22.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -472,7 +472,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.22.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.22.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
@@ -2014,9 +2014,19 @@
     }
     return L.targetId || null;
   }
+  // Ziel des Leaders mit angreifen – das Level-Limit des Mitläufers gilt dabei nicht (der Leader entscheidet)
   function groupAssist(sc) {
     const id = leaderTargetId();
-    return id ? sc.mobs.find((m) => m.id === id && m.inLvl && !m.banned && m.d <= cfg.radius * 1.5) || null : null;
+    return id ? sc.mobs.find((m) => m.id === id && !m.banned && m.d <= cfg.radius * 1.5) || null : null;
+  }
+  // Gemeinsamer Fokus (ohne „Ziele verteilen“): Mitläufer bleiben auf dem Ziel des Leaders, auch wenn sie selbst
+  // angegriffen werden – nur bei weniger als FOCUS_MIN_HP % HP wehren sie sich zuerst selbst
+  const FOCUS_MIN_HP = 50;
+  function focusAssist(sc) {
+    if (group.role() !== 'follower' || !sc || spreadOn() || groupLeader()?.serve) return null;
+    const p = getStore()?.getState?.()?.me?.partner;
+    if (!p || (p.maxHp > 0 && p.hp / p.maxHp * 100 < FOCUS_MIN_HP)) return null;
+    return groupAssist(sc);
   }
   // 👥 Party einladen (Knopf): Wartezeit zwischen Einladungen aufheben und sofort alle fehlenden einladen
   function partyInviteNow() {
@@ -3944,6 +3954,8 @@
 
   function pickTarget(sc, resting) {
     if (!sc) return null;
+    const focus = resting ? null : focusAssist(sc);
+    if (focus && !safeHeld(focus.id)) return focus;
     const att = sc.attackers.filter((m) => !safeHeld(m.id));
     if (att.length) return att[0];
     if (resting) return null;
@@ -4149,7 +4161,9 @@
       // Sonst wählt der Bot ein Ziel aus und verwirft es gleich wieder – endlos.
       const lvlOk = info ? info.inLvl : diff <= cfg.lvlDiff;
       const addTarget = !!add && alive && t.id === add.id; // Add des Bosses: immer bekämpfen, auch außerhalb der Level-/Monster-Auswahl
-      const valid = !noFight && !dup && !(alive && safeHeld(t.id, now)) && (isAttacker || addTarget || (!blocked && (this.resting ? fighting : alive && lvlOk)));
+      const focus = this.resting ? null : focusAssist(sc);
+      const onFocus = !!focus && alive && t.id === focus.id, offFocus = !!focus && !onFocus && !addTarget; // anderes Ziel als der Leader -> wechseln
+      const valid = !noFight && !dup && !offFocus && !(alive && safeHeld(t.id, now)) && (isAttacker || addTarget || onFocus || (!blocked && (this.resting ? fighting : alive && lvlOk)));
       if (!valid) {
         this.attackedId = null;
         this.engage = null;
