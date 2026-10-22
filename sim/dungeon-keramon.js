@@ -118,7 +118,7 @@ const MOB = {
 };
 const SK = (id, o) => [id, { id, element: 'dark', kind: 'damage', target: 'enemy', dsCost: 0, ...o }];
 const SKILLS = Object.fromEntries([
-  SK('chrysalimon.data_crusher', { name: 'Data Crusher', shape: 'circle', origin: 'caster', radius: 48, telegraph: true, cooldownMs: 7000, castMs: 1200, range: 48 }),
+  SK('chrysalimon.data_crusher', { name: 'Data Crusher', shape: 'circle', origin: 'caster', radius: 48, telegraph: true, power: 220, cooldownMs: 7000, castMs: 1200, range: 48 }),
   SK('keramon_net.crazy_giggle', { name: 'Crazy Giggle', shape: 'single', cooldownMs: 6000, castMs: 800, range: 160 }),
   SK('keramon_net.crazy_turn', { name: 'Crazy Turn', shape: 'circle', radius: 48, telegraph: true, fixedDamage: 28000, cooldownMs: 10000, castMs: 1500, range: 128 }),
   SK('chrysalimon_net.data_crusher', { name: 'Data Crusher', shape: 'circle', origin: 'caster', radius: 56, telegraph: true, fixedDamage: 30000, cooldownMs: 8000, castMs: 1200, range: 56 }),
@@ -132,7 +132,7 @@ const bossSkills = (sp) => Object.values(SKILLS).filter((s) => s.id.startsWith(s
 const RAID = { id: 'wargame', gate: { mapId: 'network', portal: 'network_wargame' }, party: { min: 1, max: 5, minLevel: 1 }, deathLimit: 3, landing: 'from_network',
   dungeon: { chain: 'keramon', offset: 0, mode: { order: 0, label: 'dg_mode_easy' }, rooms: ROOMS } };
 const CONTENT = () => ({
-  digimon: { imperialdramon_paladin: { name: 'Imperialdramon Paladin Mode', base: { ms: 115, as: 1300 } }, kuramon: { name: 'Kuramon' }, tsumemon: { name: 'Tsumemon' }, chrysalimon: { name: 'Chrysalimon', skills: [SKILLS['chrysalimon.data_crusher']] }, keramon: { name: 'Keramon' },
+  digimon: { imperialdramon_paladin: { name: 'Imperialdramon Paladin Mode', base: { ms: 115, as: 1300 } }, kuramon: { name: 'Kuramon' }, tsumemon: { name: 'Tsumemon' }, chrysalimon: { name: 'Chrysalimon', base: { at: 91 }, growth: { at: 13.2 }, skills: [SKILLS['chrysalimon.data_crusher']] }, keramon: { name: 'Keramon' },
     keramon_net: { name: 'Keramon', skills: bossSkills('keramon_net') }, chrysalimon_net: { name: 'Chrysalimon', skills: bossSkills('chrysalimon_net') }, infermon: { name: 'Infermon', skills: [] } }, // wie im Spiel: die Boss-Attacken stehen nur bei der Form
   skills: { ...SKILLS, ...Object.fromEntries(PSK.map((k) => [k.id, { ...k, castMs: 0, kind: k.mult ? 'damage' : 'buff', target: k.mult ? 'enemy' : 'self', shape: 'single' }])) }, items: { hp_pot: { id: "hp_pot", name: "HP-Trank" } }, npcs: {}, quests: {}, dailyById: {},
   maps: { network: { name: 'Network' }, network_wargame: { name: 'Network: War Game' } },
@@ -452,7 +452,7 @@ function mobAct(m, now, dt) {
   const p = partnerOf(tgt), d = dist(m, p);
   if (m.defId === 'chrysalimon' && now >= m.nextSkill) { // Data Crusher: Kreis um sich
     m.nextSkill = now + 7000;
-    castZone(m, 'chrysalimon.data_crusher', [{ x: m.x, y: m.y, r: 48 }], null, 1200, 9000);
+    castZone(m, 'chrysalimon.data_crusher', [{ x: m.x, y: m.y, r: 48 }], null, 1200, 2000); // Annahme: ~AT 751 × 220 % abzüglich Verteidigung
   }
   if (MOB[m.defId].ms && d > 22) walk(m, p, MOB[m.defId].ms, dt);
   else if (d <= 40 && now >= m.nextHit) { m.nextHit = now + 1600; damagePlayer(tgt, MOB_HIT, m.name); }

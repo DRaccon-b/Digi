@@ -217,6 +217,10 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.29.7 – auch die Wächter in Raum 1 tanken
+- Flächen ohne festen Schaden schätzt der Bot jetzt aus dem Angriffswert des Wirkers: AT × Power % × 1,5 Reserve. Die Chrysalimon-Wächter in Raum 1 (Data Crusher, Power 220, Lv 51) kommen so auf ~2 500 und werden getankt statt ausgewichen.
+- Simulator (allein, ×4): in Raum 1 kein einziges Ausweichen mehr; Keramon und Chrysalimon 15 von 16 getankt; Infermons Ramme 9/9 und Spider Shooter 7/7 ausgewichen.
+
 #### Neu in 2.29.6 – Tanken greift wirklich
 - Bisher tankte der Bot nur, wenn nach dem Treffer noch 40 % HP übrig blieben. Bei Crazy Turn (28 000) und 92 660 Max-HP hieß das: erst ab ~65 000 HP. Im Kampf lag er meist darunter und wich deshalb doch aus. Jetzt reichen > 15 % HP danach; ab 50 % trinkt er ohnehin F1.
 - Direkt nach dem Einschlag steht der Kreis noch kurz da. Auch dann läuft der Bot nicht mehr heraus (0,8 s).

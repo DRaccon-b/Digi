@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.29.6
+// @version      2.29.7
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -492,7 +492,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.29.6'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.29.7'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -867,21 +867,31 @@
   // Infermons Ramme 60 000 und Spider Shooter 45 000 + Zurück-Digitieren nicht). Gilt nur, wenn ALLE gerade angesagten
   // Flächen tankbar sind; unbekannte Flächen (ohne festen Schaden) weicht der Bot weiter aus.
   const TANK_MAX_PCT = 35, TANK_KEEP_PCT = 15, TANK_AFTER_MS = 800; // nach dem Treffer noch > 15 % übrig (F1 heilt); Kreis bleibt kurz stehen
-  function tankable(sk, p) {
-    if (!cfg.tank || !sk?.fixedDamage || sk.devolve || sk.share || sk.mark || !p?.maxHp) return false;
-    return sk.fixedDamage <= p.maxHp * TANK_MAX_PCT / 100 && (p.hp - sk.fixedDamage) >= p.maxHp * TANK_KEEP_PCT / 100;
+  // Schaden einer Fläche: fester Schaden, sonst grob geschätzt aus dem Angriff des Wirkers (AT × Power % × 1,5 Reserve
+  // für Krit/Element) – z. B. die Chrysalimon-Wächter in Raum 1 des Kera-Dungeons (Data Crusher, Power 220: ~2 500)
+  function skillDamage(sk, srcId) {
+    if (sk?.fixedDamage) return sk.fixedDamage;
+    const e = srcId ? window.dmo?.net?.state?.entities?.get?.(srcId) : null, d = e && content()?.digimon?.[e.defId];
+    if (!sk?.power || !d?.base?.at) return null;
+    const at = d.base.at + (d.growth?.at || 0) * Math.max(0, (e.level || 1) - 1);
+    return Math.round(at * sk.power / 100 * 1.5);
+  }
+  function tankable(sk, p, srcId) {
+    const dmg = cfg.tank ? skillDamage(sk, srcId) : null;
+    if (!dmg || sk.devolve || sk.share || sk.mark || !p?.maxHp) return false;
+    return dmg <= p.maxHp * TANK_MAX_PCT / 100 && (p.hp - dmg) >= p.maxHp * TANK_KEEP_PCT / 100;
   }
   function tankNow(now) {
     if (!cfg.tank) return false;
     const p = getStore()?.getState?.()?.me?.partner;
     let any = false;
-    for (const log of bossSkillLog.values()) {
+    for (const [src, log] of bossSkillLog) {
       for (const [id, e] of log) {
         const live = (e.phase === 'cast' && e.castEnd > now - 300) || (e.phase === 'release' && now - (e.relAt || 0) < TANK_AFTER_MS);
         if (!live) continue;
         const sk = content()?.skills?.[id];
         if (!sk || sk.kind === 'buff' || sk.target === 'self' || (sk.shape !== 'circle' && sk.shape !== 'line')) continue;
-        if (!tankable(sk, p)) return false;
+        if (!tankable(sk, p, src)) return false;
         any = true;
       }
     }
@@ -1213,7 +1223,7 @@
       }
       const zone = (sk.shape === 'circle' || sk.shape === 'line') && r.castMs > 0 && !sk.islands && !sk.protectionMs
         && sk.kind !== 'heal' && sk.kind !== 'buff' && sk.target !== 'self';
-      if (!zone || r.state === 'cast' || tankable(sk, st.me?.partner)) continue; // laufende Ansage: Ausweichen; tankbar: egal
+      if (!zone || r.state === 'cast' || tankable(sk, st.me?.partner, boss.id)) continue; // laufende Ansage: Ausweichen; tankbar: egal
       let dist;
       if (sk.shape === 'line') dist = sk.sweep ? 80 : (sk.radius || 16) + DODGE_MARGIN;
       else if (sk.origin === 'caster' && pe && be) dist = Math.max(0, (sk.radius || 40) - Math.hypot(pe.x - be.x, pe.y - be.y)) + DODGE_MARGIN;
