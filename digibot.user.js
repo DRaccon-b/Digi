@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.30.0
+// @version      2.30.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -492,7 +492,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.30.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.30.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -878,13 +878,14 @@
   }
   function tankable(sk, p, srcId) {
     const dmg = cfg.tank ? skillDamage(sk, srcId) : null;
-    if (!dmg || sk.devolve || sk.share || sk.mark || !p?.maxHp) return false;
+    // nie tanken, was mehr als Schaden macht: packen (Tentacle Bug), zurück-digitieren, markieren, teilen, Debuffs
+    if (!dmg || sk.grab || sk.devolve || sk.share || sk.mark || sk.reflect || (sk.effects || []).length || !p?.maxHp) return false;
     return dmg <= p.maxHp * TANK_MAX_PCT / 100 && (p.hp - dmg) >= p.maxHp * TANK_KEEP_PCT / 100;
   }
   function tankNow(now) {
     if (!cfg.tank) return false;
     const p = getStore()?.getState?.()?.me?.partner;
-    let any = false, sum = 0;
+    let any = false, sum = 0, n = 0, top = 0;
     const ents = window.dmo?.net?.state?.entities;
     for (const [src, log] of bossSkillLog) {
       if (ents?.get?.(src)?.kind !== KIND.Mob) continue; // nur Monster – eigene/verbündete Skills (z. B. Invincible Sword, Kreis) zählen nicht
@@ -894,9 +895,13 @@
         const sk = content()?.skills?.[id];
         if (!sk || sk.kind === 'buff' || sk.target === 'self' || (sk.shape !== 'circle' && sk.shape !== 'line')) continue;
         if (!tankable(sk, p, src)) return false;
-        any = true; sum += skillDamage(sk, src) || 0;
+        const dmg = skillDamage(sk, src) || 0;
+        any = true; sum += dmg; n++; top = Math.max(top, dmg);
       }
     }
+    // Dieselbe Attacke mehrfach gleichzeitig (z. B. 4 Kopien von Diaboromon) steht nur einmal im Protokoll: liegen mehr
+    // Warnzonen am Boden als Ansagen, zählen die übrigen als weitere Treffer der stärksten Attacke
+    if (any) { const sc = worldScene(); const zones = (sc?.telegraphs?.active || []).length + (sc?.mechB?.lines || []).length; if (zones > n) sum += (zones - n) * top; }
     // gleichzeitige Treffer zusammen: höchstens so viel, wie auch ein einzelner tankbarer Treffer sein dürfte
     return any && sum <= p.maxHp * TANK_MAX_PCT / 100 && p.hp - sum >= p.maxHp * TANK_KEEP_PCT / 100;
   }
@@ -3687,7 +3692,7 @@
   }
   const ADD_RANGE = 500, ADD_BOSS_NEAR = 640, ADD_RAID_RADIUS = 300;
   function bossAdd(sc) {
-    if (cfg.farm || !sc) return null;
+    if (cfg.farm || cfg.dungeon || !sc) return null; // Dungeon: Reihenfolge macht dungeonFocus
     const boss = sc.mobs.find((m) => m.cat === 'boss');
     if (!boss || boss.d > ADD_BOSS_NEAR) return null;
     const set = addSpecies(), raid = isRaidMap(sc.mapId);
@@ -4261,7 +4266,9 @@
     const ents0 = window.dmo?.net?.state?.entities;
     const score = (m) => {
       if (arms.has(m.species)) return mine.has(ents0?.get?.(m.id)?.targetId) || m.attacker ? -20 : 150; // hält mich fest: sofort brechen
-      if (herd && m.species === herd.species && herd.to) return 100 + Math.hypot(m.x - herd.to.x, m.y - herd.to.y) / 10; // vor dem Ei abfangen
+      // Herde nur in der Gruppe abfangen – allein schafft man kaum eine (je ~15 000 HP, ~3 s bis zum Ei), und die Zeit
+      // fehlt dann beim Boss (Probelauf: 330 s statt 420 s bis zum Sieg, Enrage nach 480 s)
+      if (herd && m.species === herd.species && herd.to) return group.active() ? 100 + Math.hypot(m.x - herd.to.x, m.y - herd.to.y) / 10 : 20000; // vor dem Ei abfangen
       if (breaks.has(m.species)) return 400 + m.d / 10;
       const r = rate(m);
       if (r) return r.save ? Math.max(0, r.slack) / 10 : 3000 + r.urgent / 10; // rettbar: kleinster Zeitpuffer zuerst

@@ -7,6 +7,8 @@
 //   GRUPPE=3 node sim/dungeon-revenge.js     Gruppe
 //   TEMPO=4 …                                Zeitraffer (höchstens 4, darüber wird es ungenau)
 //   V=1 …                                    jeder Statuswechsel der Bots
+//   START=4 …                                gleich in Raum 4 (Bucht) beginnen
+//   SHARE_FOLGT=1 …                          geteilter Treffer folgt dem Ziel (nicht ausweichbar) – sonst bleibt der Kreis liegen
 //   SCHADEN=12000 HP=92660 TRAENKE=400 TRANK_HP=15000 TRANK_AB=50 BOSS_HIT=6000 DAUER=1400 …
 //
 // Aus den Spieldaten (Okt. 2026): Positionen, Boss-HP (Diaboromon 3 542 376, Armageddemon 3 741 367 bei bis zu 3
@@ -43,6 +45,9 @@ const AS = 1121, P_SPEED = Number(process.env.P_SPEED) || 120;
 const HP = Number(process.env.HP) || 92660;
 const TRAENKE = Number(process.env.TRAENKE ?? 400), TRANK_HP = Number(process.env.TRANK_HP) || 15000, TRANK_AB = Number(process.env.TRANK_AB) || 50;
 const BOSS_HIT = Number(process.env.BOSS_HIT) || 6000;
+// Geteilter Treffer: folgt der Kreis dem Ziel (SHARE_FOLGT=1, Ziel immer getroffen) oder bleibt er an der Stelle der Ansage
+// liegen (Standard – dann kann man ihm ausweichen)? Im Client steht es nicht; live prüfen.
+const SHARE_FOLGT = !!Number(process.env.SHARE_FOLGT || 0);
 const DAUER = (Number(process.env.DAUER) || 1400) * 1000;
 const MAP = 'network_revenge';
 const script = fs.readFileSync(process.env.SKRIPT || path.join(__dirname, '..', 'digibot.user.js'), 'utf8');
@@ -248,8 +253,13 @@ function enterDungeon(leader) {
   const who = players.filter((pl) => pl === leader || (pl.map === 'network' && dist(ents.get(`t:${pl.i}`), door) <= 140));
   run.inside = true; run.enteredAt = Date.now(); run.roomStart = Date.now();
   say(`Betreten: ${who.map((pl) => `Char${pl.i + 1}`).join(', ')}`);
+  if (process.env.START === '4') { // gleich in Raum 4 (Raum 3 gilt als geschafft)
+    run.room = 1; for (const pl of who) { pl.inside = true; moveTo(MAP, 'land_bay', pl); }
+    spawnBoss('armageddemon', 'boss_bay', ARMA_HP); setTimeout(hud, 500); return;
+  }
   for (const pl of who) { pl.inside = true; moveTo(MAP, 'from_network', pl); }
   spawnBoss('diaboromon', 'boss_clock', DIABO_HP);
+  if (process.env.DIABO_PCT) run.boss.hp = Math.round(DIABO_HP * Number(process.env.DIABO_PCT) / 100); // z. B. 72: kurz vor den Kopien
   setTimeout(hud, 500);
 }
 function spawnMob(species, name, hp, p, extra = {}) {
@@ -393,7 +403,8 @@ function castZone(src, skill, opt) {
     ps.casts++;
     if (opt.share) { // geteilt: Ziel immer getroffen, Schaden durch alle im Kreis um das Ziel
       const tgt = opt.share; if (tgt.fainted || !tgt.inside) return;
-      const c = partnerOf(tgt), inn = alivePlayers().filter((pl) => pl === tgt || dist(partnerOf(pl), c) <= 40);
+      const c = SHARE_FOLGT ? partnerOf(tgt) : z.circles[0], inn = alivePlayers().filter((pl) => (SHARE_FOLGT && pl === tgt) || dist(partnerOf(pl), c) <= 40);
+      if (!inn.length) { ps.dodged++; say(`${SKILLS[skill].name} (geteilt): niemand im Kreis – ausgewichen`); return; }
       const each = Math.round(HP * 2.4 / inn.length);
       ps.hit += inn.length;
       say(`💥 ${SKILLS[skill].name} (geteilt) auf Char${tgt.i + 1}: ${inn.length} im Kreis → je ${each}`);
@@ -558,6 +569,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     if (run.inside && players.every((pl) => !pl.inside) && (run.cleared || run.failed)) { await wait(2000); break; }
   }
   clearInterval(loop);
+  if (process.env.DUMP) for (const e of ents.values()) if (e.map === MAP) console.log('DUMP', e.id, e.defId, Math.round(e.x), Math.round(e.y), e.hp, e.targetId || '', e.flags);
+  if (process.env.DUMP) for (const pl of players) console.log('DUMP pl', pl.i, pl.atk, JSON.stringify(pl.store.getState().target), pl.grab);
   console.log(`\nDungeon-Probelauf Kera Hard (Revenge) – ${N} Bot${N > 1 ? 's' : ''} · Grundangriff ${SCHADEN}/${AS} ms + Skills · HP ${HP} · Diaboromon ${DIABO_HP} · Armageddemon ${ARMA_HP}${TEMPO > 1 ? ` · Zeitraffer ×${TEMPO}` : ''}\n`);
   for (const l of log) console.log(l);
   const b = run.boss;

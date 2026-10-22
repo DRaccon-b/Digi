@@ -217,6 +217,12 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.30.1 – Diaboromon komplett ausweichen
+- Was mehr als Schaden macht, tankt der Bot nie: Packen (Tentacle Bug, 8 000 plus Festhalten und Aussaugen), Zurück-Digitieren, Markieren, geteilter Treffer, Spiegel, Debuffs. Diese Attacken weicht er immer aus.
+- Dieselbe Attacke mehrfach gleichzeitig (4 Kopien von Diaboromon, je 30 000) steht nur einmal im Protokoll. Der Bot zählt jetzt die Warnzonen am Boden mit und tankt solche Salven nicht mehr.
+- Hard allein: Die Herde ignoriert er (allein ist sie kaum zu stoppen, und die Zeit fehlt beim Boss). In der Gruppe fängt er sie weiterhin ab. „Adds zuerst“ ist im Dungeon aus, die Reihenfolge bestimmt die Dungeon-Zielwahl.
+- Simulator (allein, ×4), unter der Annahme, dass man der Catastrophe Cannon ausweichen kann: 2/2 Läufe **geschafft, 0 Stürze**. Raum 3 in 307–324 s (Uhr: 360 s), Raum 4 in 386–396 s (Enrage: 480 s). Folgt die Cannon dem Ziel, ist allein nach 4 Stürzen Schluss (Diaboromon bei ~54–83 %). Welche Variante stimmt, zeigt der Live-Test.
+
 #### Neu in 2.30.0 – Kera Hard („Revenge“) im Dungeon-Modus
 - Reiter Bosse → Dungeon → Modus „Hard – Revenge (Gruppe)“. Der Bot betritt Hard an derselben Tür und räumt Raum 3 (Diaboromon, 6-Minuten-Uhr) und Raum 4 (Armageddemon mit Kuramon-Herde).
 - Zielwahl aus den Spawn-Daten:
@@ -778,7 +784,7 @@ node sim/dungeon-keramon.js
 - Ergebnisse mit 2.29.2: allein in 393 s geschafft (Boss 308 s, 5 von 8 Mahlzeiten abgebrochen, 28 Tränke), zu dritt in 135 s. Der Simulator ist optimistischer als das Spiel: Live (noch 2.29.0, mit Ausweichen statt Tanken) schaffte der Bot in Raum 1 nur 4/6 Terminals, und Infermon fraß 12 Mahlzeiten bis zum Enrage.
 
 ### Hard („Revenge“)
-`node sim/dungeon-revenge.js` (Standard: allein; `GRUPPE=3` für eine Gruppe, `TEMPO=4`). Gleiche Partner-Werte wie Easy; Boss-HP, Uhr, Enrage und alle Attacken stammen aus den Spieldaten. Angenommen sind der Grundtreffer der Bosse (`BOSS_HIT`, 6 000 alle ~2 s), dass Kopien nicht angreifbar sind und die Aufteilung der Herde.
+`node sim/dungeon-revenge.js` (Standard: allein; `GRUPPE=3` für eine Gruppe, `TEMPO=4`). Gleiche Partner-Werte wie Easy; Boss-HP, Uhr, Enrage und alle Attacken stammen aus den Spieldaten. `SHARE_FOLGT=1`: Der geteilte Treffer folgt dem Ziel (sonst bleibt er liegen und ist ausweichbar). `START=4`: gleich in Raum 4. `DIABO_PCT=71`: Diaboromon startet mit so viel %. Angenommen sind der Grundtreffer der Bosse (`BOSS_HIT`, 6 000 alle ~2 s), dass Kopien nicht angreifbar sind und die Aufteilung der Herde.
 
 ### Was in Raum 1 nicht hilft (A/B-Vergleich, Okt. 2026)
 Simulator kalibriert auf live: Digimon läuft 120 px/s, Skill-Animationen (Invincible Sword 0,6 s, Omega Blade 0,9 s) blockieren den Grundangriff. Allein, je 6–12 Läufe, Terminals heil im Schnitt:
