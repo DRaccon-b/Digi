@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.26.0
+// @version      2.27.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -236,6 +236,11 @@
     .digibot__queue div.digibot__none{display:block;background:none;border:0;padding:0}
     .digibot__queue b{opacity:.6;font-variant-numeric:tabular-nums}
     .digibot__queue span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .digibot__grp.is-off{opacity:.45}
+    .digibot__grp.is-off>summary::after{content:attr(data-offnote);font:500 9.5px system-ui;color:#ffb86b;margin-left:6px}
+    .digibot__scope{font:500 10.5px system-ui;color:#9aa5c4;background:#161c33;border:1px solid #2a3355;border-radius:5px;padding:4px 6px;margin:0 0 6px}
+    .digibot__prof{font:600 10px system-ui;color:#9aa5c4;margin-left:auto;margin-right:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:110px}
+    .digibot__prof:empty{display:none}
     .digibot__seg{display:grid;grid-template-columns:repeat(4,1fr);gap:3px;margin:0 0 6px}
     .digibot__seg button{background:#161c33;border:1px solid #2a3355;color:#9aa5c4;border-radius:5px;font:600 10.5px system-ui;padding:4px 2px;cursor:pointer}
     .digibot__seg button:hover{color:#e8ecf4;border-color:#3a4670}
@@ -472,8 +477,9 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.26.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.27.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
+      <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
       <button class="digibot__btn" data-act="min" title="Ein-/Ausklappen">–</button>
@@ -491,7 +497,7 @@
       <div class="digibot__vitals">${bar('hp mini', 'HP').replace('data-bar="hp mini"', 'data-bar="mhp"')}${bar('ds mini', 'DS').replace('data-bar="ds mini"', 'data-bar="mds"')}${bar('tg mini', 'Ziel').replace('data-bar="tg mini"', 'data-bar="mtg"')}</div>
     </div>
     <nav class="digibot__tabs">
-      <button data-tab="data"><i>📊</i><small>Übersicht</small></button><button data-tab="attack"><i>⚔️</i><small>Kampf</small></button><button data-tab="quest"><i>📜</i><small>Quests</small></button><button data-tab="farm"><i>👑</i><small>Bosse</small></button><button data-tab="acc"><i>👥</i><small>Gruppe</small></button><button data-tab="log"><i>📋</i><small>Log</small></button>
+      <button data-tab="data"><i>📊</i><small>Übersicht</small></button><button data-tab="mon"><i>🐣</i><small>Digimon</small></button><button data-tab="attack"><i>⚔️</i><small>Kampf</small></button><button data-tab="quest"><i>📜</i><small>Quests</small></button><button data-tab="farm"><i>👑</i><small>Bosse</small></button><button data-tab="acc"><i>👥</i><small>Gruppe</small></button><button data-tab="log"><i>📋</i><small>Log</small></button>
     </nav>
     <div class="digibot__body">
       <section data-page="data">
@@ -513,7 +519,6 @@
             <div><b>Verbraucht</b><div data-f="lootout"><i class="digibot__none">noch nichts</i></div></div>
           </div>`, true, 'Alles seit Sitzungsbeginn (↺ oben setzt zurück): Items, die ins Inventar kamen (Drops, Belohnungen) und die weniger wurden (Tränke, abgegebene Quest-Items). EXP aus allen Quellen (Kämpfe, Quests) und Bits rein/raus.')}
         ${grp('queue', 'Als Nächstes', `<div class="digibot__queue" data-f="queue"><div class="digibot__none">–</div></div>`, true, 'Aktuelle Aufgabe (gelb) und die nächsten Schritte des Autopiloten.')}
-        ${grp('tamer', 'Tamer', bar('tds', 'DS'), false)}
         ${grp('radar', '<span data-f="radar">Radar</span>', `
           <canvas class="digibot__radar" width="476" height="320"></canvas>
           <div class="digibot__legend">
@@ -523,7 +528,13 @@
           </div>`)}
       </section>
 
-      <section data-page="attack">
+      <section data-page="mon">
+        ${grp('partner', 'Partner &amp; Digitation', `
+          <div class="digibot__apcfg">
+            <label>Quest-Digimon<select data-apsel="apQuestPartner"></select></label>
+            <label>Digitation<select data-apsel="apEvo"></select></label>
+            <label>Abgabe-Digimon<select data-apsel="apTurninPartner"></select></label>
+          </div>`, true, 'Quest-Digimon: mit ihm werden Quests angenommen und erledigt. Digitation: diese Form nimmt es dafür an (gilt auch in der Boss-Rotation). Abgabe-Digimon: zum Abgeben wird beim NPC zurück-digitiert und gewechselt.')}
         ${grp('skills', 'Skills (Tasten 2–6) <i class="digibot__for" data-f="skillsfor"></i>', `<div class="digibot__skills">${SKILL_KEYS.map((k) => `
           <label class="digibot__skill" data-skill="${k}">
             <input type="checkbox" data-skillcfg="${k}" ${cfg.skills[k] ? 'checked' : ''}>
@@ -535,6 +546,10 @@
           ${slider('dsPot', 'Digimon DS (F2) unter', 0, 95, potLabel, 2)}
           ${slider('tdsPot', 'Tamer DS (F3) unter', 0, 95, potLabel, 3)}`, true,
           'Food/Tränke auf F1–F3 der Hotbar legen. Ist auf F1 nichts mehr da und die HP unter der Schwelle, beendet der Bot den Kampf und wartet auf 100 % HP (Ruhemodus).')}
+        ${grp('tamer', 'Tamer', bar('tds', 'DS'), false)}
+      </section>
+
+      <section data-page="attack">
         ${grp('targeting', 'Zielwahl', `
           ${slider('lvlDiff', 'Max. Level über dem Digimon', 0, 100, (v) => `+${v}`)}
           ${slider('radius', 'Suchradius', 100, 800, (v) => `${v} px`, 0, 20)}
@@ -547,10 +562,13 @@
           ${check('safeCast', 'Skills nur, wenn danach noch Zeit zum Ausweichen bleibt')}
           ${check('koh', 'ClavisAngemon: große Raid-Angriffe mit Key of Hope blocken')}`, true,
           'Ausweichen: raus aus Kreisen, Strahlen und Fächern, möglichst mit freier Linie zum Ziel. Spiegel: weder 1 noch Skills, solange das Ziel Schaden zurückwirft. Skill-Timing: lange Casts nur, wenn eine mögliche Boss-Attacke noch Zeit zum Ausweichen lässt.')}
+
+        ${grp('bskills', 'Attacken des Bosses', `<div class="digibot__bskills" data-f="bskills"><div class="digibot__none">Kein Boss im Kampf – Attacken erscheinen hier, sobald du einen Boss anvisierst.</div></div>`, true,
+          'Form, Ansage und Cooldown jeder Attacke. Der Countdown läuft ab dem ersten beobachteten Einsatz; „bereit“ heißt „kann jederzeit kommen“.')}
         ${grp('mobs', '<span data-f="mapname">Monster auf dieser Map</span>', `
           <div class="digibot__btnrow"><button class="digibot__btn" data-act="mobs-all">alle an</button><button class="digibot__btn" data-act="mobs-none">alle aus</button></div>
           <div class="digibot__mobs" data-f="mobs"><div class="digibot__none">warte auf Spielwelt…</div></div>`, true,
-          'Haken = wird im Modus Grinden gejagt. Angreifer werden immer abgewehrt, auch wenn sie abgewählt sind. ⚔ = aggressiv.')}
+          'Haken = wird im Modus Grinden gejagt. Angreifer werden immer abgewehrt, auch wenn sie abgewählt sind. ⚔ = aggressiv.', 'data-modes="grind"')}
       </section>
 
       <section data-page="quest">
@@ -563,23 +581,18 @@
               <option value="near">Nächste Aufgabe zuerst</option>
               <option value="sweep">Map für Map: annehmen → erledigen → abgeben</option></select></label>
             <label data-sweeponly>Start-Map<select data-apsel="apStartMap"></select></label>
-            <label>Quest-Digimon<select data-apsel="apQuestPartner"></select></label>
-            <label>Digitation<select data-apsel="apEvo"></select></label>
-            <label>Abgabe-Digimon<select data-apsel="apTurninPartner"></select></label>
           </div>
           ${check('apRepeat', 'Tägliche NPC-Quests (wiederholbar) mitnehmen')}
           ${check('apDailies', 'Daily-Board (ab Lv 11) mitnehmen')}
           ${check('apTeleport', 'Mit Digi-Phone schnellreisen (kostet Bits)')}`, false,
-          'Gilt für den Modus Autopilot. Der Autopilot kämpft unterwegs nur gegen Angreifer.')}
+          'Gilt für den Modus Autopilot. Der Autopilot kämpft unterwegs nur gegen Angreifer.', 'data-modes="auto"')}
         ${grp('quests', 'Aktive Quests', `
           <div class="digibot__qsum" data-f="qsum"></div>
           <div class="digibot__quests" data-f="quests"><div class="digibot__none">warte auf Spielwelt…</div></div>`, true,
-          'Haken weg = Quest wird ignoriert. Quest-Jagd jagt nur auf der aktuellen Map (Abgeben machst du); der Autopilot erledigt auch Gespräche, Reisen, Annehmen und Abgeben. Level-, Digitations- und Brut-Ziele erledigt keiner von beiden.')}
+          'Haken weg = Quest wird ignoriert. Quest-Jagd jagt nur auf der aktuellen Map (Abgeben machst du); der Autopilot erledigt auch Gespräche, Reisen, Annehmen und Abgeben. Level-, Digitations- und Brut-Ziele erledigt keiner von beiden.', 'data-modes="auto quest"')}
       </section>
 
       <section data-page="farm">
-        ${grp('bskills', 'Attacken des Bosses', `<div class="digibot__bskills" data-f="bskills"><div class="digibot__none">Kein Boss im Kampf – Attacken erscheinen hier, sobald du einen Boss anvisierst.</div></div>`, true,
-          'Form, Ansage und Cooldown jeder Attacke. Der Countdown läuft ab dem ersten beobachteten Einsatz; „bereit“ heißt „kann jederzeit kommen“.')}
         ${grp('farmcfg', 'Boss-Farmen', `
           <div class="digibot__apcfg">
             <label>Art<select data-apsel="farmMode">
@@ -591,14 +604,15 @@
           <div class="digibot__routeinfo" data-farmmode="named" data-f="routeinfo">–</div>
           <div class="digibot__title">Kanäle</div>
           <div class="digibot__farmch">${[1, 2, 3, 4].map((c) => `<label><input type="checkbox" data-farmch="${c}" ${(cfg.farmChannels || []).includes(c) ? 'checked' : ''}>Ch ${c}</label>`).join('')}</div>`, true,
-          'Gilt für den Modus Bosse. Boss-Rotation: reist zum ausgewählten Boss, der als Nächstes da ist. Named-Elite-Runde: Maps von Start bis Ende ablaufen, je Kanal prüfen (lebt → kämpfen, Respawn unter 2 min → warten, sonst weiter), danach per Digi-Phone zurück. Kanalwechsel nur außerhalb des Kampfes; das Level-Limit gilt für diese Bosse nicht.')}
+          'Gilt für den Modus Bosse. Boss-Rotation: reist zum ausgewählten Boss, der als Nächstes da ist. Named-Elite-Runde: Maps von Start bis Ende ablaufen, je Kanal prüfen (lebt → kämpfen, Respawn unter 2 min → warten, sonst weiter), danach per Digi-Phone zurück. Kanalwechsel nur außerhalb des Kampfes; das Level-Limit gilt für diese Bosse nicht.', 'data-modes="farm"')}
         ${grp('timers', 'Timer', `<div class="digibot__timers" data-f="timers"><div class="digibot__none">Keine Bosse ausgewählt.</div></div>`, true,
-          'Aus dem Boss-Fenster des Spiels, der Map-Info deines Kanals und eigenen Siegen. ★ = aktuelles Ziel, „hier“ = dein Standort.')}
+          'Aus dem Boss-Fenster des Spiels, der Map-Info deines Kanals und eigenen Siegen. ★ = aktuelles Ziel, „hier“ = dein Standort.', 'data-modes="farm"')}
         ${grp('bosspick', 'Bosse auswählen', `<input class="digibot__search" type="text" data-bosssearch placeholder="🔍 Boss oder Map suchen…" autocomplete="off" spellcheck="false">
-          <div class="digibot__bosspick" data-f="bosspick"><div class="digibot__none">warte auf Spielwelt…</div></div>`, false, 'Suchfeld filtert nach Boss- oder Map-Namen. Die Liste hat eine feste Höhe – mit dem Balken rechts scrollen.', 'data-farmmode="boss"')}
+          <div class="digibot__bosspick" data-f="bosspick"><div class="digibot__none">warte auf Spielwelt…</div></div>`, false, 'Suchfeld filtert nach Boss- oder Map-Namen. Die Liste hat eine feste Höhe – mit dem Balken rechts scrollen.', 'data-farmmode="boss" data-modes="farm"')}
       </section>
 
       <section data-page="acc">
+        <div class="digibot__scope">👥 Alles in diesem Reiter gilt für alle Gruppenfenster – außer „Dieses Fenster ist“.</div>
         <div class="digibot__seg">
           <button data-gmode="bots" title="Alle Fenster fahren ihren Bot: der Leader den Autopilot, die anderen folgen ihm und machen seine Quests mit.">📜 Quests</button><button data-gmode="boss" title="Alle Fenster fahren ihren Bot: der Leader die Boss-Rotation (Bosse im Tab Farmen auswählen), die anderen folgen ihm über Maps und Kanäle und kämpfen mit.">👑 Bosse</button><button data-gmode="move" title="Du spielst den Leader selbst – die anderen Fenster (Bot aus) laufen ihm nach, auch über Maps und Kanäle.">👣 Spiegeln</button><button data-gmode="both" title="Wie Spiegeln, und die anderen greifen das Ziel des Leaders mit an – mit ihren Skills, Tränken und Ausweichen.">⚔️ + Angriff</button>
         </div>
@@ -4531,6 +4545,7 @@
     renderMobList(st, sc);
     renderQuests(st, sc);
     renderFarm(st);
+    syncModeScope();
     renderAccounts(st);
     renderTop(st);
     renderQueue(st);
@@ -4710,11 +4725,25 @@
     }).join('') : '<div class="digibot__none">Keine Attacken in den Spieldaten.</div>');
   }
 
+  const pageOn = (p) => !!panel.querySelector(`[data-page="${p}"]`)?.classList.contains('on');
+  // Bereiche, die im aktuellen Modus nicht gelten, abblenden (z. B. Autopilot-Optionen in der Boss-Rotation)
+  const MODE_NAMES = { grind: 'Grinden', quest: 'Quest-Jagd', auto: 'Autopilot', farm: 'Bosse' };
+  function syncModeScope() {
+    const m = modeOf();
+    panel.querySelectorAll('[data-modes]').forEach((el) => {
+      const modes = el.dataset.modes.split(' '), off = !modes.includes(m);
+      if (el.classList.contains('is-off') !== off) el.classList.toggle('is-off', off);
+      const note = `· gilt nur im Modus ${modes.map((x) => MODE_NAMES[x] || x).join(' / ')}`;
+      if (el.dataset.offnote !== note) el.dataset.offnote = note;
+    });
+    const prof = panel.querySelector('[data-f="prof"]'), txt = cfgUser ? `👤 ${cfgUser}` : '';
+    if (prof && prof.textContent !== txt) prof.textContent = txt;
+  }
   let farmPickSig = '';
   function renderFarm(st) {
     hookBossEvents();
-    if (!panel.querySelector('[data-page="farm"]').classList.contains('on')) return;
-    renderBossSkills(st);
+    if (pageOn('attack')) renderBossSkills(st); // Boss-Attacken stehen im Kampf-Reiter
+    if (!pageOn('farm')) return;
     const mode = cfg.farmMode === 'named' ? 'named' : 'boss';
     panel.querySelectorAll('[data-farmmode]').forEach((el) => el.classList.toggle('hide', el.dataset.farmmode !== mode));
     fillSelect('farmMode', [['boss', 'Boss-Rotation (ausgewählte Bosse)'], ['named', 'Named-Elite-Runde (Map für Map)']]);
@@ -4769,7 +4798,8 @@
   }
 
   function renderQuests(st, sc) {
-    if (!panel.querySelector('[data-page="quest"]').classList.contains('on')) return;
+    if (pageOn('mon') && !pageOn('quest')) { renderApConfig(st); return; } // Partner/Digitation im Digimon-Reiter
+    if (!pageOn('quest')) return;
     renderApConfig(st);
     const ap = panel.querySelector('[data-f="apinfo"]');
     ap.classList.toggle('on', cfg.autopilot);
@@ -5041,7 +5071,7 @@
     } catch { /* ignore */ }
 
     makeDraggable(panel, panel.querySelector('.digibot__head'));
-    setTab(['data', 'attack', 'quest', 'farm', 'acc', 'log'].includes(cfg.tab) ? cfg.tab : 'data');
+    setTab(['data', 'mon', 'attack', 'quest', 'farm', 'acc', 'log'].includes(cfg.tab) ? cfg.tab : 'data');
     // Tippen in die Account-Felder nicht ans Spiel weitergeben (sonst laufen/greifen Tasten im Spiel)
     for (const ev of ['keydown', 'keyup', 'keypress']) {
       panel.addEventListener(ev, (e) => { if (e.target.matches?.('input[type="text"],input[type="password"]')) e.stopPropagation(); });

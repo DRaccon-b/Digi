@@ -217,6 +217,17 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.27.0 – Panel neu geordnet
+- **Neuer Reiter 🐣 Digimon:** Hier steht alles zum eigenen Digimon an einer Stelle: Quest-Digimon, Digitation und
+  Abgabe-Digimon (bisher im Quest-Reiter), Skills und Heal je Digitationsform sowie Tränke F1–F3 (bisher im
+  Kampf-Reiter) und Tamer-DS (bisher in der Übersicht).
+- **⚔️ Kampf:** Zielwahl, Boss-Mechaniken, Attacken des Bosses (bisher im Boss-Reiter) und Monster auf dieser Map.
+- **Was im aktuellen Modus nicht gilt, wird abgeblendet** und mit „gilt nur im Modus …“ beschriftet. Beispiele:
+  Autopilot-Optionen in der Boss-Rotation, die Monsterliste außerhalb von Grinden.
+- **Oben im Kopf** steht, für welchen Account die Einstellungen gerade gelten (👤 Login-Name). Der Gruppen-Reiter
+  sagt dazu, dass seine Einstellungen für alle Gruppenfenster gelten.
+- Alle Einstellungen bleiben erhalten, nur die Anordnung ist neu.
+
 #### Neu in 2.26.0 – Boss-Rotation: unterwegs nicht kämpfen, am Platz erst der Boss
 - **Unterwegs zum Boss** (andere Map, anderer Kanal oder noch nicht am Spawnpunkt) kämpft der Bot nicht mehr gegen
   aggressive Monster, die ihn angreifen. Er ruft das Digimon zurück und läuft weiter. Ein Kanalwechsel geht auch

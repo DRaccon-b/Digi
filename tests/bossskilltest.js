@@ -25,7 +25,7 @@ for (const id of ['m:1', 'm:2', 'm:3', 'm:4', 'm:6']) F.ents.delete(id);
 const me = F.store.getState().me;
 F.store.setState({ me: { ...me, hotbar: ['cmd:attack', 'skill:2', 'skill:0', null, null, null, null, null, 'item:meat'],
   partner: { ...me.partner, skills: [...me.partner.skills, { name: 'Gaia Force', dsCost: 0, unlocked: true, castMs: 1200 }] } } });
-w.localStorage.setItem('digibot.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0, lvlDiff: 10, tab: 'farm', mobs: { native_forest: { 'kuwagamon|boss': true } } }));
+w.localStorage.setItem('digibot.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0, lvlDiff: 10, tab: 'attack', mobs: { native_forest: { 'kuwagamon|boss': true } } }));
 const keys = [];
 w.addEventListener('keydown', (e) => keys.push({ code: e.code, t: Date.now() }), true);
 w.eval(script);

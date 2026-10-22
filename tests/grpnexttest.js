@@ -25,7 +25,7 @@ const tick = setInterval(() => bus.postMessage({ type: 'state', slot: 0, role: '
   const before = F.store.getState().target?.id;
   m1Dead = true; lt = null; // Leader-Monster tot, Leader hat noch kein neues Ziel
   const tg = F.store.getState().target; if (tg?.id === 'm:1') F.store.setState({ target: { ...tg, hp: 0 } });
-  await wait(2500);
+  await wait(4000);
   const gap = F.store.getState().target?.id;
   clearInterval(tick); bus.close();
   const r = { before, gap };
