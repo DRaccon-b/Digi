@@ -217,6 +217,17 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.41.0 – EXP-Priorität beim Grinden
+- Gemessen mit der EXP-Messung (~280 Kills, Hawkmon/Aquilamon in Digi-Egg Valley): **EXP pro Kill = EXP-Grundwert × Monster-Level^1,1 × Faktor.** Der Faktor hängt vom Abstand zum eigenen Digimon ab:
+  - −15 % je Level darunter, ab −6 nur noch die Mindestmenge von 1 EXP.
+  - +10 % je Level darüber.
+  - **+5 bis +8 = ×1,5**, danach wieder weniger (+9 ×1,42, +10 ×1,36, +11 ×1,30).
+  - Außerdem gilt: EXP bis zum nächsten Level = 40 × Level^1,8 + 20.
+- Neuer Haken im Reiter Kampf, **EXP-Priorität** (an): Beim Grinden nimmt der Bot unter den Monstern im Suchradius zuerst die mit +5 bis +8 Level, dann +4, +3 … bis unter das eigene Level, und erst ganz zuletzt welche über +8. Innerhalb einer Stufe nimmt er das nächste. Angreifer, Quest-Monster, Bosse und Gruppenziele gehen wie bisher vor.
+- Damit +5 bis +8 überhaupt in Frage kommen, muss „Max. Level über dem Digimon“ mindestens +8 sein (Standard +5).
+- Level-Simulation Lv 1→99 nur mit A2-Maps, reines Grinden, Tamer-Ausrüstung des Testkontos: ~6 h reine Kampfzeit mit EXP-Priorität (ohne ~6,2 h), mit doppelter Suchzeit ~7,6 h.
+- Neuer Test `expprio`.
+
 #### Neu in 2.40.1 – Event: Jagd-Boss sicherer erkennen
 - Live stand der Jagd-Boss nah bei der Gruppe, der Bot erkannte ihn aber nicht. Bisher musste seine Art genau der Angabe im Event-Fenster entsprechen, manche Jagd-Bosse wechseln aber die Form (z. B. Justimon → `justimon_hunt_blitz` / `_critical`). Jetzt zählt jede Jagd-Boss-Art (`…_hunt…`) auf der Event-Map. Davon gibt es dort nur einen.
 - Sobald der Bot einen Jagd-Boss sieht, steht das im Log mit Art, Flags und Abstand. Wird er künftig wieder nicht angegriffen, sieht man den Grund.

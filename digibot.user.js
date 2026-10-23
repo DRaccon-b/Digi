@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.40.1
+// @version      2.41.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -321,6 +321,7 @@
     koh: true,        // ClavisAngemon: große Raid-Angriffe mit „Key of Hope“ blocken
     tank: true,       // kleine Boss-Flächen (fester Schaden, höchstens ~1/3 der HP) tanken statt ausweichen
     skipTaken: true,  // keine Gegner angreifen, die andere Spieler gerade bekämpfen
+    expPrio: true,    // Grinden: zuerst Monster +5…+8 über dem Digimon (×1,5 EXP), dann +4, +3, … – erst zuletzt über +8
     chCheck: false,   // Channel-Checker: auf den Kanal mit den wenigsten Spielern wechseln (nicht in der Boss-Rotation)
     safeCast: true,   // gegen Bosse: Skills nur, wenn danach noch Zeit zum Ausweichen bleibt (und kein Spiegel droht)
     autopilot: false, // Quests annehmen, hinreisen, erledigen, abgeben
@@ -499,7 +500,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.40.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.41.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -580,6 +581,7 @@
           ${slider('lvlDiff', 'Max. Level über dem Digimon', 0, 100, (v) => `+${v}`)}
           ${slider('radius', 'Suchradius', 100, 800, (v) => `${v} px`, 0, 20)}
           ${check('skipTaken', 'Keine Gegner angreifen, die andere Spieler bekämpfen')}
+          ${check('expPrio', 'EXP-Priorität: zuerst Monster +5 bis +8, dann +4, +3 … (gemessen: +5 bis +8 gibt ×1,5 EXP)')}
           ${check('chCheck', 'Channel-Checker: auf den leersten Kanal wechseln')}`, true,
           'Schwächere Monster werden immer angegriffen, nur zu starke (über +Level) nicht. Angreifer werden immer abgewehrt. Channel-Checker: etwa jede Minute und nach jedem Map-Wechsel wechselt der Bot auf den Kanal mit den wenigsten Spielern (mind. 2 weniger) – nur außerhalb von Kämpfen, nicht in der Boss-Rotation; in der Gruppe entscheidet der Leader, die anderen folgen.')}
         ${grp('mech', 'Boss-Mechaniken', `
@@ -4833,7 +4835,19 @@
       if (free) return free;
       if (L) return groupAssist(sc) || sc.mobs.find((m) => usable(m) && near(m)) || null;
     }
-    return sc.mobs.find(usable) || null;
+    return expPick(sc.mobs.filter(usable)) || null;
+  }
+  // EXP-Priorität (gemessen, EXP-Messung 2.40): Faktor je Level-Abstand zum Monster: −15 %/Level darunter, +10 %/Level
+  // darüber, +5 bis +8 = ×1,5, darüber wieder weniger. Stufen: +5…+8, dann +4, +3, … 0, −1, … und erst zuletzt über +8;
+  // innerhalb einer Stufe das nächste Monster. Nur beim Grinden – Quest-Monster und Bosse wählt der Bot wie bisher.
+  function expTier(d) { return d >= 5 && d <= 8 ? 0 : d >= 0 && d < 5 ? 5 - d : d < 0 ? 5 - d : 100 + d; }
+  function expPick(list) {
+    if (!list.length) return null;
+    const pLv = getStore()?.getState?.()?.me?.partner?.level;
+    if (!cfg.expPrio || !pLv || cfg.farm || cfg.dungeon || cfg.questMode || (cfg.autopilot && !autopilot.task?.grind)) return list[0];
+    let best = null, bt = Infinity;
+    for (const m of list) { const t = expTier((m.level ?? pLv) - pLv); if (t < bt || (t === bt && m.d < best.d)) { best = m; bt = t; } }
+    return best;
   }
 
   // Die Spielszene "world" kann ein Ziel direkt setzen (wie ein Mausklick auf das Monster).
