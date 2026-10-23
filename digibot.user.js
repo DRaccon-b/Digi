@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.41.0
+// @version      2.42.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -321,6 +321,8 @@
     koh: true,        // ClavisAngemon: große Raid-Angriffe mit „Key of Hope“ blocken
     tank: true,       // kleine Boss-Flächen (fester Schaden, höchstens ~1/3 der HP) tanken statt ausweichen
     skipTaken: true,  // keine Gegner angreifen, die andere Spieler gerade bekämpfen
+    levelRoute: false, // Grinden: selbst zur besten Zone fürs Level reisen (Lern-Route)
+    levelA2: true,    // Lern-Route nur in Adventure-02-Maps
     expPrio: true,    // Grinden: zuerst Monster +5…+8 über dem Digimon (×1,5 EXP), dann +4, +3, … – erst zuletzt über +8
     chCheck: false,   // Channel-Checker: auf den Kanal mit den wenigsten Spielern wechseln (nicht in der Boss-Rotation)
     safeCast: true,   // gegen Bosse: Skills nur, wenn danach noch Zeit zum Ausweichen bleibt (und kein Spiegel droht)
@@ -500,7 +502,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.41.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.42.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -581,6 +583,8 @@
           ${slider('lvlDiff', 'Max. Level über dem Digimon', 0, 100, (v) => `+${v}`)}
           ${slider('radius', 'Suchradius', 100, 800, (v) => `${v} px`, 0, 20)}
           ${check('skipTaken', 'Keine Gegner angreifen, die andere Spieler bekämpfen')}
+          ${check('levelRoute', 'Lern-Route: beim Grinden selbst zur Zone mit den meisten EXP/min fürs Level reisen (Wechsel ab +15 %, frühestens nach 3 min)')}
+          ${check('levelA2', 'Lern-Route nur in Adventure 02')}
           ${check('expPrio', 'EXP-Priorität: zuerst Monster +5 bis +8, dann +4, +3 … (gemessen: +5 bis +8 gibt ×1,5 EXP)')}
           ${check('chCheck', 'Channel-Checker: auf den leersten Kanal wechseln')}`, true,
           'Schwächere Monster werden immer angegriffen, nur zu starke (über +Level) nicht. Angreifer werden immer abgewehrt. Channel-Checker: etwa jede Minute und nach jedem Map-Wechsel wechselt der Bot auf den Kanal mit den wenigsten Spielern (mind. 2 weniger) – nur außerhalb von Kämpfen, nicht in der Boss-Rotation; in der Gruppe entscheidet der Leader, die anderen folgen.')}
@@ -4841,6 +4845,78 @@
   // darüber, +5 bis +8 = ×1,5, darüber wieder weniger. Stufen: +5…+8, dann +4, +3, … 0, −1, … und erst zuletzt über +8;
   // innerhalb einer Stufe das nächste Monster. Nur beim Grinden – Quest-Monster und Bosse wählt der Bot wie bisher.
   function expTier(d) { return d >= 5 && d <= 8 ? 0 : d >= 0 && d < 5 ? 5 - d : d < 0 ? 5 - d : 100 + d; }
+  // EXP-Faktor je Level-Abstand (gemessen 2.40/2.41): darunter −15 %/Level, darüber +10 %/Level, +5…+8 ×1,5, dann fallend
+  const expFac = (d) => (d <= 0 ? Math.max(0, 1 - 0.15 * -d) : d <= 5 ? 1 + 0.1 * d : d <= 8 ? 1.5 : Math.max(0.1, 1.48 - 0.0615 * (d - 8)));
+  const expPerKill = (eb, ml, pl) => Math.max(1, Math.round((eb || 0) * Math.pow(ml, 1.1) * expFac(ml - pl)));
+
+  // ---------- Lern-Route (Grinden): beste Zone fürs Level ----------
+  // Bewertet jede Zone mit Kartendaten: EXP pro Kill (Formel oben) und Kampfzeit (Monster-HP aus den Daten / eigener
+  // Schaden, geschätzt aus Angriff und Angriffstempo: 1,55 × AT je Angriff, geeicht an Aquilamon) plus Suchzeit.
+  // Gezählt werden die Monster, die die EXP-Priorität wirklich nähme (beste Stufen, mindestens LR_TOP_SHARE der Zone).
+  // Wechsel nur bei deutlich mehr EXP/min und frühestens nach LR_MIN_STAY_MS – sonst pendelt er.
+  const LR_GAP_S = 1.3, LR_TOP_SHARE = 0.35, LR_SWITCH_GAIN = 1.15, LR_MIN_STAY_MS = 180000, LR_CALC_MS = 30000, LR_MAX_ABOVE = 12;
+  const lr = { goal: null, since: 0, calcAt: 0, calcLv: 0, best: null };
+  const lrOn = () => cfg.levelRoute && !cfg.autopilot && !cfg.farm && !cfg.questMode && !cfg.dungeon;
+  function lrDps(p) {
+    const at = p?.stats?.at, as = p?.stats?.as;
+    return at > 0 ? 1.55 * at * 1000 / (as > 0 ? as : 1300) : 1000;
+  }
+  function lrZoneRate(C, entries, pl, dps) {
+    const ms = []; let W = 0;
+    for (const e of entries || []) {
+      const d = C.digimon?.[e.species]; if (!d?.mob || !d.base) continue;
+      const lo = e.level?.[0] ?? 1, hi = e.level?.[e.level.length - 1] ?? lo, n = hi - lo + 1;
+      for (let ml = lo; ml <= hi; ml++) {
+        if (ml - pl > Math.min(cfg.lvlDiff, LR_MAX_ABOVE)) continue; // zu stark: würde der Bot nicht angreifen
+        const w = (e.weight || 1) / n; W += w;
+        ms.push({ w, t: expTier(ml - pl), xp: expPerKill(d.mob.expBase, ml, pl), hp: d.base.hp + (d.growth?.hp || 0) * (ml - 1) });
+      }
+    }
+    if (!ms.length) return 0;
+    ms.sort((a, b) => a.t - b.t);
+    let acc = 0, xp = 0, t = 0;
+    for (const m of ms) { xp += m.w * m.xp; t += m.w * (m.hp / dps + LR_GAP_S); acc += m.w; if (acc >= W * LR_TOP_SHARE) break; }
+    return t > 0 ? xp / t * 60 : 0;
+  }
+  function lrBest(st) {
+    const C = content(), p = st?.me?.partner; if (!C || !p) return null;
+    const dps = lrDps(p); let best = null;
+    for (const [mapId, sp] of Object.entries(C.spawns || {})) {
+      if (sp.raid || !sp.zones) continue;
+      if (cfg.levelA2 && (C.maps?.[mapId]?.series || 1) !== 2) continue;
+      for (const [zn, z] of Object.entries(sp.zones)) {
+        const rect = world.maps[mapId]?.zones?.[zn]; if (!rect?.w) continue;
+        const rate = lrZoneRate(C, z.entries, p.level, dps);
+        if (rate > 0 && (!best || rate > best.rate)) best = { mapId, zone: zn, rate, rect };
+      }
+    }
+    return best;
+  }
+  // Ein Schritt: Statuszeile, solange der Bot zur Zone reist/läuft; null = dort angekommen (grinden) oder nichts zu tun
+  function levelRouteStep(st, sc, now, attackers) {
+    if (!lrOn() || world.state !== 'ready') return null;
+    const p = st.me?.partner; if (!p) return null;
+    if (now - lr.calcAt > LR_CALC_MS || lr.calcLv !== p.level) {
+      lr.calcAt = now; lr.calcLv = p.level; lr.best = lrBest(st);
+      const b = lr.best, g = lr.goal;
+      if (b && (!g || (b.mapId !== g.mapId || b.zone !== g.zone) && (b.rate > (g.rate || 0) * LR_SWITCH_GAIN && now - lr.since > LR_MIN_STAY_MS))) {
+        lr.goal = { ...b }; lr.since = now;
+        logEvent('auto', `Leveln: beste Zone für Lv ${p.level} – ${content()?.maps?.[b.mapId]?.name || b.mapId} / ${b.zone} (~${Math.round(b.rate)} EXP/min)`);
+      } else if (g && b && b.mapId === g.mapId && b.zone === g.zone) g.rate = b.rate;
+    }
+    const g = lr.goal; if (!g) return null;
+    if (attackers.length) return null; // erst Angreifer abwehren
+    const t = st.target;
+    if (t && t.kind === 'mob' && t.hp > 0 && bot.attackedId === t.id) return null; // laufenden Kampf beenden
+    const where = `${content()?.maps?.[g.mapId]?.name || g.mapId} / ${g.zone}`;
+    if (st.world?.mapId !== g.mapId) { const tr = travel(st, g.mapId, now); return tr === true ? `angekommen in ${where}` : `reise zu ${where} · ${tr}`; }
+    const me = controlled(st), r = g.rect;
+    if (me && !(me.x >= r.x - 24 && me.x <= r.x + r.w + 24 && me.y >= r.y - 24 && me.y <= r.y + r.h + 24)) {
+      if (walkTo(st, r.x + r.w / 2, r.y + r.h / 2, now) === 'stuck') autopilot.nav = null;
+      return `laufe in die Zone ${where} (~${Math.round(g.rate)} EXP/min)`;
+    }
+    return null;
+  }
   function expPick(list) {
     if (!list.length) return null;
     const pLv = getStore()?.getState?.()?.me?.partner?.level;
@@ -5007,6 +5083,8 @@
       if (!cfg.dungeon && world.state === 'ready') {
         const hv = huntStep(st, sc, now);
         if (hv) { this.status = `Event: ${hv}`; this.attackedId = null; return; }
+        const lv = levelRouteStep(st, sc, now, attackers);
+        if (lv) { this.status = `Leveln: ${lv}`; this.attackedId = null; return; }
       }
       if (cfg.farm && world.state === 'ready') farmUpdate(st, now);
       else if (cfg.autopilot && world.state === 'ready') { const qb = questBossSel(autopilot.task); if (qb.length) farmUpdate(st, now, qb); } // Boss-Quest: Timer wie bei der Rotation
@@ -6072,6 +6150,7 @@
       const flag = e.target.dataset.apflag;
       if (flag) {
         cfg[flag] = e.target.checked; saveCfg(); e.target.blur(); autopilot.reset(); schedule();
+        if (flag === 'levelRoute' || flag === 'levelA2') { lr.goal = null; lr.calcAt = 0; }
         logEvent('auto', `Einstellung: ${e.target.nextElementSibling?.textContent} = ${e.target.checked ? 'an' : 'aus'}`);
         return;
       }

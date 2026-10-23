@@ -217,6 +217,16 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.42.0 – Lern-Route: selbst zur besten Zone
+- Neu im Reiter Kampf: **Lern-Route**. Beim Grinden reist der Bot selbst zur Zone mit den meisten EXP/min für das aktuelle Level, Haken „nur in Adventure 02“ standardmäßig an.
+- So bewertet er die Zonen:
+  - EXP pro Kill nach der gemessenen Formel, Monster-HP aus den Daten, eigener Schaden aus Angriff und Angriffstempo (1,55 × AT je Angriff, geeicht an Aquilamon), dazu 1,3 s Suchzeit.
+  - Es zählen die Monster, die die EXP-Priorität tatsächlich nimmt, und nur bis zur eingestellten Level-Grenze (höchstens +12).
+- Neu gerechnet wird alle 30 s und bei jedem Level-Up. Gewechselt wird erst, wenn eine andere Zone mindestens 15 % mehr bringt und der Bot schon 3 Minuten in der jetzigen war.
+- Unterwegs wehrt er Angreifer ab und beendet einen laufenden Kampf, in der Zone grindet er wie gewohnt.
+- Digitieren macht der Grind-Modus weiterhin nicht von selbst.
+- Neuer Test `levelroutetest`.
+
 #### Neu in 2.41.0 – EXP-Priorität beim Grinden
 - Gemessen mit der EXP-Messung (~280 Kills, Hawkmon/Aquilamon in Digi-Egg Valley): **EXP pro Kill = EXP-Grundwert × Monster-Level^1,1 × Faktor.** Der Faktor hängt vom Abstand zum eigenen Digimon ab:
   - −15 % je Level darunter, ab −6 nur noch die Mindestmenge von 1 EXP.
