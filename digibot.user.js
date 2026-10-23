@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.36.1
+// @version      2.36.2
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -495,7 +495,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.36.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.36.2'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1589,7 +1589,8 @@
   const KOH_LEAD_MS = 700;    // so lange vor dem Einschlag zündet der erste Clavis (Schutz hält 2 s)
   const KOH_STEP_MS = 200;    // Abstand, bis der nächste Clavis einspringt
   const KOH_COVER_MS = 1700;  // Einschläge bis so lange nach dem Zünden gelten als abgedeckt
-  const KOH_RANGE = 700;      // nur Angriffe von Bossen in dieser Entfernung
+  const KOH_RANGE = 700;      // nur Angriffe von Bossen in dieser Entfernung (nicht für geteilte Treffer)
+  const KOH_SHARED = new Set(['diaboromon.catastrophe_cannon', 'armageddemon.black_rain_shell']); // geteilt, auch ohne share in den Daten
   const KOH_GATHER_R = 80;     // so nah laufen die anderen ans Clavis-Digimon (Schutzkreis 128 px)
   const kohState = {
     claims: new Map(), // Boss-Entity -> Zeitpunkt, an dem ein Clavis Key of Hope gezündet hat
@@ -1623,8 +1624,10 @@
         if (!KOH_BLOCK.has(sid) || e.phase !== 'cast') continue;
         const left = e.castEnd - now;
         if (left < -300) continue;
-        const b = ents?.get?.(src);
-        if (b && me && Math.hypot(b.x - me.x, b.y - me.y) > KOH_RANGE) continue;
+        // Geteilte Treffer (Black-Rain-Hülle, Catastrophe Cannon) folgen einem Spieler, egal wie weit der Boss weg ist –
+        // ohne Reichweiten-Grenze (Probelauf: bei den Kuramon-Clustern weit vom Boss sammelte sich niemand, 2 Stürze)
+        const b = ents?.get?.(src), shared = !!content()?.skills?.[sid]?.share || KOH_SHARED.has(sid);
+        if (!shared && b && me && Math.hypot(b.x - me.x, b.y - me.y) > KOH_RANGE) continue;
         const claim = kohState.claims.get(src);
         if (claim && e.castEnd <= claim + KOH_COVER_MS) continue; // ein Clavis hat schon gezündet
         if (!hit || left < hit.left) hit = { src, sid, left, castEnd: e.castEnd, main: e.castEnd };

@@ -217,6 +217,12 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.36.2 – Key of Hope auch fern vom Boss
+- Geteilte Treffer (Black-Rain-Hülle, Catastrophe Cannon) folgen einem Spieler. Key of Hope deckt sie jetzt unabhängig davon, wie weit der Boss entfernt ist. Andere Block-Treffer gelten weiter nur bis 700 px um den Boss.
+- Grund (Probelauf Hard): In der Kuramon-Cluster-Phase (Boss unter 20 %) standen alle weit vom Boss entfernt. Niemand sammelte sich, zwei Clavis zündeten erst nach dem Einschlag, und es gab 2 Stürze.
+- 10 volle Läufe (Raum 3 + 4, ×4): 8 geschafft, 0 Stürze durch Black Rain, Raum 3 in 216–236 s, Raum 4 in 289–309 s. Offen: Die zwei Fehlschläge kommen von der Ultimate Flare in der Cluster-Phase. Ein Fernangriff von draußen kurz vor dem Einschlag lässt das Digimon dem Ziel hinterher in den Fächer laufen.
+- Neuer Test `kohrangetest`.
+
 #### Neu in 2.36.1 – Raum 4 (Hard) wieder stabil
 - **Ultimate Flare** wird ausgewichen statt geblockt. Als Block fraß sie in Raum 4 rund die Hälfte der Keys, und für die Black-Rain-Hülle war dann keiner mehr bereit. Schlägt sie kurz vor einem Block-Treffer ein, deckt der Key sie wie bisher mit ab.
 - **Sammeln für den Key:** Eine Attacke, die vor dem Zünden einschlägt (der Schutz deckt sie nicht), wird auch in den letzten 2 s noch ausgewichen. Bisher stand die gesammelte Gruppe dann darin.
