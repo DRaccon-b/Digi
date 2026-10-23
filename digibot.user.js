@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.34.3
+// @version      2.35.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -495,7 +495,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.34.3'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.35.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -867,7 +867,10 @@
   // Kurz vor dem Einschlag nicht wieder angreifen, wenn das Ziel neben einer Zone steht: Bosse laufen weiter, das
   // Digimon folgt ihnen in den Kreis (Probelauf Hard: Volley 0,3 s vor dem Einschlag – 3 Clavis auf einmal)
   const DODGE_SOON_MS = 1200, DODGE_SOON_PAD = 70;
-  const dodgeState = { active: false, lastTap: 0, lastFollow: 0 };
+  const dodgeState = { active: false, lastTap: 0, lastFollow: 0, goal: null };
+  const DODGE_GOAL_MS = 3000;      // Fluchtpunkt höchstens so lange festhalten
+  const DODGE_GOAL_REACHED = 12;   // so nah = angekommen
+  const DODGE_RETAP_MS = 1000;     // Klick auf denselben Fluchtpunkt so oft wiederholen
   // Kleine Boss-Treffer tanken: Ausweichen kostet Schaden pro Sekunde, ein Trank ist billiger. Tankbar ist eine Fläche
   // mit festem Schaden bis TANK_MAX_PCT der Max-HP, nach der noch TANK_KEEP_PCT übrig bleiben – ohne Zurück-Digitieren
   // und ohne geteilten Treffer (z. B. Keramon „Crazy Turn“ 28 000, Chrysalimon „Data Crusher“ 30 000 gegen ~90 000 HP;
@@ -1045,6 +1048,7 @@
     const tEnt = st?.target?.id ? ents?.get?.(st.target.id) : null;
     const target = tEnt && tEnt.hp > 0 ? tEnt : null;
     if (!z) {
+      dodgeState.goal = null;
       // Draußen, aber der Angriff läuft noch: nicht wieder hineinlaufen (Taste 1 würde das Digimon zum Ziel in der
       // Zone schicken). Mit Ziel: weiterkämpfen, sobald das Ziel frei steht und der direkte Weg dorthin frei ist.
       // Ohne Ziel: warten, bis alle Zonen in der Nähe verschwunden sind. Das Digimon bleibt so lange beim Tamer.
@@ -1100,7 +1104,13 @@
     let first = null, firstRad = 0, best = null, bestScore = Infinity, safeOnly = null;
     // Schutzzonen meiden: dort kann man nicht kämpfen (danach erst wieder herauslaufen) – nur als letzter Ausweg
     const mapId = st.world?.mapId;
-    for (let rad = 40; rad <= 328; rad += 24) {
+    // Fluchtpunkt festhalten, solange er frei bleibt und noch nicht erreicht ist – neu gesucht aus der jeweils
+    // aktuellen Position sprang der beste Punkt beim Laufen zwischen Nachbarrichtungen hin und her (Eiern)
+    const g0 = dodgeState.goal;
+    const keep = g0 && now - g0.at < DODGE_GOAL_MS && Math.hypot(me.x - g0.x, me.y - g0.y) > DODGE_GOAL_REACHED
+      && !zones.some((c) => zoneDist(c, g0).d < DODGE_MARGIN * 1.5);
+    if (keep) best = g0;
+    else for (let rad = 40; rad <= 328; rad += 24) {
       const budget = left != null ? Math.max(firstRad, (left - 300) / 1000 * DODGE_WALK_PX_S) : firstRad + 72;
       if (first && rad > budget) break;
       for (let i = 0; i < 16; i++) {
@@ -1115,9 +1125,13 @@
       if (first && !target) break;
     }
     best ||= first || safeOnly;
-    if (!best) { dodgeState.active = false; return null; } // kein Fluchtpunkt: stehen bleiben hilft nicht – weiterkämpfen
-    if (now - dodgeState.lastTap > 400) { dodgeState.lastTap = now; worldScene()?.tapGround?.(best.x, best.y); }
-    if (inZone(partner) && now - dodgeState.lastFollow > 1500) { dodgeState.lastFollow = now; commands()?.partnerFollow?.(); }
+    if (!best) { dodgeState.active = false; dodgeState.goal = null; return null; } // kein Fluchtpunkt: stehen bleiben hilft nicht – weiterkämpfen
+    if (best !== g0) dodgeState.goal = { x: best.x, y: best.y, at: now };
+    // Klick nur bei neuem Punkt sofort, sonst selten wiederholen (falls er verloren ging)
+    if (best !== g0 || now - dodgeState.lastTap > DODGE_RETAP_MS) { dodgeState.lastTap = now; worldScene()?.tapGround?.(best.x, best.y); }
+    // Digimon-Steuerung: der Klick bewegt das Digimon selbst – „Folgen“ würde es zum Tamer zurückziehen (Zickzack)
+    const ownMove = partner && tamer && tamer.id === partner.id;
+    if (!ownMove && inZone(partner) && now - dodgeState.lastFollow > 1500) { dodgeState.lastFollow = now; commands()?.partnerFollow?.(); }
     return 'Weiche Flächenangriff aus…';
   }
 

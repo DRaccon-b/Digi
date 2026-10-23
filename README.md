@@ -217,6 +217,11 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.35.0 – Ausweichen mit dem Digimon
+- Steht das Spiel auf Digimon-Steuerung, bewegt das Ausweichen nur das Digimon, der Tamer zählt nicht. Der Bot schickt beim Ausweichen kein „Folgen“ mehr. Das hat das Digimon bisher alle 1,5 s zum Tamer zurückgezogen, während der nächste Klick es wieder zum Fluchtpunkt schickte (Zickzack).
+- Der Fluchtpunkt bleibt fest, bis er erreicht ist, eine neue Warnzone ihn überdeckt oder 3 s vorbei sind. Bisher wurde er alle 0,4 s aus der aktuellen Position neu gesucht und sprang beim Laufen zwischen Nachbarrichtungen (Eiern). Der Klick wird nur bei einem neuen Punkt sofort gesendet, sonst einmal pro Sekunde wiederholt.
+- Mit Tamer-Steuerung bleibt es wie bisher (Tamer läuft, Digimon folgt), nur mit festem Fluchtpunkt. Neuer Test `dodgepartnertest`.
+
 #### Neu in 2.34.3 – Adds nur vom Boss, der wirklich da steht
 - „Adds zuerst“ zählt nur noch die Adds des Boss-Eintrags dieser Map, und zwar des Bosses, der am nächsten steht. Bisher galt jede Art als Add, die irgendwo im Spiel ein Boss ruft. Live auf Sea of Darkness: Neben dem Feldboss Divermon galten alle normalen Divermon als Adds, weil MarineDevimon auf Odaiba Divermon ruft. Der Mitläufer griff sie deshalb einen nach dem anderen an, der Leader verteidigte ihn, und die Flächenskills zogen Gesomon und Octomon mit.
 - Steht der Leader in der Boss-Rotation, jagen Mitläufer keine Adds mehr selbst. Sie greifen nur sein Ziel an und wehren Angreifer ab. Neuer Test `addmaptest`.
