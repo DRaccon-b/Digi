@@ -217,6 +217,10 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.45.1 – Lern-Route: Feldboss erst 10 s vor dem Spawn, Ch 2 öffnen
+- Zum Feldboss läuft der Bot erst, wenn er lebt oder höchstens noch 10 s bis zum Respawn fehlen (vorher 30 s).
+- Ist Ch 2 unter „Kanäle“ erlaubt, aber noch nicht offen, öffnet der Bot ihn selbst, um den Boss-Timer dort zu lesen und den Boss mitzunehmen (live: nur Ch 1 offen, Ch 2 wurde nie angesehen).
+
 #### Neu in 2.45.0 – Übersicht: „Nächste Map“ mit Restzeit
 - Unter den Kacheln der Übersicht steht die nächste Map der Serie (die mit dem nächsthöheren niedrigsten Monster-Level), ab welchem Level sie in der Level-Grenze liegt und wie lange es bei der aktuellen EXP/min (Schnitt der letzten 5 min) bis dahin noch dauert. Tooltip: EXP bis dahin.
 - EXP-Kurve des Digimons gemessen: 40·L^1,8 + 20, ab Lv 26 × (1 + 0,5·(L − 25)^0,6).

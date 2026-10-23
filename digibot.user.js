@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.45.0
+// @version      2.45.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -504,7 +504,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.45.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.45.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -4963,7 +4963,8 @@
   // Feldbosse der Lern-Map mitnehmen (ohne Enrage-Timer, unabhängig von der Level-Grenze): beim Ankommen jeden
   // erlaubten Kanal einmal ansehen – die Map-Info liefert Boss-Timer nur für den Kanal, auf dem man steht –, danach
   // hingehen, wenn einer lebt oder in unter LR_BOSS_SOON_MS spawnt. Nach dem Kampf zurück in die Zone.
-  const LR_BOSS_SOON_MS = 30000, LR_SCAN_WAIT_MS = 7000, LR_BOSS_LOOK_MS = 20000, LR_BOSS_NEAR = 120;
+  // erst losgehen, wenn der Respawn höchstens noch 10 s dauert (Wunsch: nicht ewig am Spawnpunkt warten)
+  const LR_BOSS_SOON_MS = 10000, LR_SCAN_WAIT_MS = 7000, LR_BOSS_LOOK_MS = 20000, LR_BOSS_NEAR = 120;
   // Bosse sind von der Level-Grenze ausgenommen (Wunsch: lebt einer, hingehen – egal wie hoch)
   // nur echte Feldbosse – Named Elites geben kaum mehr EXP als ein normales Monster und sind den Umweg nicht wert
   const lrBossSel = (mapId) => farmBossList().filter((b) => b.map === mapId && b.kind === 'field');
@@ -4979,7 +4980,10 @@
     farmUpdate(st, now, sel);
     const cur = st.world?.channel ?? 1, where = content()?.maps?.[g.mapId]?.name || g.mapId;
     const list = farmChannelList(st, now);
-    const allowed = (cfg.farmChannels?.length ? cfg.farmChannels : [1]).filter((c) => !list || list.some((r) => r.channel === c));
+    // erlaubte Kanäle: offene, dazu der nächste freie, wenn das Spiel ihn öffnen lässt (Ch 2 immer) – live: nur Ch 1 offen,
+    // Ch 2 wurde nie angesehen; farmSwitch öffnet ihn selbst
+    const nc = list && commands()?.openChannel ? newChannelAllowed(list) : null;
+    const allowed = (cfg.farmChannels?.length ? cfg.farmChannels : [1]).filter((c) => !list || list.some((r) => r.channel === c) || (nc?.allowed && c === nc.channel));
     // 1) beim Ankommen: jeden erlaubten Kanal einmal ansehen (Map-Info dort lesen)
     if (!lr.scan || lr.scan.map !== g.mapId) lr.scan = { map: g.mapId, done: new Set(), ch: null, at: 0 };
     const sn = lr.scan, todo = allowed.filter((c) => !sn.done.has(c));
