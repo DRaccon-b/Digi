@@ -217,6 +217,12 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.36.0 – Lange Ansagen: erst spät herauslaufen
+- Bei langen Ansagen kämpft das Digimon weiter und läuft erst kurz vor dem Einschlag heraus, mit großzügigem Puffer (Laufzeit × 1,5 + 1,5 s). Das gilt nur, wenn die Restzeit jedes Kreises bekannt ist, in dem es steht. Beispiele: Machinedramons Infinity Cannon: Full Charge und Daemons Flame Inferno, beide 160 px und 12 s. Bisher stand es dort rund 10 s untätig draußen, jetzt kommen etwa 9 s Schaden dazu. Kurze Ansagen (die meisten, auch Regalecusmons Ocean Wave III mit 3,5 s) laufen wie bisher sofort.
+- Raumweite Kreise: Die Suche nach einem Fluchtpunkt reicht so weit, wie das Digimon in der Restzeit kommt (höchstens 900 px statt fest 328 px). Weiter entfernte Punkte zählen nur, wenn der gerade Weg begehbar ist, also keine Wand dazwischen liegt. Damit verlässt es Marsmons Corona Sanctions (400 px, 10 s) auch aus dem Nahkampf. Die Raid-Kreise (640 px) bleiben wie bisher, denn daraus kommt man im Raum nicht heraus.
+- Neuer Test `dodgelatetest`.
+- Testlauf: Standardmäßig laufen so viele Tests gleichzeitig, wie der Rechner Threads hat, minus 4. Die langsamsten starten zuerst, ihre Dauer merkt sich `tests/.times.json`. Der volle Lauf dauert hier etwa 100 s statt 250 s.
+
 #### Neu in 2.35.1 – Ausweichen bei mehreren Warnzonen
 - **Laufweg:** Der Weg zum Fluchtpunkt führt nicht mehr durch einen anderen Kreis oder Strahl. Durchquert wird nur eine Zone, die nachweislich erst einschlägt, wenn das Digimon schon vorbei ist. Ist die Restzeit unbekannt, wird sie umgangen. Gibt es nur Punkte hinter einem anderen Kreis, nimmt der Bot einen davon als Notlösung.
 - **Überlappende Kreise:** Ob ein Fluchtpunkt rechtzeitig erreichbar ist, rechnet der Bot jetzt mit dem frühesten Einschlag aller Kreise, in denen das Digimon steht. Bisher zählte nur der zuerst gefundene Kreis.
@@ -852,7 +858,7 @@ npm test
 
 - Einzelne Tests: `node tests/run.js kohtest dodgenear`
 - Ausgabe eines Tests sehen: `V=1 node tests/run.js kohtest`
-- `JOBS` (gleichzeitige Tests, Standard 8) und `TIMEOUT` (Sekunden pro Test, Standard 200) lassen sich setzen.
+- `JOBS` (gleichzeitige Tests, Standard: CPU-Threads minus 4; die langsamsten Tests starten zuerst) und `TIMEOUT` (Sekunden pro Test, Standard 200) lassen sich setzen.
 - `tests/gw.js` ist die Spielwelt für Gruppen-/Autopilot-Tests, `tests/fakeworld.js` die ältere für Kampf-Tests.
 
 ## Dungeon-Probelauf

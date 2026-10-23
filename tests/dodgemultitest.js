@@ -24,7 +24,7 @@ async function run(name, setup) {
   F.store.setState({ target: F.toTarget('m:1') });
   w.document.querySelector('[data-act="bot"]').click();
   const st = new Set();
-  for (let i = 0; i < 8; i++) { st.add(w.document.querySelector('[data-f="status"]').textContent); await wait(100); }
+  for (let i = 0; i < 20; i++) { st.add(w.document.querySelector('[data-f="status"]').textContent); await wait(100); }
   w.close();
   return { name, tap: taps[0] || null, st: [...st] };
 }
