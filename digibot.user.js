@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.44.3
+// @version      2.44.4
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -504,7 +504,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.44.3'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.44.4'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -5029,6 +5029,13 @@
     }
     const g = lr.goal; if (!g) return null;
     if (attackers.length) return null; // erst Angreifer abwehren
+    // Feldbosse der Map vor dem normalen Grinden: auf dem Weg zum Boss keine neuen Kämpfe anfangen (live: der Weg wurde
+    // bei jedem Monster am Rand unterbrochen) – nur Angreifer werden abgewehrt
+    if (cfg.levelBoss && st.world?.mapId === g.mapId) {
+      const bs = lrBossStep(st, sc, now, g);
+      if (bs) return bs;
+      if (lr.boss) return null; // Boss in Sicht: Kampf über den Fokus
+    } else lr.boss = null;
     const t = st.target;
     if (t && t.kind === 'mob' && t.hp > 0 && bot.attackedId === t.id) return null; // laufenden Kampf beenden
     if (cfg.levelEvo) { // zwischen den Kämpfen in die höchste freigeschaltete Form (nach dem Neuladen ist es wieder Rookie)
@@ -5036,11 +5043,6 @@
       if (ev !== true) return `Digitation: ${ev}`;
     }
     const where = `${content()?.maps?.[g.mapId]?.name || g.mapId} / ${g.zone}`;
-    if (cfg.levelBoss && st.world?.mapId === g.mapId) { // Feldbosse der Map mitnehmen
-      const bs = lrBossStep(st, sc, now, g);
-      if (bs) return bs;
-      if (lr.boss) return null;
-    } else lr.boss = null;
     if (st.world?.mapId !== g.mapId) { const tr = travel(st, g.mapId, now); return tr === true ? `angekommen in ${where}` : `reise zu ${where} · ${tr}`; }
     const me = controlled(st), r = g.rect;
     if (me && !(me.x >= r.x - 24 && me.x <= r.x + r.w + 24 && me.y >= r.y - 24 && me.y <= r.y + r.h + 24)) {

@@ -217,6 +217,9 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.44.4 – Weg zum Feldboss nicht mehr durch neue Kämpfe unterbrochen
+- Ist ein Feldboss der Lern-Map lebendig, läuft der Bot direkt hin und fängt unterwegs keine neuen Kämpfe mit normalen Monstern an (live wurde der Weg bei jedem Monster am Rand abgebrochen). Angreifer werden weiter abgewehrt.
+
 #### Neu in 2.44.3 – Feldbosse unabhängig von der Level-Grenze
 - Die Lern-Route nimmt Feldbosse und Named Elites der Map jetzt unabhängig von der Level-Grenze mit. Live in Harvest Hills lagen Tyrannomon (Lv 44) und Drimogemon (Lv 45) für Lv 30 über +8 und wurden ausgelassen, obwohl sie lebten.
 - `levelbosstest` prüft auch einen Boss über der Grenze.
