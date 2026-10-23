@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.34.2
+// @version      2.34.3
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -495,7 +495,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.34.2'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.34.3'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -3727,21 +3727,23 @@
   // Adds eines Bosses (aus den Spieldaten: adds/moreAdds aller Bosse, z. B. Apocalymon -> Megadramon,
   // MaloMyotismon -> Phantomon/Illusion Tower). In Raid-/Dungeon-Maps zählt zusätzlich jedes normale Monster nahe am
   // Boss (Wellen, Kopien – z. B. im Kera-Dungeon). Nur wenn ein Boss in der Nähe ist; nicht in der Boss-Rotation.
-  let addSpeciesCache = null;
-  function addSpecies() {
-    if (addSpeciesCache) return addSpeciesCache;
-    const C = content();
-    if (!C?.spawns) return new Set();
-    addSpeciesCache = new Set();
-    for (const sp of Object.values(C.spawns)) for (const b of sp.bosses || []) for (const a of [b.adds, ...(b.moreAdds || [])]) if (a?.species) addSpeciesCache.add(a.species);
-    return addSpeciesCache;
+  // Adds nur vom Boss-Eintrag DIESER Map mit genau dieser Art (auch als Form) – live: auf Sea of Darkness stand der
+  // Feldboss Divermon, und normale Divermon galten als Adds, weil MarineDevimon auf Odaiba Divermon ruft
+  function addSpecies(mapId, bossSpecies) {
+    const set = new Set();
+    for (const b of content()?.spawns?.[mapId]?.bosses || []) {
+      if (![b, ...(b.forms || [])].some((fm) => fm.species === bossSpecies)) continue;
+      for (const a of [b.adds, ...(b.moreAdds || [])]) if (a?.species) set.add(a.species);
+    }
+    return set;
   }
   const ADD_RANGE = 500, ADD_BOSS_NEAR = 640, ADD_RAID_RADIUS = 300;
   function bossAdd(sc) {
     if (cfg.farm || cfg.dungeon || !sc) return null; // Dungeon: Reihenfolge macht dungeonFocus
-    const boss = sc.mobs.find((m) => m.cat === 'boss');
+    if (groupLeader()?.farm) return null; // Leader in der Boss-Rotation: Mitläufer greifen nur sein Ziel an
+    const boss = sc.mobs.filter((m) => m.cat === 'boss').sort((a, b) => a.d - b.d)[0];
     if (!boss || boss.d > ADD_BOSS_NEAR) return null;
-    const set = addSpecies(), raid = isRaidMap(sc.mapId);
+    const set = addSpecies(sc.mapId, boss.species), raid = isRaidMap(sc.mapId);
     return sc.mobs.find((m) => m.cat !== 'boss' && !m.banned && m.d <= ADD_RANGE
       && (set.has(m.species) || (raid && Math.hypot(m.x - boss.x, m.y - boss.y) <= ADD_RAID_RADIUS))) || null;
   }

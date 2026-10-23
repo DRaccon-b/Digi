@@ -217,6 +217,11 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.34.3 – Adds nur vom Boss, der wirklich da steht
+- „Adds zuerst“ zählt nur noch die Adds des Boss-Eintrags dieser Map, und zwar des Bosses, der am nächsten steht. Bisher galt jede Art als Add, die irgendwo im Spiel ein Boss ruft. Live auf Sea of Darkness: Neben dem Feldboss Divermon galten alle normalen Divermon als Adds, weil MarineDevimon auf Odaiba Divermon ruft. Der Mitläufer griff sie deshalb einen nach dem anderen an, der Leader verteidigte ihn, und die Flächenskills zogen Gesomon und Octomon mit.
+- Steht der Leader in der Boss-Rotation, jagen Mitläufer keine Adds mehr selbst. Sie greifen nur sein Ziel an und wehren Angreifer ab. Neuer Test `addmaptest`.
+- Einstellung in der Gruppe: Nur der Leader steht auf Boss-Rotation, die anderen auf Autopilot (👑 Bosse + „Bots starten“ stellt das automatisch so ein).
+
 #### Neu in 2.34.2 – Map für Map nach Serie wie das Digi-Phone
 - Die Maps der Map-für-Map-Runde (und die Start-Map-Auswahl) sind jetzt wie im Digi-Phone zuerst nach Serie sortiert, dann nach Level. Bisher galt nur das Level, deshalb stand Spiral Mountain (Adventure, Lv 45–56) mitten zwischen den Adventure-02-Maps. In der Auswahl steht „A1 ·“ oder „A02 ·“ vor jedem Namen.
 - Reihenfolge: „von unten nach oben“ = Adventure niedrig → hoch, danach Adventure 02 niedrig → hoch; „von oben nach unten“ genau umgekehrt. Mit einer Start-Map in Adventure 02 (z. B. Digi-Egg Valley) bleibt die Runde aufsteigend in Adventure 02. Neuer Test `sweepseriestest`.
