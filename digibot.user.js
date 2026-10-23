@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.38.0
+// @version      2.39.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -497,7 +497,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.38.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.39.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2591,7 +2591,7 @@
     };
     potion(1, cfg.hpPot > 0 && pct(p.hp, p.maxHp) < cfg.hpPot);
     potion(2, cfg.dsPot > 0 && pct(p.ds, p.maxDs) < cfg.dsPot);
-    potion(3, cfg.tdsPot > 0 && me.tamerMaxDs > 0 && pct(me.tamerDs, me.tamerMaxDs) < cfg.tdsPot);
+    potion(3, tamerFoodNeeded(me, now));
     healSkill(st, now);
   }
   function mirrorAttack(st, P, now) {
@@ -4778,6 +4778,26 @@
   // Geteilter Treffer (share: % der Max-HP des Ziels, auf alle im Kreis verteilt – allein nach den Spieldaten ⅓ von
   // 240 % = 80 %): wird gerade einer angesagt, vorher mit F1 auf SHARE_TOPUP % auffüllen
   const SHARE_TOPUP = 95;
+  // Angesagter Treffer, der das DS der Tamer verbrennt (MaloMyotismons Pandæmonium Lost: 45 % der Max-DS je Welle).
+  // Fällt das Tamer-DS leer, digitiert der Partner zurück („Eat to stay evolved!“) – live: alle 4 Clavis wurden Patamon.
+  // Ergebnis: verbrannter Anteil (0 = nichts angesagt)
+  function tamerBurnIncoming(now) {
+    let f = 0;
+    for (const log of bossSkillLog.values()) for (const [id, e] of log) {
+      if (e.phase === 'cast' && e.castEnd > now - 300) f = Math.max(f, Number(content()?.skills?.[id]?.tamerDsBurn) || 0);
+    }
+    return f;
+  }
+  // Tamer-Essen (F3): unter der eingestellten Grenze – oder schon vor einem angesagten DS-Brand, wenn das Tamer-DS danach
+  // unter die Grenze fiele (mindestens TAMER_BURN_MIN_PCT, damit es auch mit ausgeschalteter Grenze nicht leer läuft)
+  const TAMER_BURN_MIN_PCT = 10;
+  function tamerFoodNeeded(me, now) {
+    if (!(me?.tamerMaxDs > 0)) return false;
+    const cur = pct(me.tamerDs, me.tamerMaxDs);
+    if (cfg.tdsPot > 0 && cur < cfg.tdsPot) return true;
+    const burn = tamerBurnIncoming(now);
+    return burn > 0 && cur - burn * 100 < Math.max(cfg.tdsPot, TAMER_BURN_MIN_PCT);
+  }
   function shareIncoming(now) {
     for (const log of bossSkillLog.values()) for (const [id, e] of log) {
       if (e.phase === 'cast' && e.castEnd > now && content()?.skills?.[id]?.share) return true;
@@ -4856,7 +4876,7 @@
       // geteilter Treffer angesagt (Catastrophe Cannon, Black-Rain-Hülle): bis zum Einschlag möglichst volle HP
       potion(1, (cfg.hpPot > 0 && pct(p.hp, p.maxHp) < cfg.hpPot) || (shareIncoming(now) && pct(p.hp, p.maxHp) < SHARE_TOPUP));
       potion(2, cfg.dsPot > 0 && pct(p.ds, p.maxDs) < cfg.dsPot);
-      potion(3, cfg.tdsPot > 0 && me.tamerMaxDs > 0 && pct(me.tamerDs, me.tamerMaxDs) < cfg.tdsPot);
+      potion(3, tamerFoodNeeded(me, now));
 
       // 1b) Flächenangriffen ausweichen hat Vorrang vor allem anderen
       const kh = keyOfHope(st, now);

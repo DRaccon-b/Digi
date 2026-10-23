@@ -217,6 +217,13 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.39.0 – Tamer-Essen vor Pandæmonium Lost
+- MaloMyotismons Pandæmonium Lost trifft alle 20 s den ganzen Raum und verbrennt dabei 45 % der Max-DS jedes Tamers (`tamerDsBurn` in den Daten). Ist das Tamer-DS leer, digitiert der Partner zurück. Live wurden so alle vier ClavisAngemon zu Patamon, ohne einen einzigen Sturz, und der Schaden brach ein.
+- Wird ein solcher Treffer angesagt und fiele das Tamer-DS danach unter die eingestellte Grenze (Reiter Kampf, Tamer-DS, mindestens 10 %), isst der Bot sofort Tamer-Essen von F3. Sonst gilt die Grenze wie bisher. Das gilt auch beim Spiegeln.
+- Voraussetzung: In jedem Fenster liegt Tamer-Essen auf F3, zum Beispiel Bento (+1 000) oder Ramen (+1 500). Bei 45 % Brand alle 20 s lohnt eine Grenze um 50 %.
+- Neuer Test `tamerburntest`.
+- Simulator: `CLAVIS=Anzahl` (1–4) und `CLAVIS_LV=Level` für die ClavisAngemon. Mit Live-Werten schafft keine Aufstellung aus Bauzel und Clavis Raum 3 rechtzeitig. Am nächsten kommt Bauzel + 2 Clavis Lv 100 mit 7 % Rest.
+
 #### Probelauf Hard mit Live-Werten (`LIVE=1`)
 - Erster Live-Versuch Hard (Bauzel + 4 ClavisAngemon Lv 70–72): Raum 3 verloren. Diaboromon stand nach ~300 s bei 37 %, und es gab 4 Stürze. Gemessener Schaden am Boss: Bauzel ~9 000/s, ClavisAngemon ~1 000–1 200/s, zusammen ~12 000/s. Mit 5 Spielern hat Diaboromon 6,73 Mio. HP. Für die Uhr (360 s) bräuchte es ~18 700/s.
 - Die Stürze: Die Bots liefen nach dem Ende des Warnkreises sofort zurück, live schlug die Volley aber 0,2–0,4 s später ein. Einmal konnte ein vom Tentacle Bug gegriffener Clavis nicht ausweichen.

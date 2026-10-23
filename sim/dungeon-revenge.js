@@ -8,6 +8,7 @@
 //   TEMPO=4 …                                Zeitraffer (höchstens 4, darüber wird es ungenau)
 //   V=1 …                                    jeder Statuswechsel der Bots
 //   TEAM=clavis …                            Bauzel (Imperialdramon Paladin Lv 99) + 4 ClavisAngemon Lv 70 (Key of Hope)
+//   CLAVIS=2 CLAVIS_LV=100 …                 Anzahl (1–4) und Level der ClavisAngemon
 //   START=4 …                                gleich in Raum 4 (Bucht) beginnen
 //   STEUERUNG=tamer …                        Spiel auf Tamer-Steuerung (Standard: Digimon – Klick bewegt das Digimon)
 //   LIVE=1 …                                 Live-Werte (Okt. 2026 gemessen): Schaden Bauzel ~9 000/s, ClavisAngemon ~1 100/s,
@@ -45,7 +46,8 @@ warp(global);
 
 const TEAM = process.env.TEAM || '';
 const CTRL_P = (process.env.STEUERUNG || 'digimon') !== 'tamer'; // Digimon-Steuerung: Klick = Digimon läuft hin, Tamer folgt
-const N = TEAM === 'clavis' ? 5 : Math.max(1, Math.min(5, Number(process.env.GRUPPE) || 1));
+const CLAVIS_N = Math.max(1, Math.min(4, Number(process.env.CLAVIS) || 4)), CLAVIS_LV = Number(process.env.CLAVIS_LV) || 70; // TEAM=clavis: Anzahl und Level
+const N = TEAM === 'clavis' ? 1 + CLAVIS_N : Math.max(1, Math.min(5, Number(process.env.GRUPPE) || 1));
 const SCHADEN = Number(process.env.SCHADEN) || 12000;
 const LIVE = !!Number(process.env.LIVE || 0);
 const EINSCHLAG_MS = Number(process.env.EINSCHLAG_MS ?? (LIVE ? 300 : 0)); // live: Treffer kommt nach dem Warnkreis
@@ -131,9 +133,9 @@ const CSK = [
 // Team: Werte aus den Spieldaten (Grundwert + Wachstum × Level), dazu der live gemessene Aufschlag von Bauzel
 // (Ausrüstung/Boni: HP 92 660 statt 61 431 = ×1,51, Angriff 12 806 statt 9 725 = ×1,32)
 const PALADIN = { species: 'imperialdramon_paladin', name: 'Imperialdramon Paladin Mode', level: 99, hp: HP, ds: 9365, as: AS, dmg: SCHADEN, at: 12806, psk: PSK, f: F_PAL };
-const CLAVIS = (() => { const hp = Math.round(lvHp(2863, 345.6, 70) * 1.51), at = Math.round((586 + 82.3 * 69) * 1.32);
-  return { species: 'clavisangemon', name: 'ClavisAngemon', level: 70, hp, ds: Math.round(lvHp(1293, 77.6, 70) * 1.5), as: 1450, dmg: Math.round(SCHADEN * at / 12806), at, psk: CSK, f: F_CLAV }; })();
-const MEMBERS = TEAM === 'clavis' ? [PALADIN, CLAVIS, CLAVIS, CLAVIS, CLAVIS] : Array.from({ length: N }, () => PALADIN);
+const CLAVIS = (() => { const L = CLAVIS_LV, hp = Math.round(lvHp(2863, 345.6, L) * 1.51), at = Math.round((586 + 82.3 * (L - 1)) * 1.32);
+  return { species: 'clavisangemon', name: 'ClavisAngemon', level: L, hp, ds: Math.round(lvHp(1293, 77.6, L) * 1.5), as: 1450, dmg: Math.round(SCHADEN * at / 12806), at, psk: CSK, f: F_CLAV }; })();
+const MEMBERS = TEAM === 'clavis' ? [PALADIN, ...Array.from({ length: CLAVIS_N }, () => CLAVIS)] : Array.from({ length: N }, () => PALADIN);
 const protections = []; // Key of Hope: { at, x, y }
 const protectedAt = (p, now) => protections.some((pr) => now >= pr.at && now <= pr.at + 2000 && Math.hypot(p.x - pr.x, p.y - pr.y) <= 128);
 const DIABO_HP = Math.round(lvHp(226600, 27810, 99) * 1.5 * 0.8 * (1 + 0.45 * Math.max(0, N - 3)));
