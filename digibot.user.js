@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.33.1
+// @version      2.33.2
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -493,7 +493,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.33.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.33.2'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1944,11 +1944,13 @@
       x: pos?.x ?? null, y: pos?.y ?? null, bot: bot.on, status: bot.status, quests,
       hp: me?.partner ? Math.round(pct(me.partner.hp, me.partner.maxHp)) : null,
       ents: [me?.tamerEntityId, me?.partner?.entityId].filter(Boolean),
-      targetId: t?.kind === 'mob' && t.hp > 0 ? t.id : null, hunt: [...autopilot.huntSpecies], noFight: !!group.noFight,
+      // nur ein Ziel, das ich wirklich angreife (nicht bloß ausgewählt, z. B. vom Spiel beim Angriff) und nicht unterwegs –
+      // sonst greifen die Mitläufer es an (live: Leader auf dem Weg zum Boss, Makota prügelt sich mit dessen Auswahl)
+      targetId: t?.kind === 'mob' && t.hp > 0 && !group.noFight && (bot.attackedId === t.id || window.dmo?.net?.state?.entities?.get?.(me?.partner?.entityId)?.targetId === t.id) ? t.id : null, hunt: cfg.autopilot ? [...autopilot.huntSpecies] : [], noFight: !!group.noFight, // Jagdliste nur im Autopilot (sonst jagen Mitläufer z. B. in der Boss-Rotation alte Quest-Monster)
       task: tk ? { key: tk.key, kind: tk.kind, label: tk.label } : null,
       talks: group.role() === 'leader' ? group.talks : [], done: group.done.slice(-30), busy: group.cur, login: group.login.msg, fin,
       deferred: group.seen.slice(-30),
-      fight: inCombat(st),
+      fight: inCombat(st), farm: !!cfg.farm,
       kohAt: kohReadyAt(st, now),
       farm: !!cfg.farm,
       serve: serveOn(),
@@ -3775,6 +3777,7 @@
   // nicht gegen Angreifer, die hinterherlaufen. Am Spawnpunkt darf er sie erledigen, solange der Boss nicht da ist.
   // Nur bei mindestens halben HP; sonst erst normal zu Ende kämpfen.
   const FARM_ARRIVE = 200;         // so nah am Spawnpunkt gilt der Bot als angekommen
+  const FARM_DEPART = 350;         // … und erst so weit weg wieder als unterwegs (sonst pendelt er an der Grenze: Kampf – zurück – Kampf)
   function farmGoalElsewhere(st, p, now, sc) {
     if (cfg.farmMode === 'named' || world.state !== 'ready' || !farmChannels().length || !farmSelected().length) return false;
     if (p.maxHp > 0 && p.hp / p.maxHp < 0.5) return false;
@@ -3783,7 +3786,12 @@
     if (o.map !== st.world?.mapId || o.ch !== (st.world?.channel ?? 1)) return true;
     if (sc?.mobs?.some((m) => m.enabled && m.cat !== 'normal' && m.d <= cfg.radius * 1.5)) return false; // Boss in Sicht: kämpfen
     const spot = farmSpot(o.b), me = controlled(st);
-    return !!spot && !!me && Math.hypot(me.x - spot.x, me.y - spot.y) > FARM_ARRIVE;
+    if (!spot || !me) return false;
+    const d = Math.hypot(me.x - spot.x, me.y - spot.y), key = `${o.map}#${o.ch}#${spot.x},${spot.y}`;
+    if (farm.arrived === key && d <= FARM_DEPART) return false;
+    if (d <= FARM_ARRIVE) { farm.arrived = key; return false; }
+    if (farm.arrived === key) farm.arrived = null;
+    return true;
   }
   // Boss-Rotation: steht ein gewählter Boss in Reichweite, geht er vor jedem Angreifer (erst der Boss, dann der Rest)
   const farmBossNear = (sc) => (cfg.farm && sc ? sc.mobs.find((m) => m.enabled && m.cat !== 'normal' && !m.banned && m.d <= cfg.radius * 1.5) || null : null);
