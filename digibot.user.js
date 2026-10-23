@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.45.1
+// @version      2.45.2
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -504,7 +504,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.45.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.45.2'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -5056,14 +5056,19 @@
       }
     }
     const g = lr.goal; if (!g) return null;
-    if (attackers.length) return null; // erst Angreifer abwehren
-    // Feldbosse der Map vor dem normalen Grinden: auf dem Weg zum Boss keine neuen Kämpfe anfangen (live: der Weg wurde
-    // bei jedem Monster am Rand unterbrochen) – nur Angreifer werden abgewehrt
+    // Feldbosse der Map vor dem normalen Grinden: auf dem Weg zum Boss keine Kämpfe, auch nicht gegen Angreifer – Digimon
+    // zurückrufen und weiterlaufen (live: der Weg wurde bei jedem Monster am Rand unterbrochen). Ohne Boss-Ziel: erst abwehren.
     if (cfg.levelBoss && st.world?.mapId === g.mapId) {
+      if (attackers.length && !lr.boss) return null;
       const bs = lrBossStep(st, sc, now, g);
-      if (bs) return bs;
+      if (bs) {
+        const pe = window.dmo?.net?.state?.entities?.get?.(st.me.partner?.entityId);
+        if (attackers.length && (pe?.targetId || bot.attackedId) && bot.can('follow', 1500, now)) { bot.lastPress.follow = now; commands()?.partnerFollow?.(); }
+        return bs;
+      }
       if (lr.boss) return null; // Boss in Sicht: Kampf über den Fokus
     } else lr.boss = null;
+    if (attackers.length) return null; // erst Angreifer abwehren
     const t = st.target;
     if (t && t.kind === 'mob' && t.hp > 0 && bot.attackedId === t.id) return null; // laufenden Kampf beenden
     if (cfg.levelEvo) { // zwischen den Kämpfen in die höchste freigeschaltete Form (nach dem Neuladen ist es wieder Rookie)
