@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.44.0
+// @version      2.44.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -504,7 +504,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.44.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.44.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1353,6 +1353,7 @@
         for (const ev of Array.isArray(list) ? list : [list]) {
           if (!ev) continue;
           if (cfg.expMess && (ev.t === 'dmg' || ev.t === 'die')) expmEvent(ev);
+          if (ev.t === 'dmg' || ev.t === 'die') { const me0 = getStore()?.getState?.()?.me; if (me0) dpsNote(ev, new Set([me0.tamerEntityId, me0.partner?.entityId])); }
           if (ev.t === 'die' && ev.id) { bossSkillLog.delete(ev.id); continue; }
           if (ev.t !== 'skill' || !ev.src || !ev.skill) continue;
           if (!bossSkillLog.has(ev.src)) bossSkillLog.set(ev.src, new Map());
@@ -4875,7 +4876,21 @@
   const lrOn = () => cfg.levelRoute && !cfg.autopilot && !cfg.farm && !cfg.questMode && !cfg.dungeon;
   // Level-Grenze beim Grinden: in einer Lern-Zone ganz über der Grenze bis zu ihrem niedrigsten Monster-Level
   const lvlLimit = (mapId) => (lrOn() && lr.goal?.ext && lr.goal.mapId === mapId ? Math.max(cfg.lvlDiff, lr.goal.ext) : cfg.lvlDiff);
+  // Eigener Schaden/s: gemessen (je Digimon-Form, gleitend über die letzten Kills), sonst geschätzt (1,55 × AT je Angriff)
+  // – live lag die Schätzung für Shurimon gegen +11-Gegner 25 % zu hoch (4 015 statt 3 066/s)
+  const dpsMeter = { mobs: new Map(), by: new Map() }; // Art -> { dmg, ms, n }
+  function dpsNote(ev, mine) {
+    if (ev.t === 'dmg' && mine.has(ev.src)) { const r = dpsMeter.mobs.get(ev.dst) || { first: Date.now(), dmg: 0 }; r.dmg += ev.amount || 0; dpsMeter.mobs.set(ev.dst, r); if (dpsMeter.mobs.size > 100) dpsMeter.mobs.delete(dpsMeter.mobs.keys().next().value); }
+    else if (ev.t === 'die' && dpsMeter.mobs.has(ev.id)) {
+      const r = dpsMeter.mobs.get(ev.id), ms = Date.now() - r.first; dpsMeter.mobs.delete(ev.id);
+      const sp = getStore()?.getState?.()?.me?.partner?.species; if (!sp || ms < 300) return;
+      const m = dpsMeter.by.get(sp) || { dmg: 0, ms: 0, n: 0 };
+      m.dmg = m.dmg * 0.9 + r.dmg; m.ms = m.ms * 0.9 + ms; m.n++; dpsMeter.by.set(sp, m); // gleitend (~10 Kills)
+    }
+  }
   function lrDps(p) {
+    const m = dpsMeter.by.get(p?.species);
+    if (m && m.n >= 5 && m.ms > 0) return m.dmg / (m.ms / 1000);
     const at = p?.stats?.at, as = p?.stats?.as;
     return at > 0 ? 1.55 * at * 1000 / (as > 0 ? as : 1300) : 1000;
   }
@@ -4988,6 +5003,7 @@
   // Ein Schritt: Statuszeile, solange der Bot zur Zone reist/läuft; null = dort angekommen (grinden) oder nichts zu tun
   function levelRouteStep(st, sc, now, attackers) {
     if (!lrOn() || world.state !== 'ready') return null;
+    hookBossEvents(); // Kampf-Ereignisse für die Schadensmessung
     const p = st.me?.partner; if (!p) return null;
     if (now - lr.calcAt > LR_CALC_MS || lr.calcLv !== p.level) {
       lr.calcAt = now; lr.calcLv = p.level; lr.best = lrBest(st);

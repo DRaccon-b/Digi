@@ -217,6 +217,10 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.44.1 – Lern-Route rechnet mit dem gemessenen Schaden
+- Der Bot misst seinen eigenen Schaden je Sekunde laufend selbst, je Digimon-Form und gleitend über die letzten ~10 Kills. Die Lern-Route rechnet damit, sobald 5 Kills gemessen sind. Vorher nimmt sie die Schätzung (1,55 × AT je Angriff).
+- Grund: Live lag die Schätzung für Shurimon gegen +11-Gegner 25 % zu hoch (4 015 statt 3 066/s). Die EXP-Formel stimmte dagegen exakt (557 EXP je Kill).
+
 #### Neu in 2.44.0 – Lern-Route über die Level-Grenze, wenn es sich lohnt
 - Liegt eine Zone ganz über der Level-Grenze (z. B. +8), rechnet die Lern-Route sie mit ihren **niedrigsten Monstern** durch, bis höchstens +12. Bringt das mehr EXP/min als die beste Zone innerhalb der Grenze, geht der Bot dorthin und erlaubt dort genau bis zum niedrigsten Monster-Level der Zone. Durch die EXP-Priorität nimmt er dann die niedrigsten zuerst, höhere lässt er stehen. Bosse bleiben an der normalen Grenze.
 - Beispiel Shurimon Lv 29: Harvest Hills / Felder ab +11 ≈ 6 330 EXP/min gegenüber Digi-Egg Valley / Grabungsstelle mit +5 bis +8 ≈ 4 860 EXP/min.
