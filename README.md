@@ -217,6 +217,12 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Probelauf Hard mit Live-Werten (`LIVE=1`)
+- Erster Live-Versuch Hard (Bauzel + 4 ClavisAngemon Lv 70–72): Raum 3 verloren. Diaboromon stand nach ~300 s bei 37 %, und es gab 4 Stürze. Gemessener Schaden am Boss: Bauzel ~9 000/s, ClavisAngemon ~1 000–1 200/s, zusammen ~12 000/s. Mit 5 Spielern hat Diaboromon 6,73 Mio. HP. Für die Uhr (360 s) bräuchte es ~18 700/s.
+- Die Stürze: Die Bots liefen nach dem Ende des Warnkreises sofort zurück, live schlug die Volley aber 0,2–0,4 s später ein. Einmal konnte ein vom Tentacle Bug gegriffener Clavis nicht ausweichen.
+- `LIVE=1` stellt den Simulator auf diese Werte ein: Schaden Bauzel × 0,72 (→ ~9 000/s), ClavisAngemon × 0,19 (→ ~1 100/s), Einschlag 300 ms nach dem Ende des Warnkreises. Einzeln einstellbar mit `F_PAL`, `F_CLAV` und `EINSCHLAG_MS`. Am Ende steht der Schaden am Boss je Sekunde für jedes Mitglied.
+- Ein Lauf `LIVE=1 TEAM=clavis TEMPO=4`: Raum 3 an der Uhr gescheitert, Diaboromon bei 36 %, 0 Stürze. Das deckt sich mit dem Live-Versuch. Fazit: Mit 4 Clavis reicht der Schaden nicht, denn jedes Mitglied über 3 gibt dem Boss +45 % HP, bringt aber nur ~1 100/s.
+
 #### Neu in 2.38.0 – 🎯 Event: Mega-Jagd
 - Neuer Knopf **🎯 Event** neben Start. Er gilt zusätzlich zu jedem Modus, außer im Dungeon.
 - So läuft die Mega-Jagd im Spiel: Alle 2 Stunden erscheint ein Mega-Weltboss (Regalecusmon, Marsmon, Gankoomon, Justimon …) an einer zufälligen Stelle einer Feld-Map, nur auf Kanal 1. Er greift nie zuerst an. Der Chat warnt 5 Minuten vorher.

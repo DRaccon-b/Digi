@@ -10,6 +10,8 @@
 //   TEAM=clavis …                            Bauzel (Imperialdramon Paladin Lv 99) + 4 ClavisAngemon Lv 70 (Key of Hope)
 //   START=4 …                                gleich in Raum 4 (Bucht) beginnen
 //   STEUERUNG=tamer …                        Spiel auf Tamer-Steuerung (Standard: Digimon – Klick bewegt das Digimon)
+//   LIVE=1 …                                 Live-Werte (Okt. 2026 gemessen): Schaden Bauzel ~9 000/s, ClavisAngemon ~1 100/s,
+//                                            Einschlag 300 ms nach dem Ende des Warnkreises (EINSCHLAG_MS, F_PAL, F_CLAV einzeln)
 //   SHARE_FOLGT=0 …                          geteilter Treffer bleibt liegen (ausweichbar) – Standard: folgt dem Ziel (live)
 //   SCHADEN=12000 HP=92660 TRAENKE=400 TRANK_HP=15000 TRANK_AB=50 BOSS_HIT=6000 DAUER=1400 …
 //
@@ -45,6 +47,9 @@ const TEAM = process.env.TEAM || '';
 const CTRL_P = (process.env.STEUERUNG || 'digimon') !== 'tamer'; // Digimon-Steuerung: Klick = Digimon läuft hin, Tamer folgt
 const N = TEAM === 'clavis' ? 5 : Math.max(1, Math.min(5, Number(process.env.GRUPPE) || 1));
 const SCHADEN = Number(process.env.SCHADEN) || 12000;
+const LIVE = !!Number(process.env.LIVE || 0);
+const EINSCHLAG_MS = Number(process.env.EINSCHLAG_MS ?? (LIVE ? 300 : 0)); // live: Treffer kommt nach dem Warnkreis
+const F_PAL = Number(process.env.F_PAL) || (LIVE ? 0.72 : 1), F_CLAV = Number(process.env.F_CLAV) || (LIVE ? 0.19 : 1); // Schaden-Faktoren (live: 9 000/s bzw. 1 100/s)
 const AS = 1121, P_SPEED = Number(process.env.P_SPEED) || 120;
 const HP = Number(process.env.HP) || 92660;
 const TRAENKE = Number(process.env.TRAENKE ?? 400), TRANK_HP = Number(process.env.TRANK_HP) || 15000, TRANK_AB = Number(process.env.TRANK_AB) || 50;
@@ -125,9 +130,9 @@ const CSK = [
 ];
 // Team: Werte aus den Spieldaten (Grundwert + Wachstum × Level), dazu der live gemessene Aufschlag von Bauzel
 // (Ausrüstung/Boni: HP 92 660 statt 61 431 = ×1,51, Angriff 12 806 statt 9 725 = ×1,32)
-const PALADIN = { species: 'imperialdramon_paladin', name: 'Imperialdramon Paladin Mode', level: 99, hp: HP, ds: 9365, as: AS, dmg: SCHADEN, at: 12806, psk: PSK };
+const PALADIN = { species: 'imperialdramon_paladin', name: 'Imperialdramon Paladin Mode', level: 99, hp: HP, ds: 9365, as: AS, dmg: SCHADEN, at: 12806, psk: PSK, f: F_PAL };
 const CLAVIS = (() => { const hp = Math.round(lvHp(2863, 345.6, 70) * 1.51), at = Math.round((586 + 82.3 * 69) * 1.32);
-  return { species: 'clavisangemon', name: 'ClavisAngemon', level: 70, hp, ds: Math.round(lvHp(1293, 77.6, 70) * 1.5), as: 1450, dmg: Math.round(SCHADEN * at / 12806), at, psk: CSK }; })();
+  return { species: 'clavisangemon', name: 'ClavisAngemon', level: 70, hp, ds: Math.round(lvHp(1293, 77.6, 70) * 1.5), as: 1450, dmg: Math.round(SCHADEN * at / 12806), at, psk: CSK, f: F_CLAV }; })();
 const MEMBERS = TEAM === 'clavis' ? [PALADIN, CLAVIS, CLAVIS, CLAVIS, CLAVIS] : Array.from({ length: N }, () => PALADIN);
 const protections = []; // Key of Hope: { at, x, y }
 const protectedAt = (p, now) => protections.some((pr) => now >= pr.at && now <= pr.at + 2000 && Math.hypot(p.x - pr.x, p.y - pr.y) <= 128);
@@ -385,7 +390,8 @@ function forget(id) {
 }
 function hitMob(pl, m, dmg) {
   if (m.flags & 256) return;
-  const mult = m.boss && Date.now() < run.exposeUntil ? 1.25 : 1;
+  const mult = (m.boss && Date.now() < run.exposeUntil ? 1.25 : 1) * (pl.M.f || 1);
+  if (m.boss) { const by = run.stats.dmgBy ||= {}; by[pl.i] = (by[pl.i] || 0) + Math.min(m.hp, dmg * mult); run.stats.dmgT0 ||= Date.now(); run.stats.dmgT1 = Date.now(); }
   m.hp = Math.max(0, m.hp - dmg * mult);
   if (m.hp <= 0) killMob(m, pl);
 }
@@ -439,7 +445,8 @@ function castZone(src, skill, opt) {
     run.zones = run.zones.filter((x) => x !== z);
     for (const pl of players) pl.handlers.evs?.([{ t: 'skill', src: src.id, skill, phase: 'release', ...(z.line ? { x: z.line.tx, y: z.line.ty } : {}) }]);
     if (!ents.has(src.id) || run.failed) return;
-    if (opt.after) { const o = { ...opt, after: 0, castMs: 0 }; return void setTimeout(() => evalZone(src, skill, z, o), opt.after); }
+    if (opt.after) { const o = { ...opt, after: 0, castMs: 0 }; return void setTimeout(() => evalZone(src, skill, z, o), opt.after + EINSCHLAG_MS); }
+    if (EINSCHLAG_MS) return void setTimeout(() => evalZone(src, skill, z, opt), EINSCHLAG_MS); // Warnkreis weg, Treffer kommt gleich
     evalZone(src, skill, z, opt);
   }, opt.castMs);
 }
@@ -642,6 +649,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   console.log(`\nErgebnis: ${run.cleared ? '✅ geschafft' : run.failed ? `❌ gescheitert (${run.failed})` : '⏱ Zeit abgelaufen'}${!run.cleared && b ? ` – ${b.name} bei ${Math.round(b.hp / b.maxHp * 100)} %` : ''}`);
   console.log(`Räume ${run.roomTime.map((t) => `${(t / 1000).toFixed(0)} s`).join(' / ') || '–'} · Stürze ${run.deaths} · Tränke ${run.stats.pots} · Skills ${run.stats.skills}${run.room >= 1 ? ` · Herde: ${run.herd.captures} erledigt, ${run.herd.arrived} am Ei, Boss-Stärke ${run.herd.stacks}` : ''}`);
   console.log(`Attacken (Ansagen · getroffen · ausgewichen · geblockt): ${Object.entries(run.perSkill).map(([k, v]) => `${k} ${v.casts} · ${v.hit} · ${v.dodged} · ${v.blocked || 0}${v.cover ? ` (davon ${v.cover}× hinter Deckung)` : ''}`).join(' | ')}`);
+  { const by = run.stats.dmgBy || {}, secs = ((run.stats.dmgT1 || 0) - (run.stats.dmgT0 || 0)) / 1000; if (secs > 0) console.log(`Schaden am Boss je Sekunde (Kampfzeit ${Math.round(secs)} s): ${players.map((pl) => `Char${pl.i + 1} ${Math.round((by[pl.i] || 0) / secs)}`).join(' · ')}`); }
   if (TEAM) console.log(`Key of Hope gezündet: ${run.stats.koh || 0}× · Team: ${MEMBERS.map((m, i) => `Char${i + 1} ${m.name} Lv ${m.level} (${m.hp} HP)`).join(', ')}`);
   console.log(`Status am Ende: ${players.map((pl) => `Char${pl.i + 1}: ${pl.status()}`).join(' | ')}`);
   process.exit(run.cleared ? 0 : 1);
