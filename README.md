@@ -217,6 +217,10 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.34.2 – Map für Map nach Serie wie das Digi-Phone
+- Die Maps der Map-für-Map-Runde (und die Start-Map-Auswahl) sind jetzt wie im Digi-Phone zuerst nach Serie sortiert, dann nach Level. Bisher galt nur das Level, deshalb stand Spiral Mountain (Adventure, Lv 45–56) mitten zwischen den Adventure-02-Maps. In der Auswahl steht „A1 ·“ oder „A02 ·“ vor jedem Namen.
+- Reihenfolge: „von unten nach oben“ = Adventure niedrig → hoch, danach Adventure 02 niedrig → hoch; „von oben nach unten“ genau umgekehrt. Mit einer Start-Map in Adventure 02 (z. B. Digi-Egg Valley) bleibt die Runde aufsteigend in Adventure 02. Neuer Test `sweepseriestest`.
+
 #### Neu in 2.34.1 – Quests nach Serie getrennt
 - Reiter Quests: Die aktiven Quests stehen jetzt unter zwei Überschriften, **Adventure** und **Adventure 02**, jeweils mit Anzahl. Die Serie der Map, auf der man gerade ist, steht oben. Neuer Test `seriestest`.
 
