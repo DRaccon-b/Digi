@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.36.2
+// @version      2.36.3
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -495,7 +495,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.36.2'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.36.3'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -959,7 +959,7 @@
         const len = Math.hypot(l.tx - l.fx, l.ty - l.fy);
         if (l.skill?.sweep) {
           zones.push({ kind: 'fan', x: l.fx, y: l.fy, len: len + (l.r || 16), dir: Math.atan2(l.ty - l.fy, l.tx - l.fx),
-            half: (l.skill.sweep.arc || 90) * Math.PI / 360 });
+            half: (l.skill.sweep.arc || 90) * Math.PI / 360, end: l.end || 0 });
         } else {
           zones.push({ kind: 'line', x: l.fx, y: l.fy, tx: l.tx, ty: l.ty, len, r: l.r || 16, end: l.end || 0 });
         }
@@ -1031,6 +1031,23 @@
   // aktuellen Platz des Digimons bis zum Ziel reicht (der normale Angriff ist bei allen Digimon Nahkampf).
   // Nur Skills auf ein Gegner-Ziel ab RANGED_MIN Reichweite, kein Ansturm (der würde in den Kreis führen).
   const RANGED_MIN = 64;
+  // Nach dem Fernangriff läuft das Digimon dem Ziel zum Nahkampf hinterher – geradeaus. Erreicht es dabei eine Zone,
+  // bevor sie einschlägt, nicht feuern (Probelauf Hard: Clavis liefen 0,6–1,2 s vor der Ultimate Flare in den Fächer).
+  // Restzeit unbekannt: wie bisher erlaubt (im Spiel haben Kreise, Strahlen und Fächer eine Endzeit).
+  function rangedSafe(from, target, zones) {
+    const d = Math.hypot(target.x - from.x, target.y - from.y), n = Math.max(1, Math.ceil(d / 12)), pn = performance.now();
+    for (const z of zones) {
+      const left = z.kind === 'circle' ? zoneLeftMs(z) : z.end ? z.end - pn : null;
+      if (left == null) continue;
+      for (let i = 0; i <= n; i++) {
+        const k = i / n;
+        if (zoneDist(z, { x: from.x + (target.x - from.x) * k, y: from.y + (target.y - from.y) * k }).d >= DODGE_MARGIN * 0.5) continue;
+        if (left + 300 >= d * k / DODGE_WALK_PX_S * 1000) return false; // schneller da als die Zone weg ist
+        break;
+      }
+    }
+    return true;
+  }
   function rangedFromOutside(st, target, partner, now) {
     const p = st?.me?.partner;
     if (!p || p.evolving || p.fainted || st.target?.id !== target.id) return null;
@@ -1099,7 +1116,7 @@
           dodgeState.lastFollow = now; commands()?.partnerFollow?.();
         }
         // Fernkampf-Skills reichen oft bis zum Boss, ohne dass das Digimon in den Kreis muss
-        const ra = target && close && !soonNear ? rangedFromOutside(st, target, partner, now) : null; // kurz vor dem Einschlag nicht: danach läuft das Digimon zum Nahkampf hinein
+        const ra = target && close && !soonNear && rangedSafe(partner, target, zones) ? rangedFromOutside(st, target, partner, now) : null; // kurz vor dem Einschlag nicht: danach läuft das Digimon zum Nahkampf hinein
         return ra ? `Warte außerhalb · Fernangriff: ${ra}` : 'Warte außerhalb, bis der Flächenangriff vorbei ist…';
       }
       if (dodgeState.active) { dodgeState.active = false; logEvent('auto', 'Ausweichen beendet – weiter'); }

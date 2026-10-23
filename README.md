@@ -217,6 +217,13 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.36.3 – Fernangriff von draußen nur, wenn es sicher ist
+- Nach einem Fernangriff läuft das Digimon dem Ziel zum Nahkampf hinterher. Der Bot feuert deshalb von draußen nur noch, wenn das Digimon auf diesem Weg keine Zone erreicht, bevor sie eingeschlagen hat. Ist die Restzeit unbekannt, bleibt es wie bisher.
+- Fächer (Ultimate Flare) haben jetzt auch eine Restzeit.
+- Grund (Probelauf Hard): In der Cluster-Phase feuerten die Clavis 0,6–1,2 s vor der Ultimate Flare, liefen hinterher in den Fächer und fielen alle (2 von 10 Läufen).
+- 10 volle Läufe (Raum 3 + 4, ×4): **9 geschafft, 0 Stürze in diesen 9**, Raum 3 in 213–235 s, Raum 4 in 294–310 s. Offen: In einem Lauf wechselten alle während einer aktiven Flare auf einen Kuramon der frisch erschienenen Herde. Der Weg war frei, aber die Herde lief weiter, und die Digimon folgten ihr in den Fächer.
+- Neuer Test `rangedsafetest`.
+
 #### Neu in 2.36.2 – Key of Hope auch fern vom Boss
 - Geteilte Treffer (Black-Rain-Hülle, Catastrophe Cannon) folgen einem Spieler. Key of Hope deckt sie jetzt unabhängig davon, wie weit der Boss entfernt ist. Andere Block-Treffer gelten weiter nur bis 700 px um den Boss.
 - Grund (Probelauf Hard): In der Kuramon-Cluster-Phase (Boss unter 20 %) standen alle weit vom Boss entfernt. Niemand sammelte sich, zwei Clavis zündeten erst nach dem Einschlag, und es gab 2 Stürze.
