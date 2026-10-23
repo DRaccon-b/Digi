@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.43.2
+// @version      2.44.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -504,7 +504,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.43.2'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.44.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1944,7 +1944,7 @@
         taken: cfg.skipTaken && !attacker && !isFarmMob(farmSp, e.defId, cat, e.level)
           && (takenByOthers.has(e.id) || (!!e.targetId && !ours.has(e.targetId))),
         // nur zu starke Monster sind tabu, schwächere immer erlaubt; Farm-Bosse immer
-        inLvl: e.level <= pLvl + cfg.lvlDiff || isFarmMob(farmSp, e.defId, cat, e.level),
+        inLvl: e.level <= pLvl + lvlLimit(mapId) || isFarmMob(farmSp, e.defId, cat, e.level),
         enabled: farmSp ? isFarmMob(farmSp, e.defId, cat, e.level) : quest ? quest.species.has(e.defId) || e.id === assistId : mobOn(mapId, key, cat),
         aggressive,
         banned: (blacklist.get(e.id) || 0) > now,
@@ -4873,17 +4873,20 @@
   const LR_GAP_S = 1.3, LR_TOP_SHARE = 0.35, LR_SWITCH_GAIN = 1.15, LR_MIN_STAY_MS = 180000, LR_CALC_MS = 30000, LR_MAX_ABOVE = 12;
   const lr = { goal: null, since: 0, calcAt: 0, calcLv: 0, best: null, boss: null, scan: null };
   const lrOn = () => cfg.levelRoute && !cfg.autopilot && !cfg.farm && !cfg.questMode && !cfg.dungeon;
+  // Level-Grenze beim Grinden: in einer Lern-Zone ganz über der Grenze bis zu ihrem niedrigsten Monster-Level
+  const lvlLimit = (mapId) => (lrOn() && lr.goal?.ext && lr.goal.mapId === mapId ? Math.max(cfg.lvlDiff, lr.goal.ext) : cfg.lvlDiff);
   function lrDps(p) {
     const at = p?.stats?.at, as = p?.stats?.as;
     return at > 0 ? 1.55 * at * 1000 / (as > 0 ? as : 1300) : 1000;
   }
-  function lrZoneRate(C, entries, pl, dps) {
+  // cap: höchster erlaubter Level-Abstand für diese Bewertung
+  function lrZoneRate(C, entries, pl, dps, cap = Math.min(cfg.lvlDiff, LR_MAX_ABOVE)) {
     const ms = []; let W = 0;
     for (const e of entries || []) {
       const d = C.digimon?.[e.species]; if (!d?.mob || !d.base) continue;
       const lo = e.level?.[0] ?? 1, hi = e.level?.[e.level.length - 1] ?? lo, n = hi - lo + 1;
       for (let ml = lo; ml <= hi; ml++) {
-        if (ml - pl > Math.min(cfg.lvlDiff, LR_MAX_ABOVE)) continue; // zu stark: würde der Bot nicht angreifen
+        if (ml - pl > cap) continue; // zu stark: würde der Bot nicht angreifen
         const w = (e.weight || 1) / n; W += w;
         ms.push({ w, t: expTier(ml - pl), xp: expPerKill(d.mob.expBase, ml, pl), hp: d.base.hp + (d.growth?.hp || 0) * (ml - 1) });
       }
@@ -4902,8 +4905,12 @@
       if (cfg.levelA2 && (C.maps?.[mapId]?.series || 1) !== 2) continue;
       for (const [zn, z] of Object.entries(sp.zones)) {
         const rect = world.maps[mapId]?.zones?.[zn]; if (!rect?.w) continue;
-        const rate = lrZoneRate(C, z.entries, p.level, dps);
-        if (rate > 0 && (!best || rate > best.rate)) best = { mapId, zone: zn, rate, rect };
+        // Zone ganz über der Level-Grenze: mit ihren niedrigsten Monstern rechnen (bis LR_MAX_ABOVE) – oft besser als
+        // die beste Zone innerhalb der Grenze (live: Lv 29, Harvest Hills ab +11 ≈ +30 % gegenüber +5…+8 im Tal)
+        const lows = (z.entries || []).map((e) => e.level?.[0]).filter((v) => v != null), minUp = lows.length ? Math.min(...lows) - p.level : 0;
+        const ext = minUp > cfg.lvlDiff && minUp <= LR_MAX_ABOVE ? minUp : 0;
+        const rate = lrZoneRate(C, z.entries, p.level, dps, ext || Math.min(cfg.lvlDiff, LR_MAX_ABOVE));
+        if (rate > 0 && (!best || rate > best.rate)) best = { mapId, zone: zn, rate, rect, ext };
       }
     }
     return best;
@@ -4985,10 +4992,17 @@
     if (now - lr.calcAt > LR_CALC_MS || lr.calcLv !== p.level) {
       lr.calcAt = now; lr.calcLv = p.level; lr.best = lrBest(st);
       const b = lr.best, g = lr.goal;
-      if (b && (!g || (b.mapId !== g.mapId || b.zone !== g.zone) && (b.rate > (g.rate || 0) * LR_SWITCH_GAIN && now - lr.since > LR_MIN_STAY_MS))) {
+      // aktuelle Zone neu bewerten (Level-Up, geänderte Level-Grenze) – bringt sie nichts mehr, sofort wechseln
+      if (g) {
+        const ents = content()?.spawns?.[g.mapId]?.zones?.[g.zone]?.entries || [], lows = ents.map((e) => e.level?.[0]).filter((v) => v != null);
+        const minUp = lows.length ? Math.min(...lows) - p.level : 0;
+        g.ext = minUp > cfg.lvlDiff && minUp <= LR_MAX_ABOVE ? minUp : 0;
+        g.rate = lrZoneRate(content(), ents, p.level, lrDps(p), g.ext || Math.min(cfg.lvlDiff, LR_MAX_ABOVE));
+      }
+      if (b && (!g || (b.mapId !== g.mapId || b.zone !== g.zone) && (g.rate <= 0 || (b.rate > g.rate * LR_SWITCH_GAIN && now - lr.since > LR_MIN_STAY_MS)))) {
         lr.goal = { ...b }; lr.since = now;
-        logEvent('auto', `Leveln: beste Zone für Lv ${p.level} – ${content()?.maps?.[b.mapId]?.name || b.mapId} / ${b.zone} (~${Math.round(b.rate)} EXP/min)`);
-      } else if (g && b && b.mapId === g.mapId && b.zone === g.zone) g.rate = b.rate;
+        logEvent('auto', `Leveln: beste Zone für Lv ${p.level} – ${content()?.maps?.[b.mapId]?.name || b.mapId} / ${b.zone} (~${Math.round(b.rate)} EXP/min${b.ext ? `, nur die niedrigsten ab +${b.ext}` : ''})`);
+      }
     }
     const g = lr.goal; if (!g) return null;
     if (attackers.length) return null; // erst Angreifer abwehren
@@ -6298,6 +6312,7 @@
       cfg[key] = Number(e.target.value);
       panel.querySelector(`[data-v="${key}"]`).textContent = LABELS[key](cfg[key]);
       saveCfg();
+      if (key === 'lvlDiff') lr.calcAt = 0; // Lern-Route gleich neu bewerten
     });
     // Regler nach dem Loslassen entfokussieren, damit Spieltasten wieder ans Spiel gehen
     panel.addEventListener('change', (e) => {

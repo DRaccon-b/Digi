@@ -217,6 +217,12 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.44.0 – Lern-Route über die Level-Grenze, wenn es sich lohnt
+- Liegt eine Zone ganz über der Level-Grenze (z. B. +8), rechnet die Lern-Route sie mit ihren **niedrigsten Monstern** durch, bis höchstens +12. Bringt das mehr EXP/min als die beste Zone innerhalb der Grenze, geht der Bot dorthin und erlaubt dort genau bis zum niedrigsten Monster-Level der Zone. Durch die EXP-Priorität nimmt er dann die niedrigsten zuerst, höhere lässt er stehen. Bosse bleiben an der normalen Grenze.
+- Beispiel Shurimon Lv 29: Harvest Hills / Felder ab +11 ≈ 6 330 EXP/min gegenüber Digi-Egg Valley / Grabungsstelle mit +5 bis +8 ≈ 4 860 EXP/min.
+- Die aktuelle Zone wird bei jeder Neuberechnung (alle 30 s, bei Level-Up und sofort beim Verstellen der Level-Grenze) neu bewertet. Bringt sie nichts mehr, wechselt der Bot ohne die 3-Minuten-Wartezeit.
+- Im Log steht dann „nur die niedrigsten ab +11“.
+
 #### Neu in 2.43.2 – Named Elites richtig erkennen
 - Live in Harvest Hills: Der Named Elite Tyrannomon („The Kaiser's Overseer“, Lv 44) läuft zwischen vielen normalen Tyrannomon derselben Art und desselben Levels herum. Bisher galt jeder davon als dieser Boss, und der Bot meldete alle 15–20 s „Boss besiegt“.
 - Jetzt gilt: Hat der Boss-Eintrag einen Werte-Multiplikator (`statMult`, hier 2,06), zählt nur ein Monster mit entsprechend erhöhten HP als Boss. Echte Bosse mit Boss-Flag zählen wie bisher. Das gilt auch für die Boss-Rotation und die Named-Elite-Runde.
