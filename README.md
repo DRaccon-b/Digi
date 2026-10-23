@@ -217,6 +217,9 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.34.1 – Quests nach Serie getrennt
+- Reiter Quests: Die aktiven Quests stehen jetzt unter zwei Überschriften, **Adventure** und **Adventure 02**, jeweils mit Anzahl. Die Serie der Map, auf der man gerade ist, steht oben. Neuer Test `seriestest`.
+
 #### Neu in 2.34.0 – Map für Map auch von unten nach oben
 - Reiter Quests → Reihenfolge „Map für Map“ → neue Auswahl **Richtung**: „von oben nach unten“ (wie bisher, höchste Map zuerst) oder „von unten nach oben“ (niedrigste Map zuerst). Aufsteigend erledigt der Bot auf einer Map alles, was machbar ist, und geht dann zur nächsthöheren. Startet man z. B. mit Start-Map „Digi-Egg Valley“, geht es von dort aus nach oben. Ohne Start-Map beginnt er bei der niedrigsten erreichbaren Map.
 - Neuer Test `apt6up` (aufsteigend: Tiefland → Mittelland → Hochland; mit der alten Version umgekehrt).

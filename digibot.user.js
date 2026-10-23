@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.34.0
+// @version      2.34.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -249,6 +249,7 @@
     .digibot__lage .mem .hp.low i{background:#ff6b6b}
     .digibot__lage .mem .st{color:#9aa5c4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
     .digibot__offnote{font:500 9.5px system-ui;color:#ffb86b;font-style:normal}
+    .digibot__qhead{font:700 10.5px system-ui;color:#9aa5c4;text-transform:uppercase;letter-spacing:.04em;margin:6px 0 3px;border-bottom:1px solid #2a3355;padding-bottom:2px}
     .digibot__scope{font:500 10.5px system-ui;color:#9aa5c4;background:#161c33;border:1px solid #2a3355;border-radius:5px;padding:4px 6px;margin:0 0 6px}
     .digibot__prof{font:600 10px system-ui;color:#9aa5c4;margin-left:auto;margin-right:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:110px}
     .digibot__prof:empty{display:none}
@@ -494,7 +495,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.34.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.34.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -5255,7 +5256,10 @@
     const box = panel.querySelector('[data-f="quests"]');
     if (!list.length) { box.innerHTML = '<div class="digibot__none">Keine aktiven Quests.</div>'; return; }
     const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-    box.innerHTML = list.map((q) => {
+    // nach Serie getrennt: Adventure und Adventure 02 – die Serie der aktuellen Map zuerst
+    const cur = worldSeries(st), SERIES = { 1: 'Adventure', 2: 'Adventure 02' };
+    const groups = [cur, ...[1, 2].filter((n) => n !== cur)].map((n) => [n, list.filter((q) => questSeries(q.id) === n)]).filter(([, qs]) => qs.length);
+    const card = (q) => {
       const color = q.state === 2 ? '#ffd43b' : q.daily ? '#4dabf7' : '#2ecc71';
       const badge = q.state === 2 ? 'abgeben' : q.daily ? 'daily' : isStory(q.id) ? 'aktiv' : 'täglich';
       const objs = q.objectives.map((o) => {
@@ -5273,7 +5277,8 @@
         ${objs}
         ${q.state === 2 && q.turnIn ? `<div class="turnin">Abgeben bei ${esc(q.turnIn)}</div>` : ''}
       </div>`;
-    }).join('');
+    };
+    box.innerHTML = groups.map(([n, qs]) => `<div class="digibot__qhead">${SERIES[n]} · ${qs.length}</div>${qs.map(card).join('')}`).join('');
   }
 
   const CSS_ESC = (s) => (window.CSS?.escape ? window.CSS.escape(s) : s.replace(/["\\]/g, '\\$&'));
