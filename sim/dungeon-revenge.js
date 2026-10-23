@@ -69,6 +69,7 @@ const PT = {
   copy_1: [616, 632], copy_2: [936, 632], copy_3: [936, 840], copy_4: [856, 888],
   land_bay: [1112, 872], egg_bay: [1288, 680], boss_bay: [1288, 712], phone_1: [1128, 712], phone_2: [1288, 808], phone_3: [1448, 712],
   laptop_1: [1192, 776], laptop_2: [1384, 776], herd_w: [1080, 680], herd_e: [1480, 680],
+  slab_1: [1160, 744], slab_2: [1256, 744], slab_3: [1336, 744], slab_4: [1432, 744], // Deckung vor der Ultimate Flare
 };
 const MAPS = {
   network: [
@@ -104,7 +105,7 @@ const SKILLS = Object.fromEntries([
   SK('diaboromon.cannon_volley', { name: 'Catastrophe Cannon', shape: 'circle', radius: 48, telegraph: true, each: true, fixedDamage: 45000, cooldownMs: 20000, castMs: 2200, range: 640 }),
   SK('diaboromon.overclock', { name: 'Overclock', kind: 'buff', target: 'self', shape: 'single', cooldownMs: 16000, castMs: 800, range: 1 }),
   SK('diaboromon.copy_cannon', { name: 'Catastrophe Cannon', shape: 'line', radius: 14, range: 320, telegraph: true, fixedDamage: 30000, cooldownMs: 9000, castMs: 1800 }),
-  SK('armageddemon.ultimate_flare', { name: 'Ultimate Flare', shape: 'line', radius: 20, range: 360, telegraph: true, fixedDamage: 60000, cooldownMs: 24000, castMs: 2500, sweep: { arc: 140, ms: 1600 } }),
+  SK('armageddemon.ultimate_flare', { name: 'Ultimate Flare', shape: 'line', radius: 20, range: 360, telegraph: true, fixedDamage: 60000, cooldownMs: 24000, castMs: 2500, sweep: { arc: 140, ms: 1600 }, cover: { points: ['slab_1', 'slab_2', 'slab_3', 'slab_4'], radius: 26 } }),
   SK('armageddemon.black_rain_storm', { name: 'Black Rain', shape: 'circle', radius: 48, telegraph: true, each: true, fixedDamage: 40000, cooldownMs: 28000, castMs: 4000, range: 640 }),
   SK('armageddemon.black_rain_shell', { name: 'Black Rain', shape: 'circle', radius: 40, power: 0, hpDamagePct: 240, share: { target: 'rotate' }, cooldownMs: 28000, castMs: 4000, range: 640 }),
 ]);
@@ -460,7 +461,9 @@ function evalZone(src, skill, z, opt) {
     }
     for (const pl of alivePlayers()) {
       const p = partnerOf(pl);
-      const inside = z.circles.some((cc) => dist(p, cc) <= cc.r) || (z.line && inLine(p, z.line));
+      const cov = !!z.line && inLine(p, z.line) && behindCover(p, z);
+      if (cov) ps.cover = (ps.cover || 0) + 1;
+      const inside = z.circles.some((cc) => dist(p, cc) <= cc.r) || (z.line && inLine(p, z.line) && !cov);
       if (!inside) { ps.dodged++; continue; }
       if (protectedAt(p, Date.now())) { ps.blocked = (ps.blocked || 0) + 1; continue; }
       ps.hit++;
@@ -469,6 +472,12 @@ function evalZone(src, skill, z, opt) {
       if (opt.first) break;
     }
   }
+}
+// Deckung (skill.cover): höchstens radius vom Punkt entfernt, auf der vom Boss (Strahl-Ursprung) abgewandten Seite
+function behindCover(p, z) {
+  const cv = SKILLS[z.skill]?.cover; if (!cv || !z.line) return false;
+  const o = { x: z.line.fx, y: z.line.fy };
+  return cv.points.some((n) => { const s = at(n); return dist(p, s) <= cv.radius && (p.x - s.x) * (s.x - o.x) + (p.y - s.y) * (s.y - o.y) > 0; });
 }
 function inLine(p, l) {
   if (l.sweep) { // Fächer um den Boss
@@ -632,7 +641,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const b = run.boss;
   console.log(`\nErgebnis: ${run.cleared ? '✅ geschafft' : run.failed ? `❌ gescheitert (${run.failed})` : '⏱ Zeit abgelaufen'}${!run.cleared && b ? ` – ${b.name} bei ${Math.round(b.hp / b.maxHp * 100)} %` : ''}`);
   console.log(`Räume ${run.roomTime.map((t) => `${(t / 1000).toFixed(0)} s`).join(' / ') || '–'} · Stürze ${run.deaths} · Tränke ${run.stats.pots} · Skills ${run.stats.skills}${run.room >= 1 ? ` · Herde: ${run.herd.captures} erledigt, ${run.herd.arrived} am Ei, Boss-Stärke ${run.herd.stacks}` : ''}`);
-  console.log(`Attacken (Ansagen · getroffen · ausgewichen · geblockt): ${Object.entries(run.perSkill).map(([k, v]) => `${k} ${v.casts} · ${v.hit} · ${v.dodged} · ${v.blocked || 0}`).join(' | ')}`);
+  console.log(`Attacken (Ansagen · getroffen · ausgewichen · geblockt): ${Object.entries(run.perSkill).map(([k, v]) => `${k} ${v.casts} · ${v.hit} · ${v.dodged} · ${v.blocked || 0}${v.cover ? ` (davon ${v.cover}× hinter Deckung)` : ''}`).join(' | ')}`);
   if (TEAM) console.log(`Key of Hope gezündet: ${run.stats.koh || 0}× · Team: ${MEMBERS.map((m, i) => `Char${i + 1} ${m.name} Lv ${m.level} (${m.hp} HP)`).join(', ')}`);
   console.log(`Status am Ende: ${players.map((pl) => `Char${pl.i + 1}: ${pl.status()}`).join(' | ')}`);
   process.exit(run.cleared ? 0 : 1);

@@ -217,6 +217,14 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.37.0 – Deckung hinter Platten (Ultimate Flare)
+- Laut Spieldaten schützen vier zerbrochene Platten in Raum 4 vor der Ultimate Flare (`slab_1`–`slab_4`, Radius 26 px). Geschützt ist, wer auf der vom Boss abgewandten Seite steht (live bestätigt).
+- Steht das Digimon im Flare-Fächer und ist eine Platte näher als der Weg aus dem Fächer hinaus, läuft es 12 px hinter die Platte. Dort gilt es als sicher, weicht nicht weiter aus und läuft nicht zurück. Es gelten dieselben Prüfungen wie sonst: Der Weg ist frei von anderen Zonen, und der Punkt ist vor dem Einschlag erreichbar.
+- Funktioniert allgemein für jede Attacke mit `cover` in den Daten.
+- Simulator: Platten und Deckung nachgebildet. Im Ergebnis steht, wie oft die Deckung half.
+- Probelauf ab Raum 4, je 10 Läufe: alt und neu beide 10/10, 0 Stürze, 0 Flare-Treffer. Die Deckung wurde bei rund 28 % der Flare-Ausweichmanöver genutzt. Der Armageddemon-Kampf dauerte gleich lang (Ø 262 s alt, 264 s neu).
+- Neuer Test `covertest`.
+
 #### Probelauf Hard: Raum 4 erst Herde, dann Armageddemon
 - Der Simulator bildet Raum 4 jetzt ab wie live: zuerst die 10 Kuramon-Wellen, danach erscheint Armageddemon. Bisher lief beides gleichzeitig. Der Enrage (8 min) zählt ab seinem Erscheinen.
 - 10 volle Läufe (Raum 3 + 4, Bauzel + 4 ClavisAngemon Lv 70, ×4): **10 von 10 geschafft**, insgesamt 2 Stürze.

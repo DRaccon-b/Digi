@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.36.3
+// @version      2.37.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -495,7 +495,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.36.3'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.37.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -959,7 +959,8 @@
         const len = Math.hypot(l.tx - l.fx, l.ty - l.fy);
         if (l.skill?.sweep) {
           zones.push({ kind: 'fan', x: l.fx, y: l.fy, len: len + (l.r || 16), dir: Math.atan2(l.ty - l.fy, l.tx - l.fx),
-            half: (l.skill.sweep.arc || 90) * Math.PI / 360, end: l.end || 0 });
+            half: (l.skill.sweep.arc || 90) * Math.PI / 360, end: l.end || 0,
+            cover: l.skill.cover || content()?.skills?.[l.skill.id]?.cover || null });
         } else {
           zones.push({ kind: 'line', x: l.fx, y: l.fy, tx: l.tx, ty: l.ty, len, r: l.r || 16, end: l.end || 0 });
         }
@@ -987,6 +988,21 @@
     if (out >= DODGE_MARGIN) return true; // draußen
     const need = DODGE_MARGIN * 1.5 - out, left = zoneLeftMs(h);
     return left != null && need <= Math.min(hugeReach(left), (left - 300) / 1000 * DODGE_WALK_PX_S);
+  }
+  // Deckung (z. B. Ultimate Flare: „hinter eine zerbrochene Platte“): skill.cover = { points: [Spawn-Punkte], radius }.
+  // Geschützt ist, wer höchstens radius vom Punkt entfernt auf der vom Boss abgewandten Seite steht (live bestätigt).
+  const COVER_BEHIND = 12; // so weit hinter dem Punkt wird angesteuert
+  function coverSpots(z, mapId) {
+    if (!z?.cover?.points) return [];
+    const sp = world.maps[mapId]?.spawns || {};
+    return z.cover.points.map((n) => sp[n]).filter(Boolean).map((s) => {
+      const d = Math.hypot(s.x - z.x, s.y - z.y) || 1;
+      return { s, r: z.cover.radius || 26, aim: { x: s.x + (s.x - z.x) / d * COVER_BEHIND, y: s.y + (s.y - z.y) / d * COVER_BEHIND } };
+    });
+  }
+  function covered(z, p, mapId) {
+    return coverSpots(z, mapId).some(({ s, r }) => Math.hypot(p.x - s.x, p.y - s.y) <= r * 0.85
+      && (p.x - s.x) * (s.x - z.x) + (p.y - s.y) * (s.y - z.y) > 0);
   }
   // Abstand eines Punkts zur Zone (≤ 0 = drinnen) und der nächste Punkt der Zone (zum Weglaufen).
   function zoneDist(z, p) {
@@ -1083,7 +1099,9 @@
     const tamer = controlled(st), partner = ents?.get?.(st?.me?.partner?.entityId);
     const me0 = tamer || partner;
     if (me0) for (const h of hugeZones()) if (hugeCounts(h, me0)) zones.push(h);
-    const inZone = (p) => p && zones.find((z) => zoneDist(z, p).d < DODGE_MARGIN);
+    // Hinter einer Deckung (Platte bei der Ultimate Flare) gilt man in deren Zone als sicher
+    const cmap = st?.world?.mapId;
+    const inZone = (p) => p && zones.find((z) => zoneDist(z, p).d < DODGE_MARGIN && !covered(z, p, cmap));
     const z = inZone(tamer) || inZone(partner);
     const tEnt = st?.target?.id ? ents?.get?.(st.target.id) : null;
     const target = tEnt && tEnt.hp > 0 ? tEnt : null;
@@ -1135,7 +1153,7 @@
     // kann das Digimon von dort weiter angreifen (oft sogar mit der 1). Erreichbar = Laufweg passt in die Restzeit
     // des Warnkreises (unbekannt: höchstens 72 px weiter als zum nächsten freien Punkt).
     // Mehrere Kreise übereinander: es zählt der früheste Einschlag unter allen, in denen ich stehe
-    const inside = zones.filter((c) => [tamer, partner].some((e) => e && zoneDist(c, e).d < DODGE_MARGIN));
+    const inside = zones.filter((c) => [tamer, partner].some((e) => e && zoneDist(c, e).d < DODGE_MARGIN && !covered(c, e, cmap)));
     const lefts = inside.map(zoneLeftMs).filter((v) => v != null);
     const left = lefts.length ? Math.min(...lefts) : zoneLeftMs(z);
     // Laufweg: darf nicht durch einen ANDEREN Kreis/Strahl führen (aus denen, in denen ich stehe, muss ich ohnehin
@@ -1158,7 +1176,7 @@
     // aktuellen Position sprang der beste Punkt beim Laufen zwischen Nachbarrichtungen hin und her (Eiern)
     const g0 = dodgeState.goal;
     const keep = g0 && now - g0.at < DODGE_GOAL_MS && Math.hypot(me.x - g0.x, me.y - g0.y) > DODGE_GOAL_REACHED
-      && !zones.some((c) => zoneDist(c, g0).d < DODGE_MARGIN * 1.5) && pathClear(g0);
+      && !zones.some((c) => zoneDist(c, g0).d < DODGE_MARGIN * 1.5 && !covered(c, g0, mapId)) && pathClear(g0);
     // Raumweiter Kreis (z. B. Marsmons Corona Sanctions, 400 px): so weit suchen, wie das Digimon in der Restzeit
     // kommt – dann aber nur Punkte mit geradem, begehbarem Weg (keine Wand dazwischen)
     const maxR = inside.some((c) => c.huge) ? hugeReach(left) : DODGE_SEARCH_R;
@@ -1186,6 +1204,20 @@
       if (first && !target) break;
     }
     best ||= first || safeOnly || crossOnly;
+    // Deckung als Fluchtpunkt: hinter einer Platte, wenn der Weg dorthin kürzer ist als hinaus (Fächer der Ultimate Flare
+    // ist 140° breit und ~380 px lang – aus dem Nahkampf oft ein weiter Weg)
+    if (!keep) {
+      const cl = inside.map(zoneLeft).filter((v) => v != null), covLeft = cl.length ? Math.min(...cl) : null;
+      let cov = null, covD = Infinity;
+      for (const z0 of inside) for (const { aim } of coverSpots(z0, mapId)) {
+        const d = Math.hypot(aim.x - me.x, aim.y - me.y);
+        if (d >= covD || !walkable(aim.x, aim.y) || !pathClear(aim)) continue;
+        if (covLeft != null && d / DODGE_WALK_PX_S * 1000 > covLeft - 300) continue; // nicht rechtzeitig dort
+        if (zones.some((c) => zoneDist(c, aim).d < DODGE_MARGIN * 1.5 && !covered(c, aim, mapId))) continue; // andere Zone
+        cov = aim; covD = d;
+      }
+      if (cov && (!best || covD < Math.hypot(best.x - me.x, best.y - me.y))) best = cov;
+    }
     if (!best) { dodgeState.active = false; dodgeState.goal = null; return null; } // kein Fluchtpunkt: stehen bleiben hilft nicht – weiterkämpfen
     // Lange Ansage (z. B. Machinedramons Full Charge, 12 s): weiterkämpfen und erst so spät loslaufen, dass es
     // großzügig reicht (Laufzeit × 1,5 + 1,5 s) – sonst steht das Digimon ~10 s untätig draußen.
