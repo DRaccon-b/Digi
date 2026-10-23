@@ -217,6 +217,12 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.43.0 – Lern-Route nimmt Feldbosse mit
+- Neuer Haken **„Lern-Route: Feldbosse der Map ohne Enrage mitnehmen“** (an). Es zählen Feldbosse und Named Elites der aktuellen Lern-Map, die keinen Enrage-Timer haben und höchstens die Level-Grenze über dem Digimon stehen.
+- Beim Ankommen auf der Map besucht der Bot jeden erlaubten Kanal (Reiter Bosse → Kanäle) einmal und liest dort die Boss-Timer, denn das Spiel nennt sie nur für den aktuellen Kanal. Derweil grindet er weiter.
+- Lebt ein Boss oder spawnt er in unter 30 s, wechselt der Bot auf dessen Kanal, läuft zum Spawnpunkt und kämpft. Danach (der Respawn-Timer wird gesetzt) geht er zurück in die Zone. Ist der Boss nach 20 s am Spawnpunkt nicht da, vergisst er den Timer und grindet weiter.
+- Neuer Test `levelbosstest`.
+
 #### Neu in 2.42.0 – Lern-Route: selbst zur besten Zone
 - Neu im Reiter Kampf: **Lern-Route**. Beim Grinden reist der Bot selbst zur Zone mit den meisten EXP/min für das aktuelle Level, Haken „nur in Adventure 02“ standardmäßig an.
 - So bewertet er die Zonen:

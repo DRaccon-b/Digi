@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.42.0
+// @version      2.43.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -323,6 +323,7 @@
     skipTaken: true,  // keine Gegner angreifen, die andere Spieler gerade bekämpfen
     levelRoute: false, // Grinden: selbst zur besten Zone fürs Level reisen (Lern-Route)
     levelA2: true,    // Lern-Route nur in Adventure-02-Maps
+    levelBoss: true,  // Lern-Route: Feldbosse der Map (ohne Enrage) mitnehmen, wenn sie leben oder gleich spawnen
     expPrio: true,    // Grinden: zuerst Monster +5…+8 über dem Digimon (×1,5 EXP), dann +4, +3, … – erst zuletzt über +8
     chCheck: false,   // Channel-Checker: auf den Kanal mit den wenigsten Spielern wechseln (nicht in der Boss-Rotation)
     safeCast: true,   // gegen Bosse: Skills nur, wenn danach noch Zeit zum Ausweichen bleibt (und kein Spiegel droht)
@@ -502,7 +503,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.42.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.43.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -585,6 +586,7 @@
           ${check('skipTaken', 'Keine Gegner angreifen, die andere Spieler bekämpfen')}
           ${check('levelRoute', 'Lern-Route: beim Grinden selbst zur Zone mit den meisten EXP/min fürs Level reisen (Wechsel ab +15 %, frühestens nach 3 min)')}
           ${check('levelA2', 'Lern-Route nur in Adventure 02')}
+          ${check('levelBoss', 'Lern-Route: Feldbosse der Map ohne Enrage mitnehmen (Timer aller Kanäle aus Reiter Bosse → Kanäle)')}
           ${check('expPrio', 'EXP-Priorität: zuerst Monster +5 bis +8, dann +4, +3 … (gemessen: +5 bis +8 gibt ×1,5 EXP)')}
           ${check('chCheck', 'Channel-Checker: auf den leersten Kanal wechseln')}`, true,
           'Schwächere Monster werden immer angegriffen, nur zu starke (über +Level) nicht. Angreifer werden immer abgewehrt. Channel-Checker: etwa jede Minute und nach jedem Map-Wechsel wechselt der Bot auf den Kanal mit den wenigsten Spielern (mind. 2 weniger) – nur außerhalb von Kämpfen, nicht in der Boss-Rotation; in der Gruppe entscheidet der Leader, die anderen folgen.')}
@@ -4855,7 +4857,7 @@
   // Gezählt werden die Monster, die die EXP-Priorität wirklich nähme (beste Stufen, mindestens LR_TOP_SHARE der Zone).
   // Wechsel nur bei deutlich mehr EXP/min und frühestens nach LR_MIN_STAY_MS – sonst pendelt er.
   const LR_GAP_S = 1.3, LR_TOP_SHARE = 0.35, LR_SWITCH_GAIN = 1.15, LR_MIN_STAY_MS = 180000, LR_CALC_MS = 30000, LR_MAX_ABOVE = 12;
-  const lr = { goal: null, since: 0, calcAt: 0, calcLv: 0, best: null };
+  const lr = { goal: null, since: 0, calcAt: 0, calcLv: 0, best: null, boss: null, scan: null };
   const lrOn = () => cfg.levelRoute && !cfg.autopilot && !cfg.farm && !cfg.questMode && !cfg.dungeon;
   function lrDps(p) {
     const at = p?.stats?.at, as = p?.stats?.as;
@@ -4892,6 +4894,76 @@
     }
     return best;
   }
+  // Feldbosse der Lern-Map mitnehmen (ohne Enrage-Timer, nicht stärker als die Level-Grenze): beim Ankommen jeden
+  // erlaubten Kanal einmal ansehen – die Map-Info liefert Boss-Timer nur für den Kanal, auf dem man steht –, danach
+  // hingehen, wenn einer lebt oder in unter LR_BOSS_SOON_MS spawnt. Nach dem Kampf zurück in die Zone.
+  const LR_BOSS_SOON_MS = 30000, LR_SCAN_WAIT_MS = 7000, LR_BOSS_LOOK_MS = 20000, LR_BOSS_NEAR = 120;
+  const lrBossSel = (mapId, pl) => farmBossList().filter((b) => b.map === mapId && (b.kind === 'field' || b.kind === 'named') && b.level <= pl + cfg.lvlDiff);
+  function lrBossPos(b) {
+    const m = world.maps[b.map], sp = m?.spawns?.[b.at], z = m?.zones?.[b.at];
+    return sp ? { x: sp.x, y: sp.y } : z?.w ? { x: z.x + z.w / 2, y: z.y + z.h / 2 } : null;
+  }
+  function lrBossEnt(b) { let e0 = null; window.dmo?.net?.state?.entities?.forEach?.((en) => { if (en.kind === KIND.Mob && en.hp > 0 && !(en.flags & FLAG.Dead) && bossEntityMatch(b, en)) e0 = en; }); return e0; }
+  const lrBossFocus = (sc) => { const lb = lrOn() && lr.boss; if (!lb || !sc) return null; const e = lrBossEnt(lb.b); return e ? sc.mobs.find((m) => m.id === e.id) || null : null; };
+  function lrBossStep(st, sc, now, g) {
+    const p = st.me.partner, sel = lrBossSel(g.mapId, p.level);
+    if (!sel.length) { lr.boss = null; return null; }
+    farmUpdate(st, now, sel);
+    const cur = st.world?.channel ?? 1, where = content()?.maps?.[g.mapId]?.name || g.mapId;
+    const list = farmChannelList(st, now);
+    const allowed = (cfg.farmChannels?.length ? cfg.farmChannels : [1]).filter((c) => !list || list.some((r) => r.channel === c));
+    // 1) beim Ankommen: jeden erlaubten Kanal einmal ansehen (Map-Info dort lesen)
+    if (!lr.scan || lr.scan.map !== g.mapId) lr.scan = { map: g.mapId, done: new Set(), ch: null, at: 0 };
+    const sn = lr.scan, todo = allowed.filter((c) => !sn.done.has(c));
+    if (todo.length && !lr.boss) {
+      if (todo.includes(cur)) {
+        if (sn.ch !== cur) { sn.ch = cur; sn.at = now; farm.lastInfo = 0; } // gleich nachfragen
+        if (now - sn.at >= LR_SCAN_WAIT_MS) { sn.done.add(cur); logEvent('map', `Leveln: Boss-Timer ${where} Ch ${cur} gelesen`); }
+        return null; // derweil hier weiter grinden
+      }
+      const r = farmSwitch(st, sc, g.mapId, where, todo[0], now);
+      if (r.failed) { sn.done.add(todo[0]); return null; }
+      return r.done ? null : `Boss-Timer: wechsle zu Ch ${todo[0]} · ${r.status}`;
+    }
+    // 2) Ziel wählen: lebt oder spawnt bald (Kanalwechsel ~8 s eingerechnet)
+    if (!lr.boss) {
+      let best = null;
+      for (const b of sel) for (const ch of allowed) {
+        const s = farmState(b, ch, now), sw = ch === cur ? 0 : 8000;
+        const eta = s.state === 'up' ? sw : s.state === 'down' ? Math.max(s.readyAt - now, sw) : Infinity;
+        if (eta <= LR_BOSS_SOON_MS + sw && (!best || eta < best.eta)) best = { b, ch, eta, s };
+      }
+      if (!best) return null;
+      lr.boss = { b: best.b, ch: best.ch, at: now, near: 0 };
+      logEvent('auto', `Leveln: ${best.b.name} (Ch ${best.ch}) ${best.s.state === 'up' ? 'lebt' : `spawnt in ${Math.round((best.s.readyAt - now) / 1000)} s`} – nehme ihn mit`);
+    }
+    // 3) hin und kämpfen
+    const lb = lr.boss, st1 = farmState(lb.b, lb.ch, now);
+    if (st1.state === 'down' && st1.readyAt - now > 60000) { lr.boss = null; return null; } // besiegt (Respawn-Timer gesetzt)
+    if (cur !== lb.ch) {
+      const r = farmSwitch(st, sc, g.mapId, where, lb.ch, now);
+      if (r.failed) { lr.boss = null; return null; }
+      return r.done ? null : `${lb.b.name}: wechsle zu Ch ${lb.ch} · ${r.status}`;
+    }
+    const be = lrBossEnt(lb.b);
+    if (be) { // sichtbar: anvisieren, den Kampf macht der normale Ablauf (Fokus)
+      if (st.target?.id !== be.id && bot.can('select', SELECT_GAP_MS, now)) { bot.lastPress.select = now; worldScene()?.select?.(be.id); }
+      return null;
+    }
+    const pos = lrBossPos(lb.b), me = controlled(st);
+    if (pos && me && Math.hypot(me.x - pos.x, me.y - pos.y) > LR_BOSS_NEAR) {
+      if (walkTo(st, pos.x, pos.y, now) === 'stuck') autopilot.nav = null;
+      return `${lb.b.name}: laufe zum Spawnpunkt (${Math.round(Math.hypot(me.x - pos.x, me.y - pos.y))} px)`;
+    }
+    lb.near ||= now;
+    const soon = st1.state === 'down' && st1.readyAt > now;
+    if (!soon && now - lb.near > LR_BOSS_LOOK_MS) { // nicht da: als unbekannt vergessen, zurück in die Zone
+      farm.known.delete(farmKey(lb.b.map, lb.b.index, lb.ch)); lr.boss = null;
+      logEvent('warn', `Leveln: ${lb.b.name} (Ch ${lb.ch}) nicht da – zurück in die Zone`);
+      return null;
+    }
+    return `warte auf ${lb.b.name} (Ch ${lb.ch}${soon ? `, Respawn in ${Math.max(0, Math.round((st1.readyAt - now) / 1000))} s` : ''})`;
+  }
   // Ein Schritt: Statuszeile, solange der Bot zur Zone reist/läuft; null = dort angekommen (grinden) oder nichts zu tun
   function levelRouteStep(st, sc, now, attackers) {
     if (!lrOn() || world.state !== 'ready') return null;
@@ -4909,6 +4981,11 @@
     const t = st.target;
     if (t && t.kind === 'mob' && t.hp > 0 && bot.attackedId === t.id) return null; // laufenden Kampf beenden
     const where = `${content()?.maps?.[g.mapId]?.name || g.mapId} / ${g.zone}`;
+    if (cfg.levelBoss && st.world?.mapId === g.mapId) { // Feldbosse der Map mitnehmen
+      const bs = lrBossStep(st, sc, now, g);
+      if (bs) return bs;
+      if (lr.boss) return null;
+    } else lr.boss = null;
     if (st.world?.mapId !== g.mapId) { const tr = travel(st, g.mapId, now); return tr === true ? `angekommen in ${where}` : `reise zu ${where} · ${tr}`; }
     const me = controlled(st), r = g.rect;
     if (me && !(me.x >= r.x - 24 && me.x <= r.x + r.w + 24 && me.y >= r.y - 24 && me.y <= r.y + r.h + 24)) {
@@ -5154,7 +5231,7 @@
       // Sonst wählt der Bot ein Ziel aus und verwirft es gleich wieder – endlos.
       const lvlOk = info ? info.inLvl : diff <= cfg.lvlDiff;
       const addTarget = !!add && alive && t.id === add.id; // Add des Bosses: immer bekämpfen, auch außerhalb der Level-/Monster-Auswahl
-      const focus = this.resting ? null : huntFocus(sc) || dungeonFocus(sc) || focusAssist(sc) || farmBossNear(sc); // Leader-Ziel bzw. Boss der Rotation zuerst
+      const focus = this.resting ? null : huntFocus(sc) || lrBossFocus(sc) || dungeonFocus(sc) || focusAssist(sc) || farmBossNear(sc); // Leader-Ziel bzw. Boss der Rotation zuerst
       const onFocus = !!focus && alive && t.id === focus.id, offFocus = !!focus && !onFocus && !addTarget; // anderes Ziel -> wechseln
       const valid = !noFight && !dup && !offFocus && !(alive && safeHeld(t.id, now)) && (isAttacker || addTarget || onFocus || (!blocked && (this.resting ? fighting : alive && lvlOk)));
       if (!valid) {
