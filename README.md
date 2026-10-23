@@ -217,6 +217,17 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.38.0 – 🎯 Event: Mega-Jagd
+- Neuer Knopf **🎯 Event** neben Start. Er gilt zusätzlich zu jedem Modus, außer im Dungeon.
+- So läuft die Mega-Jagd im Spiel: Alle 2 Stunden erscheint ein Mega-Weltboss (Regalecusmon, Marsmon, Gankoomon, Justimon …) an einer zufälligen Stelle einer Feld-Map, nur auf Kanal 1. Er greift nie zuerst an. Der Chat warnt 5 Minuten vorher.
+- So macht es der Bot:
+  - Er fragt das Event-Fenster des Spiels nach Boss, Map und nächster Jagd: jede Minute, während einer Jagd alle 10 s, bei der Chat-Warnung sofort.
+  - Ab 6 Minuten vor dem Erscheinen reist er zur Map und wechselt auf Kanal 1. Dort wartet er mit Countdown.
+  - Danach läuft er die Jagdgebiete der Map der Reihe nach ab, bis der Boss in Sicht ist, und kämpft. Der Boss hat Vorrang vor anderen Zielen, Angreifer wehrt er vorher ab.
+  - Ist der Boss besiegt oder die Jagd vorbei, geht es mit dem vorherigen Modus weiter.
+- In der Gruppe sucht nur der Leader, die anderen folgen ihm wie gewohnt und greifen sein Ziel mit an.
+- Neuer Test `hunttest`. Live noch nicht geprüft.
+
 #### Neu in 2.37.0 – Deckung hinter Platten (Ultimate Flare)
 - Laut Spieldaten schützen vier zerbrochene Platten in Raum 4 vor der Ultimate Flare (`slab_1`–`slab_4`, Radius 26 px). Geschützt ist, wer auf der vom Boss abgewandten Seite steht (live bestätigt).
 - Steht das Digimon im Flare-Fächer und ist eine Platte näher als der Weg aus dem Fächer hinaus, läuft es 12 px hinter die Platte. Dort gilt es als sicher, weicht nicht weiter aus und läuft nicht zurück. Es gelten dieselben Prüfungen wie sonst: Der Weg ist frei von anderen Zonen, und der Punkt ist vor dem Einschlag erreichbar.

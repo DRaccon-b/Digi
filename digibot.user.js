@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.37.0
+// @version      2.38.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -183,6 +183,7 @@
     .digibot__modes button{background:#161c33;border:1px solid #2a3355;color:#9aa5c4;border-radius:5px;
       font:600 10.5px system-ui;padding:3px 0;cursor:pointer}
     .digibot__modes button:hover{color:#e8ecf4;border-color:#3a4670}
+    .digibot__btn.digibot__hunt.on{background:#3a2a12;border-color:#ffb43f;color:#fff;box-shadow:inset 0 -2px 0 #ffb43f}
     .digibot__modes button.on{background:#26305a;border-color:#3fa0ff;color:#fff;box-shadow:inset 0 -2px 0 #3fa0ff}
     .digibot__vitals{margin-top:4px}
     .digibot__row.mini{grid-template-columns:30px 1fr;margin:2px 0}
@@ -341,6 +342,7 @@
     farmMode: 'boss',     // 'boss' = Boss-Rotation, 'named' = Named-Elite-Runde (Map für Map)
     dungeon: false,       // Dungeon-Modus (Kera): betreten, Räume räumen, Boss, raus
     dgMode: 'easy',       // 'easy' = War Game, 'hard' = Revenge (allein kaum zu schaffen), 'apocalymon' / 'malomyotismon' = Raid
+    hunt: false,          // Event (Mega-Jagd): zum angesagten Weltboss reisen, ihn suchen und bekämpfen – in jedem Modus
     routeStart: '',       // Named-Runde: Start-Map (leer = niedrigste)
     routeEnd: '',         // Named-Runde: End-Map (leer = höchste)
     open: {},             // auf-/zugeklappte Gruppen im Panel
@@ -495,7 +497,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.37.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.38.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -511,6 +513,7 @@
         dungeon: 'Kera-Dungeon: zur Tür, betreten, Räume räumen, Boss, wieder hinaus (Reiter Bosse)',
       }[k])}">${l}</button>`).join('')}</div>
       <button class="digibot__btn digibot__run" data-act="bot" title="Alt+B">▶ Start</button>
+      <button class="digibot__btn digibot__hunt" data-act="hunt" title="Event (Mega-Jagd): Sobald der Weltboss angekündigt ist (6 min vorher), reist der Bot zur Map, Kanal 1, wartet, sucht ihn und kämpft. Danach weiter wie vorher. Gilt in jedem Modus.">🎯 Event</button>
       <div class="digibot__status" data-f="status">Bot aus</div>
       <div class="digibot__task" data-f="task"><span class="t"></span><span class="pb"><i></i></span></div>
       <div class="digibot__vitals">${bar('hp mini', 'HP').replace('data-bar="hp mini"', 'data-bar="mhp"')}${bar('ds mini', 'DS').replace('data-bar="ds mini"', 'data-bar="mds"')}${bar('tg mini', 'Ziel').replace('data-bar="tg mini"', 'data-bar="mtg"')}</div>
@@ -3950,6 +3953,89 @@
   }
   // Boss-Rotation: steht ein gewählter Boss in Reichweite, geht er vor jedem Angreifer (erst der Boss, dann der Rest)
   const farmBossNear = (sc) => (cfg.farm && sc ? sc.mobs.find((m) => m.enabled && m.cat !== 'normal' && !m.banned && m.d <= cfg.radius * 1.5) || null : null);
+
+  // ---------- Event: Mega-Jagd ----------
+  // Alle 2 h erscheint ein Mega-Weltboss (…_hunt) an einer zufälligen Stelle einer Feld-Map, nur auf Kanal 1; er greift
+  // nie zuerst an. Das Event-Fenster des Spiels (Befehl requestEvents) nennt Boss, Map, Zustand und die nächste Jagd,
+  // der Chat warnt 5 min vorher (hunt_warning). Den genauen Ort verrät das Spiel nicht: der Bot reist hin, wartet bis
+  // zum Erscheinen und läuft dann die Jagdgebiete der Map ab, bis er ihn sieht – dann Kampf (Fokus wie bei Bossen).
+  const HUNT_LEAD_MS = 6 * 60000;   // so lange vor dem Erscheinen losreisen
+  const HUNT_POLL_MS = 60000, HUNT_POLL_ACTIVE_MS = 10000; // Event-Fenster so oft abfragen (während einer Jagd öfter)
+  const HUNT_WP_NEAR = 60;          // so nah = Suchpunkt abgehakt
+  const hunt = { info: null, skew: 0, polledAt: 0, busy: false, goal: null, visited: new Set(), wp: null, wpAt: 0, warnTs: 0 };
+  function huntPoll(now) {
+    const c = commands();
+    if (hunt.busy || typeof c?.requestEvents !== 'function') return;
+    hunt.busy = true; hunt.polledAt = now;
+    Promise.resolve(c.requestEvents()).then((list) => {
+      const e = (Array.isArray(list) ? list : []).find((x) => x?.id === 'mega_hunt' || /_hunt$/.test(x?.boss || ''));
+      hunt.info = e || null;
+      if (e?.now) hunt.skew = e.now - Date.now(); // Serverzeit
+    }).catch(() => { /* nächster Versuch beim nächsten Abfragen */ }).finally(() => { hunt.busy = false; });
+  }
+  // Aktuelle Jagd: läuft gerade (state up) oder beginnt in den nächsten HUNT_LEAD_MS
+  function huntGoal(now) {
+    const e = hunt.info, sn = now + hunt.skew;
+    if (!e) return null;
+    if (e.state === 'up' && e.boss && e.mapId && (!e.slot?.endMs || sn < e.slot.endMs)) return { boss: e.boss, mapId: e.mapId, ch: e.channel || 1, key: `${e.slot?.key || ''}|${e.boss}`, up: true };
+    const n = e.next;
+    if (n?.boss && n.mapId && n.startMs && n.startMs - sn <= HUNT_LEAD_MS && n.startMs - sn > -120000) return { boss: n.boss, mapId: n.mapId, ch: 1, key: `next@${n.startMs}|${n.boss}`, up: false, at: n.startMs - hunt.skew };
+    return null;
+  }
+  // Suchpunkte: Mitten der Jagdgebiete (Zonen) der Map, sonst ihre Spawn-Punkte
+  function huntWaypoints(mapId) {
+    const m = world.maps[mapId];
+    const pts = Object.values(m?.zones || {}).filter((r) => r.w > 0 && r.h > 0).map((r) => ({ x: r.x + r.w / 2, y: r.y + r.h / 2 }));
+    return pts.length ? pts : Object.values(m?.spawns || {}).map((p) => ({ x: p.x, y: p.y }));
+  }
+  const huntBossEnt = (boss) => { let b = null; window.dmo?.net?.state?.entities?.forEach?.((e) => { if (e.kind === KIND.Mob && e.defId === boss && e.hp > 0 && !(e.flags & FLAG.Dead)) b = e; }); return b; };
+  // Fokus für den Kampf: der Jagd-Boss, sobald er in der Liste der Monster steht
+  const huntFocus = (sc) => (cfg.hunt && hunt.goal && sc ? sc.mobs.find((m) => m.species === hunt.goal.boss && !m.banned) || null : null);
+  // Ein Schritt der Jagd: Statuszeile, solange der Bot dafür unterwegs ist / sucht / wartet; null = nichts zu tun
+  // (keine Jagd, Boss in Sicht – dann kämpft der normale Ablauf – oder erst Angreifer abwehren)
+  function huntStep(st, sc, now) {
+    if (!cfg.hunt) return null;
+    const warn = (st.chat || []).filter((m) => m?.code === 'hunt_warning' || m?.code === 'worldboss_warning').pop();
+    if (warn?.ts && warn.ts > hunt.warnTs) { hunt.warnTs = warn.ts; hunt.polledAt = 0; } // Warnung im Chat: gleich nachfragen
+    if (now - hunt.polledAt > (hunt.goal ? HUNT_POLL_ACTIVE_MS : HUNT_POLL_MS)) huntPoll(now);
+    const g = huntGoal(now), C = content();
+    if (!g) {
+      if (hunt.goal) { logEvent('auto', `Event vorbei: ${C?.digimon?.[hunt.goal.boss]?.name || hunt.goal.boss} – weiter wie vorher`); hunt.goal = null; autopilot.nav = null; }
+      return null;
+    }
+    const name = C?.digimon?.[g.boss]?.name || g.boss, where = C?.maps?.[g.mapId]?.name || g.mapId;
+    if (hunt.goal?.key !== g.key) {
+      hunt.goal = g; hunt.visited = new Set(); hunt.wp = null;
+      logEvent('auto', `Event: ${name} – ${where} (Kanal ${g.ch})${g.up ? ' – ist da, suche ihn' : ` – erscheint in ${Math.max(0, Math.round((g.at - now) / 60000))} min`}`);
+    }
+    hunt.goal.up = g.up;
+    if (group.role() === 'follower' && groupLeader(now)) return null; // in der Gruppe führt der Leader, die anderen folgen ihm
+    const here = st.world?.mapId === g.mapId;
+    const b = here ? huntBossEnt(g.boss) : null;
+    if (b) { // in Sicht: anvisieren, den Kampf macht der normale Ablauf (huntFocus)
+      if (st.target?.id !== b.id && bot.can('select', SELECT_GAP_MS, now)) { bot.lastPress.select = now; worldScene()?.select?.(b.id); }
+      return null;
+    }
+    if (sc?.attackers?.length) return null; // erst Angreifer abwehren
+    if (!here) { const tr = travel(st, g.mapId, now); return tr === true ? `${name}: angekommen in ${where}` : `${name} – reise nach ${where} · ${tr}`; }
+    if ((st.world?.channel ?? 1) !== g.ch) { const r = farmSwitch(st, sc, g.mapId, where, g.ch, now); if (!r.done) return `${name} – Kanal ${g.ch} · ${r.status}`; }
+    if (!g.up) { const s = Math.max(0, Math.round((g.at - now) / 1000)); return `${name} erscheint in ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} in ${where} – warte`; }
+    // suchen: nächster noch nicht besuchter Punkt; sind alle abgehakt, von vorn
+    const me = controlled(st);
+    if (!me) return `${name}: suche…`;
+    const pts = huntWaypoints(g.mapId);
+    if (!pts.length) return `${name} ist irgendwo in ${where} – keine Kartendaten zum Suchen`;
+    const key = (p) => `${Math.round(p.x)},${Math.round(p.y)}`;
+    if (hunt.wp && (Math.hypot(me.x - hunt.wp.x, me.y - hunt.wp.y) <= HUNT_WP_NEAR || now - hunt.wpAt > 45000)) { hunt.visited.add(key(hunt.wp)); hunt.wp = null; }
+    if (!hunt.wp) {
+      let open = pts.filter((p) => !hunt.visited.has(key(p)));
+      if (!open.length) { hunt.visited.clear(); open = pts; }
+      hunt.wp = open.reduce((a, p) => (Math.hypot(p.x - me.x, p.y - me.y) < Math.hypot(a.x - me.x, a.y - me.y) ? p : a));
+      hunt.wpAt = now;
+    }
+    if (walkTo(st, hunt.wp.x, hunt.wp.y, now) === 'stuck') { hunt.visited.add(key(hunt.wp)); hunt.wp = null; autopilot.nav = null; }
+    return `${name} ist irgendwo in ${where} – suche (${hunt.visited.size}/${pts.length} Gebiete)`;
+  }
   // Bosse nehmen die ersten 3 s nach dem Respawn kaum Schaden (99 % Reduktion). Solange ein Boss frisch
   // aufgetaucht ist und volle HP hat, nur normal angreifen – Skills (Abklingzeit, DS) erst danach.
   // Gilt für jeden Boss und in allen Modi (Bot, Mitläufer, Spiegeln mit Angriff), nicht nur für die Boss-Rotation.
@@ -4791,6 +4877,11 @@
       }
       const sc = scan(st);
       const attackers = sc ? sc.attackers.map((m) => m.id) : [];
+      // 1c) Event (Mega-Jagd): hinreisen, warten, suchen – geht jedem Modus vor (nicht im Dungeon)
+      if (!cfg.dungeon && world.state === 'ready') {
+        const hv = huntStep(st, sc, now);
+        if (hv) { this.status = `Event: ${hv}`; this.attackedId = null; return; }
+      }
       if (cfg.farm && world.state === 'ready') farmUpdate(st, now);
       else if (cfg.autopilot && world.state === 'ready') { const qb = questBossSel(autopilot.task); if (qb.length) farmUpdate(st, now, qb); } // Boss-Quest: Timer wie bei der Rotation
       checkRefusals(st, t, now);
@@ -4859,7 +4950,7 @@
       // Sonst wählt der Bot ein Ziel aus und verwirft es gleich wieder – endlos.
       const lvlOk = info ? info.inLvl : diff <= cfg.lvlDiff;
       const addTarget = !!add && alive && t.id === add.id; // Add des Bosses: immer bekämpfen, auch außerhalb der Level-/Monster-Auswahl
-      const focus = this.resting ? null : dungeonFocus(sc) || focusAssist(sc) || farmBossNear(sc); // Leader-Ziel bzw. Boss der Rotation zuerst
+      const focus = this.resting ? null : huntFocus(sc) || dungeonFocus(sc) || focusAssist(sc) || farmBossNear(sc); // Leader-Ziel bzw. Boss der Rotation zuerst
       const onFocus = !!focus && alive && t.id === focus.id, offFocus = !!focus && !onFocus && !addTarget; // anderes Ziel -> wechseln
       const valid = !noFight && !dup && !offFocus && !(alive && safeHeld(t.id, now)) && (isAttacker || addTarget || onFocus || (!blocked && (this.resting ? fighting : alive && lvlOk)));
       if (!valid) {
@@ -5144,6 +5235,7 @@
     const mode = modeOf();
     run.textContent = `${bot.on ? '■ Stopp' : '▶ Start'} · ${mode === 'farm' ? (cfg.farmMode === 'named' ? 'Named-Elite-Runde' : 'Boss-Rotation') : MODES[mode]}`;
     panel.querySelectorAll('[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
+    panel.querySelector('[data-act="hunt"]')?.classList.toggle('on', !!cfg.hunt);
     const stEl = panel.querySelector('[data-f="status"]');
     stEl.textContent = bot.status;
     if (stEl.title !== bot.status) stEl.title = bot.status;
@@ -5721,6 +5813,11 @@
         schedule();
       }
       if (act === 'compact') { cfg.compact = panel.classList.toggle('is-compact'); saveCfg(); }
+      if (act === 'hunt') {
+        cfg.hunt = !cfg.hunt; saveCfg(); hunt.goal = null; hunt.polledAt = 0;
+        logEvent('auto', `Event (Mega-Jagd) ${cfg.hunt ? 'an – der Bot reist zum nächsten angekündigten Weltboss' : 'aus'}`);
+        schedule();
+      }
       const gm = e.target.closest('[data-gmode]')?.dataset.gmode;
       if (gm) {
         reloadAcc(); accounts.mirror = gm === 'move' || gm === 'both'; accounts.mirrorAtk = gm === 'both'; accounts.leadBoss = gm === 'boss'; accounts.dungeon = gm === 'dungeon'; saveAcc();
