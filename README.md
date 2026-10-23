@@ -217,6 +217,13 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Probelauf Hard: Raum 4 erst Herde, dann Armageddemon
+- Der Simulator bildet Raum 4 jetzt ab wie live: zuerst die 10 Kuramon-Wellen, danach erscheint Armageddemon. Bisher lief beides gleichzeitig. Der Enrage (8 min) zählt ab seinem Erscheinen.
+- 10 volle Läufe (Raum 3 + 4, Bauzel + 4 ClavisAngemon Lv 70, ×4): **10 von 10 geschafft**, insgesamt 2 Stürze.
+  - Raum 3: 210–234 s (Uhr 360 s).
+  - Raum 4 mit Herde: 384–398 s. Der reine Armageddemon-Kampf dauert 265–281 s (Enrage 480 s).
+- Die zwei Stürze (ein Lauf): Zwei Clavis wichen kurz vor der Black-Rain-Hülle noch einer Zone aus und erreichten den Schutzkreis nicht mehr rechtzeitig.
+
 #### Neu in 2.36.3 – Fernangriff von draußen nur, wenn es sicher ist
 - Nach einem Fernangriff läuft das Digimon dem Ziel zum Nahkampf hinterher. Der Bot feuert deshalb von draußen nur noch, wenn das Digimon auf diesem Weg keine Zone erreicht, bevor sie eingeschlagen hat. Ist die Restzeit unbekannt, bleibt es wie bisher.
 - Fächer (Ultimate Flare) haben jetzt auch eine Restzeit.

@@ -297,6 +297,7 @@ function spawnMob(species, name, hp, p, extra = {}) {
 function spawnBoss(species, point, hp) {
   run.boss = spawnMob(species, species === 'diaboromon' ? 'Diaboromon' : 'Armageddemon', hp, at(point), { flags: 16 | 32, boss: true, cd: {}, casting: 0 });
   run.boss.home = at(point);
+  if (species === 'armageddemon') run.boss.map = 'hidden'; // erscheint erst nach der Herde (stepBay)
 }
 const alivePlayers = () => players.filter((pl) => pl.inside && !pl.fainted && pl.map === MAP);
 const partnerOf = (pl) => ents.get(`p:${pl.i}`);
@@ -540,12 +541,19 @@ function stepClock(now) {
     for (const pl of players) pl.handlers.evs?.([{ t: 'skill', src: b.id, skill: id, phase: 'cast' }]);
   }
 }
-// Raum 4: Armageddemon mit Herde
+// Raum 4: zuerst die Herde (10 Wellen), danach erscheint Armageddemon (live so: nicht gleichzeitig). Bis dahin steht er
+// unsichtbar auf einer Schein-Map; der Enrage (8 min) zählt ab seinem Erscheinen.
 function stepBay(now, dt) {
   const b = run.boss; if (!b || !ents.has(b.id)) return;
-  if (!run.pulled) { pullCheck('room_bay', 'landing_bay', 'Raum 4: Armageddemon und die Herde'); if (run.pulled) run.herd.next = Date.now(); return; }
-  if (now - run.pullAt > 480000) return failRun('Enrage nach 8 min');
+  if (!run.pulled) {
+    pullCheck('room_bay', 'landing_bay', 'Raum 4: die Herde kommt');
+    if (run.pulled) run.herd.next = Date.now();
+    return;
+  }
   const H = run.herd, egg = at('egg_bay');
+  const herdLeft = [...ents.values()].some((m) => m.defId === 'kuramon' && m.herd);
+  if (b.map === 'hidden' && H.wave >= 10 && !herdLeft) { b.map = MAP; run.armaAt = now; say('Armageddemon erscheint (Herde vorbei)'); hud(); }
+  if (run.armaAt && now - run.armaAt > 480000) return failRun('Enrage nach 8 min');
   if (H.wave < 10 && now >= H.next) {
     H.wave++; H.next = now + 12000;
     for (let k = 0; k < 6; k++) spawnMob('kuramon', 'Kuramon', lvHp(1208, 145.3, 99), at(k < 3 ? 'herd_w' : 'herd_e'), { herd: true, y: PT.herd_w[1] + (k % 3) * 14 - 14 });
@@ -557,6 +565,7 @@ function stepBay(now, dt) {
     if (d <= 24) { ents.delete(m.id); forget(m.id); H.arrived++; if (H.arrived % 4 === 0 && H.stacks < 15) { H.stacks++; say(`🥚 ${H.arrived} Kuramon am Ei – Armageddemon Stärke ${H.stacks}`); } continue; }
     m.x += (egg.x - m.x) / d * 60 * dt; m.y += (egg.y - m.y) / d * 60 * dt;
   }
+  if (b.map !== MAP) return;
   if (!run.clusters && b.hp / b.maxHp <= 0.2) { run.clusters = true; for (const n of ['phone_1', 'phone_2', 'phone_3', 'laptop_1', 'laptop_2']) spawnMob('kuramon_cluster', 'Kuramon Cluster', 135000, at(n)); say('Kuramon-Cluster erscheinen (20 %)'); }
   b.ms = 60;
   const tank = bossMelee(b, now, 2000);
