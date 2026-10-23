@@ -217,6 +217,11 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.40.1 – Event: Jagd-Boss sicherer erkennen
+- Live stand der Jagd-Boss nah bei der Gruppe, der Bot erkannte ihn aber nicht. Bisher musste seine Art genau der Angabe im Event-Fenster entsprechen, manche Jagd-Bosse wechseln aber die Form (z. B. Justimon → `justimon_hunt_blitz` / `_critical`). Jetzt zählt jede Jagd-Boss-Art (`…_hunt…`) auf der Event-Map. Davon gibt es dort nur einen.
+- Sobald der Bot einen Jagd-Boss sieht, steht das im Log mit Art, Flags und Abstand. Wird er künftig wieder nicht angegriffen, sieht man den Grund.
+- `hunttest` prüft jetzt auch einen Boss in anderer Form.
+
 #### Neu in 2.40.0 – EXP-Messung
 - Reiter **Log**: Haken **EXP-Messung**, dazu die Knöpfe „Messung kopieren“ und „Messung löschen“. Daneben steht, wie viele Kills und Level schon erfasst sind.
 - Je eigenem Kill schreibt der Bot mit: Monster (Art, Level, Max-HP), das eigene Digimon (Art, Level, EXP vorher, EXP bis Level-Up), Tamer-Level, Map, Gruppengröße, die erhaltenen EXP und die Kampfdauer.

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.40.0
+// @version      2.40.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -499,7 +499,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.40.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.40.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -4065,9 +4065,24 @@
     const pts = Object.values(m?.zones || {}).filter((r) => r.w > 0 && r.h > 0).map((r) => ({ x: r.x + r.w / 2, y: r.y + r.h / 2 }));
     return pts.length ? pts : Object.values(m?.spawns || {}).map((p) => ({ x: p.x, y: p.y }));
   }
-  const huntBossEnt = (boss) => { let b = null; window.dmo?.net?.state?.entities?.forEach?.((e) => { if (e.kind === KIND.Mob && e.defId === boss && e.hp > 0 && !(e.flags & FLAG.Dead)) b = e; }); return b; };
+  // Jagd-Boss erkennen: dieselbe Art oder eine ihrer Formen (z. B. justimon_hunt -> justimon_hunt_blitz); auf der Event-Map
+  // gibt es nur einen Jagd-Boss, also zählt jede …_hunt…-Art (live: Boss stand nah, wurde aber nicht erkannt)
+  const isHuntDef = (defId, boss) => !!defId && !!boss && (defId === boss || defId.startsWith(boss + '_') || (/_hunt/.test(defId) && /_hunt/.test(boss)));
+  const huntSeen = new Set();
+  function huntBossEnt(boss, me) {
+    let b = null;
+    window.dmo?.net?.state?.entities?.forEach?.((e) => {
+      if (e.kind !== KIND.Mob || e.hp <= 0 || (e.flags & FLAG.Dead) || !isHuntDef(e.defId, boss)) return;
+      if (!huntSeen.has(e.id)) {
+        huntSeen.add(e.id);
+        logEvent('auto', `Event: Jagd-Boss gesehen – ${e.defId} (Flags ${e.flags}${me ? `, ${Math.round(Math.hypot(e.x - me.x, e.y - me.y))} px` : ''})`);
+      }
+      if (!(e.flags & (FLAG.Hidden | FLAG.Untargetable)) || !b) b = e;
+    });
+    return b;
+  }
   // Fokus für den Kampf: der Jagd-Boss, sobald er in der Liste der Monster steht
-  const huntFocus = (sc) => (cfg.hunt && hunt.goal && sc ? sc.mobs.find((m) => m.species === hunt.goal.boss && !m.banned) || null : null);
+  const huntFocus = (sc) => (cfg.hunt && hunt.goal && sc ? sc.mobs.find((m) => isHuntDef(m.species, hunt.goal.boss) && !m.banned) || null : null);
   // Ein Schritt der Jagd: Statuszeile, solange der Bot dafür unterwegs ist / sucht / wartet; null = nichts zu tun
   // (keine Jagd, Boss in Sicht – dann kämpft der normale Ablauf – oder erst Angreifer abwehren)
   function huntStep(st, sc, now) {
@@ -4088,7 +4103,7 @@
     hunt.goal.up = g.up;
     if (group.role() === 'follower' && groupLeader(now)) return null; // in der Gruppe führt der Leader, die anderen folgen ihm
     const here = st.world?.mapId === g.mapId;
-    const b = here ? huntBossEnt(g.boss) : null;
+    const b = here ? huntBossEnt(g.boss, controlled(st)) : null;
     if (b) { // in Sicht: anvisieren, den Kampf macht der normale Ablauf (huntFocus)
       if (st.target?.id !== b.id && bot.can('select', SELECT_GAP_MS, now)) { bot.lastPress.select = now; worldScene()?.select?.(b.id); }
       return null;
