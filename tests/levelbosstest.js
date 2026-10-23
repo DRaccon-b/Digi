@@ -4,7 +4,7 @@ const fs = require('fs');
 const makeWorld = require('./gw');
 const script = fs.readFileSync(process.argv[2], 'utf8');
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-async function run(levelBoss) {
+async function run(levelBoss, lvlDiff = 10) {
   const G = makeWorld({ slot: 0, tag: 'L', noHash: true, accounts: { leader: 0, list: [{ user: 'solo' }] }, mobs: [[360, 300], [420, 340]],
     quests: { q00_meet_gennai: { state: 3, counters: [] }, q02_first_steps: { state: 3, counters: [] } },
     setup({ content, MAPS }) {
@@ -19,7 +19,7 @@ async function run(levelBoss) {
   cmds.requestBossPins = () => {}; cmds.requestMapInfo = () => {};
   const st = G.store.getState();
   G.store.setState({ me: { ...st.me, partner: { ...st.me.partner, level: 3, stats: { at: 2000, as: 1200 } } } });
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 10, radius: 250,
+  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff, radius: 250,
     levelRoute: true, levelA2: false, levelBoss, farmChannels: [1] }));
   G.w.eval(script);
   await wait(1000);
@@ -32,9 +32,9 @@ async function run(levelBoss) {
   return r;
 }
 (async () => {
-  const on = await run(true), off = await run(false);
-  console.log({ on, off });
-  const ok = on.hit && !off.hit;
+  const on = await run(true), off = await run(false), high = await run(true, 1); // 2.44.3: Boss Lv 5 bei Grenze +1 (Lv 3)
+  console.log({ on, off, high });
+  const ok = on.hit && !off.hit && high.hit;
   console.log(ok ? 'OK – Feldboss der Lern-Map mitgenommen, ohne Haken nicht' : 'FEHLER');
   process.exit(ok ? 0 : 1);
 })();

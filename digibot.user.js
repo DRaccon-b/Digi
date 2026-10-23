@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.44.2
+// @version      2.44.3
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -504,7 +504,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.44.2'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.44.3'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -4937,11 +4937,12 @@
     }
     return best;
   }
-  // Feldbosse der Lern-Map mitnehmen (ohne Enrage-Timer, nicht stärker als die Level-Grenze): beim Ankommen jeden
+  // Feldbosse der Lern-Map mitnehmen (ohne Enrage-Timer, unabhängig von der Level-Grenze): beim Ankommen jeden
   // erlaubten Kanal einmal ansehen – die Map-Info liefert Boss-Timer nur für den Kanal, auf dem man steht –, danach
   // hingehen, wenn einer lebt oder in unter LR_BOSS_SOON_MS spawnt. Nach dem Kampf zurück in die Zone.
   const LR_BOSS_SOON_MS = 30000, LR_SCAN_WAIT_MS = 7000, LR_BOSS_LOOK_MS = 20000, LR_BOSS_NEAR = 120;
-  const lrBossSel = (mapId, pl) => farmBossList().filter((b) => b.map === mapId && (b.kind === 'field' || b.kind === 'named') && b.level <= pl + cfg.lvlDiff);
+  // Bosse sind von der Level-Grenze ausgenommen (Wunsch: lebt einer, hingehen – egal wie hoch)
+  const lrBossSel = (mapId) => farmBossList().filter((b) => b.map === mapId && (b.kind === 'field' || b.kind === 'named'));
   function lrBossPos(b) {
     const m = world.maps[b.map], sp = m?.spawns?.[b.at], z = m?.zones?.[b.at];
     return sp ? { x: sp.x, y: sp.y } : z?.w ? { x: z.x + z.w / 2, y: z.y + z.h / 2 } : null;

@@ -217,6 +217,10 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.44.3 – Feldbosse unabhängig von der Level-Grenze
+- Die Lern-Route nimmt Feldbosse und Named Elites der Map jetzt unabhängig von der Level-Grenze mit. Live in Harvest Hills lagen Tyrannomon (Lv 44) und Drimogemon (Lv 45) für Lv 30 über +8 und wurden ausgelassen, obwohl sie lebten.
+- `levelbosstest` prüft auch einen Boss über der Grenze.
+
 #### Neu in 2.44.2 – Lern-Route sucht in der Zone
 - Bei Zonen über der Level-Grenze gilt jetzt der ganze niedrigste Level-Bereich der Zone als erlaubt, z. B. Lv 40–41 in Harvest Hills / Felder, höchstens +12. Bisher war es nur das einzelne niedrigste Level, und ab Lv 30 stand davon oft keins im Suchradius.
 - Steht in der Zone nichts Passendes im Suchradius, läuft der Bot zu einem anderen Punkt der Zone, statt zu warten. Status: „suche Monster in …“.
