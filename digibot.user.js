@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.43.1
+// @version      2.43.2
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -504,7 +504,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.43.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.43.2'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -4167,7 +4167,7 @@
     for (const [map, sp] of Object.entries(C?.spawns || {})) {
       if (sp.raid) continue;
       (sp.bosses || []).forEach((b, index) => out.push({
-        id: `${map}#${b.species}`, map, index, species: b.species, level: b.level, respawnMs: b.respawnMs || 0, at: b.at,
+        id: `${map}#${b.species}`, map, index, species: b.species, level: b.level, respawnMs: b.respawnMs || 0, at: b.at, statMult: b.statMult || 0,
         kind: b.worldBoss ? 'world' : b.enrageMs ? 'group' : (b.at in (sp.zones || {})) ? 'named' : 'field',
         name: C.digimon?.[b.species]?.name || b.species, mapName: C.maps?.[map]?.name || map,
       }));
@@ -4205,7 +4205,19 @@
     return m;
   }
   const isFarmMob = (ft, defId, cat, level) => !!ft && ft.has(defId) && (cat !== 'normal' || level === ft.get(defId));
-  const bossEntityMatch = (b, en) => en.defId === b.species && (!!(en.flags & (FLAG.Boss | FLAG.Elite)) || en.level === b.level);
+  // Named Elites laufen oft zwischen normalen Monstern derselben Art und desselben Levels (live: Tyrannomon in Harvest
+  // Hills – jeder normale galt als „besiegter Boss“). Hat der Boss-Eintrag einen Werte-Multiplikator (statMult), zählt
+  // nur ein Monster mit entsprechend erhöhten HP; echte Bosse (Boss-Flag) wie bisher.
+  const bossEntityMatch = (b, en) => {
+    if (en.defId !== b.species) return false;
+    if (en.flags & FLAG.Boss) return true;
+    const d = content()?.digimon?.[b.species];
+    if ((b.statMult || 0) > 1.2 && d?.base?.hp && en.maxHp) {
+      const norm = d.base.hp + (d.growth?.hp || 0) * ((en.level || b.level) - 1);
+      return en.maxHp >= norm * (1 + (b.statMult - 1) / 2);
+    }
+    return !!(en.flags & FLAG.Elite) || en.level === b.level;
+  };
   const farmChannels = () => (cfg.farmChannels || []).map(Number).filter((c) => c > 0).sort((a, b) => a - b);
   // Spawnpunkt des Bosses (Zone oder Punkt aus der Map-Datei)
   function farmSpot(b) {

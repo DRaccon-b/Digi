@@ -217,6 +217,12 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.43.2 – Named Elites richtig erkennen
+- Live in Harvest Hills: Der Named Elite Tyrannomon („The Kaiser's Overseer“, Lv 44) läuft zwischen vielen normalen Tyrannomon derselben Art und desselben Levels herum. Bisher galt jeder davon als dieser Boss, und der Bot meldete alle 15–20 s „Boss besiegt“.
+- Jetzt gilt: Hat der Boss-Eintrag einen Werte-Multiplikator (`statMult`, hier 2,06), zählt nur ein Monster mit entsprechend erhöhten HP als Boss. Echte Bosse mit Boss-Flag zählen wie bisher. Das gilt auch für die Boss-Rotation und die Named-Elite-Runde.
+- Unter den Dark Towers des Kaisers geht nur Armor-Digitation. Die Lern-Route digitiert dort deshalb z. B. zu Shurimon statt zu Aquilamon.
+- Neuer Test `namedmatchtest`.
+
 #### Neu in 2.43.1 – Lern-Route digitiert
 - Neuer Haken **„Lern-Route: zwischen den Kämpfen in die höchstmögliche Digitation“** (an). Nach dem Neuladen ist das Digimon wieder Rookie, und der Grind-Modus digitierte bisher nie selbst. Jetzt digitiert der Bot zwischen zwei Kämpfen Stufe für Stufe in die höchste freigeschaltete Form. Gesperrte Stufen (Quest- oder Item-Voraussetzung) lässt er aus.
 - Neuer Test `levelevotest`.
