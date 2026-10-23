@@ -217,6 +217,10 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.43.1 – Lern-Route digitiert
+- Neuer Haken **„Lern-Route: zwischen den Kämpfen in die höchstmögliche Digitation“** (an). Nach dem Neuladen ist das Digimon wieder Rookie, und der Grind-Modus digitierte bisher nie selbst. Jetzt digitiert der Bot zwischen zwei Kämpfen Stufe für Stufe in die höchste freigeschaltete Form. Gesperrte Stufen (Quest- oder Item-Voraussetzung) lässt er aus.
+- Neuer Test `levelevotest`.
+
 #### Neu in 2.43.0 – Lern-Route nimmt Feldbosse mit
 - Neuer Haken **„Lern-Route: Feldbosse der Map ohne Enrage mitnehmen“** (an). Es zählen Feldbosse und Named Elites der aktuellen Lern-Map, die keinen Enrage-Timer haben und höchstens die Level-Grenze über dem Digimon stehen.
 - Beim Ankommen auf der Map besucht der Bot jeden erlaubten Kanal (Reiter Bosse → Kanäle) einmal und liest dort die Boss-Timer, denn das Spiel nennt sie nur für den aktuellen Kanal. Derweil grindet er weiter.

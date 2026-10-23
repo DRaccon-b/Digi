@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.43.0
+// @version      2.43.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -323,6 +323,7 @@
     skipTaken: true,  // keine Gegner angreifen, die andere Spieler gerade bekämpfen
     levelRoute: false, // Grinden: selbst zur besten Zone fürs Level reisen (Lern-Route)
     levelA2: true,    // Lern-Route nur in Adventure-02-Maps
+    levelEvo: true,   // Lern-Route: zwischen den Kämpfen in die höchstmögliche Digitation
     levelBoss: true,  // Lern-Route: Feldbosse der Map (ohne Enrage) mitnehmen, wenn sie leben oder gleich spawnen
     expPrio: true,    // Grinden: zuerst Monster +5…+8 über dem Digimon (×1,5 EXP), dann +4, +3, … – erst zuletzt über +8
     chCheck: false,   // Channel-Checker: auf den Kanal mit den wenigsten Spielern wechseln (nicht in der Boss-Rotation)
@@ -503,7 +504,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.43.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.43.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -586,6 +587,7 @@
           ${check('skipTaken', 'Keine Gegner angreifen, die andere Spieler bekämpfen')}
           ${check('levelRoute', 'Lern-Route: beim Grinden selbst zur Zone mit den meisten EXP/min fürs Level reisen (Wechsel ab +15 %, frühestens nach 3 min)')}
           ${check('levelA2', 'Lern-Route nur in Adventure 02')}
+          ${check('levelEvo', 'Lern-Route: zwischen den Kämpfen in die höchstmögliche Digitation')}
           ${check('levelBoss', 'Lern-Route: Feldbosse der Map ohne Enrage mitnehmen (Timer aller Kanäle aus Reiter Bosse → Kanäle)')}
           ${check('expPrio', 'EXP-Priorität: zuerst Monster +5 bis +8, dann +4, +3 … (gemessen: +5 bis +8 gibt ×1,5 EXP)')}
           ${check('chCheck', 'Channel-Checker: auf den leersten Kanal wechseln')}`, true,
@@ -4980,6 +4982,10 @@
     if (attackers.length) return null; // erst Angreifer abwehren
     const t = st.target;
     if (t && t.kind === 'mob' && t.hp > 0 && bot.attackedId === t.id) return null; // laufenden Kampf beenden
+    if (cfg.levelEvo) { // zwischen den Kämpfen in die höchste freigeschaltete Form (nach dem Neuladen ist es wieder Rookie)
+      const ev = ensureEvolution(st, EVO_MAX, now);
+      if (ev !== true) return `Digitation: ${ev}`;
+    }
     const where = `${content()?.maps?.[g.mapId]?.name || g.mapId} / ${g.zone}`;
     if (cfg.levelBoss && st.world?.mapId === g.mapId) { // Feldbosse der Map mitnehmen
       const bs = lrBossStep(st, sc, now, g);
