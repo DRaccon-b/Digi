@@ -217,6 +217,10 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.45.0 – Übersicht: „Nächste Map“ mit Restzeit
+- Unter den Kacheln der Übersicht steht die nächste Map der Serie (die mit dem nächsthöheren niedrigsten Monster-Level), ab welchem Level sie in der Level-Grenze liegt und wie lange es bei der aktuellen EXP/min (Schnitt der letzten 5 min) bis dahin noch dauert. Tooltip: EXP bis dahin.
+- EXP-Kurve des Digimons gemessen: 40·L^1,8 + 20, ab Lv 26 × (1 + 0,5·(L − 25)^0,6).
+
 #### Neu in 2.44.6 – Lern-Route: immer die untersten beiden Stufen der Zone
 - Liegt das niedrigste Monster der Zone an der Level-Grenze, sind trotzdem ihre untersten beiden Stufen erlaubt (z. B. Lv 32 mit +8 in Harvest Hills: Lv 40 und 41), höchstens +12 – vorher nur Lv 40, und der Bot suchte lange.
 

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.44.6
+// @version      2.45.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -504,7 +504,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.44.6'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.45.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -542,6 +542,7 @@
             <div><b data-f="sturn">0</b><small>Quests abgegeben</small></div>
             <div><b data-f="sfaint">0</b><small>Bewusstlos</small></div>
           </div>
+          <div class="digibot__sesshead" data-tip="nextmap"><span>Nächste Map: <b data-f="nextmap">–</b></span></div>
           <div class="digibot__sesshead"><span>Sitzung: <b data-f="sess">–</b></span><button class="digibot__btn" data-act="reset" title="Sitzungswerte zurücksetzen">↺</button></div>`, true, 'Werte seit Sitzungsbeginn. Maus über EXP / Min oder Bits / Min zeigt die Hochrechnung pro Stunde. HP, DS und Ziel stehen oben.')}
         ${grp('loot', 'Sitzung: Beute &amp; Verbrauch', `
           <div class="digibot__lootsum" data-f="lootsum">–</div>
@@ -4865,6 +4866,26 @@
   // EXP-Faktor je Level-Abstand (gemessen 2.40/2.41): darunter −15 %/Level, darüber +10 %/Level, +5…+8 ×1,5, dann fallend
   const expFac = (d) => (d <= 0 ? Math.max(0, 1 - 0.15 * -d) : d <= 5 ? 1 + 0.1 * d : d <= 8 ? 1.5 : Math.max(0.1, 1.48 - 0.0615 * (d - 8)));
   const expPerKill = (eb, ml, pl) => Math.max(1, Math.round((eb || 0) * Math.pow(ml, 1.1) * expFac(ml - pl)));
+  // EXP bis zum nächsten Level (Digimon), gemessen Lv 1–33: 40·L^1,8 + 20, ab Lv 26 × (1 + 0,5·(L − 25)^0,6)
+  const expNextOf = (L) => Math.round((40 * Math.pow(L, 1.8) + 20) * (L > 25 ? 1 + 0.5 * Math.pow(L - 25, 0.6) : 1));
+  // Nächste Map (gleiche Serie): die mit dem nächsthöheren niedrigsten Monster-Level; erreichbar, sobald dieses innerhalb
+  // der Level-Grenze liegt. Liefert Map, Ziel-Level und die EXP bis dahin.
+  function nextMapInfo(st) {
+    const C = content(), p = st?.me?.partner; if (!C?.spawns || !p?.level) return null;
+    const low = (mapId) => { let lo = Infinity; for (const z of Object.values(C.spawns[mapId]?.zones || {})) for (const e of z.entries || []) if (e.level?.[0] != null) lo = Math.min(lo, e.level[0]); return lo; };
+    const cur = (lrOn() && lr.goal?.mapId) || st.world?.mapId, curLo = low(cur); if (!isFinite(curLo)) return null;
+    const ser = C.maps?.[cur]?.series || 1;
+    let next = null;
+    for (const [id, sp] of Object.entries(C.spawns)) {
+      if (sp.raid || id === cur || (C.maps?.[id]?.series || 1) !== ser) continue;
+      const lo = low(id); if (isFinite(lo) && lo > curLo && (!next || lo < next.lo)) next = { mapId: id, lo };
+    }
+    if (!next) return null;
+    const level = next.lo - cfg.lvlDiff;
+    let need = 0;
+    if (p.level < level) { need = Math.max(0, (p.expNext || expNextOf(p.level)) - (p.exp || 0)); for (let L = p.level + 1; L < level; L++) need += expNextOf(L); }
+    return { ...next, name: C.maps?.[next.mapId]?.name || next.mapId, level, need };
+  }
 
   // ---------- Lern-Route (Grinden): beste Zone fürs Level ----------
   // Bewertet jede Zone mit Kartendaten: EXP pro Kill (Formel oben) und Kampfzeit (Monster-HP aus den Daten / eigener
@@ -5562,6 +5583,14 @@
       : 'Noch keine Bits-Messung – erscheint nach den ersten Einnahmen.');
     panel.querySelector('[data-f="eta"]').textContent =
       rate > 0 && p ? fmtDur(((p.expNext - p.exp) / rate) * 60000) : '–';
+    // Nächste Map: Restzeit bis zum Level, ab dem ihre niedrigsten Monster in der Grenze liegen (bei der aktuellen EXP/min)
+    const nm = nextMapInfo(st), nmEl = panel.querySelector('[data-f="nextmap"]');
+    const nmTxt = !nm ? '–' : nm.need <= 0 ? `${nm.name} – jetzt (ab Lv ${nm.level})` : `${nm.name} ab Lv ${nm.level} · ${rate > 0 ? 'noch ' + fmtDur(nm.need / rate * 60000) : 'noch keine EXP-Messung'}`;
+    if (nmEl && nmEl.textContent !== nmTxt) nmEl.textContent = nmTxt;
+    tip('nextmap', nm ? `${nm.name}: niedrigste Monster Lv ${nm.lo} – mit der Grenze +${cfg.lvlDiff} ab Lv ${nm.level}
+`
+      + (nm.need > 0 ? `Noch ${fmt(nm.need)} EXP${rate > 0 ? ` · bei ${fmt(rate)} EXP/min (Schnitt der letzten 5 min) ≈ ${fmtDur(nm.need / rate * 60000)}` : ''}` : 'Level erreicht')
+      : 'Keine nächste Map gefunden (Stadt oder letzte Map der Serie).');
     panel.querySelector('[data-f="sess"]').textContent =
       exp.last ? `${fmt(exp.total)} (${fmtDur(now - exp.start)})` : '–';
 
