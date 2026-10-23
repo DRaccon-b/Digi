@@ -47,7 +47,7 @@ async function run(levelBoss, lvlDiff = 10, chans = [1], agg = false, pinMs = 0)
 }
 (async () => {
   const on = await run(true), off = await run(false), high = await run(true, 1); // 2.44.3: Boss Lv 5 bei Grenze +1 (Lv 3)
-  const two = await run(true, 10, [1, 2]);
+  const two = await run(true, 10, [1, 2], false, 40000); // Boss erst später: Ch 2 ansehen (öffnen)
   const agg = await run(true, 10, [1], true, 1); // Boss spawnt gleich, erst in der Nähe sichtbar
   const late = await run(true, 10, [1], false, 40000); // 2.45.1: Respawn in 40 s – erst ab 10 s davor hingehen
   console.log({ on, off, high, two, agg, late });

@@ -217,6 +217,11 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.48.0 – Lern-Route: Bosse zwei Maps tiefer, schneller Kanalwechsel, Event-Fix
+- Feldbosse auch zwei Maps tiefer (gleiche Regel: höchstens 2 Level unter dem Digimon). Gerechnet: direkt nach dem Map-Wechsel (Lv 41 in Sunset Bay + Drimogemon) +14…18 % EXP/min, nach ~6 Level nichts mehr – etwa 3–5 min gespart je Map.
+- Kanalwechsel zum nächsten Boss gleich nach dem Sieg, auch wenn gerade ein Monster angreift (wie in der Boss-Rotation). Fehlversuche beim Kanalwechsel werden je neuem Ziel neu gezählt – vorher galt nach drei gelungenen Wechseln der vierte als „klappt nicht“ und Ch 2 wurde 5 min gemieden, obwohl dort der Boss lebte.
+- Event (Mega-Jagd): Ist der Jagd-Boss auf der Map, funkt die Lern-Route nicht mehr dazwischen (live bei Regalecusmon: Bot pendelte zwischen „suche“ und „reise zu Sunset Bay“).
+
 #### Neu in 2.47.1 – EXP je Monster über alle Maps
 - „Sitzung: EXP je Monster“ zählt jetzt über alle Maps der Sitzung statt nur der aktuellen. Maus über eine Zeile zeigt zusätzlich, auf welchen Maps die Kills waren.
 

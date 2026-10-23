@@ -2,11 +2,12 @@
 // Lern-Map Primary Village (Bigmon Lv 8–9), darunter Native Forest (Kunemon Lv 1–3) mit Bossmon. Digimon Lv 7:
 // Bossmon Lv 6 (−1) -> mitnehmen; Bossmon Lv 4 (−3) -> stehen lassen und zur Lern-Map.
 // Spawnt er erst in 25 s: zur Lern-Map, von dort rechtzeitig (Reisezeit eingerechnet) zurück zum Boss.
+// 2.48.0: auch zwei Maps tiefer – mit einer Map dazwischen (Lv 5–6) liegt Native Forest zwei unter der Lern-Map.
 const fs = require('fs');
 const makeWorld = require('./gw');
 const script = fs.readFileSync(process.argv[2], 'utf8');
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-async function run(bossLv, spawnIn = 0) {
+async function run(bossLv, spawnIn = 0, mid = false) {
   const pinAt = Date.now() + spawnIn;
   const bossEnt = { id: 'b:1', kind: 2, defId: 'bossmon', x: 760, y: 330, hp: 900000, maxHp: 900000, level: bossLv, flags: 16, targetId: '' };
   const G = makeWorld({ slot: 0, tag: 'B', noHash: true, accounts: { leader: 0, list: [{ user: 'solo' }] }, mobs: [[360, 300], [420, 340]],
@@ -18,6 +19,7 @@ async function run(bossLv, spawnIn = 0) {
       content.spawns.native_forest.zones = { meadow: { entries: [{ species: 'kunemon', level: [1, 3], weight: 1 }] } };
       content.spawns.native_forest.bosses = [{ species: 'bossmon', at: 'boss_b', level: bossLv, respawnMs: 900000 }];
       content.spawns.primary_village.zones = { field: { entries: [{ species: 'bigmon', level: [8, 9], weight: 1 }] } };
+      if (mid) { content.maps.mid_hills = { name: 'Mid Hills' }; content.spawns.mid_hills = { zones: { hill: { entries: [{ species: 'kunemon', level: [5, 6], weight: 1 }] } } }; }
       MAPS.native_forest.layers[0].objects.push({ type: 'spawn', name: 'boss_b', x: 760, y: 330 });
       MAPS.primary_village.layers[0].objects.push({ type: 'zone', name: 'field', x: 500, y: 250, width: 200, height: 150 });
     },
@@ -46,9 +48,9 @@ async function run(bossLv, spawnIn = 0) {
   return r;
 }
 (async () => {
-  const near = await run(6), low = await run(4), away = await run(6, 25000);
-  console.log({ near, low, away });
-  const ok = near.hit && !low.hit && low.map === 'primary_village' && away.visited && away.hit;
+  const near = await run(6), low = await run(4), away = await run(6, 25000), two = await run(6, 0, true);
+  console.log({ near, low, away, two });
+  const ok = near.hit && !low.hit && low.map === 'primary_village' && away.visited && away.hit && two.hit;
   console.log(ok ? 'OK – Boss der Map darunter mitgenommen, solange er höchstens 2 Level darunter liegt' : 'FEHLER');
   process.exit(ok ? 0 : 1);
 })();

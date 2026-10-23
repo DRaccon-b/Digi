@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.47.1
+// @version      2.48.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -509,7 +509,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.47.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.48.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -4412,11 +4412,16 @@
   const CHANNEL_RETRY_MS = 60000;    // fehlender Kanal: so lange meiden, dann erneut prüfen/öffnen
   // Wechselt auf Kanal ch der aktuellen Map. Liefert { done: true } (schon dort), { status } (läuft) oder
   // { status, failed: true } (Kanal voll/fehlt/Wechsel klappt nicht – dann 5 min gemieden).
-  function farmSwitch(st, sc, mapId, mapName, ch, now) {
+  // leave: auch unter Angriff wechseln (Boss-Rotation auf dem Weg, Lern-Route zum nächsten Boss)
+  function farmSwitch(st, sc, mapId, mapName, ch, now, leave = farm.leave) {
     const curCh = st.world?.channel ?? 1;
     if (curCh === ch) { farm.switchTries = 0; farm.opening = null; return { done: true }; }
+    // neues Ziel: Fehlversuche neu zählen – sonst zählen gelungene Wechsel mit, wenn danach niemand mehr mit dem
+    // erreichten Kanal nachfragt (live Lern-Route: nach drei Wechseln galt der vierte als „klappt nicht“, Ch 2 5 min gemieden)
+    const swKey = `${mapId}#${ch}#${curCh}`;
+    if (farm.switchKey !== swKey) { farm.switchKey = swKey; farm.switchTries = 0; }
     const attacked = !!sc?.attackers?.length;
-    if (attacked && !farm.leave) return { status: 'Kanalwechsel nach dem Kampf…' };
+    if (attacked && !leave) return { status: 'Kanalwechsel nach dem Kampf…' };
     const list = farmChannelList(st, now);
     if (!list) return { status: 'lade Kanalliste…' };
     const room = list.find((r) => r.channel === ch);
@@ -5021,10 +5026,10 @@
   const LR_BOSS_SOON_MS = 10000, LR_SCAN_WAIT_MS = 7000, LR_BOSS_LOOK_MS = 20000, LR_BOSS_NEAR = 120;
   // Bosse sind von der Level-Grenze ausgenommen (Wunsch: lebt einer, hingehen – egal wie hoch)
   // nur echte Feldbosse – Named Elites geben kaum mehr EXP als ein normales Monster und sind den Umweg nicht wert
-  // dazu die Feldbosse der Map darunter (gleiche Serie, nächstniedrigeres niedrigstes Monster-Level), solange der Boss
-  // höchstens LR_BELOW_MAX Level unter dem Digimon liegt – gerechnet: Lv 40 in Kaiser's Canyon + Drimogemon ≈ +30 % EXP/min,
-  // ab Boss-Level +2 lohnt der Abstecher kaum noch
-  const LR_BELOW_MAX = 2;
+  // dazu die Feldbosse der LR_BELOW_DEPTH Maps darunter (gleiche Serie, nächstniedrigeres niedrigstes Monster-Level), solange
+  // der Boss höchstens LR_BELOW_MAX Level unter dem Digimon liegt – gerechnet: Lv 40 in Kaiser's Canyon + Drimogemon ≈ +30 %
+  // EXP/min; zwei Maps tiefer direkt nach dem Map-Wechsel (Lv 41 in Sunset Bay + Drimogemon) +14…18 %, ab Boss-Level +2 kaum noch
+  const LR_BELOW_MAX = 2, LR_BELOW_DEPTH = 2;
   function lrMapLow(mapId) { let lo = Infinity; for (const z of Object.values(content()?.spawns?.[mapId]?.zones || {})) for (const e of z.entries || []) if (e.level?.[0] != null) lo = Math.min(lo, e.level[0]); return lo; }
   function lrMapBelow(mapId) {
     const C = content(), lo0 = lrMapLow(mapId); if (!C?.spawns || !isFinite(lo0)) return null;
@@ -5036,8 +5041,9 @@
     return best;
   }
   const lrBossSel = (mapId, pl) => {
-    const below = pl != null ? lrMapBelow(mapId) : null;
-    return farmBossList().filter((b) => b.kind === 'field' && (b.map === mapId || (below && b.map === below && b.level - pl >= -LR_BELOW_MAX)));
+    const below = new Set();
+    for (let m = mapId, i = 0; pl != null && i < LR_BELOW_DEPTH; i++) { m = lrMapBelow(m); if (!m) break; below.add(m); }
+    return farmBossList().filter((b) => b.kind === 'field' && (b.map === mapId || (below.has(b.map) && b.level - pl >= -LR_BELOW_MAX)));
   };
   function lrBossPos(b) {
     const m = world.maps[b.map], sp = m?.spawns?.[b.at], z = m?.zones?.[b.at];
@@ -5045,7 +5051,9 @@
   }
   function lrBossEnt(b) { let e0 = null; window.dmo?.net?.state?.entities?.forEach?.((en) => { if (en.kind === KIND.Mob && en.hp > 0 && !(en.flags & FLAG.Dead) && bossEntityMatch(b, en)) e0 = en; }); return e0; }
   const lrBossFocus = (sc) => { const lb = lrOn() && lr.boss; if (!lb || !sc) return null; const e = lrBossEnt(lb.b); return e ? sc.mobs.find((m) => m.id === e.id) || null : null; };
-  function lrBossStep(st, sc, now, g) {
+  // busy: Angreifer da – erst abwehren; nur direkt nach einem Boss-Sieg (LR_CHAIN_MS) gleich weiter zum nächsten Boss
+  const LR_CHAIN_MS = 30000;
+  function lrBossStep(st, sc, now, g, busy = false) {
     const p = st.me.partner, sel = lrBossSel(g.mapId, p.level);
     if (!sel.length) { lr.boss = null; return null; }
     farmUpdate(st, now, sel);
@@ -5061,8 +5069,11 @@
     if (here !== lr.lastMap) { if (here !== g.mapId) delete lr.scans[here]; lr.lastMap = here; }
     let sn = sel.some((b) => b.map === here) ? lr.scans[here] : null;
     if (sel.some((b) => b.map === here) && (!sn || (here === g.mapId && sn.since !== lr.since))) sn = lr.scans[here] = { since: lr.since, done: new Set(), ch: null, at: 0 };
+    // besiegt (Respawn-Timer gesetzt): gleich den nächsten wählen – wie die Boss-Rotation, ohne erst Angreifer abzuarbeiten
+    if (lr.boss) { const s0 = farmState(lr.boss.b, lr.boss.ch, now); if (s0.state === 'down' && s0.readyAt - now > 60000) { lr.boss = null; lr.chainAt = now; } }
+    if (busy && !lr.boss && !(lr.chainAt && now - lr.chainAt < LR_CHAIN_MS)) return null;
     const todo = sn ? allowed.filter((c) => !sn.done.has(c)) : [];
-    if (todo.length && !lr.boss) {
+    if (todo.length && !lr.boss && !busy) {
       if (todo.includes(cur)) {
         if (sn.ch !== cur) { sn.ch = cur; sn.at = now; farm.lastInfo = 0; } // gleich nachfragen
         if (now - sn.at >= LR_SCAN_WAIT_MS) { sn.done.add(cur); logEvent('map', `Leveln: Boss-Timer ${where} Ch ${cur} gelesen`); }
@@ -5092,7 +5103,7 @@
     if (st1.state === 'down' && st1.readyAt - now > 60000) { lr.boss = null; return null; } // besiegt (Respawn-Timer gesetzt)
     if (here !== lb.b.map) { const tr = travel(st, lb.b.map, now); return `${lb.b.name}: reise nach ${mapName(lb.b.map)} · ${tr === true ? 'angekommen' : tr}`; }
     if (cur !== lb.ch) {
-      const r = farmSwitch(st, sc, here, where, lb.ch, now);
+      const r = farmSwitch(st, sc, here, where, lb.ch, now, true);
       if (r.failed) { lr.boss = null; return null; }
       return r.done ? null : `${lb.b.name}: wechsle zu Ch ${lb.ch} · ${r.status}`;
     }
@@ -5138,8 +5149,7 @@
     // Feldbosse der Map vor dem normalen Grinden: auf dem Weg zum Boss keine Kämpfe, auch nicht gegen Angreifer – Digimon
     // zurückrufen und weiterlaufen (live: der Weg wurde bei jedem Monster am Rand unterbrochen). Ohne Boss-Ziel: erst abwehren.
     if (cfg.levelBoss && (st.world?.mapId === g.mapId || lr.boss || lrBossSel(g.mapId, p.level).some((b) => b.map === st.world?.mapId))) {
-      if (attackers.length && !lr.boss) return null;
-      const bs = lrBossStep(st, sc, now, g);
+      const bs = lrBossStep(st, sc, now, g, attackers.length > 0);
       if (bs) {
         const pe = window.dmo?.net?.state?.entities?.get?.(st.me.partner?.entityId);
         if (attackers.length && (pe?.targetId || bot.attackedId) && bot.can('follow', 1500, now)) { bot.lastPress.follow = now; commands()?.partnerFollow?.(); }
@@ -5342,7 +5352,10 @@
       if (!cfg.dungeon && world.state === 'ready') {
         const hv = huntStep(st, sc, now);
         if (hv) { this.status = `Event: ${hv}`; this.attackedId = null; return; }
-        const lv = levelRouteStep(st, sc, now, attackers);
+        // Jagd auf dieser Map (Boss in Sicht oder Angreifer): die Lern-Route nicht dazwischen funken lassen – live zog sie den
+        // Bot bei Regalecusmon im Wechsel zurück in seine Zone, während der Boss neben ihm kämpfte
+        const huntHere = cfg.hunt && hunt.goal && st.world?.mapId === hunt.goal.mapId;
+        const lv = huntHere ? null : levelRouteStep(st, sc, now, attackers);
         if (lv) { this.status = `Leveln: ${lv}`; this.attackedId = null; return; }
       }
       if (cfg.farm && world.state === 'ready') farmUpdate(st, now);
