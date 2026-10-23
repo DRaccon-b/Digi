@@ -217,6 +217,16 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.40.0 – EXP-Messung
+- Reiter **Log**: Haken **EXP-Messung**, dazu die Knöpfe „Messung kopieren“ und „Messung löschen“. Daneben steht, wie viele Kills und Level schon erfasst sind.
+- Je eigenem Kill schreibt der Bot mit: Monster (Art, Level, Max-HP), das eigene Digimon (Art, Level, EXP vorher, EXP bis Level-Up), Tamer-Level, Map, Gruppengröße, die erhaltenen EXP und die Kampfdauer.
+  - Die EXP kommen aus der Chat-Meldung „+341 EXP“, inklusive Gruppenanteil. Fehlt die Meldung, nimmt er die EXP-Differenz und markiert das.
+  - Dazu die Zeit seit dem vorherigen Kill (Suchen und Laufen) und die eigenen Treffer: Schaden, Krits, Fehlschläge.
+  - Je Level wird außerdem festgehalten, wie viele EXP bis zum nächsten nötig sind.
+- Kills, die ein anderer beendet, zählen nicht. Gespeichert wird im Browser (`localStorage`, höchstens 3 000 Kills).
+- Zweck: Daten für eine Simulation, wie lange Grinden von Level 1 bis 99 dauert. EXP-Formel, Level-Tabelle und Schaden rechnet der Server, sie stehen nicht in den Spieldaten.
+- Neuer Test `expmesstest`.
+
 #### Neu in 2.39.0 – Tamer-Essen vor Pandæmonium Lost
 - MaloMyotismons Pandæmonium Lost trifft alle 20 s den ganzen Raum und verbrennt dabei 45 % der Max-DS jedes Tamers (`tamerDsBurn` in den Daten). Ist das Tamer-DS leer, digitiert der Partner zurück. Live wurden so alle vier ClavisAngemon zu Patamon, ohne einen einzigen Sturz, und der Schaden brach ein.
 - Wird ein solcher Treffer angesagt und fiele das Tamer-DS danach unter die eingestellte Grenze (Reiter Kampf, Tamer-DS, mindestens 10 %), isst der Bot sofort Tamer-Essen von F3. Sonst gilt die Grenze wie bisher. Das gilt auch beim Spiegeln.

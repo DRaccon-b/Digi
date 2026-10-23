@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.39.0
+// @version      2.40.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -342,6 +342,7 @@
     farmMode: 'boss',     // 'boss' = Boss-Rotation, 'named' = Named-Elite-Runde (Map für Map)
     dungeon: false,       // Dungeon-Modus (Kera): betreten, Räume räumen, Boss, raus
     dgMode: 'easy',       // 'easy' = War Game, 'hard' = Revenge (allein kaum zu schaffen), 'apocalymon' / 'malomyotismon' = Raid
+    expMess: false,       // EXP-Messung: je Kill Monster, EXP, Kampfdauer, Treffer mitschreiben (Reiter Log)
     hunt: false,          // Event (Mega-Jagd): zum angesagten Weltboss reisen, ihn suchen und bekämpfen – in jedem Modus
     routeStart: '',       // Named-Runde: Start-Map (leer = niedrigste)
     routeEnd: '',         // Named-Runde: End-Map (leer = höchste)
@@ -410,6 +411,7 @@
     panel.querySelectorAll('[data-farmch]').forEach((el) => { el.checked = (cfg.farmChannels || []).includes(Number(el.dataset.farmch)); });
     const g = panel.querySelector('[data-apgrind]'); if (g) g.checked = !!cfg.apGrind;
     const bt = panel.querySelector('[data-apbatch]'); if (bt) bt.checked = !!cfg.apBatch;
+    const em = panel.querySelector('[data-expmess]'); if (em) em.checked = !!cfg.expMess;
     mobListSig = ''; questSig = ''; farmPickSig = '';
   }
 
@@ -497,7 +499,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.39.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.40.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -666,6 +668,11 @@
           <button class="digibot__btn" data-act="log-copy">Kopieren</button>
           <button class="digibot__btn" data-act="log-clear">Leeren</button>
         </div>
+        <div class="digibot__listhead">
+          <label class="digibot__skill" title="Für die Level-Simulation: je eigenem Kill Monster (Art, Level, HP), eigenes Digimon (Art, Level, EXP bis Level-Up), erhaltene EXP, Kampfdauer, Zeit bis zum nächsten Kill und eigene Treffer mitschreiben. Gespeichert im Browser."><input type="checkbox" data-expmess ${cfg.expMess ? 'checked' : ''}><span>EXP-Messung <i data-f="expmcount"></i></span></label>
+          <button class="digibot__btn" data-act="expm-copy">Messung kopieren</button>
+          <button class="digibot__btn" data-act="expm-clear">Messung löschen</button>
+        </div>
         <div class="digibot__logf">${[['all', 'Alle'], ['quest', 'Quests'], ['group', 'Gruppe'], ['fight', 'Kampf'], ['map', 'Karte'], ['warn', 'Warnungen']].map(([k, l]) => `<button data-logf="${k}">${l}</button>`).join('')}</div>
         <div class="digibot__log" data-f="log"><div class="digibot__none">Noch keine Einträge.</div></div>
         <div class="digibot__hint">Neueste oben. „Kopieren“ legt das ganze Protokoll in die Zwischenablage.</div>
@@ -729,6 +736,75 @@
       return sum / (span / 60000);
     },
   };
+
+  // ---------- EXP-Messung (für die Level-Simulation 1→99) ----------
+  // Je eigenem Kill: Monster (Art, Level, Max-HP), eigenes Digimon (Art, Level, EXP bis Level-Up), erhaltene EXP (System-
+  // Meldung im Chat, sonst EXP-Differenz), Kampfdauer, Zeit seit dem letzten Kill und eigene Treffer (Schaden, Krits,
+  // Fehlschläge). Dazu je Level die EXP bis zum nächsten. Gespeichert im Browser (localStorage), Export im Reiter Log.
+  const EXPM_KEY = 'digibot.expmess', EXPM_MAX = 3000, EXPM_WAIT_MS = 3000;
+  const expm = { mobs: new Map(), pending: [], lastKillAt: 0, data: null, levels: null, used: new WeakSet(), dirty: false };
+  function expmLoad() {
+    if (expm.data) return;
+    try { const o = JSON.parse(localStorage.getItem(EXPM_KEY) || '{}'); expm.data = Array.isArray(o.kills) ? o.kills : []; expm.levels = o.levels || {}; } catch { expm.data = []; expm.levels = {}; }
+  }
+  function expmSave() {
+    expm.dirty = false;
+    try { localStorage.setItem(EXPM_KEY, JSON.stringify({ v: 1, kills: expm.data.slice(-EXPM_MAX), levels: expm.levels })); } catch { /* voll */ }
+  }
+  function expmEvent(ev) { // aus net "evs": eigene Treffer sammeln, eigenen Kill vormerken
+    if (!cfg.expMess || !ev) return;
+    const st = getStore()?.getState?.(), me = st?.me;
+    if (!me) return;
+    const mine = new Set([me.tamerEntityId, me.partner?.entityId].filter(Boolean));
+    if (ev.t === 'dmg' && mine.has(ev.src)) {
+      const m = window.dmo?.net?.state?.entities?.get?.(ev.dst);
+      if (!m || m.kind !== KIND.Mob) return;
+      let r = expm.mobs.get(ev.dst);
+      if (!r) {
+        r = { sp: m.defId, lv: m.level, maxHp: m.maxHp, first: Date.now(), hits: 0, crit: 0, miss: 0, dmg: 0 };
+        expm.mobs.set(ev.dst, r);
+        if (expm.mobs.size > 200) expm.mobs.delete(expm.mobs.keys().next().value);
+      }
+      r.hits++; r.dmg += ev.amount || 0;
+      if (ev.outcome === 'crit') r.crit++; else if (ev.outcome === 'miss') r.miss++;
+    } else if (ev.t === 'die' && ev.id && expm.mobs.has(ev.id)) {
+      const r = expm.mobs.get(ev.id), now = Date.now(), p = me.partner;
+      expm.mobs.delete(ev.id);
+      if (ev.killer && !mine.has(ev.killer)) return; // ein anderer hat ihn erledigt
+      expm.pending.push({ ...r, t: now, dur: now - r.first, gap: expm.lastKillAt ? Math.max(0, r.first - expm.lastKillAt) : null,
+        map: st.world?.mapId, pSp: p?.species || null, pLv: p?.level, exp0: p?.exp, expNext: p?.expNext, tLv: me.tamerLevel ?? null,
+        party: (st.party?.members || []).length || 1 });
+      expm.lastKillAt = now;
+    }
+  }
+  // Im Render-Takt: EXP der vorgemerkten Kills zuordnen (Chat-Meldung „+341 EXP“, sonst EXP-Differenz), Level-Tabelle
+  function expmTick(st, now) {
+    if (!cfg.expMess) return;
+    expmLoad();
+    const p = st?.me?.partner;
+    if (p?.level && p.expNext > 0 && expm.levels[p.level] !== p.expNext) { expm.levels[p.level] = p.expNext; expm.dirty = true; }
+    const chat = st?.chat || [];
+    for (const k of expm.pending) {
+      const m = chat.find((c) => (c?.code === 'exp' || c?.code === 'exp_party') && c.ts >= k.t - 300 && !expm.used.has(c));
+      if (m) { expm.used.add(m); k.exp = Number(m.params?.exp) || 0; k.bonus = m.params?.bonus ?? null; k.src = 'chat'; }
+      else if (now - k.t > EXPM_WAIT_MS && p) { // keine Meldung: aus der EXP-Änderung (ungenau, wenn mehrere Kills dazwischen)
+        k.exp = p.level === k.pLv ? p.exp - k.exp0 : p.level === k.pLv + 1 ? (k.expNext - k.exp0) + p.exp : null; k.src = 'delta';
+      } else continue;
+      k.done = true;
+      const { first, done, ...row } = k;
+      expm.data.push(row); expm.dirty = true;
+    }
+    expm.pending = expm.pending.filter((k) => !k.done);
+    if (expm.dirty) expmSave();
+  }
+  async function copyExpm(btn) {
+    expmLoad();
+    const text = JSON.stringify({ v: 1, kills: expm.data, levels: expm.levels });
+    let ok = false;
+    try { await navigator.clipboard.writeText(text); ok = true; } catch { /* Zwischenablage gesperrt */ }
+    btn.textContent = ok ? `Kopiert ✓ (${expm.data.length})` : 'Fehler';
+    setTimeout(() => { btn.textContent = 'Messung kopieren'; }, 1500);
+  }
 
   // ---------- Protokoll ----------
   const LOG_MAX = 300;
@@ -1266,6 +1342,7 @@
         const now = Date.now();
         for (const ev of Array.isArray(list) ? list : [list]) {
           if (!ev) continue;
+          if (cfg.expMess && (ev.t === 'dmg' || ev.t === 'die')) expmEvent(ev);
           if (ev.t === 'die' && ev.id) { bossSkillLog.delete(ev.id); continue; }
           if (ev.t !== 'skill' || !ev.src || !ev.skill) continue;
           if (!bossSkillLog.has(ev.src)) bossSkillLog.set(ev.src, new Map());
@@ -5203,6 +5280,11 @@
 
     const now = Date.now();
     exp.update(p, now);
+    if (cfg.expMess) {
+      hookBossEvents(); expmTick(st, now);
+      const ec = panel.querySelector('[data-f="expmcount"]'), et = `(${expm.data?.length || 0} Kills, ${Object.keys(expm.levels || {}).length} Level)`;
+      if (ec && ec.textContent !== et) ec.textContent = et;
+    }
     const rate = exp.perMinute(now);
     panel.querySelector('[data-f="rate"]').textContent = rate > 0 ? fmt(rate) : '–';
     bitsRate.update(me?.bits, now);
@@ -5855,6 +5937,8 @@
       if (act === 'mobs-all') setAllMobs(true);
       if (act === 'log-copy') copyLog(e.target);
       if (act === 'log-clear') { logbook.length = 0; logSig++; schedule(); }
+      if (act === 'expm-copy') copyExpm(e.target);
+      if (act === 'expm-clear') { expm.data = []; expm.levels = {}; expm.pending = []; expmSave(); schedule(); }
       if (act === 'mobs-none') setAllMobs(false);
       const tab = e.target.closest('[data-tab]')?.dataset.tab;
       if (tab) setTab(tab);
@@ -5960,6 +6044,11 @@
       if (flag) {
         cfg[flag] = e.target.checked; saveCfg(); e.target.blur(); autopilot.reset(); schedule();
         logEvent('auto', `Einstellung: ${e.target.nextElementSibling?.textContent} = ${e.target.checked ? 'an' : 'aus'}`);
+        return;
+      }
+      if (e.target.matches('[data-expmess]')) {
+        cfg.expMess = e.target.checked; saveCfg(); e.target.blur(); expm.mobs.clear(); expm.lastKillAt = 0; schedule();
+        logEvent('bot', `EXP-Messung ${cfg.expMess ? 'an' : 'aus'}`);
         return;
       }
       if (e.target.matches('[data-apbatch]')) {
