@@ -217,6 +217,12 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.35.1 – Ausweichen bei mehreren Warnzonen
+- **Laufweg:** Der Weg zum Fluchtpunkt führt nicht mehr durch einen anderen Kreis oder Strahl. Durchquert wird nur eine Zone, die nachweislich erst einschlägt, wenn das Digimon schon vorbei ist. Ist die Restzeit unbekannt, wird sie umgangen. Gibt es nur Punkte hinter einem anderen Kreis, nimmt der Bot einen davon als Notlösung.
+- **Überlappende Kreise:** Ob ein Fluchtpunkt rechtzeitig erreichbar ist, rechnet der Bot jetzt mit dem frühesten Einschlag aller Kreise, in denen das Digimon steht. Bisher zählte nur der zuerst gefundene Kreis.
+- **Raumweite Kreise (ab 320 px):** Sie werden nicht mehr pauschal ignoriert. Liegt der Rand so nah, dass das Digimon vor dem Einschlag herauskommt, weicht es hinaus aus und läuft danach nicht wieder hinein. Kommt es nicht heraus, kämpft es wie bisher weiter.
+- Neuer Test `dodgemultitest`.
+
 #### Neu in 2.35.0 – Ausweichen mit dem Digimon
 - Steht das Spiel auf Digimon-Steuerung, bewegt das Ausweichen nur das Digimon, der Tamer zählt nicht. Der Bot schickt beim Ausweichen kein „Folgen“ mehr. Das hat das Digimon bisher alle 1,5 s zum Tamer zurückgezogen, während der nächste Klick es wieder zum Fluchtpunkt schickte (Zickzack).
 - Der Fluchtpunkt bleibt fest, bis er erreicht ist, eine neue Warnzone ihn überdeckt oder 3 s vorbei sind. Bisher wurde er alle 0,4 s aus der aktuellen Position neu gesucht und sprang beim Laufen zwischen Nachbarrichtungen (Eiern). Der Klick wird nur bei einem neuen Punkt sofort gesendet, sonst einmal pro Sekunde wiederholt.

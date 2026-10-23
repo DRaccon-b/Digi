@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.35.0
+// @version      2.35.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -495,7 +495,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.35.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.35.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -967,6 +967,23 @@
     } catch { /* ignore */ }
     return zones;
   }
+  // Raumweite Kreise (ab ZONE_HUGE_R) stehen nicht in dangerZones: meist kommt man nicht heraus, dann weiterkämpfen.
+  // Gefahr sind sie nur fürs Ausweichen – wenn man draußen steht (nicht hineinlaufen) oder vor dem Einschlag noch
+  // herauskommt (Rand nah genug, Restzeit bekannt).
+  function hugeZones() {
+    if (tankNow(Date.now())) return [];
+    try {
+      return (worldScene()?.telegraphs?.active || []).filter((c) => c && c.r >= ZONE_HUGE_R && isFinite(c.x) && isFinite(c.y))
+        .map((c) => ({ kind: 'circle', x: c.x, y: c.y, r: c.r, huge: true }));
+    } catch { return []; }
+  }
+  const DODGE_SEARCH_R = 328; // so weit sucht das Ausweichen höchstens nach einem freien Punkt
+  function hugeCounts(h, p) {
+    const out = Math.hypot(p.x - h.x, p.y - h.y) - h.r;
+    if (out >= DODGE_MARGIN) return true; // draußen
+    const need = DODGE_MARGIN * 1.5 - out, left = zoneLeftMs(h);
+    return need <= DODGE_SEARCH_R && left != null && need <= (left - 300) / 1000 * DODGE_WALK_PX_S;
+  }
   // Abstand eines Punkts zur Zone (≤ 0 = drinnen) und der nächste Punkt der Zone (zum Weglaufen).
   function zoneDist(z, p) {
     if (z.kind === 'circle') return { d: Math.hypot(p.x - z.x, p.y - z.y) - z.r, nx: z.x, ny: z.y };
@@ -1043,6 +1060,8 @@
     const zones = dangerZones();
     const ents = window.dmo?.net?.state?.entities;
     const tamer = controlled(st), partner = ents?.get?.(st?.me?.partner?.entityId);
+    const me0 = tamer || partner;
+    if (me0) for (const h of hugeZones()) if (hugeCounts(h, me0)) zones.push(h);
     const inZone = (p) => p && zones.find((z) => zoneDist(z, p).d < DODGE_MARGIN);
     const z = inZone(tamer) || inZone(partner);
     const tEnt = st?.target?.id ? ents?.get?.(st.target.id) : null;
@@ -1095,36 +1114,49 @@
     // Mit Ziel: unter allen freien Punkten, die vor dem Einschlag noch erreichbar sind, den nächsten am Ziel – dann
     // kann das Digimon von dort weiter angreifen (oft sogar mit der 1). Erreichbar = Laufweg passt in die Restzeit
     // des Warnkreises (unbekannt: höchstens 72 px weiter als zum nächsten freien Punkt).
-    const left = zoneLeftMs(z);
+    // Mehrere Kreise übereinander: es zählt der früheste Einschlag unter allen, in denen ich stehe
+    const inside = zones.filter((c) => [tamer, partner].some((e) => e && zoneDist(c, e).d < DODGE_MARGIN));
+    const lefts = inside.map(zoneLeftMs).filter((v) => v != null);
+    const left = lefts.length ? Math.min(...lefts) : zoneLeftMs(z);
+    // Laufweg: darf nicht durch einen ANDEREN Kreis/Strahl führen (aus denen, in denen ich stehe, muss ich ohnehin
+    // heraus) – außer er schlägt nachweislich erst ein, wenn ich längst vorbei bin
+    const others = zones.filter((c) => !inside.includes(c));
+    const zoneLeft = (c) => (c.kind === 'circle' ? zoneLeftMs(c) : c.end ? Math.max(0, c.end - performance.now()) : null);
+    const pathClear = (p) => {
+      const ms = Math.hypot(p.x - me.x, p.y - me.y) / DODGE_WALK_PX_S * 1000 + 500;
+      return lineClear(me, p, others.filter((c) => { const l = zoneLeft(c); return l == null || l < ms; }));
+    };
     // Golemon & Co.: nur Fluchtpunkte nahe am Startplatz des Monsters (Verfolgungsreichweite minus Sicherheitsabstand)
     const kg = target && KITE_GUARD[target.defId] !== undefined && (!KITE_GUARD[target.defId] || KITE_GUARD[target.defId] === st?.world?.mapId);
     const home = kg ? mobHome.get(target.id) : null;
     const leash = home ? (content()?.digimon?.[target.defId]?.mob?.leashRange || 320) - 80 : Infinity;
     const inLeash = (p) => !home || Math.hypot(p.x - home.x, p.y - home.y) <= leash;
-    let first = null, firstRad = 0, best = null, bestScore = Infinity, safeOnly = null;
+    let first = null, firstRad = 0, best = null, bestScore = Infinity, safeOnly = null, crossOnly = null;
     // Schutzzonen meiden: dort kann man nicht kämpfen (danach erst wieder herauslaufen) – nur als letzter Ausweg
     const mapId = st.world?.mapId;
     // Fluchtpunkt festhalten, solange er frei bleibt und noch nicht erreicht ist – neu gesucht aus der jeweils
     // aktuellen Position sprang der beste Punkt beim Laufen zwischen Nachbarrichtungen hin und her (Eiern)
     const g0 = dodgeState.goal;
     const keep = g0 && now - g0.at < DODGE_GOAL_MS && Math.hypot(me.x - g0.x, me.y - g0.y) > DODGE_GOAL_REACHED
-      && !zones.some((c) => zoneDist(c, g0).d < DODGE_MARGIN * 1.5);
+      && !zones.some((c) => zoneDist(c, g0).d < DODGE_MARGIN * 1.5) && pathClear(g0);
     if (keep) best = g0;
-    else for (let rad = 40; rad <= 328; rad += 24) {
+    else for (let rad = 40; rad <= DODGE_SEARCH_R; rad += 24) {
       const budget = left != null ? Math.max(firstRad, (left - 300) / 1000 * DODGE_WALK_PX_S) : firstRad + 72;
       if (first && rad > budget) break;
       for (let i = 0; i < 16; i++) {
         const ang = base + (i % 2 ? 1 : -1) * Math.ceil(i / 2) * (Math.PI / 8);
         const p = { x: me.x + Math.cos(ang) * rad, y: me.y + Math.sin(ang) * rad };
         if (!walkable(p.x, p.y) || zones.some((c) => zoneDist(c, p).d < DODGE_MARGIN * 1.5)) continue;
-        if (safeRectAt(mapId, p)) { safeOnly ||= p; continue; }
+        const clear = pathClear(p);
+        if (safeRectAt(mapId, p)) { if (clear) safeOnly ||= p; else crossOnly ||= p; continue; }
+        if (!clear) { crossOnly ||= p; continue; } // Weg quer durch einen anderen Kreis: nur als Notlösung
         if (!first) { first = p; firstRad = rad; if (!target) break; }
         const score = !target ? rad : Math.hypot(p.x - target.x, p.y - target.y) + (lineClear(p, target, zones) || inZone(target) ? 0 : 200) + (inLeash(p) ? 0 : 1000);
         if (score < bestScore) { bestScore = score; best = p; }
       }
       if (first && !target) break;
     }
-    best ||= first || safeOnly;
+    best ||= first || safeOnly || crossOnly;
     if (!best) { dodgeState.active = false; dodgeState.goal = null; return null; } // kein Fluchtpunkt: stehen bleiben hilft nicht – weiterkämpfen
     if (best !== g0) dodgeState.goal = { x: best.x, y: best.y, at: now };
     // Klick nur bei neuem Punkt sofort, sonst selten wiederholen (falls er verloren ging)
