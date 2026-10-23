@@ -217,6 +217,9 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.47.0 – Übersicht: EXP je Monster
+- Neuer Abschnitt „Sitzung: EXP je Monster (diese Map)“: je Monsterart der aktuellen Map die eigenen Kills, die EXP zusammen und der Anteil – nur Arten, die schon EXP gebracht haben. Maus über eine Zeile zeigt Ø EXP je Kill. Eigener ↺-Knopf setzt nur diese Liste zurück; ↺ bei den Sitzungswerten leert sie mit.
+
 #### Neu in 2.46.0 – Lern-Route: Feldboss der Map darunter mitnehmen
 - Die Boss-Runde der Lern-Route nimmt auch die Feldbosse der Map darunter mit (gleiche Serie, nächstniedrigeres Monster-Level), solange der Boss höchstens 2 Level unter dem Digimon liegt. Reisezeit wird eingerechnet (45 s je Map-Wechsel): der Bot fährt los, wenn der Boss lebt oder bis zur Ankunft spawnt, liest dort die Timer der Kanäle und kehrt danach zur Lern-Zone zurück.
 - Gerechnet (Lv 40 in Kaiser's Canyon, MetalGreymon Ch 1+2, dazu Drimogemon Ch 1+2): ≈ +32 % EXP/min bei Lv 40, +19 % bei Lv 44, ab Boss-Level +2 kaum noch.
