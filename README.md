@@ -217,6 +217,18 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.36.1 – Raum 4 (Hard) wieder stabil
+- **Ultimate Flare** wird ausgewichen statt geblockt. Als Block fraß sie in Raum 4 rund die Hälfte der Keys, und für die Black-Rain-Hülle war dann keiner mehr bereit. Schlägt sie kurz vor einem Block-Treffer ein, deckt der Key sie wie bisher mit ab.
+- **Sammeln für den Key:** Eine Attacke, die vor dem Zünden einschlägt (der Schutz deckt sie nicht), wird auch in den letzten 2 s noch ausgewichen. Bisher stand die gesammelte Gruppe dann darin.
+- **Kein spätes Loslaufen,** solange ein Boss einen Key-of-Hope-Treffer ansagt. Die Gruppe sammelt sich dann, und wer spät losläuft, steht beim Sammeln noch verstreut.
+- **Verschwundene Ziele:** Fehlt das ausgewählte Ziel länger als 1 s in der Spielwelt (z. B. ein Kuramon der Herde ist am Ei angekommen), lässt der Bot es fallen und nimmt ein anderes. Bisher „griff“ er bis zu 5 Minuten ins Leere an.
+- Probelauf Hard ab Raum 4 (Bauzel + 4 ClavisAngemon Lv 70, ×4, Digimon-Steuerung):
+  - 2.36.0: 4 von 5 geschafft, 6 Stürze.
+  - 2.34.2: 5 von 5, 0 Stürze.
+  - **2.36.1: 10 von 10, 0 Stürze**, Raum 4 in 267–301 s (Enrage 480 s), 10–12 Keys statt ~21.
+- Neue Tests `kohflaretest` und `targetgonetest`. `kohtest` und `kohgathertest` nehmen jetzt die Catastrophe Cannon als Block-Beispiel.
+- Simulator: Digimon-Steuerung (Standard), verschwundene Kuramon werden aus der Auswahl genommen, und das Log nennt bei jedem Key die fällige Attacke.
+
 #### Neu in 2.36.0 – Lange Ansagen: erst spät herauslaufen
 - Bei langen Ansagen kämpft das Digimon weiter und läuft erst kurz vor dem Einschlag heraus, mit großzügigem Puffer (Laufzeit × 1,5 + 1,5 s). Das gilt nur, wenn die Restzeit jedes Kreises bekannt ist, in dem es steht. Beispiele: Machinedramons Infinity Cannon: Full Charge und Daemons Flame Inferno, beide 160 px und 12 s. Bisher stand es dort rund 10 s untätig draußen, jetzt kommen etwa 9 s Schaden dazu. Kurze Ansagen (die meisten, auch Regalecusmons Ocean Wave III mit 3,5 s) laufen wie bisher sofort.
 - Raumweite Kreise: Die Suche nach einem Fluchtpunkt reicht so weit, wie das Digimon in der Restzeit kommt (höchstens 900 px statt fest 328 px). Weiter entfernte Punkte zählen nur, wenn der gerade Weg begehbar ist, also keine Wand dazwischen liegt. Damit verlässt es Marsmons Corona Sanctions (400 px, 10 s) auch aus dem Nahkampf. Die Raid-Kreise (640 px) bleiben wie bisher, denn daraus kommt man im Raum nicht heraus.
@@ -878,7 +890,7 @@ node sim/dungeon-keramon.js
 - Ergebnisse mit 2.29.2: allein in 393 s geschafft (Boss 308 s, 5 von 8 Mahlzeiten abgebrochen, 28 Tränke), zu dritt in 135 s. Der Simulator ist optimistischer als das Spiel: Live (noch 2.29.0, mit Ausweichen statt Tanken) schaffte der Bot in Raum 1 nur 4/6 Terminals, und Infermon fraß 12 Mahlzeiten bis zum Enrage.
 
 ### Hard („Revenge“)
-`node sim/dungeon-revenge.js` (Standard: allein; `GRUPPE=3` für eine Gruppe, `TEMPO=4`). Gleiche Partner-Werte wie Easy; Boss-HP, Uhr, Enrage und alle Attacken stammen aus den Spieldaten. `SHARE_FOLGT=1`: Der geteilte Treffer folgt dem Ziel (sonst bleibt er liegen und ist ausweichbar). `START=4`: gleich in Raum 4. `DIABO_PCT=71`: Diaboromon startet mit so viel %. Angenommen sind der Grundtreffer der Bosse (`BOSS_HIT`, 6 000 alle ~2 s), dass Kopien nicht angreifbar sind und die Aufteilung der Herde.
+`node sim/dungeon-revenge.js` (Standard: allein; `GRUPPE=3` für eine Gruppe, `TEMPO=4`). Gleiche Partner-Werte wie Easy; Boss-HP, Uhr, Enrage und alle Attacken stammen aus den Spieldaten. `SHARE_FOLGT=1`: Der geteilte Treffer folgt dem Ziel (sonst bleibt er liegen und ist ausweichbar). `START=4`: gleich in Raum 4. `DIABO_PCT=71`: Diaboromon startet mit so viel %. `STEUERUNG=tamer`: Spiel auf Tamer-Steuerung (Standard: Digimon-Steuerung, der Klick bewegt das Digimon, es geht auch durch Türen). Im Log steht bei jedem Key of Hope, welche Attacke als Nächstes fällig ist. Angenommen sind der Grundtreffer der Bosse (`BOSS_HIT`, 6 000 alle ~2 s), dass Kopien nicht angreifbar sind und die Aufteilung der Herde.
 
 ### Was in Raum 1 nicht hilft (A/B-Vergleich, Okt. 2026)
 Simulator kalibriert auf live: Digimon läuft 120 px/s, Skill-Animationen (Invincible Sword 0,6 s, Omega Blade 0,9 s) blockieren den Grundangriff. Allein, je 6–12 Läufe, Terminals heil im Schnitt:

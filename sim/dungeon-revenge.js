@@ -9,6 +9,7 @@
 //   V=1 …                                    jeder Statuswechsel der Bots
 //   TEAM=clavis …                            Bauzel (Imperialdramon Paladin Lv 99) + 4 ClavisAngemon Lv 70 (Key of Hope)
 //   START=4 …                                gleich in Raum 4 (Bucht) beginnen
+//   STEUERUNG=tamer …                        Spiel auf Tamer-Steuerung (Standard: Digimon – Klick bewegt das Digimon)
 //   SHARE_FOLGT=0 …                          geteilter Treffer bleibt liegen (ausweichbar) – Standard: folgt dem Ziel (live)
 //   SCHADEN=12000 HP=92660 TRAENKE=400 TRANK_HP=15000 TRANK_AB=50 BOSS_HIT=6000 DAUER=1400 …
 //
@@ -41,6 +42,7 @@ function warp(g) {
 warp(global);
 
 const TEAM = process.env.TEAM || '';
+const CTRL_P = (process.env.STEUERUNG || 'digimon') !== 'tamer'; // Digimon-Steuerung: Klick = Digimon läuft hin, Tamer folgt
 const N = TEAM === 'clavis' ? 5 : Math.max(1, Math.min(5, Number(process.env.GRUPPE) || 1));
 const SCHADEN = Number(process.env.SCHADEN) || 12000;
 const AS = 1121, P_SPEED = Number(process.env.P_SPEED) || 120;
@@ -198,8 +200,8 @@ function makeWindow(i) {
   };
   const scene = {
     deps: { content: CONTENT(), commands, assetsBase: '/assets/', manifest: { maps: { network: { tmj: 'maps/network.tmj' }, [MAP]: { tmj: `maps/${MAP}.tmj` } } } },
-    controlledId: () => `t:${i}`,
-    tapGround: (x, y) => { if (!pl.grab) pl.goal = { x, y }; },
+    controlledId: () => (CTRL_P ? `p:${i}` : `t:${i}`),
+    tapGround: (x, y) => { if (!pl.grab) { pl.goal = { x, y }; if (CTRL_P) { pl.atk = null; pl.queued = null; } } },
     select: (id) => { const e = view.get(id); store.setState({ target: e && !(e.flags & 256) ? targetOf(e) : null }); },
     telegraphs: { active: [], circles: [], marksActive: [], mirrors: [] },
     mechB: { lines: [], view: { t: 'mech', terminals: [] } },
@@ -222,19 +224,19 @@ function makeWindow(i) {
     const selfCast = sk.koh || sk.healAll || sk.heal;
     const m = state.target && ents.get(state.target.id);
     if (!selfCast && (!m || m.hp <= 0 || m.map !== pl.map)) return;
-    if (sk.koh) { const pp = ents.get(`p:${i}`); protections.push({ at: now, x: pp.x, y: pp.y }); run.stats.koh = (run.stats.koh || 0) + 1; say(`🔑 Char${i + 1} zündet Key of Hope`); }
+    if (sk.koh) { const pp = ents.get(`p:${i}`); protections.push({ at: now, x: pp.x, y: pp.y }); run.stats.koh = (run.stats.koh || 0) + 1; say(`🔑 Char${i + 1} zündet Key of Hope · fällig: ${run.zones.filter((z) => z.end - now < 4000).sort((x, y) => x.end - y.end).map((z) => `${SKILLS[z.skill]?.name || z.skill}${z.share ? ' (geteilt)' : ''} in ${((z.end - now) / 1000).toFixed(1)} s`).join(', ') || 'nichts'}`); }
     if (sk.healAll) { const pp = ents.get(`p:${i}`); for (const x of alivePlayers()) if (dist(partnerOf(x), pp) <= 96) { const s3 = x.store.getState(); x.store.setState({ me: { ...s3.me, partner: { ...s3.me.partner, hp: Math.min(x.M.hp, s3.me.partner.hp + x.M.hp * sk.healAll) } } }); } }
     pl.skillCd[n] = now + sk.cooldownMs;
     store.setState({ cooldowns: { ...state.cooldowns, [`skill:${n}`]: { end: w.performance.now() + sk.cooldownMs } }, me: { ...me, partner: { ...me.partner, ds: me.partner.ds - sk.dsCost } } });
     const evAll = (phase) => { for (const x of players) if (x.map === pl.map) x.handlers.evs?.([{ t: 'skill', src: `p:${i}`, skill: sk.id, phase }]); };
     evAll('cast'); setTimeout(() => evAll('release'), sk.def.castMs || 0);
     if (sk.heal) { const s2 = store.getState(); store.setState({ me: { ...s2.me, partner: { ...s2.me.partner, hp: Math.min(M.hp, s2.me.partner.hp + M.hp * sk.heal) } } }); }
-    if (sk.mult && m) { pl.queued = { n, id: m.id }; pl.atk = m.id; }
+    if (sk.mult && m) { pl.queued = { n, id: m.id }; pl.atk = m.id; if (CTRL_P) pl.goal = null; }
   }, true);
   w.addEventListener('keydown', (e) => {
     if (e.code !== 'Digit1' || !state.target || pl.fainted) return;
     const m = ents.get(state.target.id);
-    if (m && m.hp > 0 && m.map === pl.map) pl.atk = m.id;
+    if (m && m.hp > 0 && m.map === pl.map) { pl.atk = m.id; if (CTRL_P) pl.goal = null; }
   }, true);
   const [sx, sy] = [504 + i * 24, 328];
   ents.set(`t:${i}`, { id: `t:${i}`, kind: 0, map: 'network', x: sx, y: sy, hp: 1, flags: 0, targetId: '' });
@@ -345,7 +347,14 @@ function stepPartners(now, dt) {
         if (now >= pl.grab.next) { pl.grab.next = now + 1000; damagePlayer(pl, pl.M.hp * 0.04, 'Tentacle Bug (Saugen)'); b.hp = Math.min(b.maxHp, b.hp + pl.M.hp * 0.02); }
       }
     }
-    if (pl.goal && !pl.grab) {
+    if (CTRL_P) { // Digimon-Steuerung: das Digimon läuft zum Klickpunkt, der Tamer läuft ihm nach
+      if (pl.goal && !pl.grab) {
+        const dx = pl.goal.x - p.x, dy = pl.goal.y - p.y, d = Math.hypot(dx, dy), step = P_SPEED * dt;
+        if (d <= step) { p.x = pl.goal.x; p.y = pl.goal.y; pl.goal = null; } else { p.x += dx / d * step; p.y += dy / d * step; }
+      }
+      const dt2 = dist(t, p);
+      if (dt2 > 40) { const step = 160 * dt; t.x += (p.x - t.x) / dt2 * Math.min(step, dt2 - 30); t.y += (p.y - t.y) / dt2 * Math.min(step, dt2 - 30); }
+    } else if (pl.goal && !pl.grab) {
       const dx = pl.goal.x - t.x, dy = pl.goal.y - t.y, d = Math.hypot(dx, dy), step = 160 * dt;
       if (d <= step) { t.x = pl.goal.x; t.y = pl.goal.y; pl.goal = null; } else { t.x += dx / d * step; t.y += dy / d * step; }
     }
@@ -359,13 +368,18 @@ function stepPartners(now, dt) {
         run.stats.skills++; const q = pl.queued; pl.queued = null; const ms = pl.M.psk[q.n].def.castMs || 0; pl.castUntil = now + ms;
         setTimeout(() => { const mm = ents.get(q.id); if (mm && mm.hp > 0 && !pl.fainted) hitMob(pl, mm, pl.M.dmg * pl.M.psk[q.n].mult); }, ms);
       }
-    } else if (!pl.grab) {
+    } else if (CTRL_P) { pl.atk = null; p.targetId = ''; }
+    else if (!pl.grab) {
       pl.atk = null; p.targetId = '';
       const d = dist(p, t);
       if (d > 14) { const step = P_SPEED * 1.1 * dt; p.x += (t.x + 10 - p.x) / d * Math.min(step, d); p.y += (t.y - p.y) / d * Math.min(step, d); }
     }
-    portals(pl, t, now);
+    portals(pl, CTRL_P ? p : t, now); // Digimon-Steuerung: das Digimon geht durch Türen/Portale (live so beim Apocalymon-Raid)
   }
+}
+// Entity verschwindet (z. B. Kuramon am Ei): wie im Spiel aus Angriff und Auswahl nehmen
+function forget(id) {
+  for (const x of players) { if (x.atk === id) x.atk = null; if (x.store.getState().target?.id === id) x.store.setState({ target: null }); }
 }
 function hitMob(pl, m, dmg) {
   if (m.flags & 256) return;
@@ -540,7 +554,7 @@ function stepBay(now, dt) {
   for (const m of [...ents.values()]) {
     if (m.defId !== 'kuramon' || !m.herd) continue;
     const d = dist(m, egg);
-    if (d <= 24) { ents.delete(m.id); H.arrived++; if (H.arrived % 4 === 0 && H.stacks < 15) { H.stacks++; say(`🥚 ${H.arrived} Kuramon am Ei – Armageddemon Stärke ${H.stacks}`); } continue; }
+    if (d <= 24) { ents.delete(m.id); forget(m.id); H.arrived++; if (H.arrived % 4 === 0 && H.stacks < 15) { H.stacks++; say(`🥚 ${H.arrived} Kuramon am Ei – Armageddemon Stärke ${H.stacks}`); } continue; }
     m.x += (egg.x - m.x) / d * 60 * dt; m.y += (egg.y - m.y) / d * 60 * dt;
   }
   if (!run.clusters && b.hp / b.maxHp <= 0.2) { run.clusters = true; for (const n of ['phone_1', 'phone_2', 'phone_3', 'laptop_1', 'laptop_2']) spawnMob('kuramon_cluster', 'Kuramon Cluster', 135000, at(n)); say('Kuramon-Cluster erscheinen (20 %)'); }

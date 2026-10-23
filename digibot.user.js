@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.36.0
+// @version      2.36.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -495,7 +495,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.36.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.36.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1173,7 +1173,9 @@
     // Lange Ansage (z. B. Machinedramons Full Charge, 12 s): weiterkämpfen und erst so spät loslaufen, dass es
     // großzügig reicht (Laufzeit × 1,5 + 1,5 s) – sonst steht das Digimon ~10 s untätig draußen.
     // Nur, wenn die Restzeit jeder Zone bekannt ist, in der es steht; ein schon begonnener Lauf wird nicht abgebrochen.
-    if (!keep && inside.length && lefts.length === inside.length) {
+    // Nicht, während ein Boss einen Key-of-Hope-Treffer ansagt: dann sammelt sich die Gruppe – wer erst spät losläuft,
+    // steht beim Sammeln noch verstreut (Probelauf Raum 4: mehr Stürze)
+    if (!keep && inside.length && lefts.length === inside.length && !kohBlockPending(now)) {
       const runMs = Math.hypot(best.x - me.x, best.y - me.y) / DODGE_WALK_PX_S * 1000;
       const spare = left - (runMs * DODGE_LATE_K + DODGE_LATE_PAD_MS);
       if (spare > 0) {
@@ -1346,6 +1348,14 @@
   const SAFE_MARGIN = 10;   // so nah am Rand gilt schon als „drin“
   const SAFE_EXIT = 28;     // so weit hinter den Rand laufen
   const SAFE_MSG = /cannot fight here|no puedes pelear aqu|n(ã|a)o pode lutar aqui/i;
+  // Ausgewähltes Ziel fehlt in der Spielwelt: erst nach TARGET_GONE_MS als verschwunden werten (kurze Aussetzer überbrücken)
+  const TARGET_GONE_MS = 1000;
+  const goneState = { id: null, since: 0 };
+  function targetGone(id, now) {
+    if (window.dmo?.net?.state?.entities?.get?.(id)) { if (goneState.id === id) goneState.id = null; return false; }
+    if (goneState.id !== id) { goneState.id = id; goneState.since = now; }
+    return now - goneState.since >= TARGET_GONE_MS;
+  }
   function safeRectAt(mapId, p) {
     if (!p) return null;
     return (world.maps[mapId]?.safe || []).find((r) => p.x >= r.x - SAFE_MARGIN && p.x <= r.x + r.w + SAFE_MARGIN
@@ -1560,18 +1570,20 @@
   // dem Einschlag. Mehrere Clavis in der Gruppe wechseln sich ab: der bereite mit der kleinsten Slot-Nummer zuerst; er
   // meldet es sofort an die anderen Fenster. Kommt von ihm nichts, springt KOH_STEP_MS später der nächste ein.
   const KOH_ID = 'clavisangemon.key_of_hope';
-  // Nur, was man nicht ausweichen kann (geteilte Treffer, Fächer über die halbe Arena). Allem anderen weicht man aus –
+  // Nur, was man nicht ausweichen kann (geteilte Treffer). Allem anderen weicht man aus –
   // 4 Clavis haben 4 Blocks pro 45 s, Diaboromon feuert in der Zeit ~6 blockbare Attacken (Probelauf Hard: mit allen
   // Attacken im Block war für die Catastrophe Cannon oft keiner mehr bereit; nur für sie: 100 % geblockt).
+  // Ultimate Flare (Fächer) weicht man aus: als Block fraß sie in Raum 4 die Hälfte der Keys, und für die Black-Rain-
+  // Hülle war dann keiner mehr bereit (Probelauf ab Raum 4: geblockt 4/5 mit 6 Stürzen, ausgewichen 5/5 ohne Sturz).
   const KOH_BLOCK = new Set([
-    'diaboromon.catastrophe_cannon', 'armageddemon.black_rain_shell', 'armageddemon.ultimate_flare',
+    'diaboromon.catastrophe_cannon', 'armageddemon.black_rain_shell',
     'infermon.spider_shooter_charged', 'infermon.cocoon_ram',
   ]);
   // Diese weicht man aus – schlagen sie aber kurz vor einem Block-Treffer ein, zündet der Clavis so früh, dass der
   // Schutz (2 s) beides abdeckt (die Gruppe steht dann schon gesammelt und weicht nicht mehr aus)
   const KOH_ALSO = new Set([
     'diaboromon.cannon_volley', 'diaboromon.tentacle_bug', 'diaboromon.copy_cannon',
-    'armageddemon.black_rain', 'armageddemon.black_rain_storm', 'infermon.spider_shooter',
+    'armageddemon.black_rain', 'armageddemon.black_rain_storm', 'armageddemon.ultimate_flare', 'infermon.spider_shooter',
   ]);
   const KOH_GATHER_MS = 2000; // so lange vor dem Einschlag sammeln (vorher wird noch ausgewichen)
   const KOH_LEAD_MS = 700;    // so lange vor dem Einschlag zündet der erste Clavis (Schutz hält 2 s)
@@ -1584,6 +1596,11 @@
     plans: new Map(),  // Slot -> { x, y, mapId, end }: dieser Clavis zündet gleich, hier sammeln
     anchor: null, sentAt: 0, // ich zünde gleich: { src, end }
   };
+  // Sagt gerade ein Boss einen Treffer an, gegen den Key of Hope zündet?
+  function kohBlockPending(now) {
+    for (const [, log] of bossSkillLog) for (const [sid, e] of log) if (KOH_BLOCK.has(sid) && e.phase === 'cast' && e.castEnd > now - 300) return true;
+    return false;
+  }
   const isKoh = (sk) => !!sk && (sk.id === KOH_ID || sk.name === 'Key of Hope');
   function kohSlot(st) {
     for (const k of SKILL_KEYS) { const s = skillOnKey(st, k); if (s && isKoh(s.skill)) return { k, s }; }
@@ -1650,10 +1667,15 @@
   function kohGather(st, now) {
     if (!cfg.koh || !group.active()) return null;
     // Bis kurz vor dem Einschlag gilt Ausweichen (z. B. eine Volley davor): erst in den letzten KOH_GATHER_MS sammeln
-    const inDanger = () => { const z = dangerZones(), ents0 = window.dmo?.net?.state?.entities, me0 = [controlled(st), ents0?.get?.(st?.me?.partner?.entityId)];
-      return me0.some((e) => e && z.some((zz) => zoneDist(zz, e).d < DODGE_MARGIN)); };
+    // before: nur Zonen, die vor diesem Zeitpunkt einschlagen (Restzeit unbekannt zählt mit)
+    const inDanger = (before = Infinity) => { const z = dangerZones(), ents0 = window.dmo?.net?.state?.entities, me0 = [controlled(st), ents0?.get?.(st?.me?.partner?.entityId)];
+      const pn = performance.now();
+      const left = (zz) => (zz.kind === 'circle' ? zoneLeftMs(zz) : zz.end ? zz.end - pn : null);
+      return me0.some((e) => e && z.some((zz) => { if (zoneDist(zz, e).d >= DODGE_MARGIN) return false; const l = left(zz); return l == null || now + l < before; })); };
+    // Einschlag vor dem Zünden (Key zündet KOH_LEAD_MS vor dem Treffer): den deckt der Schutz nicht – erst ausweichen
+    const uncovered = (end) => inDanger(end - 500 - KOH_LEAD_MS - 100);
     if (kohState.anchor && kohState.anchor.end > now) {
-      if (kohState.anchor.end - 500 - now > KOH_GATHER_MS && inDanger()) return null;
+      if ((kohState.anchor.end - 500 - now > KOH_GATHER_MS && inDanger()) || uncovered(kohState.anchor.end)) return null;
       return 'Key of Hope gleich – halte Position, Gruppe sammelt sich';
     }
     let plan = null;
@@ -1662,7 +1684,7 @@
       if (pl.mapId === st.world?.mapId && (!plan || slot < plan.slot)) plan = pl;
     }
     if (!plan) return null;
-    if (plan.end - 500 - now > KOH_GATHER_MS && inDanger()) return null; // erst ausweichen, gleich danach sammeln
+    if ((plan.end - 500 - now > KOH_GATHER_MS && inDanger()) || uncovered(plan.end)) return null; // erst ausweichen, gleich danach sammeln
     const ents = window.dmo?.net?.state?.entities;
     const partner = ents?.get?.(st?.me?.partner?.entityId), tamer = controlled(st);
     const who = group.peers.get(plan.slot)?.name || `Slot ${plan.slot + 1}`;
@@ -4768,7 +4790,10 @@
 
       // 3) Ziel prüfen
       const diff = t ? t.level - p.level : 0;
-      const alive = t && t.kind === 'mob' && t.hp > 0;
+      // Ziel nicht mehr in der Spielwelt (z. B. Kuramon der Herde am Ei angekommen): nach kurzer Gnadenfrist fallen
+      // lassen – sonst „greift“ der Bot minutenlang ein Ziel an, das es nicht mehr gibt (Probelauf Raum 4: 2 von 10 im Enrage)
+      const tGone = !!t && t.kind === 'mob' && targetGone(t.id, now);
+      const alive = t && t.kind === 'mob' && t.hp > 0 && !tGone;
       const isAttacker = alive && attackers.includes(t.id);
       const fighting = alive && this.attackedId === t.id; // laufender Kampf
       const info = alive && sc ? sc.mobs.find((m) => m.id === t.id) : null;

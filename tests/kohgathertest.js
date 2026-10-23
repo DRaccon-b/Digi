@@ -7,12 +7,12 @@ const KOH = 'clavisangemon.key_of_hope';
 const accounts = { leader: 0, popup: true, list: [{ on: true, user: 'a', char: 'ClavisA' }, { on: true, user: 'b', char: 'ClavisB' }, { on: true, user: 'c', char: 'Imperial' }] };
 const skills = {
   [KOH]: { id: KOH, name: 'Key of Hope', kind: 'buff', target: 'self', protectionMs: 2000, dsCost: 535, cooldownMs: 45000, castMs: 0 },
-  'armageddemon.ultimate_flare': { id: 'armageddemon.ultimate_flare', name: 'Ultimate Flare', shape: 'circle', radius: 64, telegraph: true, fixedDamage: 52000, castMs: 3000, cooldownMs: 24000 },
+  'diaboromon.catastrophe_cannon': { id: 'diaboromon.catastrophe_cannon', name: 'Catastrophe Cannon', shape: 'circle', radius: 64, telegraph: true, hpDamagePct: 240, castMs: 3000, cooldownMs: 24000 },
 };
 const wins = [0, 1, 2].map((slot) => {
   const W = makeWorld({ slot, accounts, tag: 'S' + slot, quests: { q00_meet_gennai: { state: 3, counters: [] }, q02_first_steps: { state: 3, counters: [] } },
     extraEnts: (id) => (id === 'native_forest' ? [{ id: 'boss:1', kind: 2, defId: 'armageddemon', x: 520, y: 330, hp: 900000, maxHp: 900000, level: 80, flags: 16 }] : []),
-    setup({ content }) { content.skills = skills; content.digimon.armageddemon = { name: 'Armageddemon', skills: [skills['armageddemon.ultimate_flare']] }; } });
+    setup({ content }) { content.skills = skills; content.digimon.armageddemon = { name: 'Armageddemon', skills: [skills['diaboromon.catastrophe_cannon']] }; } });
   W.handlers = {};
   W.w.dmo.net.on = (name, fn) => { W.handlers[name] = fn; return () => {}; };
   W.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'acc' }));
@@ -38,7 +38,7 @@ const dist = (a, b) => Math.round(Math.hypot(a.x - b.x, a.y - b.y));
   for (const W of wins.slice(1)) { const t = W.ents.get('t:me'), p = W.ents.get('p:me'); t.x = 150; t.y = 330; p.x = 160; p.y = 330; }
   await wait(600);
   const anchor = pos(wins[0], 'p:me');
-  for (const W of wins) W.handlers.evs?.([{ t: 'skill', src: 'boss:1', skill: 'armageddemon.ultimate_flare', phase: 'cast' }]);
+  for (const W of wins) W.handlers.evs?.([{ t: 'skill', src: 'boss:1', skill: 'diaboromon.catastrophe_cannon', phase: 'cast' }]);
   await wait(900);
   check('Anker hält Position', /halte Position/.test(wins[0].status()), wins[0].status());
   check('Clavis B läuft zum Anker', /Schutzkreis von ClavisA/.test(wins[1].status()), wins[1].status());

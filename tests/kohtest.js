@@ -7,7 +7,7 @@ const KOH = 'clavisangemon.key_of_hope';
 const accounts = { leader: 0, popup: true, list: [{ on: true, user: 'a', char: 'ClavisA' }, { on: true, user: 'b', char: 'ClavisB' }] };
 const skills = {
   [KOH]: { id: KOH, name: 'Key of Hope', kind: 'buff', target: 'self', protectionMs: 2000, dsCost: 535, cooldownMs: 45000, castMs: 0 },
-  'armageddemon.ultimate_flare': { id: 'armageddemon.ultimate_flare', name: 'Ultimate Flare', shape: 'circle', radius: 64, telegraph: true, fixedDamage: 52000, castMs: 3000, cooldownMs: 24000 },
+  'diaboromon.catastrophe_cannon': { id: 'diaboromon.catastrophe_cannon', name: 'Catastrophe Cannon', shape: 'circle', radius: 64, telegraph: true, hpDamagePct: 240, castMs: 3000, cooldownMs: 24000 },
   'armageddemon.black_rain_storm': { id: 'armageddemon.black_rain_storm', name: 'Black Rain', shape: 'circle', radius: 48, telegraph: true, fixedDamage: 40000, castMs: 4000, cooldownMs: 28000 },
   'armageddemon.black_rain_shell': { id: 'armageddemon.black_rain_shell', name: 'Black Rain', shape: 'circle', radius: 40, hpDamagePct: 240, castMs: 4000, cooldownMs: 28000 },
   'keramon.crazy_giggle': { id: 'keramon.crazy_giggle', name: 'Crazy Giggle', shape: 'single', power: 150, castMs: 500, cooldownMs: 8000 },
@@ -45,7 +45,7 @@ const reset = () => { for (const W of wins) { W.keys.length = 0; W.store.setStat
 
   // 1) Black Rain (3 s Ansage): genau ein Clavis zündet, und zwar Slot 0, kurz vor dem Einschlag
   const t1 = Date.now();
-  cast('armageddemon.ultimate_flare');
+  cast('diaboromon.catastrophe_cannon');
   await wait(3600);
   const p1 = presses(), at1 = wins[0].keys[0] ? wins[0].keys[0] - t1 : null;
   check('Black Rain: genau ein Clavis (Slot 0) blockt', p1[0] === 1 && p1[1] === 0, `Tasten ${p1.join(',')}`);
@@ -55,7 +55,7 @@ const reset = () => { for (const W of wins) { W.keys.length = 0; W.store.setStat
   await wait(1500);
   wins[1].store.setState({ cooldowns: {} }); wins[1].keys.length = 0; wins[0].keys.length = 0;
   await wait(1500); // Status mit Cooldown von Slot 0 ist bei Slot 1 angekommen
-  cast('armageddemon.ultimate_flare');
+  cast('diaboromon.catastrophe_cannon');
   await wait(3600);
   const p2 = presses();
   check('Zweiter Black Rain: Slot 0 im Cooldown -> Slot 1 blockt', p2[0] === 0 && p2[1] === 1, `Tasten ${p2.join(',')}`);
