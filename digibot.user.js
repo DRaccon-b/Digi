@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.44.5
+// @version      2.44.6
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -504,7 +504,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.44.5'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.44.6'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -4874,13 +4874,15 @@
   const LR_GAP_S = 1.3, LR_TOP_SHARE = 0.35, LR_SWITCH_GAIN = 1.15, LR_MIN_STAY_MS = 180000, LR_CALC_MS = 30000, LR_MAX_ABOVE = 12;
   const lr = { goal: null, since: 0, calcAt: 0, calcLv: 0, best: null, boss: null, scan: null };
   const lrOn = () => cfg.levelRoute && !cfg.autopilot && !cfg.farm && !cfg.questMode && !cfg.dungeon;
-  // Zone ganz über der Level-Grenze: bis zur Obergrenze ihres niedrigsten Level-Bereichs erlauben (z. B. Lv 40–41), höchstens
-  // LR_MAX_ABOVE – sonst steht oft gerade keins im Suchradius (live: nur Lv 40 erlaubt, Bot wartete)
+  // Zone am oder über der Level-Grenze: immer mindestens ihre untersten beiden Stufen erlauben (bzw. ihren ganzen niedrigsten
+  // Level-Bereich, z. B. Lv 40–41), höchstens LR_MAX_ABOVE – sonst steht oft gerade keins im Suchradius (live: Lv 32 mit +8
+  // nur Lv 40 erlaubt, Bot suchte lange)
   function lrExt(entries, pl) {
     let lo = Infinity, hi = -Infinity;
     for (const e of entries || []) { const a = e.level?.[0], b = e.level?.[e.level.length - 1]; if (a == null) continue; if (a < lo) { lo = a; hi = b; } else if (a === lo) hi = Math.max(hi, b); }
-    if (!isFinite(lo) || lo - pl <= cfg.lvlDiff || lo - pl > LR_MAX_ABOVE) return 0;
-    return Math.min(LR_MAX_ABOVE, hi - pl);
+    if (!isFinite(lo) || lo - pl > LR_MAX_ABOVE) return 0;
+    const ext = Math.min(LR_MAX_ABOVE, Math.max(hi, lo + 1) - pl);
+    return ext > cfg.lvlDiff ? ext : 0;
   }
   // Level-Grenze beim Grinden: in einer Lern-Zone ganz über der Grenze bis zu ihrem niedrigsten Monster-Level
   const lvlLimit = (mapId) => (lrOn() && lr.goal?.ext && lr.goal.mapId === mapId ? Math.max(cfg.lvlDiff, lr.goal.ext) : cfg.lvlDiff);

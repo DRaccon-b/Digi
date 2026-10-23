@@ -217,6 +217,9 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.44.6 – Lern-Route: immer die untersten beiden Stufen der Zone
+- Liegt das niedrigste Monster der Zone an der Level-Grenze, sind trotzdem ihre untersten beiden Stufen erlaubt (z. B. Lv 32 mit +8 in Harvest Hills: Lv 40 und 41), höchstens +12 – vorher nur Lv 40, und der Bot suchte lange.
+
 #### Neu in 2.44.5 – Lern-Route ohne Named Elites, weniger Umwege
 - Named Elites gehören nicht mehr zur Boss-Runde der Lern-Route (kaum mehr EXP als ein normales Monster), nur echte Feldbosse.
 - Außerhalb der Zone werden sichtbare passende Monster weiter bekämpft; ohne Ziel läuft der Bot nur bis an den nächsten Punkt der Zone statt zur Mitte (live: nach jedem Kampf am Rand zur Mitte und wieder hinaus).
