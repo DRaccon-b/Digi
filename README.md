@@ -217,6 +217,10 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.34.0 – Map für Map auch von unten nach oben
+- Reiter Quests → Reihenfolge „Map für Map“ → neue Auswahl **Richtung**: „von oben nach unten“ (wie bisher, höchste Map zuerst) oder „von unten nach oben“ (niedrigste Map zuerst). Aufsteigend erledigt der Bot auf einer Map alles, was machbar ist, und geht dann zur nächsthöheren. Startet man z. B. mit Start-Map „Digi-Egg Valley“, geht es von dort aus nach oben. Ohne Start-Map beginnt er bei der niedrigsten erreichbaren Map.
+- Neuer Test `apt6up` (aufsteigend: Tiefland → Mittelland → Hochland; mit der alten Version umgekehrt).
+
 #### Neu in 2.33.2 – Boss-Rotation: unterwegs keine Kämpfe durch die Gruppe
 - Der Leader meldet der Gruppe nur noch ein Ziel, das er wirklich angreift, und nicht, solange er unterwegs ist (kein Kampf). Live hatte das Spiel beim Leader einen Angreifer ausgewählt, ohne dass er ihn angriff; der Mitläufer griff ihn als „Ziel des Leaders“ an, und so zog ein Kampf den nächsten nach sich. Wird ein Gruppenmitglied angegriffen, helfen die anderen wie bisher.
 - Am Spawnpunkt gilt der Bot ab ≤ 200 px als angekommen und erst ab > 350 px wieder als unterwegs. Live pendelte er an der 200-px-Grenze zwischen Kämpfen und Zurücklaufen.

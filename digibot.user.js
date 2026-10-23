@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.33.2
+// @version      2.34.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -325,7 +325,8 @@
     apGrind: true,    // Autopilot: bei Level-Sperren/Level-Zielen grinden statt stoppen
     apBatch: false,   // Autopilot: erst alle Ziele erledigen, dann alles abgeben, dann alles annehmen (keine Abgabe zwischendurch)
     apOrder: 'near',  // 'near' = nächste Aufgabe zuerst, 'sweep' = Map für Map absteigend
-    apStartMap: '',   // Start-Map der Runde ('' = höchste erreichbare)
+    apStartMap: '',   // Start-Map der Runde ('' = höchste bzw. niedrigste erreichbare, je nach Richtung)
+    apSweepDir: 'down', // Map für Map: 'down' = von oben nach unten, 'up' = von unten nach oben
     apSweepMap: '',   // aktuelle Map der laufenden Runde (Fortschritt, überlebt Neuladen)
     apQuestPartner: '',   // partnerId, mit dem Quests erledigt werden ('' = aktuellen behalten)
     apEvo: '',            // Digitation (Art) für das Quest-Digimon ('' = keine)
@@ -493,7 +494,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.33.2'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.34.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -598,6 +599,7 @@
             <label>Reihenfolge<select data-apsel="apOrder">
               <option value="near">Nächste Aufgabe zuerst</option>
               <option value="sweep">Map für Map: annehmen → erledigen → abgeben</option></select></label>
+            <label data-sweeponly>Richtung<select data-apsel="apSweepDir"><option value="down">von oben nach unten (höchste Map zuerst)</option><option value="up">von unten nach oben (niedrigste Map zuerst)</option></select></label>
             <label data-sweeponly>Start-Map<select data-apsel="apStartMap"></select></label>
           </div>
           ${check('apRepeat', 'Tägliche NPC-Quests (wiederholbar) mitnehmen')}
@@ -2785,12 +2787,14 @@
   }
 
   // ---------- Map-für-Map-Runde ----------
-  // Alle normalen Maps (keine Raids/Sandbox), absteigend nach Level – von „Dream Ruins“ bis „Native Forest“.
+  // Alle normalen Maps (keine Raids/Sandbox), absteigend nach Level – von „Dream Ruins“ bis „Native Forest“ –
+  // oder aufsteigend (Richtung „von unten nach oben“).
   function sweepList() {
-    return Object.values(content()?.maps || {})
+    const list = Object.values(content()?.maps || {})
       .filter((m) => world.maps[m.id] && !isRaidMap(m.id) && !/^sandbox/.test(m.id))
       .sort((a, b) => (b.levelRange?.[0] ?? 0) - (a.levelRange?.[0] ?? 0) || (b.levelRange?.[1] ?? 0) - (a.levelRange?.[1] ?? 0)
         || a.name.localeCompare(b.name));
+    return cfg.apSweepDir === 'up' ? list.reverse() : list;
   }
   function sweepMap(st) {
     const ids = sweepList().map((m) => m.id);
@@ -5117,7 +5121,9 @@
   function renderApConfig(st) {
     const order = panel.querySelector('[data-apsel="apOrder"]');
     if (order && panel.ownerDocument.activeElement !== order) order.value = cfg.apOrder;
-    panel.querySelector('[data-sweeponly]')?.classList.toggle('hide', cfg.apOrder !== 'sweep');
+    const dir = panel.querySelector('[data-apsel="apSweepDir"]');
+    if (dir && panel.ownerDocument.activeElement !== dir) dir.value = cfg.apSweepDir === 'up' ? 'up' : 'down';
+    panel.querySelectorAll('[data-sweeponly]').forEach((el) => el.classList.toggle('hide', cfg.apOrder !== 'sweep'));
     const team = teamOf(st);
     const teamOpts = team.map((p) => [p.partnerId, partnerLabel(p) + (p.active ? ' (aktiv)' : '')]);
     fillSelect('apQuestPartner', [['', 'aktuelles behalten'], ...teamOpts]);
@@ -5128,7 +5134,7 @@
     fillSelect('apEvo', [['', 'keine Digitation'], [EVO_MAX, '⬆ höchstmögliche Digitation'], ...evos.map((e) => [e.species,
       `${speciesName(e.species)} (${e.stage}, ab Lv ${e.level}${e.unlocked === false ? ', gesperrt' : ''})`])]);
     fillSelect('apStartMap', world.state === 'ready'
-      ? [['', 'höchste erreichbare'], ...sweepList().map((m) => [m.id,
+      ? [['', cfg.apSweepDir === 'up' ? 'niedrigste erreichbare' : 'höchste erreichbare'], ...sweepList().map((m) => [m.id,
         `${m.name} (${m.levelRange?.join('–')})${hops(st?.world?.mapId, m.id) === Infinity ? ' – nicht erreichbar' : ''}`])]
       : [['', 'Weltkarte lädt…']]);
   }
@@ -5731,7 +5737,7 @@
       const key = e.target.dataset.apsel;
       if (key) {
         cfg[key] = e.target.value;
-        if (key === 'apStartMap' || key === 'apOrder') cfg.apSweepMap = ''; // Runde neu beginnen
+        if (key === 'apStartMap' || key === 'apOrder' || key === 'apSweepDir') cfg.apSweepMap = ''; // Runde neu beginnen
         if (key === 'apQuestPartner') cfg.apEvo = '';                     // Digitation gilt pro Digimon
         if (/^(farm|route)/.test(key)) farm.reset();
         saveCfg(); autopilot.reset(); e.target.blur(); questSig = ''; schedule();
