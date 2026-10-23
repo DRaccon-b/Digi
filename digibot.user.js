@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.44.4
+// @version      2.44.5
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -504,7 +504,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.44.4'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.44.5'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -4942,7 +4942,8 @@
   // hingehen, wenn einer lebt oder in unter LR_BOSS_SOON_MS spawnt. Nach dem Kampf zurück in die Zone.
   const LR_BOSS_SOON_MS = 30000, LR_SCAN_WAIT_MS = 7000, LR_BOSS_LOOK_MS = 20000, LR_BOSS_NEAR = 120;
   // Bosse sind von der Level-Grenze ausgenommen (Wunsch: lebt einer, hingehen – egal wie hoch)
-  const lrBossSel = (mapId) => farmBossList().filter((b) => b.map === mapId && (b.kind === 'field' || b.kind === 'named'));
+  // nur echte Feldbosse – Named Elites geben kaum mehr EXP als ein normales Monster und sind den Umweg nicht wert
+  const lrBossSel = (mapId) => farmBossList().filter((b) => b.map === mapId && b.kind === 'field');
   function lrBossPos(b) {
     const m = world.maps[b.map], sp = m?.spawns?.[b.at], z = m?.zones?.[b.at];
     return sp ? { x: sp.x, y: sp.y } : z?.w ? { x: z.x + z.w / 2, y: z.y + z.h / 2 } : null;
@@ -5045,8 +5046,13 @@
     const where = `${content()?.maps?.[g.mapId]?.name || g.mapId} / ${g.zone}`;
     if (st.world?.mapId !== g.mapId) { const tr = travel(st, g.mapId, now); return tr === true ? `angekommen in ${where}` : `reise zu ${where} · ${tr}`; }
     const me = controlled(st), r = g.rect;
+    // außerhalb der Zone: passende Monster in Sicht weiter bekämpfen (live: nach jedem Kampf am Rand zurück zur Mitte und
+    // wieder hinaus), sonst nur bis an den nächsten Punkt der Zone laufen statt zur Mitte
     if (me && !(me.x >= r.x - 24 && me.x <= r.x + r.w + 24 && me.y >= r.y - 24 && me.y <= r.y + r.h + 24)) {
-      if (walkTo(st, r.x + r.w / 2, r.y + r.h / 2, now) === 'stuck') autopilot.nav = null;
+      if (sc && sc.mobs.some(usable)) { lr.roam = null; return null; }
+      const cx = Math.min(Math.max(me.x, r.x + Math.min(48, r.w / 2)), r.x + r.w - Math.min(48, r.w / 2));
+      const cy = Math.min(Math.max(me.y, r.y + Math.min(48, r.h / 2)), r.y + r.h - Math.min(48, r.h / 2));
+      if (walkTo(st, cx, cy, now) === 'stuck') autopilot.nav = null;
       return `laufe in die Zone ${where} (~${Math.round(g.rate)} EXP/min)`;
     }
     // in der Zone, aber nichts Passendes im Suchradius: einen anderen Punkt der Zone ansteuern statt zu warten

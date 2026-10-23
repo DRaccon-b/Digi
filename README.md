@@ -217,6 +217,10 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.44.5 – Lern-Route ohne Named Elites, weniger Umwege
+- Named Elites gehören nicht mehr zur Boss-Runde der Lern-Route (kaum mehr EXP als ein normales Monster), nur echte Feldbosse.
+- Außerhalb der Zone werden sichtbare passende Monster weiter bekämpft; ohne Ziel läuft der Bot nur bis an den nächsten Punkt der Zone statt zur Mitte (live: nach jedem Kampf am Rand zur Mitte und wieder hinaus).
+
 #### Neu in 2.44.4 – Weg zum Feldboss nicht mehr durch neue Kämpfe unterbrochen
 - Ist ein Feldboss der Lern-Map lebendig, läuft der Bot direkt hin und fängt unterwegs keine neuen Kämpfe mit normalen Monstern an (live wurde der Weg bei jedem Monster am Rand abgebrochen). Angreifer werden weiter abgewehrt.
 
