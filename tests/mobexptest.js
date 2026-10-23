@@ -1,5 +1,5 @@
-// 2.47.0: Übersicht „EXP je Monster (diese Map)“ – eigene Kills je Art mit der EXP aus der Chat-Meldung, nur Arten mit
-// EXP, Anteil in %; fremde Kills zählen nicht; ↺ leert die Liste.
+// 2.47.0: Übersicht „EXP je Monster“ – eigene Kills je Art mit der EXP aus der Chat-Meldung, nur Arten mit EXP, Anteil
+// in %; fremde Kills zählen nicht; ↺ leert die Liste. 2.47.1: über alle Maps der Sitzung, nicht nur die aktuelle.
 const fs = require('fs');
 const makeWorld = require('./gw');
 const script = fs.readFileSync(process.argv[2], 'utf8');
@@ -30,13 +30,18 @@ const rows = () => [...W.w.document.querySelectorAll('[data-f="mobexp"] > div')]
   await kill('m:3', 259); // Kunemon
   await kill('m:4', 0, 'p:other'); // Tokomon, fremder Kill -> nicht anzeigen
   await wait(1300);
+  const a0 = rows();
+  W.store.setState({ world: { ...W.store.getState().world, mapId: 'primary_village' } }); // andere Map: zählt mit
+  await kill('m:4', 100); // Tokomon
+  await wait(1300);
   const a = rows();
   W.w.document.querySelector('[data-act="mobexp-reset"]').click();
   await wait(1300);
   const b = W.w.document.querySelector('[data-f="mobexp"]').textContent;
-  console.log({ a, b });
-  const ok = a.length === 2 && /Kunemon/.test(a[0]) && /2×600/.test(a[0]) && /55 %/.test(a[0]) && /Bigmon/.test(a[1]) && /1×500/.test(a[1]) && /45 %/.test(a[1])
-    && !a.some((r) => /Tokomon/.test(r)) && /noch keine EXP/.test(b);
+  console.log({ a0, a, b });
+  const ok = a0.length === 2 && !a0.some((r) => /Tokomon/.test(r))
+    && a.length === 3 && /Kunemon/.test(a[0]) && /2×600/.test(a[0]) && /50 %/.test(a[0]) && /Bigmon/.test(a[1]) && /1×500/.test(a[1]) && /42 %/.test(a[1])
+    && /Tokomon/.test(a[2]) && /1×100/.test(a[2]) && /noch keine EXP/.test(b);
   console.log(ok ? 'OK – EXP je Monsterart angezeigt, fremde Kills nicht, Reset leert' : 'FEHLER');
   process.exit(ok ? 0 : 1);
 })();

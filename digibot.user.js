@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.47.0
+// @version      2.47.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -509,7 +509,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.47.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.47.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -555,9 +555,9 @@
             <div><b>Erhalten</b><div data-f="lootin"><i class="digibot__none">noch nichts</i></div></div>
             <div><b>Verbraucht</b><div data-f="lootout"><i class="digibot__none">noch nichts</i></div></div>
           </div>`, true, 'Alles seit Sitzungsbeginn (↺ oben setzt zurück): Items, die ins Inventar kamen (Drops, Belohnungen) und die weniger wurden (Tränke, abgegebene Quest-Items). EXP aus allen Quellen (Kämpfe, Quests) und Bits rein/raus.')}
-        ${grp('mobexp', 'Sitzung: EXP je Monster (diese Map)', `
+        ${grp('mobexp', 'Sitzung: EXP je Monster', `
           <div class="digibot__sesshead"><span>Nur Monster, die schon EXP gebracht haben</span><button class="digibot__btn" data-act="mobexp-reset" title="EXP je Monster zurücksetzen">↺</button></div>
-          <div class="digibot__mobexp" data-f="mobexp"><i class="digibot__none">auf dieser Map noch keine EXP von Monstern</i></div>`, true, 'Eigene Kills seit Sitzungsbeginn auf der aktuellen Map: Anzahl, EXP zusammen und Anteil. Maus über eine Zeile: Ø EXP je Kill. ↺ hier setzt nur diese Liste zurück (↺ bei den Sitzungswerten setzt sie mit zurück).')}
+          <div class="digibot__mobexp" data-f="mobexp"><i class="digibot__none">noch keine EXP von Monstern</i></div>`, true, 'Eigene Kills seit Sitzungsbeginn, über alle Maps: Anzahl, EXP zusammen und Anteil. Maus über eine Zeile: Ø EXP je Kill und die Maps. ↺ hier setzt nur diese Liste zurück (↺ bei den Sitzungswerten setzt sie mit zurück).')}
         ${grp('queue', 'Als Nächstes', `<div class="digibot__queue" data-f="queue"><div class="digibot__none">–</div></div>`, true, 'Aktuelle Aufgabe (gelb) und die nächsten Schritte des Autopiloten.')}
         ${grp('radar', '<span data-f="radar">Radar</span>', `
           <canvas class="digibot__radar" width="476" height="320"></canvas>
@@ -817,7 +817,7 @@
     if (expm.dirty) expmSave();
   }
   // EXP je Monsterart in dieser Sitzung (Übersicht): eigene Kills vormerken, EXP aus der Chat-Meldung „+341 EXP“ zuordnen.
-  // Unabhängig von der EXP-Messung, immer an. Schlüssel: Map + Name (Varianten wie *_ring zählen zusammen).
+  // Unabhängig von der EXP-Messung, immer an. Über alle Maps der Sitzung; Schlüssel: Name (Varianten wie *_ring zählen zusammen).
   const MOBEXP_WAIT_MS = 3000;
   const mobExp = { hit: new Map(), pending: [], used: new WeakSet(), by: new Map(), sig: '', at: 0 };
   function mobExpEvent(ev, mine) {
@@ -840,9 +840,9 @@
       const m = chat.find((c) => (c?.code === 'exp' || c?.code === 'exp_party') && c.ts >= k.t - 300 && !mobExp.used.has(c));
       if (m) {
         mobExp.used.add(m);
-        const name = content()?.digimon?.[k.sp]?.name || k.sp, key = `${k.map}|${name}`;
-        const e = mobExp.by.get(key) || { map: k.map, name, exp: 0, kills: 0 };
-        e.exp += Number(m.params?.exp) || 0; e.kills++; mobExp.by.set(key, e);
+        const name = content()?.digimon?.[k.sp]?.name || k.sp;
+        const e = mobExp.by.get(name) || { name, exp: 0, kills: 0, maps: new Set() };
+        e.exp += Number(m.params?.exp) || 0; e.kills++; if (k.map) e.maps.add(k.map); mobExp.by.set(name, e);
         k.done = true;
       } else if (now - k.t > MOBEXP_WAIT_MS) k.done = true; // keine Meldung (z. B. 0 EXP): verwerfen
     }
@@ -853,12 +853,12 @@
     const el = panel.querySelector('[data-f="mobexp"]');
     if (!el || !panel.querySelector('[data-page="data"]').classList.contains('on')) return;
     const now = Date.now(); if (now - mobExp.at < 1000) return; mobExp.at = now;
-    const mapId = st?.world?.mapId, rows = [...mobExp.by.values()].filter((e) => e.map === mapId && e.exp > 0).sort((a, b) => b.exp - a.exp);
+    const rows = [...mobExp.by.values()].filter((e) => e.exp > 0).sort((a, b) => b.exp - a.exp);
     const tot = rows.reduce((n, e) => n + e.exp, 0);
     const esc = (x) => String(x ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
     const html = rows.length
-      ? rows.map((e) => `<div title="${fmt(e.kills)} Kills · Ø ${fmt(e.exp / e.kills)} EXP je Kill"><span>${esc(e.name)}</span><em>${fmt(e.kills)}×</em><b>${fmt(e.exp)}</b><em>${Math.round(e.exp / tot * 100)} %</em></div>`).join('')
-      : '<i class="digibot__none">auf dieser Map noch keine EXP von Monstern</i>';
+      ? rows.map((e) => `<div title="${fmt(e.kills)} Kills · Ø ${fmt(e.exp / e.kills)} EXP je Kill · ${esc([...e.maps].map((id) => content()?.maps?.[id]?.name || id).join(', '))}"><span>${esc(e.name)}</span><em>${fmt(e.kills)}×</em><b>${fmt(e.exp)}</b><em>${Math.round(e.exp / tot * 100)} %</em></div>`).join('')
+      : '<i class="digibot__none">noch keine EXP von Monstern</i>';
     if (html === mobExp.sig) return;
     mobExp.sig = html; el.innerHTML = html;
   }

@@ -217,6 +217,9 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.47.1 – EXP je Monster über alle Maps
+- „Sitzung: EXP je Monster“ zählt jetzt über alle Maps der Sitzung statt nur der aktuellen. Maus über eine Zeile zeigt zusätzlich, auf welchen Maps die Kills waren.
+
 #### Neu in 2.47.0 – Übersicht: EXP je Monster
 - Neuer Abschnitt „Sitzung: EXP je Monster (diese Map)“: je Monsterart der aktuellen Map die eigenen Kills, die EXP zusammen und der Anteil – nur Arten, die schon EXP gebracht haben. Maus über eine Zeile zeigt Ø EXP je Kill. Eigener ↺-Knopf setzt nur diese Liste zurück; ↺ bei den Sitzungswerten leert sie mit.
 
