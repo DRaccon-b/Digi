@@ -217,6 +217,11 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.44.2 – Lern-Route sucht in der Zone
+- Bei Zonen über der Level-Grenze gilt jetzt der ganze niedrigste Level-Bereich der Zone als erlaubt, z. B. Lv 40–41 in Harvest Hills / Felder, höchstens +12. Bisher war es nur das einzelne niedrigste Level, und ab Lv 30 stand davon oft keins im Suchradius.
+- Steht in der Zone nichts Passendes im Suchradius, läuft der Bot zu einem anderen Punkt der Zone, statt zu warten. Status: „suche Monster in …“.
+- `levelroutetest` prüft das jetzt mit.
+
 #### Neu in 2.44.1 – Lern-Route rechnet mit dem gemessenen Schaden
 - Der Bot misst seinen eigenen Schaden je Sekunde laufend selbst, je Digimon-Form und gleitend über die letzten ~10 Kills. Die Lern-Route rechnet damit, sobald 5 Kills gemessen sind. Vorher nimmt sie die Schätzung (1,55 × AT je Angriff).
 - Grund: Live lag die Schätzung für Shurimon gegen +11-Gegner 25 % zu hoch (4 015 statt 3 066/s). Die EXP-Formel stimmte dagegen exakt (557 EXP je Kill).

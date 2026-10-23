@@ -5,7 +5,7 @@ const fs = require('fs');
 const makeWorld = require('./gw');
 const script = fs.readFileSync(process.argv[2], 'utf8');
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-async function run({ route, a2, series, lowerTo, lvlDiff = 10 }) {
+async function run({ route, a2, series, lowerTo, lvlDiff = 10, roam }) {
   const G = makeWorld({ slot: 0, tag: 'R', noHash: true, accounts: { leader: 0, list: [{ user: 'solo' }] }, mobs: [[360, 300], [420, 340]],
     quests: { q00_meet_gennai: { state: 3, counters: [] }, q02_first_steps: { state: 3, counters: [] } },
     setup({ content, MAPS }) {
@@ -27,8 +27,9 @@ async function run({ route, a2, series, lowerTo, lvlDiff = 10 }) {
     const sl = G.w.document.querySelector('input[data-cfg="lvlDiff"]'); sl.value = lowerTo; sl.dispatchEvent(new G.w.Event('input', { bubbles: true }));
     for (let i = 0; i < 20; i++) await wait(150);
   }
+  if (roam) { const pos = []; for (let i = 0; i < 40; i++) { seen.add(G.status().replace(/ · .*/, '').slice(0, 60)); const t1 = G.ents.get('t:me'); pos.push(Math.round(t1.x) + ',' + Math.round(t1.y)); await wait(150); } seen.add('moves:' + new Set(pos).size); }
   const t = G.ents.get('t:me');
-  const r = { map: G.state.world.mapId, inZone: G.state.world.mapId === 'primary_village' && t.x >= 476 && t.x <= 724, st: [...seen].slice(0, 5) };
+  const r = { map: G.state.world.mapId, inZone: G.state.world.mapId === 'primary_village' && t.x >= 476 && t.x <= 724, st: [...seen].slice(0, 8) };
   G.w.close();
   return r;
 }
@@ -46,6 +47,8 @@ async function run({ route, a2, series, lowerTo, lvlDiff = 10 }) {
   res.push(['Grenze gesenkt: Zone ab +5 bleibt (niedrigste Monster, bis +12)', e.map === 'primary_village', e]);
   const f = await run({ route: true, a2: false, lvlDiff: 2 });
   res.push(['Grenze +2, bessere Zone ab +5: reist trotzdem hin (Erweiterung)', f.map === 'primary_village' && f.inZone, f]);
+  const h = await run({ route: true, a2: false, roam: true });
+  res.push(['In der Zone kein Monster im Radius: sucht in der Zone statt zu warten', h.st.some((x) => /suche Monster in/.test(x)), h]);
   for (const [n, ok, info] of res) console.log((ok ? 'OK     ' : 'FEHLER ') + n, JSON.stringify(info));
   const all = res.every((x) => x[1]);
   console.log(all ? 'ALLES OK' : 'FEHLER');

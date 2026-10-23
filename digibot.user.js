@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.44.1
+// @version      2.44.2
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -504,7 +504,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.44.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.44.2'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -4874,6 +4874,14 @@
   const LR_GAP_S = 1.3, LR_TOP_SHARE = 0.35, LR_SWITCH_GAIN = 1.15, LR_MIN_STAY_MS = 180000, LR_CALC_MS = 30000, LR_MAX_ABOVE = 12;
   const lr = { goal: null, since: 0, calcAt: 0, calcLv: 0, best: null, boss: null, scan: null };
   const lrOn = () => cfg.levelRoute && !cfg.autopilot && !cfg.farm && !cfg.questMode && !cfg.dungeon;
+  // Zone ganz über der Level-Grenze: bis zur Obergrenze ihres niedrigsten Level-Bereichs erlauben (z. B. Lv 40–41), höchstens
+  // LR_MAX_ABOVE – sonst steht oft gerade keins im Suchradius (live: nur Lv 40 erlaubt, Bot wartete)
+  function lrExt(entries, pl) {
+    let lo = Infinity, hi = -Infinity;
+    for (const e of entries || []) { const a = e.level?.[0], b = e.level?.[e.level.length - 1]; if (a == null) continue; if (a < lo) { lo = a; hi = b; } else if (a === lo) hi = Math.max(hi, b); }
+    if (!isFinite(lo) || lo - pl <= cfg.lvlDiff || lo - pl > LR_MAX_ABOVE) return 0;
+    return Math.min(LR_MAX_ABOVE, hi - pl);
+  }
   // Level-Grenze beim Grinden: in einer Lern-Zone ganz über der Grenze bis zu ihrem niedrigsten Monster-Level
   const lvlLimit = (mapId) => (lrOn() && lr.goal?.ext && lr.goal.mapId === mapId ? Math.max(cfg.lvlDiff, lr.goal.ext) : cfg.lvlDiff);
   // Eigener Schaden/s: gemessen (je Digimon-Form, gleitend über die letzten Kills), sonst geschätzt (1,55 × AT je Angriff)
@@ -4922,8 +4930,7 @@
         const rect = world.maps[mapId]?.zones?.[zn]; if (!rect?.w) continue;
         // Zone ganz über der Level-Grenze: mit ihren niedrigsten Monstern rechnen (bis LR_MAX_ABOVE) – oft besser als
         // die beste Zone innerhalb der Grenze (live: Lv 29, Harvest Hills ab +11 ≈ +30 % gegenüber +5…+8 im Tal)
-        const lows = (z.entries || []).map((e) => e.level?.[0]).filter((v) => v != null), minUp = lows.length ? Math.min(...lows) - p.level : 0;
-        const ext = minUp > cfg.lvlDiff && minUp <= LR_MAX_ABOVE ? minUp : 0;
+        const ext = lrExt(z.entries, p.level);
         const rate = lrZoneRate(C, z.entries, p.level, dps, ext || Math.min(cfg.lvlDiff, LR_MAX_ABOVE));
         if (rate > 0 && (!best || rate > best.rate)) best = { mapId, zone: zn, rate, rect, ext };
       }
@@ -5010,9 +5017,8 @@
       const b = lr.best, g = lr.goal;
       // aktuelle Zone neu bewerten (Level-Up, geänderte Level-Grenze) – bringt sie nichts mehr, sofort wechseln
       if (g) {
-        const ents = content()?.spawns?.[g.mapId]?.zones?.[g.zone]?.entries || [], lows = ents.map((e) => e.level?.[0]).filter((v) => v != null);
-        const minUp = lows.length ? Math.min(...lows) - p.level : 0;
-        g.ext = minUp > cfg.lvlDiff && minUp <= LR_MAX_ABOVE ? minUp : 0;
+        const ents = content()?.spawns?.[g.mapId]?.zones?.[g.zone]?.entries || [];
+        g.ext = lrExt(ents, p.level);
         g.rate = lrZoneRate(content(), ents, p.level, lrDps(p), g.ext || Math.min(cfg.lvlDiff, LR_MAX_ABOVE));
       }
       if (b && (!g || (b.mapId !== g.mapId || b.zone !== g.zone) && (g.rate <= 0 || (b.rate > g.rate * LR_SWITCH_GAIN && now - lr.since > LR_MIN_STAY_MS)))) {
@@ -5040,6 +5046,14 @@
       if (walkTo(st, r.x + r.w / 2, r.y + r.h / 2, now) === 'stuck') autopilot.nav = null;
       return `laufe in die Zone ${where} (~${Math.round(g.rate)} EXP/min)`;
     }
+    // in der Zone, aber nichts Passendes im Suchradius: einen anderen Punkt der Zone ansteuern statt zu warten
+    if (me && sc && !sc.mobs.some(usable)) {
+      const rp = lr.roam;
+      if (!rp || now - rp.at > 15000 || Math.hypot(me.x - rp.x, me.y - rp.y) < 40) lr.roam = { x: r.x + 24 + Math.random() * Math.max(1, r.w - 48), y: r.y + 24 + Math.random() * Math.max(1, r.h - 48), at: now };
+      if (walkTo(st, lr.roam.x, lr.roam.y, now) === 'stuck') { autopilot.nav = null; lr.roam = null; }
+      return `suche Monster in ${where}`;
+    }
+    lr.roam = null;
     return null;
   }
   function expPick(list) {
