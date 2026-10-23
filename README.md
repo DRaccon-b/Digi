@@ -217,6 +217,11 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.46.0 – Lern-Route: Feldboss der Map darunter mitnehmen
+- Die Boss-Runde der Lern-Route nimmt auch die Feldbosse der Map darunter mit (gleiche Serie, nächstniedrigeres Monster-Level), solange der Boss höchstens 2 Level unter dem Digimon liegt. Reisezeit wird eingerechnet (45 s je Map-Wechsel): der Bot fährt los, wenn der Boss lebt oder bis zur Ankunft spawnt, liest dort die Timer der Kanäle und kehrt danach zur Lern-Zone zurück.
+- Gerechnet (Lv 40 in Kaiser's Canyon, MetalGreymon Ch 1+2, dazu Drimogemon Ch 1+2): ≈ +32 % EXP/min bei Lv 40, +19 % bei Lv 44, ab Boss-Level +2 kaum noch.
+- Boss-EXP gemessen: Basis × Level^1,1 × 1,5 bei +5…+8, darüber −0,0365 je Level.
+
 #### Neu in 2.45.2 – Lern-Route: auf dem Weg zum Feldboss keine Kämpfe
 - Auf dem Weg zum Feldboss kämpft der Bot nicht mehr, auch nicht gegen Angreifer: Digimon zurückrufen und weiterlaufen (live: unterwegs zu MetalGreymon (Virus) Guardromon angegriffen). Ohne Boss-Ziel werden Angreifer wie bisher abgewehrt.
 

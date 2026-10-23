@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.45.2
+// @version      2.46.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -504,7 +504,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.45.2'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.46.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -4967,7 +4967,24 @@
   const LR_BOSS_SOON_MS = 10000, LR_SCAN_WAIT_MS = 7000, LR_BOSS_LOOK_MS = 20000, LR_BOSS_NEAR = 120;
   // Bosse sind von der Level-Grenze ausgenommen (Wunsch: lebt einer, hingehen – egal wie hoch)
   // nur echte Feldbosse – Named Elites geben kaum mehr EXP als ein normales Monster und sind den Umweg nicht wert
-  const lrBossSel = (mapId) => farmBossList().filter((b) => b.map === mapId && b.kind === 'field');
+  // dazu die Feldbosse der Map darunter (gleiche Serie, nächstniedrigeres niedrigstes Monster-Level), solange der Boss
+  // höchstens LR_BELOW_MAX Level unter dem Digimon liegt – gerechnet: Lv 40 in Kaiser's Canyon + Drimogemon ≈ +30 % EXP/min,
+  // ab Boss-Level +2 lohnt der Abstecher kaum noch
+  const LR_BELOW_MAX = 2;
+  function lrMapLow(mapId) { let lo = Infinity; for (const z of Object.values(content()?.spawns?.[mapId]?.zones || {})) for (const e of z.entries || []) if (e.level?.[0] != null) lo = Math.min(lo, e.level[0]); return lo; }
+  function lrMapBelow(mapId) {
+    const C = content(), lo0 = lrMapLow(mapId); if (!C?.spawns || !isFinite(lo0)) return null;
+    const ser = C.maps?.[mapId]?.series || 1; let best = null, bl = -Infinity;
+    for (const [id, sp] of Object.entries(C.spawns)) {
+      if (sp.raid || id === mapId || (C.maps?.[id]?.series || 1) !== ser) continue;
+      const lo = lrMapLow(id); if (isFinite(lo) && lo < lo0 && lo > bl) { bl = lo; best = id; }
+    }
+    return best;
+  }
+  const lrBossSel = (mapId, pl) => {
+    const below = pl != null ? lrMapBelow(mapId) : null;
+    return farmBossList().filter((b) => b.kind === 'field' && (b.map === mapId || (below && b.map === below && b.level - pl >= -LR_BELOW_MAX)));
+  };
   function lrBossPos(b) {
     const m = world.maps[b.map], sp = m?.spawns?.[b.at], z = m?.zones?.[b.at];
     return sp ? { x: sp.x, y: sp.y } : z?.w ? { x: z.x + z.w / 2, y: z.y + z.h / 2 } : null;
@@ -4978,30 +4995,37 @@
     const p = st.me.partner, sel = lrBossSel(g.mapId, p.level);
     if (!sel.length) { lr.boss = null; return null; }
     farmUpdate(st, now, sel);
-    const cur = st.world?.channel ?? 1, where = content()?.maps?.[g.mapId]?.name || g.mapId;
+    const here = st.world?.mapId, cur = st.world?.channel ?? 1, mapName = (id) => content()?.maps?.[id]?.name || id, where = mapName(here);
     const list = farmChannelList(st, now);
     // erlaubte Kanäle: offene, dazu der nächste freie, wenn das Spiel ihn öffnen lässt (Ch 2 immer) – live: nur Ch 1 offen,
     // Ch 2 wurde nie angesehen; farmSwitch öffnet ihn selbst
     const nc = list && commands()?.openChannel ? newChannelAllowed(list) : null;
     const allowed = (cfg.farmChannels?.length ? cfg.farmChannels : [1]).filter((c) => !list || list.some((r) => r.channel === c) || (nc?.allowed && c === nc.channel));
-    // 1) beim Ankommen: jeden erlaubten Kanal einmal ansehen (Map-Info dort lesen)
-    if (!lr.scan || lr.scan.map !== g.mapId) lr.scan = { map: g.mapId, done: new Set(), ch: null, at: 0 };
-    const sn = lr.scan, todo = allowed.filter((c) => !sn.done.has(c));
+    // 1) beim Ankommen: jeden erlaubten Kanal einmal ansehen (Map-Info dort lesen) – auf der Lern-Map einmal je Ziel, auf der
+    // Map darunter bei jedem Besuch (dort ist man nur für einen Boss)
+    lr.scans ||= {};
+    if (here !== lr.lastMap) { if (here !== g.mapId) delete lr.scans[here]; lr.lastMap = here; }
+    let sn = sel.some((b) => b.map === here) ? lr.scans[here] : null;
+    if (sel.some((b) => b.map === here) && (!sn || (here === g.mapId && sn.since !== lr.since))) sn = lr.scans[here] = { since: lr.since, done: new Set(), ch: null, at: 0 };
+    const todo = sn ? allowed.filter((c) => !sn.done.has(c)) : [];
     if (todo.length && !lr.boss) {
       if (todo.includes(cur)) {
         if (sn.ch !== cur) { sn.ch = cur; sn.at = now; farm.lastInfo = 0; } // gleich nachfragen
         if (now - sn.at >= LR_SCAN_WAIT_MS) { sn.done.add(cur); logEvent('map', `Leveln: Boss-Timer ${where} Ch ${cur} gelesen`); }
-        return null; // derweil hier weiter grinden
+        return here === g.mapId ? null : `Boss-Timer ${where} Ch ${cur} lesen…`; // auf der Lern-Map derweil weiter grinden
       }
-      const r = farmSwitch(st, sc, g.mapId, where, todo[0], now);
+      const r = farmSwitch(st, sc, here, where, todo[0], now);
       if (r.failed) { sn.done.add(todo[0]); return null; }
       return r.done ? null : `Boss-Timer: wechsle zu Ch ${todo[0]} · ${r.status}`;
     }
     // 2) Ziel wählen: lebt oder spawnt bald (Kanalwechsel ~8 s eingerechnet)
     if (!lr.boss) {
       let best = null;
-      for (const b of sel) for (const ch of allowed) {
-        const s = farmState(b, ch, now), sw = ch === cur ? 0 : 8000;
+      for (const b of sel) for (const ch of (b.map === here ? allowed : (cfg.farmChannels?.length ? cfg.farmChannels : [1]))) {
+        if ((farm.chBan.get(`${b.map}#${ch}`) || 0) > now) continue;
+        // andere Map: Reisezeit dazu (FARM_HOP_MS je Map-Wechsel)
+        const h = b.map === here ? 0 : hops(here, b.map); if (h === Infinity) continue;
+        const s = farmState(b, ch, now), sw = h * FARM_HOP_MS + (b.map === here && ch === cur ? 0 : 8000);
         const eta = s.state === 'up' ? sw : s.state === 'down' ? Math.max(s.readyAt - now, sw) : Infinity;
         if (eta <= LR_BOSS_SOON_MS + sw && (!best || eta < best.eta)) best = { b, ch, eta, s };
       }
@@ -5012,8 +5036,9 @@
     // 3) hin und kämpfen
     const lb = lr.boss, st1 = farmState(lb.b, lb.ch, now);
     if (st1.state === 'down' && st1.readyAt - now > 60000) { lr.boss = null; return null; } // besiegt (Respawn-Timer gesetzt)
+    if (here !== lb.b.map) { const tr = travel(st, lb.b.map, now); return `${lb.b.name}: reise nach ${mapName(lb.b.map)} · ${tr === true ? 'angekommen' : tr}`; }
     if (cur !== lb.ch) {
-      const r = farmSwitch(st, sc, g.mapId, where, lb.ch, now);
+      const r = farmSwitch(st, sc, here, where, lb.ch, now);
       if (r.failed) { lr.boss = null; return null; }
       return r.done ? null : `${lb.b.name}: wechsle zu Ch ${lb.ch} · ${r.status}`;
     }
@@ -5058,7 +5083,7 @@
     const g = lr.goal; if (!g) return null;
     // Feldbosse der Map vor dem normalen Grinden: auf dem Weg zum Boss keine Kämpfe, auch nicht gegen Angreifer – Digimon
     // zurückrufen und weiterlaufen (live: der Weg wurde bei jedem Monster am Rand unterbrochen). Ohne Boss-Ziel: erst abwehren.
-    if (cfg.levelBoss && st.world?.mapId === g.mapId) {
+    if (cfg.levelBoss && (st.world?.mapId === g.mapId || lr.boss || lrBossSel(g.mapId, p.level).some((b) => b.map === st.world?.mapId))) {
       if (attackers.length && !lr.boss) return null;
       const bs = lrBossStep(st, sc, now, g);
       if (bs) {
