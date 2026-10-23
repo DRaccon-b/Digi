@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.48.0
+// @version      2.48.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -509,7 +509,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.48.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.48.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -4927,8 +4927,10 @@
   const expPerKill = (eb, ml, pl) => Math.max(1, Math.round((eb || 0) * Math.pow(ml, 1.1) * expFac(ml - pl)));
   // EXP bis zum nächsten Level (Digimon), gemessen Lv 1–33: 40·L^1,8 + 20, ab Lv 26 × (1 + 0,5·(L − 25)^0,6)
   const expNextOf = (L) => Math.round((40 * Math.pow(L, 1.8) + 20) * (L > 25 ? 1 + 0.5 * Math.pow(L - 25, 0.6) : 1));
-  // Nächste Map (gleiche Serie): die mit dem nächsthöheren niedrigsten Monster-Level; erreichbar, sobald dieses innerhalb
-  // der Level-Grenze liegt. Liefert Map, Ziel-Level und die EXP bis dahin.
+  // Nächste Map (gleiche Serie): die mit dem nächsthöheren niedrigsten Monster-Level. Ziel-Level: ab dem die Lern-Route
+  // wirklich wechselt – ihre beste Zone bringt LR_SWITCH_GAIN mehr als die beste der aktuellen Map (Bewertung wie lrBest,
+  // mit Feldbossen; eigener Schaden wie jetzt). Liefert Map, Ziel-Level, die Raten dort und die EXP bis dahin.
+  const nmCache = { key: '', at: 0, v: null };
   function nextMapInfo(st) {
     const C = content(), p = st?.me?.partner; if (!C?.spawns || !p?.level) return null;
     const low = (mapId) => { let lo = Infinity; for (const z of Object.values(C.spawns[mapId]?.zones || {})) for (const e of z.entries || []) if (e.level?.[0] != null) lo = Math.min(lo, e.level[0]); return lo; };
@@ -4940,10 +4942,28 @@
       const lo = low(id); if (isFinite(lo) && lo > curLo && (!next || lo < next.lo)) next = { mapId: id, lo };
     }
     if (!next) return null;
-    const level = next.lo - cfg.lvlDiff;
+    const ck = `${cur}|${next.mapId}|${p.level}|${p.species}|${cfg.lvlDiff}|${cfg.levelBoss}|${(cfg.farmChannels || []).join()}`, now = Date.now();
+    if (nmCache.key !== ck || now - nmCache.at > 30000) {
+      const dps = lrDps(p);
+      const mapBest = (mapId, L) => {
+        const bt = lrBossTerms(mapId, L, dps); let r = 0;
+        for (const z of Object.values(C.spawns[mapId]?.zones || {})) {
+          const g = lrZoneRate(C, z.entries, L, dps, lrExt(z.entries, L) || Math.min(cfg.lvlDiff, LR_MAX_ABOVE));
+          if (g > 0) r = Math.max(r, g * bt.keep + bt.gain);
+        }
+        return r;
+      };
+      let level = null, rc = 0, rn = 0;
+      for (let L = p.level; L <= p.level + 30; L++) {
+        rc = mapBest(cur, L); rn = mapBest(next.mapId, L);
+        if (rn > 0 && (rc <= 0 || rn > rc * LR_SWITCH_GAIN)) { level = L; break; }
+      }
+      nmCache.key = ck; nmCache.at = now; nmCache.v = { level, rc, rn };
+    }
+    const { level, rc, rn } = nmCache.v;
     let need = 0;
-    if (p.level < level) { need = Math.max(0, (p.expNext || expNextOf(p.level)) - (p.exp || 0)); for (let L = p.level + 1; L < level; L++) need += expNextOf(L); }
-    return { ...next, name: C.maps?.[next.mapId]?.name || next.mapId, level, need };
+    if (level != null && p.level < level) { need = Math.max(0, (p.expNext || expNextOf(p.level)) - (p.exp || 0)); for (let L = p.level + 1; L < level; L++) need += expNextOf(L); }
+    return { ...next, name: C.maps?.[next.mapId]?.name || next.mapId, curName: C.maps?.[cur]?.name || cur, level, need, rc, rn };
   }
 
   // ---------- Lern-Route (Grinden): beste Zone fürs Level ----------
@@ -5002,18 +5022,41 @@
     for (const m of ms) { xp += m.w * m.xp; t += m.w * (m.hp / dps + LR_GAP_S); acc += m.w; if (acc >= W * LR_TOP_SHARE) break; }
     return t > 0 ? xp / t * 60 : 0;
   }
+  // Feldboss-Anteil einer Map für die Bewertung (Wunsch: Boss-Regel in den Wechsel einrechnen): die Bosse der Rotation
+  // (lrBossSel: diese Map und bis zu zwei darunter) bringen je Respawn auf jedem erlaubten Kanal EXP, dafür fehlt Grind-Zeit
+  // (Kampf, Weg, Kanalwechsel, Reise). Ergebnis: Rate = Grinden × keep + gain. Boss-EXP gemessen: Basis × Level^1,1 × 1,5 bei
+  // +5…+8, darüber −0,0365 je Level, darunter wie bei Monstern.
+  const LR_HOP_S = 30, LR_BOSS_WALK_S = 20, LR_CH_S = 8;
+  const bossExpFac = (d) => (d > 8 ? Math.max(0, 1.5 - 0.0365 * (d - 8)) : d >= 5 ? 1.5 : expFac(d));
+  function lrBossTerms(mapId, pl, dps) {
+    if (!cfg.levelBoss || !(dps > 0)) return { keep: 1, gain: 0 };
+    const C = content(), nCh = Math.max(1, cfg.farmChannels?.length || 1);
+    let gain = 0, frac = 0;
+    for (const b of lrBossSel(mapId, pl)) {
+      const d = C?.digimon?.[b.species]; if (!d?.mob || !d.base || !(b.respawnMs > 0)) continue;
+      const h = b.map === mapId ? 0 : hops(mapId, b.map); if (h === Infinity) continue;
+      const hp = (d.base.hp + (d.growth?.hp || 0) * (b.level - 1)) * (b.statMult || 1);
+      const xp = (d.mob.expBase || 0) * Math.pow(b.level, 1.1) * bossExpFac(b.level - pl);
+      const cyc = b.respawnMs / 1000;
+      gain += nCh * xp / (cyc / 60);
+      frac += (nCh * (hp / dps + LR_BOSS_WALK_S + LR_CH_S) + 2 * h * LR_HOP_S) / cyc;
+    }
+    return { keep: Math.max(0, 1 - frac), gain };
+  }
   function lrBest(st) {
     const C = content(), p = st?.me?.partner; if (!C || !p) return null;
     const dps = lrDps(p); let best = null;
     for (const [mapId, sp] of Object.entries(C.spawns || {})) {
       if (sp.raid || !sp.zones) continue;
       if (cfg.levelA2 && (C.maps?.[mapId]?.series || 1) !== 2) continue;
+      const bt = lrBossTerms(mapId, p.level, dps);
       for (const [zn, z] of Object.entries(sp.zones)) {
         const rect = world.maps[mapId]?.zones?.[zn]; if (!rect?.w) continue;
         // Zone ganz über der Level-Grenze: mit ihren niedrigsten Monstern rechnen (bis LR_MAX_ABOVE) – oft besser als
         // die beste Zone innerhalb der Grenze (live: Lv 29, Harvest Hills ab +11 ≈ +30 % gegenüber +5…+8 im Tal)
         const ext = lrExt(z.entries, p.level);
-        const rate = lrZoneRate(C, z.entries, p.level, dps, ext || Math.min(cfg.lvlDiff, LR_MAX_ABOVE));
+        const grind = lrZoneRate(C, z.entries, p.level, dps, ext || Math.min(cfg.lvlDiff, LR_MAX_ABOVE));
+        const rate = grind > 0 ? grind * bt.keep + bt.gain : 0; // mit den Feldbossen der Rotation
         if (rate > 0 && (!best || rate > best.rate)) best = { mapId, zone: zn, rate, rect, ext };
       }
     }
@@ -5138,7 +5181,8 @@
       if (g) {
         const ents = content()?.spawns?.[g.mapId]?.zones?.[g.zone]?.entries || [];
         g.ext = lrExt(ents, p.level);
-        g.rate = lrZoneRate(content(), ents, p.level, lrDps(p), g.ext || Math.min(cfg.lvlDiff, LR_MAX_ABOVE));
+        const grind = lrZoneRate(content(), ents, p.level, lrDps(p), g.ext || Math.min(cfg.lvlDiff, LR_MAX_ABOVE)), bt = lrBossTerms(g.mapId, p.level, lrDps(p));
+        g.rate = grind > 0 ? grind * bt.keep + bt.gain : 0;
       }
       if (b && (!g || (b.mapId !== g.mapId || b.zone !== g.zone) && (g.rate <= 0 || (b.rate > g.rate * LR_SWITCH_GAIN && now - lr.since > LR_MIN_STAY_MS)))) {
         lr.goal = { ...b }; lr.since = now;
@@ -5686,10 +5730,12 @@
       rate > 0 && p ? fmtDur(((p.expNext - p.exp) / rate) * 60000) : '–';
     // Nächste Map: Restzeit bis zum Level, ab dem ihre niedrigsten Monster in der Grenze liegen (bei der aktuellen EXP/min)
     const nm = nextMapInfo(st), nmEl = panel.querySelector('[data-f="nextmap"]');
-    const nmTxt = !nm ? '–' : nm.need <= 0 ? `${nm.name} – jetzt (ab Lv ${nm.level})` : `${nm.name} ab Lv ${nm.level} · ${rate > 0 ? 'noch ' + fmtDur(nm.need / rate * 60000) : 'noch keine EXP-Messung'}`;
+    const nmTxt = !nm ? '–' : nm.level == null ? `${nm.name} – Wechsel nicht in Sicht` : nm.need <= 0 ? `${nm.name} – jetzt (ab Lv ${nm.level})` : `${nm.name} ab Lv ${nm.level} · ${rate > 0 ? 'noch ' + fmtDur(nm.need / rate * 60000) : 'noch keine EXP-Messung'}`;
     if (nmEl && nmEl.textContent !== nmTxt) nmEl.textContent = nmTxt;
-    tip('nextmap', nm ? `${nm.name}: niedrigste Monster Lv ${nm.lo} – mit der Grenze +${cfg.lvlDiff} ab Lv ${nm.level}
+    tip('nextmap', nm ? `Die Lern-Route wechselt, sobald ${nm.name} mindestens ${Math.round((LR_SWITCH_GAIN - 1) * 100)} % mehr EXP/min bringt als ${nm.curName} (Grinden + Feldbosse der Rotation)
 `
+      + (nm.level == null ? 'In den nächsten 30 Level nicht.' : `Bei Lv ${nm.level}: ~${fmt(nm.rn)} gegenüber ~${fmt(nm.rc)} EXP/min (geschätzt)
+`)
       + (nm.need > 0 ? `Noch ${fmt(nm.need)} EXP${rate > 0 ? ` · bei ${fmt(rate)} EXP/min (Schnitt der letzten 5 min) ≈ ${fmtDur(nm.need / rate * 60000)}` : ''}` : 'Level erreicht')
       : 'Keine nächste Map gefunden (Stadt oder letzte Map der Serie).');
     panel.querySelector('[data-f="sess"]').textContent =

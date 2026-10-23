@@ -217,6 +217,10 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.48.1 – Lern-Route rechnet Feldbosse ein, „Nächste Map“ zeigt den echten Wechsel
+- Die Lern-Route bewertet jede Map mit Grinden plus den Feldbossen ihrer Rotation (die Map und bis zu zwei darunter, höchstens 2 Level unter dem Digimon): EXP je Respawn auf allen erlaubten Kanälen, abzüglich Kampf, Weg, Kanalwechsel und Reise (30 s je Map-Wechsel). Live geprüft: Lv 48 in Sunset Bay ≈ 19 800 EXP/min geschätzt, gemessen ≈ 20 000.
+- „Nächste Map“ zeigt das Level, ab dem die Lern-Route wirklich wechselt (beste Zone dort mindestens 15 % besser als hier, mit Bossen), statt der einfachen Level-Grenze. Tooltip: beide Raten bei diesem Level.
+
 #### Neu in 2.48.0 – Lern-Route: Bosse zwei Maps tiefer, schneller Kanalwechsel, Event-Fix
 - Feldbosse auch zwei Maps tiefer (gleiche Regel: höchstens 2 Level unter dem Digimon). Gerechnet: direkt nach dem Map-Wechsel (Lv 41 in Sunset Bay + Drimogemon) +14…18 % EXP/min, nach ~6 Level nichts mehr – etwa 3–5 min gespart je Map.
 - Kanalwechsel zum nächsten Boss gleich nach dem Sieg, auch wenn gerade ein Monster angreift (wie in der Boss-Rotation). Fehlversuche beim Kanalwechsel werden je neuem Ziel neu gezählt – vorher galt nach drei gelungenen Wechseln der vierte als „klappt nicht“ und Ch 2 wurde 5 min gemieden, obwohl dort der Boss lebte.
