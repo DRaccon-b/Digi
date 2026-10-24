@@ -217,6 +217,10 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.49.0 – Lern-Route: Digitation je nach Map (mit / ohne Dark Tower)
+- Unter „Lern-Route: zwischen den Kämpfen digitieren“ (Reiter Kampf) zwei Auswahlen: „Form ohne Dark Tower“ (Standard: höchstmögliche Digitation) und „Form mit Dark Tower“ (Standard: höchste freie Armor-Form – unter Kaisers Dark Towers klappt nur Armor). Möglich sind jeweils „keine“, „höchstmögliche“, „höchste Armor-Form“ oder eine bestimmte Form.
+- Liegt die Zielform auf einem anderen Ast (z. B. Mega → Armor beim Betreten von Harvest Hills, Kaiser's Canyon, Sunset Bay, Kaiser's Fortress oder Tower Forest), digitiert der Bot erst zurück in die Grundform und dann hoch. Aus einer Armor-Form sucht „höchstmögliche“ von der Grundform aus.
+
 #### Neu in 2.48.2 – Lern-Route: Boss-Wege live nachgebessert
 - Beim Warten am Spawnpunkt wehrt der Bot Angreifer ab (live: HP 99 → 55 % bis Mummymon kam, ohne zurückzuschlagen). Auf dem Weg dorthin bleibt es beim Durchlaufen.
 - Kanalliste nur für die aktuelle Map: kurz nach einem Map-Wechsel kam live noch die Liste der alten Map, deren Raum-ID für „Ch 2“ brachte den Bot zurück auf die alte Map.

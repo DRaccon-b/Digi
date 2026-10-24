@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.48.2
+// @version      2.49.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -328,7 +328,9 @@
     skipTaken: true,  // keine Gegner angreifen, die andere Spieler gerade bekämpfen
     levelRoute: false, // Grinden: selbst zur besten Zone fürs Level reisen (Lern-Route)
     levelA2: true,    // Lern-Route nur in Adventure-02-Maps
-    levelEvo: true,   // Lern-Route: zwischen den Kämpfen in die höchstmögliche Digitation
+    levelEvo: true,   // Lern-Route: zwischen den Kämpfen digitieren (Form je nach Map, siehe unten)
+    levelEvoForm: '__max',   // … auf Maps ohne Dark Tower ('' = keine, '__max' = höchstmögliche, sonst Art)
+    levelEvoDark: '__armor', // … auf Maps mit Dark Tower (dort klappt nur Armor; '__armor' = höchste freie Armor-Form)
     levelBoss: true,  // Lern-Route: Feldbosse der Map (ohne Enrage) mitnehmen, wenn sie leben oder gleich spawnen
     expPrio: true,    // Grinden: zuerst Monster +5…+8 über dem Digimon (×1,5 EXP), dann +4, +3, … – erst zuletzt über +8
     chCheck: false,   // Channel-Checker: auf den Kanal mit den wenigsten Spielern wechseln (nicht in der Boss-Rotation)
@@ -509,7 +511,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.48.2'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.49.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -596,7 +598,11 @@
           ${check('skipTaken', 'Keine Gegner angreifen, die andere Spieler bekämpfen')}
           ${check('levelRoute', 'Lern-Route: beim Grinden selbst zur Zone mit den meisten EXP/min fürs Level reisen (Wechsel ab +15 %, frühestens nach 3 min)')}
           ${check('levelA2', 'Lern-Route nur in Adventure 02')}
-          ${check('levelEvo', 'Lern-Route: zwischen den Kämpfen in die höchstmögliche Digitation')}
+          ${check('levelEvo', 'Lern-Route: zwischen den Kämpfen digitieren – Form je nach Map:')}
+          <div class="digibot__apcfg">
+            <label>Form ohne Dark Tower<select data-apsel="levelEvoForm"></select></label>
+            <label>Form mit Dark Tower<select data-apsel="levelEvoDark"></select></label>
+          </div>
           ${check('levelBoss', 'Lern-Route: Feldbosse der Map ohne Enrage mitnehmen (Timer aller Kanäle aus Reiter Bosse → Kanäle)')}
           ${check('expPrio', 'EXP-Priorität: zuerst Monster +5 bis +8, dann +4, +3 … (gemessen: +5 bis +8 gibt ×1,5 EXP)')}
           ${check('chCheck', 'Channel-Checker: auf den leersten Kanal wechseln')}`, true,
@@ -3079,6 +3085,38 @@
     return `Digitiere zu ${speciesName(step.species)}…`;
   }
 
+  // Lern-Route: Zielform je nach Map – unter Kaisers Dark Towers klappt nur die Armor-Digitation (live: Digitation brach ab)
+  const EVO_ARMOR = '__armor';
+  function maxArmor(p) {
+    let best = null;
+    for (const e of p?.evolutions || []) if (e.stage === 'armor' && e.unlocked !== false && (p.level ?? 0) >= (e.level || 0) && (!best || (e.level || 0) > (best.level || 0))) best = e;
+    return best?.species || null;
+  }
+  const lrDarkMap = (st) => !!content()?.maps?.[st?.world?.mapId]?.darkTower;
+  function lrEvolve(st, now) {
+    const p = st?.me?.partner; if (!p) return true;
+    let sp = lrDarkMap(st) ? cfg.levelEvoDark : cfg.levelEvoForm;
+    if (sp === EVO_ARMOR) sp = maxArmor(p);
+    else if (sp === EVO_MAX) { // aus einer Armor-Form (z. B. nach einer Dark-Tower-Map) von der Grundform aus suchen
+      const root = (p.evolutions || []).find((e) => !e.from)?.species;
+      sp = maxEvolution(p) || (p.stage === 'armor' && root ? maxEvolution({ ...p, species: root }) : null) || p.species;
+    }
+    if (!sp || sp === p.species || p.evolving) return true;
+    // Ziel auf einem anderen Ast (z. B. Mega -> Armor): erst zurück in die Grundform
+    const evos = p.evolutions || [], tgt = evos.find((e) => e.species === sp);
+    if (!tgt || tgt.unlocked === false || (p.level ?? 0) < (tgt.level || 0)) return true;
+    let x = tgt; for (let i = 0; i < 8 && x && x.species !== p.species; i++) x = evos.find((e) => e.species === x.from);
+    if (!x && p.stage && p.stage !== 'rookie' && p.stage !== 'in-training') {
+      if (evoCooldownLeft(st) > 0) return true;
+      if (now - autopilot.lastEvolve > 4000) {
+        autopilot.lastEvolve = now; commands()?.devolve?.();
+        logEvent('auto', `Zurück-Digitation: ${speciesName(p.species)} → Grundform (für ${speciesName(sp)}${lrDarkMap(st) ? ', Dark Tower' : ''})`);
+      }
+      return `Digitiere ${speciesName(p.species)} zurück (für ${speciesName(sp)})…`;
+    }
+    return ensureEvolution(st, sp, now);
+  }
+
   // ---------- Map-für-Map-Runde ----------
   // Alle normalen Maps (keine Raids/Sandbox), absteigend nach Level – von „Dream Ruins“ bis „Native Forest“ –
   // oder aufsteigend (Richtung „von unten nach oben“).
@@ -5221,8 +5259,8 @@
     if (attackers.length) return null; // erst Angreifer abwehren
     const t = st.target;
     if (t && t.kind === 'mob' && t.hp > 0 && bot.attackedId === t.id) return null; // laufenden Kampf beenden
-    if (cfg.levelEvo) { // zwischen den Kämpfen in die höchste freigeschaltete Form (nach dem Neuladen ist es wieder Rookie)
-      const ev = ensureEvolution(st, EVO_MAX, now);
+    if (cfg.levelEvo) { // zwischen den Kämpfen in die gewählte Form – je nach Map mit/ohne Dark Tower (nach dem Neuladen Rookie)
+      const ev = lrEvolve(st, now);
       if (ev !== true) return `Digitation: ${ev}`;
     }
     const where = `${content()?.maps?.[g.mapId]?.name || g.mapId} / ${g.zone}`;
@@ -5908,6 +5946,7 @@
     const val = cfg[key] ?? '';
     if (val && !options.some((o) => o[0] === val)) {
       options.push([val, key === 'apEvo' ? `${speciesName(val)} (wird beim Quest-Digimon angewendet)`
+        : /^levelEvo/.test(key) ? `${speciesName(val)} (anderes Digimon)`
         : key === 'apStartMap' ? (content()?.maps?.[val]?.name || val) : '(gespeichert, gerade nicht im Team)']);
     }
     const sig = JSON.stringify(options) + '|' + val;
@@ -5932,6 +5971,10 @@
     const evos = evoFor ? (st?.me?.partner?.evolutions || []).filter((e) => !e.isCurrent || e.species !== st.me.partner.species) : [];
     fillSelect('apEvo', [['', 'keine Digitation'], [EVO_MAX, '⬆ höchstmögliche Digitation'], ...evos.map((e) => [e.species,
       `${speciesName(e.species)} (${e.stage}, ab Lv ${e.level}${e.unlocked === false ? ', gesperrt' : ''})`])]);
+    // Lern-Route: Formen des aktiven Digimons
+    const allEvos = (st?.me?.partner?.evolutions || []).map((e) => [e.species, `${speciesName(e.species)} (${e.stage}, ab Lv ${e.level}${e.unlocked === false ? ', gesperrt' : ''})`]);
+    fillSelect('levelEvoForm', [['', 'keine Digitation'], [EVO_MAX, '⬆ höchstmögliche Digitation'], [EVO_ARMOR, '🛡 höchste Armor-Form'], ...allEvos]);
+    fillSelect('levelEvoDark', [['', 'keine Digitation'], [EVO_ARMOR, '🛡 höchste Armor-Form'], [EVO_MAX, '⬆ höchstmögliche Digitation'], ...allEvos]);
     fillSelect('apStartMap', world.state === 'ready'
       ? [['', cfg.apSweepDir === 'up' ? 'niedrigste erreichbare' : 'höchste erreichbare'], ...sweepList().map((m) => [m.id,
         `${(m.series ?? 1) === 2 ? 'A02' : 'A1'} · ${m.name} (${m.levelRange?.join('–')})${hops(st?.world?.mapId, m.id) === Infinity ? ' – nicht erreichbar' : ''}`])]
@@ -6032,7 +6075,7 @@
   }
 
   function renderQuests(st, sc) {
-    if (pageOn('mon') && !pageOn('quest')) { renderApConfig(st); return; } // Partner/Digitation im Digimon-Reiter
+    if ((pageOn('mon') || pageOn('attack')) && !pageOn('quest')) { renderApConfig(st); return; } // Partner/Digitation (Digimon), Lern-Route-Formen (Kampf)
     if (!pageOn('quest')) return;
     renderApConfig(st);
     const ap = panel.querySelector('[data-f="apinfo"]');
