@@ -217,6 +217,10 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.52.1 – Lern-Route plant nach einem Digimon-Wechsel neu
+- Wechselt man das Digimon, verwirft die Lern-Route alles, was fürs alte geplant war (Zone, gewählter Feldboss, Kanal-Timer, Digitations-Fehlversuche) und plant sofort für das neue – live wollte ein Lv-43-Digimon noch den Boss bzw. die Golemon Lv 70+ des alten besiegen.
+- Unterwegs werden Angreifer, die mehr als 15 Level über dem Digimon liegen (keine Bosse), nicht bekämpft: Digimon zurückrufen und weiter zur passenden Zone.
+
 #### Neu in 2.52.0 – Eigenständige Verbesserungen: schneller zurück, Skills sparen, sicherer an Bossen
 - Bewusstlos: „Zurück zum Lager“, sobald das Spiel es erlaubt – statt auf die automatische Rückkehr zu warten.
 - Angreifer ohne Weg (z. B. Fernkämpfer jenseits des Wassers) werden nicht mehr „abgewehrt“ – das Digimon kommt nicht hin; vorher stand der Bot bis zur Hängen-Erkennung (12 s) still und blockierte Lern-Route/Autopilot. Ein gewähltes Ziel ohne Weg wird fallen gelassen (außer Boss-/Leader-Fokus und Adds).

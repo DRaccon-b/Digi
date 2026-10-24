@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.52.0
+// @version      2.52.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -512,7 +512,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.52.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.52.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -5372,11 +5372,23 @@
     if (busy) return null; // beim Warten am Spawnpunkt Angreifer abwehren (live: HP 99 -> 55 %, ohne zurückzuschlagen)
     return `warte auf ${lb.b.name} (Ch ${lb.ch}${soon ? `, Respawn in ${Math.max(0, Math.round((st1.readyAt - now) / 1000))} s` : ''})`;
   }
+  // Welches Digimon ist aktiv? Partner-ID aus dem Archiv, sonst die Grundform (Digitationen ändern sie nicht)
+  const partnerKey = (st) => activePartner(st)?.partnerId || (st?.me?.partner?.evolutions || []).find((e) => !e.from)?.species || st?.me?.partner?.species || null;
   // Ein Schritt: Statuszeile, solange der Bot zur Zone reist/läuft; null = dort angekommen (grinden) oder nichts zu tun
   function levelRouteStep(st, sc, now, attackers) {
     if (!lrOn() || world.state !== 'ready') return null;
     hookBossEvents(); // Kampf-Ereignisse für die Schadensmessung
     const p = st.me?.partner; if (!p) return null;
+    // Digimon gewechselt: alles, was für das alte Digimon geplant war (Zone, Boss, Kanal-Timer), verwerfen
+    const pk = partnerKey(st);
+    if (pk && lr.partner !== pk) {
+      if (lr.partner != null) {
+        lr.goal = null; lr.boss = null; lr.calcAt = 0; lr.since = 0; lr.scans = {}; lr.roam = null; lr.chainAt = 0;
+        autopilot.evoGiveUp = null; autopilot.evoTries = 0; autopilot.nav = null; bot.attackedId = null;
+        logEvent('auto', `Leveln: Digimon gewechselt – plane neu für ${p.name || speciesName(p.species)} Lv ${p.level}`);
+      }
+      lr.partner = pk;
+    }
     if (now - lr.calcAt > LR_CALC_MS || lr.calcLv !== p.level) {
       lr.calcAt = now; lr.calcLv = p.level; lr.best = lrBest(st);
       const b = lr.best, g = lr.goal;
@@ -5393,7 +5405,16 @@
       }
     }
     const g = lr.goal; if (!g) return null;
-    const t = st.target, fighting = !!t && t.kind === 'mob' && t.hp > 0 && bot.attackedId === t.id;
+    const t = st.target;
+    let fighting = !!t && t.kind === 'mob' && t.hp > 0 && bot.attackedId === t.id;
+    // Angreifer weit über dem eigenen Level (kein Boss): aussichtslos – nicht kämpfen, Digimon zurückrufen und weiter zur Zone
+    const strong = (id) => { const m = sc?.mobs?.find((x) => x.id === id); return !!m && m.cat !== 'boss' && (m.level ?? 0) - p.level > LR_FLEE_ABOVE; };
+    if (attackers.length && !lr.boss && attackers.every(strong)) {
+      const pe = window.dmo?.net?.state?.entities?.get?.(p.entityId);
+      if ((pe?.targetId || bot.attackedId) && bot.can('follow', 1500, now)) { bot.lastPress.follow = now; commands()?.partnerFollow?.(); }
+      if (!lr.fleeLog || now - lr.fleeLog > 15000) { lr.fleeLog = now; logEvent('warn', `Leveln: Angreifer über +${LR_FLEE_ABOVE} – nicht kämpfen, weiter zur Zone`); }
+      bot.attackedId = null; fighting = false; attackers = [];
+    }
     // Digitation zuerst – auch auf dem Weg zum Boss und im Kampf (live: 12 min Angemon statt ClavisAngemon, weil zwischen
     // Bossen und Angreifern nie „zwischen den Kämpfen“ war). Im Kampf/unter Angriff nur den Befehl schicken, weiterkämpfen.
     if (cfg.levelEvo) {
@@ -5492,6 +5513,9 @@
   const LR_BOSS_PREP_HP = 70, LR_BOSS_PREP_DS = 40;
   // Lern-Route: Boss, der das Digimon umgehauen hat, so lange aus der Boss-Runde
   const LR_BOSS_FAINT_MS = 30 * 60000;
+  // Lern-Route unterwegs: Angreifer, die so viel stärker sind, nicht bekämpfen – zurückrufen und weiter (nach einem
+  // Digimon-Wechsel stand ein Lv-43-Digimon zwischen Golemon Lv 70+ und wollte sie besiegen)
+  const LR_FLEE_ABOVE = 15;
   const POT_COOLDOWN_MS = 2000;  // gleichen Trank höchstens alle 2 s drücken
   // Geteilter Treffer (share: % der Max-HP des Ziels, auf alle im Kreis verteilt – allein nach den Spieldaten ⅓ von
   // 240 % = 80 %): wird gerade einer angesagt, vorher mit F1 auf SHARE_TOPUP % auffüllen
