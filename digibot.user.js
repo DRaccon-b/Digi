@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.48.1
+// @version      2.48.2
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -509,7 +509,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.48.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.48.2'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -4403,7 +4403,10 @@
     if (!farm.chLoading && commands()?.listChannels) {
       farm.chLoading = true;
       Promise.resolve(commands().listChannels()).then((list) => {
-        farm.channels = { mapId, at: Date.now(), list: Array.isArray(list) ? list : [] };
+        // Antwort unter der Map ablegen, zu der die Räume gehören – kurz nach einem Map-Wechsel kam live noch die Liste der
+        // alten Map; deren Raum-ID für „Ch 2“ brachte den Bot zurück auf die alte Map
+        const rows = Array.isArray(list) ? list : [];
+        farm.channels = { mapId: rows.find((r) => r?.mapId)?.mapId || mapId, at: Date.now(), list: rows };
       }).catch(() => { farm.channels = { mapId, at: Date.now(), list: [] }; }).finally(() => { farm.chLoading = false; });
     }
     return c && c.mapId === mapId ? c.list : null;
@@ -4424,7 +4427,7 @@
     if (attacked && !leave) return { status: 'Kanalwechsel nach dem Kampf…' };
     const list = farmChannelList(st, now);
     if (!list) return { status: 'lade Kanalliste…' };
-    const room = list.find((r) => r.channel === ch);
+    const room = list.find((r) => r.channel === ch && (!r.mapId || r.mapId === mapId));
     const fail = (why, ms = TASK_BAN_MS) => {
       farm.chBan.set(`${mapId}#${ch}`, now + ms);
       logEvent('warn', `${mapName}: Ch ${ch} ${why} – ${Math.round(ms / 60000)} min gemieden`);
@@ -5026,7 +5029,10 @@
   // (lrBossSel: diese Map und bis zu zwei darunter) bringen je Respawn auf jedem erlaubten Kanal EXP, dafür fehlt Grind-Zeit
   // (Kampf, Weg, Kanalwechsel, Reise). Ergebnis: Rate = Grinden × keep + gain. Boss-EXP gemessen: Basis × Level^1,1 × 1,5 bei
   // +5…+8, darüber −0,0365 je Level, darunter wie bei Monstern.
-  const LR_HOP_S = 30, LR_BOSS_WALK_S = 20, LR_CH_S = 8;
+  const LR_BOSS_WALK_S = 20, LR_CH_S = 8;
+  // Reisezeit je Map-Wechsel: gemessen auf den Wegen zu Bossen (gleitend), anfangs 30 s – live 8–15 s statt der
+  // angenommenen 45 s, der Bot stand dadurch ~30 s zu früh am Spawnpunkt
+  const lrHop = { ms: 30000, n: 0 };
   const bossExpFac = (d) => (d > 8 ? Math.max(0, 1.5 - 0.0365 * (d - 8)) : d >= 5 ? 1.5 : expFac(d));
   function lrBossTerms(mapId, pl, dps) {
     if (!cfg.levelBoss || !(dps > 0)) return { keep: 1, gain: 0 };
@@ -5039,7 +5045,7 @@
       const xp = (d.mob.expBase || 0) * Math.pow(b.level, 1.1) * bossExpFac(b.level - pl);
       const cyc = b.respawnMs / 1000;
       gain += nCh * xp / (cyc / 60);
-      frac += (nCh * (hp / dps + LR_BOSS_WALK_S + LR_CH_S) + 2 * h * LR_HOP_S) / cyc;
+      frac += (nCh * (hp / dps + LR_BOSS_WALK_S + LR_CH_S) + 2 * h * lrHop.ms / 1000) / cyc;
     }
     return { keep: Math.max(0, 1 - frac), gain };
   }
@@ -5115,7 +5121,9 @@
     // besiegt (Respawn-Timer gesetzt): gleich den nächsten wählen – wie die Boss-Rotation, ohne erst Angreifer abzuarbeiten
     if (lr.boss) { const s0 = farmState(lr.boss.b, lr.boss.ch, now); if (s0.state === 'down' && s0.readyAt - now > 60000) { lr.boss = null; lr.chainAt = now; } }
     if (busy && !lr.boss && !(lr.chainAt && now - lr.chainAt < LR_CHAIN_MS)) return null;
-    const todo = sn ? allowed.filter((c) => !sn.done.has(c)) : [];
+    // Kanäle, deren Boss-Zustand schon bekannt ist (gerade besiegt, Boss-Timer der Spielkarte), nicht eigens ansehen
+    const hereB = sel.filter((b) => b.map === here), known = (c) => hereB.length && hereB.every((b) => farmState(b, c, now).state !== 'unknown');
+    const todo = sn ? allowed.filter((c) => !sn.done.has(c) && !known(c)) : [];
     if (todo.length && !lr.boss && !busy) {
       if (todo.includes(cur)) {
         if (sn.ch !== cur) { sn.ch = cur; sn.at = now; farm.lastInfo = 0; } // gleich nachfragen
@@ -5133,7 +5141,7 @@
         if ((farm.chBan.get(`${b.map}#${ch}`) || 0) > now) continue;
         // andere Map: Reisezeit dazu (FARM_HOP_MS je Map-Wechsel)
         const h = b.map === here ? 0 : hops(here, b.map); if (h === Infinity) continue;
-        const s = farmState(b, ch, now), sw = h * FARM_HOP_MS + (b.map === here && ch === cur ? 0 : 8000);
+        const s = farmState(b, ch, now), sw = h * lrHop.ms + (b.map === here && ch === cur ? 0 : 8000);
         const eta = s.state === 'up' ? sw : s.state === 'down' ? Math.max(s.readyAt - now, sw) : Infinity;
         if (eta <= LR_BOSS_SOON_MS + sw && (!best || eta < best.eta)) best = { b, ch, eta, s };
       }
@@ -5144,7 +5152,15 @@
     // 3) hin und kämpfen
     const lb = lr.boss, st1 = farmState(lb.b, lb.ch, now);
     if (st1.state === 'down' && st1.readyAt - now > 60000) { lr.boss = null; return null; } // besiegt (Respawn-Timer gesetzt)
-    if (here !== lb.b.map) { const tr = travel(st, lb.b.map, now); return `${lb.b.name}: reise nach ${mapName(lb.b.map)} · ${tr === true ? 'angekommen' : tr}`; }
+    if (here !== lb.b.map) {
+      if (!lb.trav) { const h = hops(here, lb.b.map); if (h !== Infinity && h > 0) lb.trav = { at: now, h }; }
+      const tr = travel(st, lb.b.map, now); return `${lb.b.name}: reise nach ${mapName(lb.b.map)} · ${tr === true ? 'angekommen' : tr}`;
+    }
+    if (lb.trav) { // angekommen: Reisezeit je Map-Wechsel messen
+      const ms = Math.min(120000, Math.max(3000, (now - lb.trav.at) / lb.trav.h)); lb.trav = null;
+      lrHop.ms = lrHop.n ? Math.round(lrHop.ms * 0.6 + ms * 0.4) : Math.round(ms); lrHop.n++;
+      logEvent('map', `Leveln: Reisezeit gemessen – ${Math.round(ms / 1000)} s je Map-Wechsel (Schnitt ${Math.round(lrHop.ms / 1000)} s)`);
+    }
     if (cur !== lb.ch) {
       const r = farmSwitch(st, sc, here, where, lb.ch, now, true);
       if (r.failed) { lr.boss = null; return null; }
@@ -5167,6 +5183,7 @@
       logEvent('warn', `Leveln: ${lb.b.name} (Ch ${lb.ch}) nicht da – zurück in die Zone`);
       return null;
     }
+    if (busy) return null; // beim Warten am Spawnpunkt Angreifer abwehren (live: HP 99 -> 55 %, ohne zurückzuschlagen)
     return `warte auf ${lb.b.name} (Ch ${lb.ch}${soon ? `, Respawn in ${Math.max(0, Math.round((st1.readyAt - now) / 1000))} s` : ''})`;
   }
   // Ein Schritt: Statuszeile, solange der Bot zur Zone reist/läuft; null = dort angekommen (grinden) oder nichts zu tun

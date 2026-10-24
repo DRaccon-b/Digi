@@ -14,7 +14,7 @@ const G = makeWorld({ slot: 0, tag: 'N', noHash: true, accounts: { leader: 0, li
   },
   // normaler Tyrmon Lv 5 (1 400 HP) direkt beim Spieler, Named Elite (2 884 HP) in der Zone „ridge“
   extraEnts: (id) => (id === 'native_forest' ? [
-    { id: 'n:1', kind: 2, defId: 'tyrmon', x: 420, y: 330, hp: 300, maxHp: 1400, level: 5, flags: 0, targetId: '' },
+    { id: 'n:1', kind: 2, defId: 'tyrmon', x: 420, y: 330, hp: 300, maxHp: 1400, level: 5, flags: 0, targetId: 'p:me' }, // greift an: erst abwehren
     { id: 'b:1', kind: 2, defId: 'tyrmon', x: 760, y: 330, hp: 900000, maxHp: 2884, level: 5, flags: 1024, targetId: '' },
   ] : []) });
 const cmds = G.w.dmo.game.scene.getScene('world').deps.commands;

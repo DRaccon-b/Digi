@@ -2,6 +2,7 @@
 // Lern-Map Primary Village (Bigmon Lv 8–9), darunter Native Forest (Kunemon Lv 1–3) mit Bossmon. Digimon Lv 7:
 // Bossmon Lv 6 (−1) -> mitnehmen; Bossmon Lv 4 (−3) -> stehen lassen und zur Lern-Map.
 // Spawnt er erst in 25 s: zur Lern-Map, von dort rechtzeitig (Reisezeit eingerechnet) zurück zum Boss.
+// 2.48.2: auf dem Weg zum Boss wird die Reisezeit je Map-Wechsel gemessen (Log).
 // 2.48.0: auch zwei Maps tiefer – mit einer Map dazwischen (Lv 5–6) liegt Native Forest zwei unter der Lern-Map.
 const fs = require('fs');
 const makeWorld = require('./gw');
@@ -43,14 +44,14 @@ async function run(bossLv, spawnIn = 0, mid = false) {
     if (G.state.world.mapId === 'primary_village') { visited = true; if (!spawnIn) break; }
     await wait(150);
   }
-  const r = { hit, visited, map: G.state.world.mapId, st: [...seen].filter((x) => /Leveln|Boss|reise/.test(x)).slice(0, 5) };
+  const r = { hit, visited, hop: /Reisezeit gemessen/.test(G.w.document.body.textContent), map: G.state.world.mapId, st: [...seen].filter((x) => /Leveln|Boss|reise/.test(x)).slice(0, 5) };
   G.w.close();
   return r;
 }
 (async () => {
   const near = await run(6), low = await run(4), away = await run(6, 25000), two = await run(6, 0, true);
   console.log({ near, low, away, two });
-  const ok = near.hit && !low.hit && low.map === 'primary_village' && away.visited && away.hit && two.hit;
+  const ok = near.hit && !low.hit && low.map === 'primary_village' && away.visited && away.hit && away.hop && two.hit;
   console.log(ok ? 'OK – Boss der Map darunter mitgenommen, solange er höchstens 2 Level darunter liegt' : 'FEHLER');
   process.exit(ok ? 0 : 1);
 })();

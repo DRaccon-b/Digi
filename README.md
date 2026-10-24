@@ -217,6 +217,12 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.48.2 – Lern-Route: Boss-Wege live nachgebessert
+- Beim Warten am Spawnpunkt wehrt der Bot Angreifer ab (live: HP 99 → 55 % bis Mummymon kam, ohne zurückzuschlagen). Auf dem Weg dorthin bleibt es beim Durchlaufen.
+- Kanalliste nur für die aktuelle Map: kurz nach einem Map-Wechsel kam live noch die Liste der alten Map, deren Raum-ID für „Ch 2“ brachte den Bot zurück auf die alte Map.
+- Kanäle mit bekanntem Boss-Zustand (gerade besiegt, Boss-Timer der Karte) werden nicht mehr eigens angesehen (spart je 7 s).
+- Reisezeit je Map-Wechsel wird auf den Wegen zu Bossen gemessen (gleitend, anfangs 30 s statt 45 s) und für Abfahrt und Bewertung benutzt – live 8–15 s, der Bot stand vorher ~30 s zu früh am Spawnpunkt.
+
 #### Neu in 2.48.1 – Lern-Route rechnet Feldbosse ein, „Nächste Map“ zeigt den echten Wechsel
 - Die Lern-Route bewertet jede Map mit Grinden plus den Feldbossen ihrer Rotation (die Map und bis zu zwei darunter, höchstens 2 Level unter dem Digimon): EXP je Respawn auf allen erlaubten Kanälen, abzüglich Kampf, Weg, Kanalwechsel und Reise (30 s je Map-Wechsel). Live geprüft: Lv 48 in Sunset Bay ≈ 19 800 EXP/min geschätzt, gemessen ≈ 20 000.
 - „Nächste Map“ zeigt das Level, ab dem die Lern-Route wirklich wechselt (beste Zone dort mindestens 15 % besser als hier, mit Bossen), statt der einfachen Level-Grenze. Tooltip: beide Raten bei diesem Level.
