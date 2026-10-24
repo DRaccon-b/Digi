@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.53.1
+// @version      2.54.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -357,6 +357,7 @@
     dgMode: 'easy',       // 'easy' = War Game, 'hard' = Revenge (allein kaum zu schaffen), 'apocalymon' / 'malomyotismon' = Raid
     expMess: false,       // EXP-Messung: je Kill Monster, EXP, Kampfdauer, Treffer mitschreiben (Reiter Log)
     hunt: false,          // Event (Mega-Jagd): zum angesagten Weltboss reisen, ihn suchen und bekämpfen – in jedem Modus
+    wboss: false,         // Weltboss (z. B. BlackWarGreymon): beide Kanäle nach Spawnzeit abarbeiten – in jedem Modus
     routeStart: '',       // Named-Runde: Start-Map (leer = niedrigste)
     routeEnd: '',         // Named-Runde: End-Map (leer = höchste)
     open: {},             // auf-/zugeklappte Gruppen im Panel
@@ -512,7 +513,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.53.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.54.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -529,6 +530,7 @@
       }[k])}">${l}</button>`).join('')}</div>
       <button class="digibot__btn digibot__run" data-act="bot" title="Alt+B">▶ Start</button>
       <button class="digibot__btn digibot__hunt" data-act="hunt" title="Event (Mega-Jagd): Sobald der Weltboss angekündigt ist (6 min vorher), reist der Bot zur Map, Kanal 1, wartet, sucht ihn und kämpft. Danach weiter wie vorher. Gilt in jedem Modus.">🎯 Event</button>
+      <button class="digibot__btn digibot__hunt" data-act="wboss" title="Weltboss (z. B. BlackWarGreymon): spawnt auf Kanal 1 und 2 mit eigenem Timer. Lebt er oder spawnt er in den nächsten 6 min, reist der Bot hin, wartet am Spawnpunkt und kämpft – zuerst der Kanal, der zuerst spawnt (gleichzeitig: Kanal 1), danach der andere. Danach weiter wie vorher. Das Event geht vor.">🌍 Weltboss</button>
       <div class="digibot__status" data-f="status">Bot aus</div>
       <div class="digibot__task" data-f="task"><span class="t"></span><span class="pb"><i></i></span></div>
       <div class="digibot__vitals">${bar('hp mini', 'HP').replace('data-bar="hp mini"', 'data-bar="mhp"')}${bar('ds mini', 'DS').replace('data-bar="ds mini"', 'data-bar="mds"')}${bar('tg mini', 'Ziel').replace('data-bar="tg mini"', 'data-bar="mtg"')}</div>
@@ -4383,19 +4385,20 @@
     if (warn?.ts && warn.ts > hunt.warnTs) { hunt.warnTs = warn.ts; hunt.polledAt = 0; } // Warnung im Chat: gleich nachfragen
     if (now - hunt.polledAt > (hunt.goal ? HUNT_POLL_ACTIVE_MS : HUNT_POLL_MS)) huntPoll(now);
     const g = huntGoal(now), C = content();
-    if (!g) {
-      if (hunt.goal) {
-        // Fenster vorbei oder das Spiel meldet keinen aktiven Boss mehr – lebt er hier noch, den Kampf zu Ende bringen
-        // (sonst übernahm mitten im Kampf wieder Route/Rotation/Abgabe)
-        const hg = hunt.goal;
-        const still = hg.up && st.world?.mapId === hg.mapId ? huntBossEnt(hg.boss, controlled(st)) : null;
-        if (still && now - (hg.overAt ||= now) < HUNT_OVERTIME_MS) {
-          if (hg.overAt === now) logEvent('auto', `Event-Fenster vorbei, ${C?.digimon?.[hg.boss]?.name || hg.boss} lebt noch – kämpfe weiter`);
-          if (st.target?.id !== still.id && bot.can('select', SELECT_GAP_MS, now)) { bot.lastPress.select = now; hunt.selAt = now; worldScene()?.select?.(still.id); }
-          return null;
-        }
-        logEvent('auto', `Event vorbei: ${C?.digimon?.[hg.boss]?.name || hg.boss} – weiter wie vorher`); hunt.goal = null; autopilot.nav = null;
+    // Fenster vorbei / kein aktiver Boss mehr gemeldet / schon das nächste Event angesagt: lebt der bisherige Boss hier
+    // noch, den Kampf zu Ende bringen (sonst übernahm mitten im Kampf Route/Rotation/Abgabe oder die Reise zum nächsten)
+    if (hunt.goal && hunt.goal.up && (!g || g.key !== hunt.goal.key)) {
+      const hg = hunt.goal;
+      const still = st.world?.mapId === hg.mapId ? huntBossEnt(hg.boss, controlled(st)) : null;
+      if (still && now - (hg.overAt ||= now) < HUNT_OVERTIME_MS) {
+        if (hg.overAt === now) logEvent('auto', `Event-Fenster vorbei, ${C?.digimon?.[hg.boss]?.name || hg.boss} lebt noch – kämpfe weiter`);
+        if (st.target?.id !== still.id && bot.can('select', SELECT_GAP_MS, now)) { bot.lastPress.select = now; hunt.selAt = now; worldScene()?.select?.(still.id); }
+        return null;
       }
+      if (!g) { logEvent('auto', `Event vorbei: ${C?.digimon?.[hg.boss]?.name || hg.boss} – weiter wie vorher`); hunt.goal = null; autopilot.nav = null; }
+    }
+    if (!g) {
+      if (hunt.goal) { logEvent('auto', `Event vorbei: ${C?.digimon?.[hunt.goal.boss]?.name || hunt.goal.boss} – weiter wie vorher`); hunt.goal = null; autopilot.nav = null; }
       return null;
     }
     const name = C?.digimon?.[g.boss]?.name || g.boss, where = C?.maps?.[g.mapId]?.name || g.mapId;
@@ -4430,6 +4433,102 @@
     }
     if (walkTo(st, hunt.wp.x, hunt.wp.y, now) === 'stuck') { hunt.visited.add(key(hunt.wp)); hunt.wp = null; autopilot.nav = null; }
     return `${name} ist irgendwo in ${where} – suche (${hunt.visited.size}/${pts.length} Gebiete)`;
+  }
+  // ---------- Weltboss (z. B. BlackWarGreymon) ----------
+  // Weltbosse (worldBoss in den Spieldaten) spawnen je Kanal (1 und 2) mit eigenem Timer, das Spiel warnt 5 min vorher im
+  // Chat. Knopf 🌍 Weltboss: fällig ist ein Kanal, auf dem er lebt oder in den nächsten WB_LEAD_MS spawnt – dann hinreisen,
+  // Kanal wechseln, am Spawnpunkt warten und kämpfen; danach der nächste Kanal. Reihenfolge nach Spawnzeit, gleichzeitig =
+  // Kanal 1 zuerst. Timer, Kanalwechsel und Sieg-Erkennung wie in der Boss-Rotation.
+  const WB_LEAD_MS = 6 * 60000, WB_CHANNELS = [1, 2], WB_TIE_MS = 30000, WB_MISS_MS = 8000;
+  const WB_WARN_MS = 25 * 60000;   // nach der Chat-Warnung gelten Kanäle ohne Timer so lange als fällig
+  const WB_UP_KEEP_MS = 20 * 60000; // einmal lebend gesehen: so lange als „lebt“ merken (Timer-Info läuft nach 60 s ab)
+  const wb = { goal: null, warnTs: 0, warnAt: 0, upSince: new Map(), skip: new Map(), arrAt: 0, seenAt: 0 };
+  const wbSel = () => farmBossList().filter((b) => b.kind === 'world');
+  // Bosse, deren Timer abgefragt werden: Rotation bzw. Boss-Quest des Autopiloten, dazu die Weltbosse – eine gemeinsame
+  // Liste, denn jede Timer-Antwort wird nur einmal ausgewertet
+  function timerSel() {
+    let fsel = cfg.farm ? farmSelected() : cfg.autopilot ? questBossSel(autopilot.task) : [];
+    if (cfg.wboss) { const ids = new Set(fsel.map((b) => b.id)); fsel = [...fsel, ...wbSel().filter((b) => !ids.has(b.id))]; }
+    return fsel;
+  }
+  function wbPlan(st, now) {
+    const C = content(), opts = [];
+    for (const b of wbSel()) {
+      if (hops(st.world?.mapId, b.map) === Infinity) continue;
+      const warnMs = C?.spawns?.[b.map]?.bosses?.[b.index]?.worldBoss?.warnMs || 300000;
+      for (const ch of WB_CHANNELS) {
+        const key = farmKey(b.map, b.index, ch), s = farmState(b, ch, now);
+        if ((wb.skip.get(key) || 0) > now) continue;
+        let at;
+        if (s.state === 'up') { if (!wb.upSince.has(key)) wb.upSince.set(key, now); at = wb.upSince.get(key); }
+        else if (s.state === 'down') { wb.upSince.delete(key); if (s.readyAt - now > WB_LEAD_MS) continue; at = s.readyAt; }
+        else if (wb.upSince.has(key) && now - wb.upSince.get(key) < WB_UP_KEEP_MS) at = wb.upSince.get(key);
+        else if (wb.warnAt && now - wb.warnAt < WB_WARN_MS) at = wb.warnAt + warnMs; // angekündigt, Kanal-Timer unbekannt
+        else continue;
+        opts.push({ b, ch, at, s, key });
+      }
+    }
+    opts.sort((x, y) => (Math.abs(x.at - y.at) <= WB_TIE_MS ? x.ch - y.ch : x.at - y.at));
+    return opts[0] || null;
+  }
+  function wbStep(st, sc, now) {
+    if (!cfg.wboss || world.state !== 'ready') { wb.goal = null; return null; }
+    const warn = (st.chat || []).filter((m) => m?.code === 'worldboss_warning').pop();
+    if (warn?.ts && warn.ts > wb.warnTs) { wb.warnTs = warn.ts; wb.warnAt = now; farm.lastPins = 0; logEvent('auto', 'Weltboss angekündigt – schaue nach den Kanälen'); }
+    farmUpdate(st, now, timerSel()); // Timer auch während Reise/Warten (der Tick kehrt danach vor seiner Abfrage zurück)
+    const o = wbPlan(st, now);
+    if (!o) {
+      if (wb.goal) { logEvent('auto', `Weltboss: ${wb.goal.b.name} – nichts mehr fällig, weiter wie vorher`); wb.goal = null; autopilot.nav = null; }
+      return null;
+    }
+    const b = o.b, label = `${b.name} (${b.mapName} Ch ${o.ch})`;
+    if (wb.goal?.key !== o.key) {
+      wb.goal = { key: o.key, b, ch: o.ch }; wb.arrAt = 0;
+      logEvent('auto', `Weltboss: ${label} – ${o.at <= now ? 'lebt / ist fällig' : `spawnt in ${fmtClock(o.at - now)}`}`);
+    }
+    if (group.role() === 'follower' && groupLeader(now)) return null; // in der Gruppe führt der Leader
+    const here = st.world?.mapId === b.map && (st.world?.channel ?? 1) === o.ch;
+    const boss = here ? wbFocus(sc) : null;
+    if (boss) { // in Sicht: anvisieren, den Kampf macht der normale Ablauf (Fokus)
+      wb.arrAt = 0;
+      if (st.target?.id !== boss.id && bot.can('select', SELECT_GAP_MS, now)) { bot.lastPress.select = now; hunt.selAt = now; worldScene()?.select?.(boss.id); }
+      return null;
+    }
+    if (here && wbPresent(st, sc, now)) return null; // da, aber gerade nicht wählbar: der Tick wartet beim Boss
+    if (sc?.attackers?.length) return null; // erst Angreifer abwehren
+    const tr = travel(st, b.map, now);
+    if (tr !== true) return `${label} · ${tr}`;
+    const sw = farmSwitch(st, sc, b.map, b.mapName, o.ch, now, false);
+    if (!sw.done) { if (sw.failed) wb.skip.set(o.key, now + 120000); return `${label} · ${sw.status}`; }
+    const spot = farmSpot(b), me = controlled(st);
+    if (spot && me && Math.hypot(me.x - spot.x, me.y - spot.y) > FARM_ARRIVE) {
+      wb.arrAt = 0;
+      if (walkTo(st, spot.x, spot.y, now) === 'stuck') autopilot.nav = null;
+      return `${label} · laufe zum Spawnpunkt (${Math.round(Math.hypot(me.x - spot.x, me.y - spot.y))} px)`;
+    }
+    wb.arrAt ||= now;
+    if (now >= o.at) {
+      // müsste da sein, ist es aber nicht: schon besiegt (lebte) bzw. auf diesem Kanal nicht gespawnt -> nächster Kanal
+      if (now - Math.max(wb.arrAt, o.at) > WB_MISS_MS) {
+        if (o.s.state === 'up' || wb.upSince.has(o.key)) { farmSet(b.map, b.index, o.ch, { up: false, readyAt: now + (b.respawnMs || 3600000) }); wb.upSince.delete(o.key); }
+        else wb.skip.set(o.key, now + WB_WARN_MS);
+        logEvent('auto', `Weltboss: ${label} nicht da – nächster Kanal`);
+        wb.arrAt = 0;
+        return `${label} · nicht da`;
+      }
+      return `${label} · am Spawnpunkt – suche…`;
+    }
+    return `${label} · spawnt in ${fmtClock(o.at - now)} – warte am Spawnpunkt`;
+  }
+  // Fokus: der fällige Weltboss, sobald er in der Monsterliste steht (auch außerhalb des Suchradius)
+  const wbFocus = (sc) => (cfg.wboss && wb.goal && sc && sc.mapId === wb.goal.b.map ? farmBossMob(sc, wb.goal.b) : null);
+  // Weltboss lebt hier (auch versteckt/unangreifbar/gesperrt) oder war es vor Kurzem: Vorrang wie beim Event
+  function wbPresent(st, sc, now) {
+    if (!cfg.wboss || !wb.goal || st.world?.mapId !== wb.goal.b.map) return false;
+    let alive = !!wbFocus(sc);
+    if (!alive) window.dmo?.net?.state?.entities?.forEach?.((en) => { if (!alive && en.kind === KIND.Mob && en.hp > 0 && !(en.flags & FLAG.Dead) && bossEntityMatch(wb.goal.b, en)) alive = true; });
+    if (alive) { wb.seenAt = now; return true; }
+    return now - (wb.seenAt || 0) < HUNT_HOLD_MS;
   }
   // Bosse nehmen die ersten 3 s nach dem Respawn kaum Schaden (99 % Reduktion). Solange ein Boss frisch
   // aufgetaucht ist und volle HP hat, nur normal angreifen – Skills (Abklingzeit, DS) erst danach.
@@ -5151,7 +5250,7 @@
   function pickTarget(sc, resting) {
     if (!sc) return null;
     if (cfg.dungeon) { const att = sc.attackers.filter((m) => !safeHeld(m.id)); return (resting ? null : dungeonFocus(sc)) || att[0] || null; }
-    const hf = resting ? null : huntFocus(sc); // Event-Boss vor allem anderen
+    const hf = resting ? null : huntFocus(sc) || wbFocus(sc); // Event-/Weltboss vor allem anderen
     if (hf && !safeHeld(hf.id)) return hf;
     const focus = resting ? null : focusAssist(sc);
     if (focus && !safeHeld(focus.id)) return focus;
@@ -5777,17 +5876,21 @@
         // Event läuft oder steht an: das Feldboss-Ziel der Lern-Route verwerfen (sonst Boss-Tränke über das ganze Event und
         // danach erst die Fahrt zum veralteten Boss) und die Lern-Route pausieren – auch auf dem Weg zur Event-Map
         const huntOn = !!(cfg.hunt && hunt.goal);
-        if (huntOn && lr.boss) { lr.boss = null; lr.chainAt = 0; }
+        // Weltboss: nur, wenn kein Event läuft oder ansteht (das Event geht vor)
+        const wv = !huntOn ? wbStep(st, sc, now) : null;
+        const wbOn = !huntOn && !!(cfg.wboss && wb.goal);
+        if ((huntOn || wbOn) && lr.boss) { lr.boss = null; lr.chainAt = 0; }
         if (hv) { this.status = `Event: ${hv}`; this.attackedId = null; return; }
+        if (wv) { this.status = `Weltboss: ${wv}`; this.attackedId = null; return; }
         if (hunt.selAt === now) { this.status = 'Event: Jagd-Boss anvisiert'; this.attackedId = null; kickTick(); return; }
         // Jagd (Boss in Sicht oder Angreifer): die Lern-Route nicht dazwischen funken lassen – live zog sie den Bot bei
         // Regalecusmon im Wechsel zurück in seine Zone, während der Boss neben ihm kämpfte
-        const lv = huntOn ? null : levelRouteStep(st, sc, now, attackers);
+        const lv = huntOn || wbOn ? null : levelRouteStep(st, sc, now, attackers);
         if (lv) { this.status = `Leveln: ${lv}`; this.attackedId = null; return; }
         attackers = sc ? sc.attackers.map((m) => m.id) : []; // die Lern-Route nimmt aussichtslose Angreifer heraus
       }
-      if (cfg.farm && world.state === 'ready') farmUpdate(st, now);
-      else if (cfg.autopilot && world.state === 'ready') { const qb = questBossSel(autopilot.task); if (qb.length) farmUpdate(st, now, qb); } // Boss-Quest: Timer wie bei der Rotation
+      // Boss-Timer: Rotation bzw. Boss-Quest des Autopiloten, dazu die Weltbosse (eine gemeinsame Abfrage)
+      if (world.state === 'ready') { const fsel = timerSel(); if (cfg.farm || fsel.length) farmUpdate(st, now, fsel); }
       checkRefusals(st, t, now);
       // Autopilot auf dem Weg zum Abgeben, Annehmen, Sprechen oder zu einem Reise-Ziel: keine Kämpfe, auch nicht gegen
       // Angreifer – Digimon zurückrufen und weiterlaufen
@@ -5805,7 +5908,7 @@
         if (now - autopilot.dlgIdleAt > 1500) { commands()?.closeDialog?.(); autopilot.dlgIdleAt = 0; }
       } else autopilot.dlgIdleAt = 0;
       // Event-Boss in Sicht: kämpfen – auch wenn der Autopilot gerade zur Abgabe will oder die Rotation woanders hin
-      const huntNow = huntPresent(st, sc, now);
+      const huntNow = huntPresent(st, sc, now) || wbPresent(st, sc, now);
       farm.leave = cfg.farm && !this.resting && !huntNow && farmGoalElsewhere(st, p, now, sc);
       const noFight = !huntNow && ((cfg.autopilot && !cfg.farm && nextIsTurnin(st, now)) || farm.leave);
       if (group.role() === 'leader') group.noFight = noFight; // Mitläufer kämpfen dann auch nicht
@@ -5856,7 +5959,7 @@
       // Sonst wählt der Bot ein Ziel aus und verwirft es gleich wieder – endlos.
       const lvlOk = info ? info.inLvl : diff <= cfg.lvlDiff;
       const addTarget = !!add && alive && t.id === add.id; // Add des Bosses: immer bekämpfen, auch außerhalb der Level-/Monster-Auswahl
-      const focus = this.resting ? null : huntFocus(sc) || lrBossFocus(sc) || dungeonFocus(sc) || focusAssist(sc) || farmBossNear(sc); // Leader-Ziel bzw. Boss der Rotation zuerst
+      const focus = this.resting ? null : huntFocus(sc) || wbFocus(sc) || lrBossFocus(sc) || dungeonFocus(sc) || focusAssist(sc) || farmBossNear(sc); // Leader-Ziel bzw. Boss der Rotation zuerst
       const onFocus = !!focus && alive && t.id === focus.id, offFocus = !!focus && !onFocus && !addTarget; // anderes Ziel -> wechseln
       // ohne Weg zum Ziel (Insel, andere Klippenseite) nicht weiter draufhalten – außer Fokus (Boss/Leader-Ziel) und Adds
       const noPath = !!info && info.reach === false && !onFocus && !addTarget;
@@ -5887,7 +5990,7 @@
             if (this.can('select', SELECT_GAP_MS, now)) { this.lastPress.select = now; scene.select(next.id); kickTick(); } // gleich angreifen, nicht erst im nächsten Takt
             this.status = `${next.attacker ? 'Angreifer' : 'Nächstes Ziel'}: Lv ${next.level} · ${Math.round(next.d)} px`;
           } else if (huntNow && !this.resting) {
-            this.status = 'Event: Jagd-Boss gerade nicht angreifbar – warte';
+            this.status = `${wbPresent(st, sc, now) ? 'Weltboss' : 'Event: Jagd-Boss'} gerade nicht angreifbar – warte`;
           } else if (cfg.dungeon) {
             this.status = `Dungeon: ${dungeonStep(st, sc, now)}`;
           } else if (cfg.farm && !this.resting) {
@@ -5950,6 +6053,9 @@
       //    Angreifer sind ausgenommen – die kommen ja zu uns.
       if (!this.engage || this.engage.id !== t.id || t.hp < this.engage.hp) {
         this.engage = { id: t.id, hp: t.hp, since: now };
+      } else if (!isAttacker && now - this.engage.since > STUCK_MS && onFocus && (huntFocus(sc)?.id === t.id || wbFocus(sc)?.id === t.id)) {
+        // Event-/Weltboss (Schutzphase, Formwechsel): nicht sperren – weiter mit Taste 1, Skills erst, wenn er wieder HP verliert
+        if (!this.engage.noDmg) { this.engage.noDmg = true; logEvent('warn', `${t.name}: nimmt gerade keinen Schaden – nur Taste 1, Skills warten`); }
       } else if (!isAttacker && now - this.engage.since > STUCK_MS) {
         blacklist.set(t.id, now + BAN_MS);
         logEvent('warn', `${t.name} Lv ${t.level} unerreichbar – 1 min gesperrt`);
@@ -6004,6 +6110,7 @@
 
       // 6) Skills auf 2–6: den ersten aktivierten, bereiten Skill wirken (einer pro Durchgang)
       if (p.evolving || !this.can('skill', SKILL_GAP_MS, now)) return;
+      if (this.engage?.noDmg) { this.status += ' · nimmt keinen Schaden – Skills warten'; return; }
       if (farmShielded(t, now)) { this.status += ' · Spawn-Schutz – Skills warten'; return; }
       if (info?.cat === 'normal' && t.maxHp > 0 && t.hp <= lrDps(p) * OVERKILL_SHARE) return; // fällt gleich: DS sparen
       let held = null;
@@ -6165,6 +6272,7 @@
     run.textContent = `${bot.on ? '■ Stopp' : '▶ Start'} · ${mode === 'farm' ? (cfg.farmMode === 'named' ? 'Named-Elite-Runde' : 'Boss-Rotation') : MODES[mode]}`;
     panel.querySelectorAll('[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
     panel.querySelector('[data-act="hunt"]')?.classList.toggle('on', !!cfg.hunt);
+    panel.querySelector('[data-act="wboss"]')?.classList.toggle('on', !!cfg.wboss);
     const stEl = panel.querySelector('[data-f="status"]');
     stEl.textContent = bot.status;
     if (stEl.title !== bot.status) stEl.title = bot.status;
@@ -6750,6 +6858,11 @@
       }
       if (act === 'mobexp-reset') { mobExpReset(); mobExp.at = 0; schedule(); }
       if (act === 'compact') { cfg.compact = panel.classList.toggle('is-compact'); saveCfg(); }
+      if (act === 'wboss') {
+        cfg.wboss = !cfg.wboss; saveCfg(); wb.goal = null; farm.lastPins = 0;
+        logEvent('auto', `Weltboss ${cfg.wboss ? `an – ${wbSel().map((b) => b.name).join(', ') || 'keine Weltbosse in den Spieldaten'}, Kanal 1 und 2 nach Spawnzeit` : 'aus'}`);
+        schedule();
+      }
       if (act === 'hunt') {
         cfg.hunt = !cfg.hunt; saveCfg(); hunt.goal = null; hunt.polledAt = 0;
         logEvent('auto', `Event (Mega-Jagd) ${cfg.hunt ? 'an – der Bot reist zum nächsten angekündigten Weltboss' : 'aus'}`);

@@ -217,6 +217,11 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.54.0 – Weltboss-Knopf, Event-Boss ohne Sperre
+- **🌍 Weltboss** (neuer Knopf neben 🎯 Event, in jedem Modus): Weltbosse aus den Spieldaten (z. B. BlackWarGreymon) spawnen auf Kanal 1 und 2 mit eigenem Timer. Lebt er oder spawnt er in den nächsten 6 min, reist der Bot hin, wechselt den Kanal, wartet am Spawnpunkt und kämpft – zuerst der Kanal, der zuerst spawnt (gleichzeitig: Kanal 1), danach der andere. Die Chat-Warnung (5 min vorher) zählt auch, wenn der Kanal-Timer noch unbekannt ist. Das Event geht vor; danach weiter wie vorher.
+- **Event: nächstes Event angesagt, alter Boss lebt noch:** erst den lebenden Boss besiegen, dann reisen.
+- **Event-/Weltboss nimmt keinen Schaden** (Schutzphase): nicht mehr 1 min sperren – weiter mit Taste 1, Skills erst, wenn er wieder HP verliert.
+
 #### Neu in 2.53.1 – Event-Boss bleibt Vorrang
 - **Fenster vorbei, Boss lebt noch:** der Bot kämpft weiter (höchstens 10 min), statt mitten im Kampf zur Route, Rotation oder Abgabe zu wechseln.
 - **Boss kurz nicht angreifbar oder gesperrt** (z. B. Formwechsel): das Event behält 5 s lang Vorrang – der Bot wartet beim Boss, statt zur Abgabe zu laufen.
