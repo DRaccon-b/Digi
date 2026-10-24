@@ -3,3 +3,6 @@
 node_modules/
 *.log
 tests/.times.json
+
+# Lokale Sicherungen des Skripts
+backups/

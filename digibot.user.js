@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.49.1
+// @version      2.50.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -338,6 +338,7 @@
     autopilot: false, // Quests annehmen, hinreisen, erledigen, abgeben
     apGrind: true,    // Autopilot: bei Level-Sperren/Level-Zielen grinden statt stoppen
     apBatch: false,   // Autopilot: erst alle Ziele erledigen, dann alles abgeben, dann alles annehmen (keine Abgabe zwischendurch)
+    apNoTurnin: false, // Autopilot: Quests annehmen und erledigen, aber nicht abgeben (fertige bleiben im Log, Abgeben macht man selbst)
     apOrder: 'near',  // 'near' = nächste Aufgabe zuerst, 'sweep' = Map für Map absteigend
     apStartMap: '',   // Start-Map der Runde ('' = höchste bzw. niedrigste erreichbare, je nach Richtung)
     apSweepDir: 'down', // Map für Map: 'down' = von oben nach unten, 'up' = von unten nach oben
@@ -511,7 +512,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.49.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.50.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -633,6 +634,7 @@
             <label data-sweeponly>Richtung<select data-apsel="apSweepDir"><option value="down">von oben nach unten (höchste Map zuerst)</option><option value="up">von unten nach oben (niedrigste Map zuerst)</option></select></label>
             <label data-sweeponly>Start-Map<select data-apsel="apStartMap"></select></label>
           </div>
+          ${check('apNoTurnin', 'Quests nur erledigen, nicht abgeben (fertige bleiben stehen – Abgeben machst du selbst)')}
           ${check('apRepeat', 'Tägliche NPC-Quests (wiederholbar) mitnehmen')}
           ${check('apDailies', 'Daily-Board (ab Lv 11) mitnehmen')}
           ${check('apTeleport', 'Mit Digi-Phone schnellreisen (kostet Bits)')}`, false,
@@ -737,10 +739,11 @@
 
     update(p, now) {
       if (!p || typeof p.exp !== 'number' || typeof p.expNext !== 'number') return;
-      const cur = { level: p.level, exp: p.exp, expNext: p.expNext };
+      const cur = { level: p.level, exp: p.exp, expNext: p.expNext, id: p.entityId };
       const prev = this.last;
       this.last = cur;
       if (!prev) { this.start = now; return; }
+      if (prev.id && cur.id && prev.id !== cur.id) return; // anderer Partner (oder neue Map): diesen Schritt nicht werten
 
       let gained = 0;
       if (cur.level === prev.level) gained = cur.exp - prev.exp;
@@ -818,6 +821,7 @@
       k.done = true;
       const { first, done, ...row } = k;
       expm.data.push(row); expm.dirty = true;
+      if (expm.data.length > EXPM_MAX + 200) expm.data.splice(0, expm.data.length - EXPM_MAX);
     }
     expm.pending = expm.pending.filter((k) => !k.done);
     if (expm.dirty) expmSave();
@@ -2003,11 +2007,11 @@
         d: Math.hypot(e.x - self.x, e.y - self.y),
         attacker,
         // Bosse sind Gruppenkämpfe: ein Farm-Boss gilt nie als „von anderen belegt“
-        taken: cfg.skipTaken && !attacker && !isFarmMob(farmSp, e.defId, cat, e.level)
+        taken: cfg.skipTaken && !attacker && !isFarmMob(farmSp, e)
           && (takenByOthers.has(e.id) || (!!e.targetId && !ours.has(e.targetId))),
         // nur zu starke Monster sind tabu, schwächere immer erlaubt; Farm-Bosse immer
-        inLvl: e.level <= pLvl + lvlLimit(mapId) || isFarmMob(farmSp, e.defId, cat, e.level),
-        enabled: farmSp ? isFarmMob(farmSp, e.defId, cat, e.level) : quest ? quest.species.has(e.defId) || e.id === assistId : mobOn(mapId, key, cat),
+        inLvl: e.level <= pLvl + lvlLimit(mapId) || isFarmMob(farmSp, e),
+        enabled: farmSp ? isFarmMob(farmSp, e) : quest ? quest.species.has(e.defId) || e.id === assistId : mobOn(mapId, key, cat),
         aggressive,
         banned: (blacklist.get(e.id) || 0) > now,
         grpBy: grpTgt?.get(e.id) ?? null, // Slot des Gruppenmitglieds, das es schon angreift (Ziele verteilen)
@@ -2253,7 +2257,6 @@
       deferred: group.seen.slice(-30),
       fight: inCombat(st), farm: !!cfg.farm,
       kohAt: kohReadyAt(st, now),
-      farm: !!cfg.farm,
       serve: serveOn(),
     };
   }
@@ -2414,7 +2417,7 @@
       if (!def || (def.prereq || []).some((p) => mine[p]?.state !== 3) || (def.minLevel ?? 1) > (st.me?.partner?.level ?? 1)) return null;
       return (q?.state ?? 0) === 0 || (q.state === 3 && repeatAvailable(def, q)) ? base : null;
     }
-    if (lt.purpose === 'turnin') return q?.state === 2 ? base : null;
+    if (lt.purpose === 'turnin') return q?.state === 2 && !cfg.apNoTurnin ? base : null;
     if (lt.purpose === 'objective') return q?.state === 1 && (q.counters?.[lt.objIndex] ?? 0) < lt.need ? base : null;
     if (lt.purpose === 'daily' && lt.pool) {
       const visitKey = `${lt.pool}|${activePartner(st)?.partnerId || 'p'}`;
@@ -3242,10 +3245,13 @@
       return sta || [...locs].sort((a, b) => hops(mapId, a.mapId) - hops(mapId, b.mapId))[0] || null;
     };
     let tasks = [];
+    // „nur erledigen, nicht abgeben“: fertige Quests bleiben stehen – nur der Knopf „Abgeben & Annehmen“ gibt ab
+    const noTurnin = cfg.apNoTurnin && !autopilot.mapTalk;
     for (const [id, q] of Object.entries(quests)) {
       if (cfg.questOff[id]) continue;
       const def = questDef(C, id);
       if (!def) continue;
+      if (q.state === 2 && noTurnin) continue;
       if (q.state === 2 && def.turnIn) { // fertig -> abgeben
         const loc = npcLoc(def.turnIn, def.turnInMap);
         if (loc) tasks.push({ key: `turnin:${id}`, kind: 'talk', purpose: 'turnin', questId: id, npcId: def.turnIn, loc, prio: 0, def,
@@ -4030,6 +4036,7 @@
   function channelCheck(st, sc, now) {
     if (!cfg.chCheck || cfg.farm || cfg.dungeon || group.role() === 'follower' || world.state !== 'ready' || st.dialog) return null;
     if (questBossSel(autopilot.task).length) return null;
+    if (lrOn() && lr.boss) return null; // Lern-Route: Boss in Sicht/auf dem Weg – nicht wegwechseln
     const C = chCheckState, mapId = st.world?.mapId, cur = st.world?.channel ?? 1;
     if (C.mapId !== mapId) { C.mapId = mapId; C.arrived = now; C.last = 0; C.switching = null; }
     if (C.switching) {
@@ -4306,10 +4313,17 @@
   // ein gleichnamiges normales Monster zählt nur mit genau dem Boss-Level.
   function farmTargets(mapId) {
     const m = new Map();
-    for (const b of farmSelected()) if (b.map === mapId) m.set(b.species, b.level);
+    for (const b of farmSelected()) if (b.map === mapId && !m.has(b.species)) m.set(b.species, b);
     return m;
   }
-  const isFarmMob = (ft, defId, cat, level) => !!ft && ft.has(defId) && (cat !== 'normal' || level === ft.get(defId));
+  // Monster e (Entity) ist ein gewählter Farm-Boss? Wie bossEntityMatch: Boss-Flag, bei Named Elites die erhöhten HP –
+  // sonst galt jeder normale Tyrannomon gleichen Levels in Harvest Hills als Ziel der Rotation/Named-Runde
+  const isFarmMob = (ft, e) => { const b = ft?.get?.(e?.defId); return !!b && bossEntityMatch(b, e); };
+  // Sichtbarer Boss b in der Monsterliste (Entity für den Werte-Abgleich aus der Spielwelt)
+  const farmBossMob = (sc, b) => {
+    const ents = window.dmo?.net?.state?.entities;
+    return sc?.mobs?.find((m) => !m.banned && m.species === b.species && (() => { const en = ents?.get?.(m.id); return en ? bossEntityMatch(b, en) : m.cat !== 'normal' || m.level === b.level; })()) || null;
+  };
   // Named Elites laufen oft zwischen normalen Monstern derselben Art und desselben Levels (live: Tyrannomon in Harvest
   // Hills – jeder normale galt als „besiegter Boss“). Hat der Boss-Eintrag einen Werte-Multiplikator (statMult), zählt
   // nur ein Monster mit entsprechend erhöhten HP; echte Bosse (Boss-Flag) wie bisher.
@@ -4575,7 +4589,7 @@
     }
     const tag = `${label} Ch ${ch} · ${b.name}`;
     // 3) Sichtbar? -> hin und angreifen
-    const boss = sc?.mobs?.find((m) => m.species === b.species && (m.cat !== 'normal' || m.level === b.level) && !m.banned);
+    const boss = farmBossMob(sc, b);
     if (boss) {
       if (farm.fight?.id !== boss.id) farm.fight = { key: farmKey(b.map, b.index, ch), id: boss.id, ch, map: b.map, pct: Math.round(boss.hp / (boss.maxHp || boss.hp || 1) * 100) };
       R.zoneAt = 0;
@@ -4636,7 +4650,7 @@
       return `${label} · ${sw.status}`;
     }
     // 3) Boss sichtbar? -> hin und angreifen (auch außerhalb des Suchradius)
-    const boss = sc?.mobs?.find((m) => m.species === b.species && (m.cat !== 'normal' || m.level === b.level) && !m.banned);
+    const boss = farmBossMob(sc, b);
     if (boss) {
       if (farm.fight?.id !== boss.id) farm.fight = { key: farmKey(b.map, b.index, o.ch), id: boss.id, ch: o.ch, map: b.map, pct: Math.round(boss.hp / (boss.maxHp || boss.hp || 1) * 100) };
       farm.waitAt = 0;
@@ -5227,7 +5241,9 @@
     }
     lb.near ||= now;
     const soon = st1.state === 'down' && st1.readyAt > now;
-    if (!soon && now - lb.near > LR_BOSS_LOOK_MS) { // nicht da: als unbekannt vergessen, zurück in die Zone
+    // Suchzeit erst ab dem Respawn zählen – sonst gab der Bot nach frühem Ankommen genau zum Respawn auf
+    if (soon) lb.lookAt = 0; else lb.lookAt ||= now;
+    if (!soon && now - lb.lookAt > LR_BOSS_LOOK_MS) { // nicht da: als unbekannt vergessen, zurück in die Zone
       farm.known.delete(farmKey(lb.b.map, lb.b.index, lb.ch)); lr.boss = null;
       logEvent('warn', `Leveln: ${lb.b.name} (Ch ${lb.ch}) nicht da – zurück in die Zone`);
       return null;
@@ -5571,9 +5587,12 @@
           } else if (cfg.autopilot && (!this.resting || noFight)) {
             const s = autopilotStep(st, sc, now);
             if (s === null) {
+              // „nur erledigen, nicht abgeben“: sagen, wie viele fertig auf das Abgeben warten
+              const ready = cfg.apNoTurnin ? Object.values(st.me?.quests || {}).filter((q) => q.state === 2).length : 0;
+              const why = ready ? `alles erledigt – ${ready} Quest${ready > 1 ? 's' : ''} fertig zum Abgeben (machst du selbst)` : 'keine machbaren Quests mehr';
               this.toggle();
-              this.status = 'Autopilot: keine machbaren Quests mehr – Bot gestoppt';
-              logEvent('auto', 'Keine machbaren Quests mehr – Bot gestoppt');
+              this.status = `Autopilot: ${why} – Bot gestoppt`;
+              logEvent('auto', `${why[0].toUpperCase()}${why.slice(1)} – Bot gestoppt`);
               notify('Autopilot fertig.');
             } else this.status = `Autopilot: ${noFight && attackers.length ? 'ignoriere Kämpfe · ' : ''}${s}`;
           } else if (!cfg.autopilot && sc.quest && !sc.quest.open.length && !attackers.length) {
@@ -5800,10 +5819,8 @@
     const nm = nextMapInfo(st), nmEl = panel.querySelector('[data-f="nextmap"]');
     const nmTxt = !nm ? '–' : nm.level == null ? `${nm.name} – Wechsel nicht in Sicht` : nm.need <= 0 ? `${nm.name} – jetzt (ab Lv ${nm.level})` : `${nm.name} ab Lv ${nm.level} · ${rate > 0 ? 'noch ' + fmtDur(nm.need / rate * 60000) : 'noch keine EXP-Messung'}`;
     if (nmEl && nmEl.textContent !== nmTxt) nmEl.textContent = nmTxt;
-    tip('nextmap', nm ? `Die Lern-Route wechselt, sobald ${nm.name} mindestens ${Math.round((LR_SWITCH_GAIN - 1) * 100)} % mehr EXP/min bringt als ${nm.curName} (Grinden + Feldbosse der Rotation)
-`
-      + (nm.level == null ? 'In den nächsten 30 Level nicht.' : `Bei Lv ${nm.level}: ~${fmt(nm.rn)} gegenüber ~${fmt(nm.rc)} EXP/min (geschätzt)
-`)
+    tip('nextmap', nm ? `Die Lern-Route wechselt, sobald ${nm.name} mindestens ${Math.round((LR_SWITCH_GAIN - 1) * 100)} % mehr EXP/min bringt als ${nm.curName} (Grinden + Feldbosse der Rotation)\n`
+      + (nm.level == null ? 'In den nächsten 30 Level nicht.' : `Bei Lv ${nm.level}: ~${fmt(nm.rn)} gegenüber ~${fmt(nm.rc)} EXP/min (geschätzt)\n`)
       + (nm.need > 0 ? `Noch ${fmt(nm.need)} EXP${rate > 0 ? ` · bei ${fmt(rate)} EXP/min (Schnitt der letzten 5 min) ≈ ${fmtDur(nm.need / rate * 60000)}` : ''}` : 'Level erreicht')
       : 'Keine nächste Map gefunden (Stadt oder letzte Map der Serie).');
     panel.querySelector('[data-f="sess"]').textContent =
@@ -6533,7 +6550,7 @@
       if (fch) {
         const set = new Set(cfg.farmChannels || []);
         if (e.target.checked) set.add(Number(fch)); else set.delete(Number(fch));
-        cfg.farmChannels = [...set].sort((a, b) => a - b); saveCfg(); e.target.blur(); farm.reset(); schedule();
+        cfg.farmChannels = [...set].sort((a, b) => a - b); saveCfg(); e.target.blur(); farm.reset(); lr.calcAt = 0; schedule();
         return;
       }
       const fb = e.target.dataset.farmboss;
@@ -6553,6 +6570,7 @@
       if (flag) {
         cfg[flag] = e.target.checked; saveCfg(); e.target.blur(); autopilot.reset(); schedule();
         if (flag === 'levelRoute' || flag === 'levelA2') { lr.goal = null; lr.calcAt = 0; }
+        if (flag === 'levelBoss') { lr.boss = null; lr.calcAt = 0; } // Bewertung rechnet die Bosse mit ein
         logEvent('auto', `Einstellung: ${e.target.nextElementSibling?.textContent} = ${e.target.checked ? 'an' : 'aus'}`);
         return;
       }

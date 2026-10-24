@@ -217,6 +217,14 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.50.0 – Option „Quests nur erledigen, nicht abgeben“, Fehler aus der Code-Durchsicht
+- Autopilot-Einstellung „Quests nur erledigen, nicht abgeben“: der Autopilot nimmt Quests an und erledigt die Ziele, fertige Quests bleiben aber stehen – abgeben macht man selbst. Der Knopf „📜 Abgeben & Annehmen (diese Map)“ gibt weiterhin ab; Mitläufer machen Abgaben des Leaders mit dieser Option nicht nach. Ist alles erledigt, sagt der Bot beim Stoppen, wie viele Quests fertig zum Abgeben sind.
+- Boss-Rotation und Named-Elite-Runde erkennen Named Elites jetzt an den Werten (erhöhte HP, Boss-Flag) wie die Lern-Route – vorher galten normale Monster gleicher Art und Stufe als Ziel (z. B. jeder Tyrannomon in Harvest Hills), und der Bot griff sie an, während er auf den Named Elite wartete.
+- Lern-Route am Spawnpunkt: die Suchzeit (20 s) zählt erst ab dem Respawn – nach frühem Ankommen gab der Bot sonst genau zum Respawn auf.
+- Channel-Checker wechselt nicht mehr weg, solange die Lern-Route einen Boss im Blick hat.
+- „Feldbosse mitnehmen“ an/aus und geänderte Kanäle bewerten die Lern-Route sofort neu.
+- EXP/Min: ein Partner-Wechsel zählt nicht mehr als EXP-Gewinn. EXP-Messung begrenzt ihren Speicher. Tooltip „Nächste Map“ ohne rohe Zeilenumbrüche im Quelltext.
+
 #### Neu in 2.49.1 – Digitation in der Lern-Route, Adds erst ab Boss-HP-Schwelle
 - Die Lern-Route digitiert jetzt auch auf dem Weg zum Boss und im Kampf (Befehl geht raus, der Kampf läuft weiter) – live blieb ClavisAngemon 12 min Angemon, weil zwischen Bossen und Angreifern nie „zwischen den Kämpfen“ war.
 - Fehlversuche beim Digitieren werden nach jedem gelungenen Schritt neu gezählt – vorher galt nach fünf gelungenen Schritten (z. B. Patamon → … → Seraphimon, zurück, Angemon) der nächste als „klappt nicht“.
