@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.52.1
+// @version      2.52.2
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -512,7 +512,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.52.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.52.2'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -3426,7 +3426,10 @@
     if (cfg.apDailies) { // Dailies: jeden Pool-NPC einmal pro Partner und Lauf ansprechen
       const act = activePartner(st)?.partnerId || 'p';
       for (const pool of Object.values(C.dailies || {})) {
-        if (lvl < (pool.levels?.[0] ?? 1)) continue;
+        // Pools sind Level-Bereiche (z. B. forest 11–12, spiral_low 41–48): nur der passende – sonst lief der Bot mit Lv 45 für
+        // jeden niedrigeren Pool erneut zu Elecmon („keine Dailies angeboten“)
+        if (lvl < (pool.levels?.[0] ?? 1) || lvl > (pool.levels?.[1] ?? 999)) continue;
+        if (pool.series && pool.series !== worldSeries(st)) continue;
         const visitKey = `${pool.id}|${act}`;
         if (autopilot.dailyVisited.has(visitKey)) continue;
         if (!(pool.quests || []).some((d) => (quests[d.id]?.state ?? 0) === 0)) continue;
@@ -3691,6 +3694,9 @@
     if (t.purpose === 'daily') { // statt Board kam ein normaler Dialog -> hier gibt es (gerade) keine Dailies
       cmd?.closeDialog?.();
       autopilot.dailyVisited.add(t.visitKey);
+      // dieser NPC bietet gerade nichts: auch seine anderen Pools für dieses Digimon abhaken
+      const act = activePartner(st)?.partnerId || 'p';
+      for (const pool of Object.values(content()?.dailies || {})) if ((pool.npcs || []).includes(t.npcId)) autopilot.dailyVisited.add(`${pool.id}|${act}`);
       logEvent('auto', `${name}: keine Dailies angeboten`);
       return 'Keine Dailies';
     }

@@ -217,6 +217,10 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.52.2 – Dailies: nur der passende Level-Pool
+- Daily-Pools sind Level-Bereiche (z. B. forest 11–12, spiral_low 41–48). Der Autopilot nimmt nur noch den Pool, dessen Bereich zum Level passt (und zur Serie der Welt) – vorher lief er mit Lv 45 für jeden niedrigeren Pool erneut zu Elecmon („keine Dailies angeboten“, alle 3 s).
+- Bietet ein NPC keine Dailies an, gelten alle seine Pools für dieses Digimon als erledigt.
+
 #### Neu in 2.52.1 – Lern-Route plant nach einem Digimon-Wechsel neu
 - Wechselt man das Digimon, verwirft die Lern-Route alles, was fürs alte geplant war (Zone, gewählter Feldboss, Kanal-Timer, Digitations-Fehlversuche) und plant sofort für das neue – live wollte ein Lv-43-Digimon noch den Boss bzw. die Golemon Lv 70+ des alten besiegen.
 - Unterwegs werden Angreifer, die mehr als 15 Level über dem Digimon liegen (keine Bosse), nicht bekämpft: Digimon zurückrufen und weiter zur passenden Zone.
