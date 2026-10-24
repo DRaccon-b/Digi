@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.52.4
+// @version      2.53.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -512,7 +512,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.52.4'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.53.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1600,7 +1600,7 @@
   //  not_in_range   -> zu weit weg: ein Stück auf das Ziel zugehen
   //  safe_zone      -> Schutzzone: herauslaufen (auch wenn die Zone nicht in den Kartendaten steht)
   //  invalid_target -> Ziel kurz überspringen
-  const refusal = { seen: new WeakSet(), safeAt: 0, rangeAt: 0, lastTap: 0, tries: new Map(), repos: null };
+  const refusal = { seen: new WeakSet(), safeAt: 0, rangeAt: 0, lastTap: 0, tries: new Map(), repos: null, ban: new Map() }; // ban: Ziel-ID -> bis wann (vom Spiel abgelehnt)
   const REPOS_MAX = 2;      // so oft eine andere Position versuchen, bevor das Ziel gesperrt wird
   const REPOS_MS = 5000;    // so lange höchstens zur neuen Position laufen
   const REPOS_DIST = 52;    // Abstand der neuen Position zum Ziel
@@ -1670,11 +1670,12 @@
           logEvent('auto', `${t.name || 'Ziel'}: Digimon kommt nicht hin – versuche andere Position (${tries}/${REPOS_MAX})`);
         } else {
           refusal.repos = null;
-          blacklist.set(t.id, now + BAN_MS);
+          blacklist.set(t.id, now + BAN_MS); refusal.ban.set(t.id, now + BAN_MS);
+          commands()?.partnerFollow?.(); // nicht am alten Ziel hängen bleiben
           logEvent('warn', `${t.name || 'Ziel'}: Digimon kommt auch von anderer Position nicht hin – 1 min gesperrt`);
         }
       } else if (to.code === 'invalid_target' && t?.id && t.kind === 'mob') {
-        blacklist.set(t.id, now + 15000);
+        blacklist.set(t.id, now + 15000); refusal.ban.set(t.id, now + 15000);
         bot.attackedId = null; bot.engage = null;
         logEvent('warn', `${t.name || 'Ziel'}: ungültiges Ziel – kurz übersprungen`);
       }
@@ -1816,6 +1817,9 @@
   function kohReadyAt(st, now) {
     const o = cfg.koh && kohSlot(st);
     if (!o || o.s.skill.unlocked === false) return null;
+    // bewusstlos, in der Digitation oder zu wenig DS: kann nicht zünden – sonst wartete der nächste Clavis auf ihn, niemand sammelte
+    const p = st?.me?.partner;
+    if (!p || p.fainted || p.evolving || p.ds < (o.s.skill.dsCost || 0)) return null;
     return o.s.cdLeft > 0 ? now + o.s.cdLeft : now;
   }
   // Nächster großer, noch nicht abgedeckter Angriff eines Bosses in der Nähe (left = ms bis zum Einschlag)
@@ -1854,7 +1858,7 @@
     let rank = 0;
     if (!group.active()) return 0;
     for (const [slot, m] of group.peers) {
-      if (slot < group.slot() && fresh(m, now) && m.kohAt != null && m.kohAt <= now && m.inWorld && m.mapId === st.world?.mapId) rank++;
+      if (slot < group.slot() && fresh(m, now) && m.kohAt != null && m.kohAt <= now && m.bot && m.inWorld && m.mapId === st.world?.mapId) rank++; // nur mit laufendem Bot
     }
     return rank;
   }
@@ -2091,11 +2095,16 @@
       : cfg.questMode ? questTargets(st, null) : null;
     const pLvl = me.partner?.level ?? 0;
     const farmSp = cfg.farm ? farmTargets(mapId) : null;
+    // Boss-Quest im Autopilot: der Feldboss ist ein Gruppenkampf – auch angreifen, wenn andere ihn schon bekämpfen
+    const qbSp = cfg.autopilot && !cfg.farm && autopilot.task?.loc?.boss ? new Map(questBossSel(autopilot.task).map((b) => [b.species, b])) : null;
     const assistId = group.role() === 'follower' ? leaderTargetId(now) : null;
     const mobs = [];
     // Kiten: erste gesehene Position jedes Monsters (≈ Startplatz) merken
     ents.forEach((e) => { if (e.kind === KIND.Mob && !mobHome.has(e.id)) mobHome.set(e.id, { x: e.x, y: e.y, t: now }); });
-    if (mobHome.size > 800) { let n = 0; for (const k of mobHome.keys()) { if (n++ >= 300) break; mobHome.delete(k); } } // älteste raus
+    if (mobHome.size > 800) { // erst verschwundene Monster, dann (falls nötig) die ältesten – lebende behalten Startplatz/Zeit
+      for (const k of [...mobHome.keys()]) if (!ents.get?.(k)) mobHome.delete(k);
+      if (mobHome.size > 800) { let n = 0; for (const k of mobHome.keys()) { if (n++ >= 300) break; mobHome.delete(k); } }
+    }
     // Leader erledigt meine Quests: ich bleibe stehen – nur, was mich selbst angreift, ist ein Angreifer
     // „Ziele verteilen“: das Monster eines anderen ist sein Kampf, kein Angreifer für alle – sonst gehen wieder alle darauf
     const guardParty = !(group.role() === 'follower' && groupLeader()?.serve) && !spreadOn();
@@ -2114,7 +2123,7 @@
         d: Math.hypot(e.x - self.x, e.y - self.y),
         attacker,
         // Bosse sind Gruppenkämpfe: ein Farm-Boss gilt nie als „von anderen belegt“
-        taken: cfg.skipTaken && !attacker && !isFarmMob(farmSp, e)
+        taken: cfg.skipTaken && !attacker && !isFarmMob(farmSp, e) && !isFarmMob(qbSp, e)
           && (takenByOthers.has(e.id) || (!!e.targetId && !ours.has(e.targetId))),
         // nur zu starke Monster sind tabu, schwächere immer erlaubt; Farm-Bosse immer
         inLvl: e.level <= pLvl + lvlLimit(mapId) || isFarmMob(farmSp, e),
@@ -2136,7 +2145,10 @@
     mobs.sort((a, b) => near(a) - near(b));
     // Angreifer ohne Weg (z. B. Fernkämpfer jenseits des Wassers): das Digimon kommt nicht hin – nicht abwehren wollen,
     // sonst steht der Bot bis zur Hängen-Erkennung (12 s) still und blockiert Lern-Route/Autopilot
-    return { mapId, self, tamer, mobs, quest, pf, attackers: mobs.filter((m) => m.attacker && m.reach !== false) };
+    // Vom Spiel abgelehnte Ziele (unreachable/invalid_target) ebenso – sonst drückte der Bot endlos Taste 1 auf einen
+    // Fernkämpfer am Ufer, der weiter auf ihn schoss (Hängen-Erkennung nimmt Angreifer aus)
+    if (refusal.ban.size > 100) for (const [k, u] of refusal.ban) if (u <= now) refusal.ban.delete(k);
+    return { mapId, self, tamer, mobs, quest, pf, attackers: mobs.filter((m) => m.attacker && m.reach !== false && !((refusal.ban.get(m.id) || 0) > now)) };
   }
 
   // Suchradius gilt für die Weglänge (See/Schlucht dazwischen = weit); ohne Weg (Insel, andere Klippenseite) nie
@@ -2885,7 +2897,10 @@
       if (bot.can('select', SELECT_GAP_MS, now)) { bot.lastPress.select = now; worldScene()?.select?.(id); }
       return { text: `ziele auf ${name}` };
     }
-    if (cfg.mirror && mirrorActive(id)) return { text: `${name} spiegelt Schaden – warte` };
+    if (cfg.mirror && mirrorActive(id)) { // Digimon zurückrufen (wie der Bot selbst) – sonst frisst es den zurückgeworfenen Schaden
+      if (bot.can('follow', 1500, now)) { bot.lastPress.follow = now; commands()?.partnerFollow?.(); }
+      return { text: `${name} spiegelt Schaden – warte`, hold: true };
+    }
     if (group.mirrorAtkId !== id || bot.can('Digit1', ATTACK_REPEAT_MS, now)) { group.mirrorAtkId = id; bot.hit('Digit1', now); }
     let text = `greife ${name} an`;
     if (farmShielded(m, now)) text += ' · Spawn-Schutz – Skills warten';
@@ -3047,7 +3062,7 @@
 
 
   // Bester Ort zum Leveln: Zone, deren Monster im eigenen Level-Bereich liegen, möglichst nah.
-  function grindSpot(C, lvl, curMap) {
+  function grindSpot(C, lvl, curMap, avoid) {
     let best = null;
     for (const [mapId, spawn] of Object.entries(C.spawns || {})) {
       const wm = world.maps[mapId];
@@ -3062,10 +3077,11 @@
         });
         if (!fit.length) continue;
         const avg = fit.reduce((a, en) => a + [].concat(en.level).reduce((x, y) => x + y, 0) / [].concat(en.level).length, 0) / fit.length;
-        const score = h * 10 + Math.abs(avg - lvl);
+        const key = `${mapId}|${zone}`;
+        const score = h * 10 + Math.abs(avg - lvl) + (avoid?.has(key) ? 300 : 0); // gerade leer gewesen: hinten anstellen
         if (!best || score < best.score) {
           const species = [...new Set(fit.map((en) => en.species))];
-          best = { mapId, x: r.x + r.w / 2, y: r.y + r.h / 2, score, species,
+          best = { mapId, key, x: r.x + r.w / 2, y: r.y + r.h / 2, score, species,
             names: species.map((sp) => C.digimon?.[sp]?.name || sp).join(', ') };
         }
       }
@@ -3443,7 +3459,7 @@
       }
     }
     if (grindTo < Infinity && cfg.apGrind && cfg.apOrder !== 'sweep') {
-      const spot = grindSpot(C, lvl, mapId);
+      const spot = grindSpot(C, lvl, mapId, activeAvoid());
       if (spot) tasks.push({ key: `grind:${grindTo}`, kind: 'hunt', grind: true, targetLevel: grindTo, species: new Set(spot.species),
         names: spot.names, loc: spot, prio: 50, label: `Grinde bis Lv ${grindTo} (${spot.names})` });
     }
@@ -3981,7 +3997,7 @@
     if (now - autopilot.idleSince > HUNT_IDLE_MS) {
       // Gebiet ist leer (z. B. Boss tot, andere Spieler jagen dort): 5 min meiden und neu planen – dann wird das
       // nächstbeste Gebiet mit derselben Beute gewählt. Gibt es keins, bleibt es bei diesem (weiter warten).
-      if (t.loc.key && !t.grind) {
+      if (t.loc.key) { // auch beim Grinden: ein anderes Gebiet (oder dasselbe, wenn es keins gibt) – nicht den Bot stoppen
         autopilot.avoidSpots.set(t.loc.key, now + TASK_BAN_MS);
         logEvent('warn', `${t.label}: hier keine ${t.names} – versuche ein anderes Jagdgebiet`);
         autopilot.reset();
@@ -4162,6 +4178,7 @@
     if (!cfg.chCheck || cfg.farm || cfg.dungeon || group.role() === 'follower' || world.state !== 'ready' || st.dialog) return null;
     if (questBossSel(autopilot.task).length) return null;
     if (lrOn() && lr.boss) return null; // Lern-Route: Boss in Sicht/auf dem Weg – nicht wegwechseln
+    if (cfg.hunt && hunt.goal && st.world?.mapId === hunt.goal.mapId) return null; // Event: der Jagd-Boss ist nur auf Ch 1
     const C = chCheckState, mapId = st.world?.mapId, cur = st.world?.channel ?? 1;
     if (C.mapId !== mapId) { C.mapId = mapId; C.arrived = now; C.last = 0; C.switching = null; }
     if (C.switching) {
@@ -4554,12 +4571,24 @@
     const cmd = commands();
     if (sel.length && now - farm.lastPins > FARM_PIN_MS) {
       farm.lastPins = now;
-      try { cmd?.requestBossPins?.(sel.slice(0, 8).map((b) => ({ map: b.map, index: b.index }))); } catch { /* ignore */ }
+      try { cmd?.requestBossPins?.(pinBatch(st, sel).map((b) => ({ map: b.map, index: b.index }))); } catch { /* ignore */ }
     }
     if (here.length && now - farm.lastInfo > FARM_INFO_MS) {
       farm.lastInfo = now;
       try { cmd?.requestMapInfo?.(); } catch { /* ignore */ }
     }
+  }
+  // Boss-Timer fragt das Spiel höchstens für 8 Bosse auf einmal ab. Mehr gewählt (Named-Runde über viele Maps, große Rotation):
+  // die 6 wichtigsten (Named-Runde: aktuelle und nächste Maps; sonst Ziel, dann nach Weg) und 2 der übrigen reihum
+  function pinBatch(st, sel) {
+    if (sel.length <= 8) return sel;
+    const cur = st.world?.mapId, isGoal = (b) => (farm.goal && b.map === farm.goal.map && b.index === farm.goal.index ? 1 : 0);
+    let ord;
+    if (cfg.farm && cfg.farmMode === 'named') { const i = Math.min(farm.route?.i || 0, sel.length - 1); ord = [...sel.slice(i), ...sel.slice(0, i)]; }
+    else ord = [...sel].sort((a, b) => isGoal(b) - isGoal(a) || hops(cur, a.map) - hops(cur, b.map));
+    const head = ord.slice(0, 6), rest = ord.slice(6);
+    farm.pinOff = ((farm.pinOff || 0) + 2) % rest.length;
+    return [...head, ...[...rest, ...rest].slice(farm.pinOff, farm.pinOff + Math.min(2, rest.length))];
   }
   // Zustand eines Bosses auf einem Kanal: { state: 'up' | 'down' | 'unknown', readyAt, hp }
   function farmState(b, ch, now) {
@@ -4589,7 +4618,9 @@
     opts.sort((a, b) => a.eta - b.eta || (a.s.state === 'up' ? -1 : 0) - (b.s.state === 'up' ? -1 : 0));
     const best = opts[0];
     const g = farm.goal && opts.find((o) => o.map === farm.goal.map && o.index === farm.goal.index && o.ch === farm.goal.ch);
-    if (g && !(best.eta < g.eta - 20000)) return g;
+    // Ein gewählter Boss, der HIER auf diesem Kanal lebt, gewinnt immer – sonst wechselte der Bot weg und kam zurück
+    const hereUp = best.map === cur && best.ch === curCh && best.s.state === 'up';
+    if (g && !hereUp && !(best.eta < g.eta - 20000)) return g;
     if (!g || g.map !== best.map || g.ch !== best.ch || g.index !== best.index) {
       const what = best.s.state === 'up' ? 'lebt' : best.s.state === 'down' ? `Respawn in ${fmtClock(best.s.readyAt - now)}` : 'Timer unbekannt – schaue nach';
       logEvent('auto', `Boss-Ziel: ${best.b.name} · ${best.b.mapName} Ch ${best.ch} (${what})`);
@@ -5308,7 +5339,7 @@
     return sp ? { x: sp.x, y: sp.y } : z?.w ? { x: z.x + z.w / 2, y: z.y + z.h / 2 } : null;
   }
   function lrBossEnt(b) { let e0 = null; window.dmo?.net?.state?.entities?.forEach?.((en) => { if (en.kind === KIND.Mob && en.hp > 0 && !(en.flags & FLAG.Dead) && bossEntityMatch(b, en)) e0 = en; }); return e0; }
-  const lrBossFocus = (sc) => { const lb = lrOn() && lr.boss; if (!lb || !sc) return null; const e = lrBossEnt(lb.b); return e ? sc.mobs.find((m) => m.id === e.id) || null : null; };
+  const lrBossFocus = (sc) => { const lb = lrOn() && lr.boss; if (!lb || !sc) return null; const e = lrBossEnt(lb.b); return e ? sc.mobs.find((m) => m.id === e.id && !m.banned) || null : null; };
   // busy: Angreifer da – erst abwehren; nur direkt nach einem Boss-Sieg (LR_CHAIN_MS) gleich weiter zum nächsten Boss
   const LR_CHAIN_MS = 30000;
   function lrBossStep(st, sc, now, g, busy = false) {
@@ -5377,6 +5408,13 @@
     }
     const be = lrBossEnt(lb.b);
     if (be) { // sichtbar: anvisieren, den Kampf macht der normale Ablauf (Fokus)
+      // gesperrt (Hängen-Erkennung/„unreachable“): das Digimon kommt nicht hin – eine Weile aus der Boss-Runde, statt endlos
+      // davorzustehen (live-ähnlich nachgestellt: 200 s am Boss, 14× „unerreichbar“, 0 Kills)
+      if ((blacklist.get(be.id) || 0) > now) {
+        (lr.avoid ||= new Map()).set(`${lb.b.map}#${lb.b.species}`, now + 5 * 60000);
+        logEvent('warn', `Leveln: ${lb.b.name} nicht zu erreichen – 5 min aus der Boss-Runde`);
+        lr.boss = null; return null;
+      }
       if (st.target?.id !== be.id && bot.can('select', SELECT_GAP_MS, now)) { bot.lastPress.select = now; worldScene()?.select?.(be.id); }
       return null;
     }
@@ -5434,11 +5472,21 @@
     let fighting = !!t && t.kind === 'mob' && t.hp > 0 && bot.attackedId === t.id;
     // Angreifer weit über dem eigenen Level (kein Boss): aussichtslos – nicht kämpfen, Digimon zurückrufen und weiter zur Zone
     const strong = (id) => { const m = sc?.mobs?.find((x) => x.id === id); return !!m && m.cat !== 'boss' && (m.level ?? 0) - p.level > LR_FLEE_ABOVE; };
-    if (attackers.length && !lr.boss && attackers.every(strong)) {
-      const pe = window.dmo?.net?.state?.entities?.get?.(p.entityId);
-      if ((pe?.targetId || bot.attackedId) && bot.can('follow', 1500, now)) { bot.lastPress.follow = now; commands()?.partnerFollow?.(); }
-      if (!lr.fleeLog || now - lr.fleeLog > 15000) { lr.fleeLog = now; logEvent('warn', `Leveln: Angreifer über +${LR_FLEE_ABOVE} – nicht kämpfen, weiter zur Zone`); }
-      bot.attackedId = null; fighting = false; attackers = [];
+    // Die starken auch aus der Zielwahl des Ticks nehmen (sonst griff pickTarget sie sofort wieder an: Rückruf und Taste 1
+    // wechselten sich ab) – kurz „in Ruhe lassen“, damit auch ein schon gewähltes Ziel nicht gültig bleibt
+    const strongIds = !lr.boss ? attackers.filter(strong) : [];
+    let fled = false;
+    if (strongIds.length) {
+      for (const id of strongIds) safeHold.set(id, now + 3000);
+      if (sc) sc.attackers = sc.attackers.filter((m) => !strongIds.includes(m.id));
+      if (t && strongIds.includes(t.id)) { bot.attackedId = null; fighting = false; }
+      if (attackers.every(strong)) {
+        const pe = window.dmo?.net?.state?.entities?.get?.(p.entityId);
+        if ((pe?.targetId || bot.attackedId) && bot.can('follow', 1500, now)) { bot.lastPress.follow = now; commands()?.partnerFollow?.(); }
+        if (!lr.fleeLog || now - lr.fleeLog > 15000) { lr.fleeLog = now; logEvent('warn', `Leveln: Angreifer über +${LR_FLEE_ABOVE} – nicht kämpfen, weiter zur Zone`); }
+        bot.attackedId = null; fighting = false; fled = true;
+      }
+      attackers = attackers.filter((id) => !strongIds.includes(id));
     }
     // Digitation zuerst – auch auf dem Weg zum Boss und im Kampf (live: 12 min Angemon statt ClavisAngemon, weil zwischen
     // Bossen und Angreifern nie „zwischen den Kämpfen“ war). Im Kampf/unter Angriff nur den Befehl schicken, weiterkämpfen.
@@ -5462,6 +5510,26 @@
     const where = `${content()?.maps?.[g.mapId]?.name || g.mapId} / ${g.zone}`;
     if (st.world?.mapId !== g.mapId) { const tr = travel(st, g.mapId, now); return tr === true ? `angekommen in ${where}` : `reise zu ${where} · ${tr}`; }
     const me = controlled(st), r = g.rect;
+    // auf der Lern-Map nur starke Angreifer: passende Monster in Sicht trotzdem bekämpfen (die starken sind aus der Zielwahl
+    // genommen), sonst zum Zonenpunkt, der am weitesten von ihnen weg ist (sie lassen dann los)
+    if (fled && me && !(sc && sc.mobs.some((m) => usable(m) && !strongIds.includes(m.id)))) {
+      const foes = strongIds.map((id) => sc?.mobs?.find((m) => m.id === id)).filter(Boolean);
+      const g0 = worldScene()?.map?.grid, T0 = g0?.tile || 16;
+      const okAt = (q) => (sc?.pf ? pathFree(sc.pf, q) : !g0?.blocked || g0.blocked[Math.floor(q.y / T0) * g0.w + Math.floor(q.x / T0)] !== 1);
+      let best = lr.flee && now - lr.flee.at < 4000 ? lr.flee : null, bd = -1;
+      if (!best) {
+        for (let k = 0; k < 16; k++) {
+          const q = { x: r.x + 24 + Math.random() * Math.max(1, r.w - 48), y: r.y + 24 + Math.random() * Math.max(1, r.h - 48) };
+          if (!okAt(q)) continue;
+          const d = Math.min(...foes.map((m) => Math.hypot(m.x - q.x, m.y - q.y)));
+          if (d > bd) { bd = d; best = q; }
+        }
+        if (best) lr.flee = { x: best.x, y: best.y, at: now };
+      }
+      if (best && walkTo(st, best.x, best.y, now) === 'stuck') { autopilot.nav = null; lr.flee = null; }
+      const lvMax = Math.max(...foes.map((m) => (m.level ?? 0) - p.level));
+      return `weiche Angreifer +${lvMax} aus`;
+    }
     // außerhalb der Zone: passende Monster in Sicht weiter bekämpfen (live: nach jedem Kampf am Rand zurück zur Mitte und
     // wieder hinaus), sonst nur bis an den nächsten Punkt der Zone laufen statt zur Mitte
     if (me && !(me.x >= r.x - 24 && me.x <= r.x + r.w + 24 && me.y >= r.y - 24 && me.y <= r.y + r.h + 24)) {
@@ -5603,7 +5671,7 @@
       // Map-für-Map-Runde: bei jedem Start an der eingestellten Start-Map beginnen (nicht beim gespeicherten Fortschritt,
       // sonst fehlt z. B. eine Map, die beim letzten Lauf noch nichts zu tun hatte, inzwischen aber schon)
       if (this.on && cfg.apOrder === 'sweep' && cfg.apSweepMap) { cfg.apSweepMap = ''; saveCfg(); }
-      if (this.on && cfg.dungeon && !dg.inside) dg.fails = 0;
+      if (this.on && cfg.dungeon && !dg.inside) dg.reset(); // alter Lauf (geschafft/Fehlversuche/Raum-Stand) zählt nicht
       if (this.on) loadWorld(); // Kartendaten (Portale, Zonen, Schutzzonen) für alle Modi
       if (this.on) this.timer = setInterval(() => this.tick(), TICK_MS);
       this.status = this.on ? 'Bot läuft' : 'Bot aus';
@@ -5680,16 +5748,20 @@
         autopilot.huntSpecies = L && L.mapId === st.world?.mapId ? new Set(L.hunt || []) : new Set();
       }
       const sc = scan(st);
-      const attackers = sc ? sc.attackers.map((m) => m.id) : [];
+      let attackers = sc ? sc.attackers.map((m) => m.id) : [];
       // 1c) Event (Mega-Jagd): hinreisen, warten, suchen – geht jedem Modus vor (nicht im Dungeon)
       if (!cfg.dungeon && world.state === 'ready') {
         const hv = huntStep(st, sc, now);
+        // Event läuft oder steht an: das Feldboss-Ziel der Lern-Route verwerfen (sonst Boss-Tränke über das ganze Event und
+        // danach erst die Fahrt zum veralteten Boss) und die Lern-Route pausieren – auch auf dem Weg zur Event-Map
+        const huntOn = !!(cfg.hunt && hunt.goal);
+        if (huntOn && lr.boss) { lr.boss = null; lr.chainAt = 0; }
         if (hv) { this.status = `Event: ${hv}`; this.attackedId = null; return; }
-        // Jagd auf dieser Map (Boss in Sicht oder Angreifer): die Lern-Route nicht dazwischen funken lassen – live zog sie den
-        // Bot bei Regalecusmon im Wechsel zurück in seine Zone, während der Boss neben ihm kämpfte
-        const huntHere = cfg.hunt && hunt.goal && st.world?.mapId === hunt.goal.mapId;
-        const lv = huntHere ? null : levelRouteStep(st, sc, now, attackers);
+        // Jagd (Boss in Sicht oder Angreifer): die Lern-Route nicht dazwischen funken lassen – live zog sie den Bot bei
+        // Regalecusmon im Wechsel zurück in seine Zone, während der Boss neben ihm kämpfte
+        const lv = huntOn ? null : levelRouteStep(st, sc, now, attackers);
         if (lv) { this.status = `Leveln: ${lv}`; this.attackedId = null; return; }
+        attackers = sc ? sc.attackers.map((m) => m.id) : []; // die Lern-Route nimmt aussichtslose Angreifer heraus
       }
       if (cfg.farm && world.state === 'ready') farmUpdate(st, now);
       else if (cfg.autopilot && world.state === 'ready') { const qb = questBossSel(autopilot.task); if (qb.length) farmUpdate(st, now, qb); } // Boss-Quest: Timer wie bei der Rotation
@@ -5766,6 +5838,8 @@
       // ohne Weg zum Ziel (Insel, andere Klippenseite) nicht weiter draufhalten – außer Fokus (Boss/Leader-Ziel) und Adds
       const noPath = !!info && info.reach === false && !onFocus && !addTarget;
       const valid = !noFight && !dup && !offFocus && !noPath && !(alive && safeHeld(t.id, now)) && (isAttacker || addTarget || onFocus || (!blocked && (this.resting ? fighting : alive && lvlOk)));
+      // Kampf gegen gesuchte Beute: Gebiet ist nicht leer (die 90-s-Leerlaufuhr lief sonst während der Kämpfe weiter)
+      if (valid && alive && cfg.autopilot && autopilot.task?.kind === 'hunt' && autopilot.task.species?.has?.(info?.species)) autopilot.idleSince = 0;
       if (!valid) {
         this.attackedId = null;
         this.engage = null;
@@ -5787,7 +5861,7 @@
           const folBusy = group.role() === 'follower' && autopilot.task && PASSIVE(autopilot.task) && !taskDone(st, autopilot.task);
           const next = noFight || folBusy ? null : pickTarget(sc, this.resting);
           if (next) {
-            if (this.can('select', SELECT_GAP_MS, now)) { this.lastPress.select = now; scene.select(next.id); }
+            if (this.can('select', SELECT_GAP_MS, now)) { this.lastPress.select = now; scene.select(next.id); kickTick(); } // gleich angreifen, nicht erst im nächsten Takt
             this.status = `${next.attacker ? 'Angreifer' : 'Nächstes Ziel'}: Lv ${next.level} · ${Math.round(next.d)} px`;
           } else if (cfg.dungeon) {
             this.status = `Dungeon: ${dungeonStep(st, sc, now)}`;

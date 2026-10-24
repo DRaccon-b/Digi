@@ -217,6 +217,21 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.53.0 – Code-Review: 16 Fehler behoben
+- **Gesperrte Angreifer** (unerreichbar / ungültiges Ziel) werden nicht mehr endlos weiter angegriffen.
+- **Nach einem Kill** sofort das nächste Ziel – kein Takt Leerlauf mehr.
+- **Angriffe spiegeln:** bei Spiegel/Reflexion wird das Digimon zurückgerufen.
+- **Lern-Route:** Angreifer über +15 werden nicht bekämpft (kein Wechsel aus Rückruf und Taste 1 mehr); passende Monster in der Zone weiter, sonst zum Zonenpunkt weit weg von ihnen.
+- **Lern-Route:** ein Feldboss, der keinen Schaden nimmt, wird 5 min gemieden statt endlos zu blockieren.
+- **Feld-Adds:** beim Aufräumen der Monsterliste gelten alte Monster nicht mehr als frisch gerufene Adds.
+- **Event-Jagd:** altes Boss-Ziel der Lern-Route wird verworfen; der Kanal-Checker wechselt während der Jagd nicht weg.
+- **Autopilot:** die Leerlauf-Uhr der Jagd läuft während der Kämpfe nicht weiter; ein leeres Grind-Gebiet stoppt den Bot nicht mehr (nächstes Gebiet).
+- **Quest-Feldboss** wird auch angegriffen, wenn andere ihn schon bekämpfen.
+- **Key of Hope:** ein bewusstloser, digitierender, DS-loser oder gestoppter Clavis gilt nicht als bereit – der nächste übernimmt.
+- **Boss-Rotation:** ein lebender Boss auf dem aktuellen Kanal gewinnt immer; bei mehr als 8 Bossen werden die wichtigsten 6 plus 2 reihum abgefragt.
+- **Dungeon:** der Stand eines geschafften Laufs wird beim nächsten Start zurückgesetzt.
+- Bewusst unverändert: der Spawn-Schutz für Skills bei frischen Bossen.
+
 #### Neu in 2.52.4 – Feld-Adds nur, wenn sie wirklich gerufen wurden
 - Ein Monster der Add-Art zählt erst als Add, wenn es nach dem Unterschreiten der HP-Schwelle des Bosses erschienen ist, das Add-Level aus den Spieldaten hat und am Boss oder an einem Add-Spawnpunkt steht – live griff der Bot bei Puppetmon (Spiral Forest) alle umstehenden normalen Pumpkinmon an. Raids wie bisher.
 
