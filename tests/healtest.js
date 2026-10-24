@@ -9,6 +9,8 @@ const G = makeWorld({ slot: 0, tag: 'Solo', noHash: true, accounts: { leader: 0,
 const st0 = G.store.getState();
 G.store.setState({ me: { ...st0.me, hotbar: ['cmd:attack', 'skill:0', 'skill:1'], partner: { ...st0.me.partner, species: 'gabumon', skills: [{ name: 'Boom Bubble', dsCost: 5 }, { name: 'Heal', dsCost: 5 }] } } });
 G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, skillSets: { gabumon: { skills: { 2: true, 3: true, 4: true, 5: true, 6: true }, heal: { 3: 50 } } }, lvlDiff: 10 }));
+// zähes Monster: seit 2.52.0 bekommen fast tote normale Monster keine Skills mehr (DS sparen)
+Object.assign(G.ents.get('m:1'), { hp: 90000, maxHp: 90000 });
 const keys = [];
 G.w.addEventListener('keydown', (e) => keys.push(e.code), true);
 G.w.eval(script);

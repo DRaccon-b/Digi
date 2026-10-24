@@ -1,6 +1,7 @@
 // 2.51.0: Zielwahl nach Weglänge – ein Monster jenseits eines Sees ist in Luftlinie nah, zu Fuß aber weit oder gar nicht
 // erreichbar. A: Monster auf einer Insel (kein Weg) -> nie wählen. B: Monster hinter einer langen Wand, Durchgang weit weg
 // (Weg länger als der Suchradius) -> das weiter entfernte, erreichbare Monster zuerst. C: ohne Hindernis wie bisher.
+// 2.52.0: D: das Monster auf der Insel greift an (Fernkampf übers Wasser) -> trotzdem nicht wählen, das erreichbare nehmen.
 const fs = require('fs');
 const makeWorld = require('./gw');
 const script = fs.readFileSync(process.argv[2], 'utf8');
@@ -18,10 +19,11 @@ function grid(kind) {
   }
   return { tile: T, w: W, h: H, blocked: b };
 }
-async function run(kind) {
+async function run(kind, attack = false) {
   const G = makeWorld({ slot: 0, tag: 'P', noHash: true, accounts: { leader: 0, list: [{ user: 'solo' }] }, mobs: [[520, 330], [410, 560]],
     quests: { q00_meet_gennai: { state: 3, counters: [] }, q02_first_steps: { state: 3, counters: [] } } });
   if (kind) G.w.dmo.game.scene.getScene('world').map = { grid: grid(kind) };
+  if (attack) G.ents.get('m:1').targetId = 'p:me';
   G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20, radius: 300 }));
   G.w.eval(script);
   await wait(800);
@@ -32,9 +34,9 @@ async function run(kind) {
   return first;
 }
 (async () => {
-  const island = await run('island'), wall = await run('wall'), open = await run(null);
-  console.log({ island, wall, open });
-  const ok = island === 'm:2' && wall === 'm:2' && open === 'm:1';
+  const island = await run('island'), wall = await run('wall'), open = await run(null), islandAtk = await run('island', true);
+  console.log({ island, wall, open, islandAtk });
+  const ok = island === 'm:2' && wall === 'm:2' && open === 'm:1' && islandAtk === 'm:2';
   console.log(ok ? 'OK – Zielwahl nach Weglänge: Insel nie, Umweg zu lang -> erreichbares zuerst, frei wie bisher' : 'FEHLER');
   process.exit(ok ? 0 : 1);
 })();

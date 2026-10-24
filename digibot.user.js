@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.51.0
+// @version      2.52.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -512,7 +512,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.51.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.52.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2033,6 +2033,13 @@
     pathMemo.key = key; pathMemo.blocked = g.blocked; pathMemo.field = field;
     return field;
   }
+  // Steht man auf dem Punkt p selbst (begehbar und im eigenen Bereich)? – für Laufziele, nicht für Monster am Ufer
+  const pathFree = (field, p) => {
+    const x = Math.floor(p.x / field.T), y = Math.floor(p.y / field.T);
+    if (x < 0 || y < 0 || x >= field.W || y >= field.H) return false;
+    const c = field.comp[y * field.W + x];
+    return c !== -1 && c === field.comp[field.start];
+  };
   // Weglänge (px) zum Punkt p und ob es überhaupt einen Weg gibt. Steht p auf einem gesperrten Feld (Ufer, Wand), zählt
   // das nächste freie Nachbarfeld – das Digimon schlägt ja von dort zu. Infinity = weiter als die Grenze der Wegekarte.
   function pathTo(field, p) {
@@ -2127,7 +2134,9 @@
     }
     const near = (m) => (isFinite(m.pd) ? m.pd : 1e9 + m.d);
     mobs.sort((a, b) => near(a) - near(b));
-    return { mapId, self, tamer, mobs, quest, attackers: mobs.filter((m) => m.attacker) };
+    // Angreifer ohne Weg (z. B. Fernkämpfer jenseits des Wassers): das Digimon kommt nicht hin – nicht abwehren wollen,
+    // sonst steht der Bot bis zur Hängen-Erkennung (12 s) still und blockiert Lern-Route/Autopilot
+    return { mapId, self, tamer, mobs, quest, pf, attackers: mobs.filter((m) => m.attacker && m.reach !== false) };
   }
 
   // Suchradius gilt für die Weglänge (See/Schlucht dazwischen = weit); ohne Weg (Insel, andere Klippenseite) nie
@@ -5265,7 +5274,9 @@
   const lrBossSel = (mapId, pl) => {
     const below = new Set();
     for (let m = mapId, i = 0; pl != null && i < LR_BELOW_DEPTH; i++) { m = lrMapBelow(m); if (!m) break; below.add(m); }
-    return farmBossList().filter((b) => b.kind === 'field' && (b.map === mapId || (below.has(b.map) && b.level - pl >= -LR_BELOW_MAX)));
+    const avoid = lr.avoid, now = Date.now();
+    return farmBossList().filter((b) => b.kind === 'field' && (b.map === mapId || (below.has(b.map) && b.level - pl >= -LR_BELOW_MAX))
+      && !((avoid?.get(`${b.map}#${b.species}`) || 0) > now)); // hat das Digimon umgehauen: eine Weile nicht
   };
   function lrBossPos(b) {
     const m = world.maps[b.map], sp = m?.spawns?.[b.at], z = m?.zones?.[b.at];
@@ -5417,7 +5428,18 @@
     // in der Zone, aber nichts Passendes im Suchradius: einen anderen Punkt der Zone ansteuern statt zu warten
     if (me && sc && !sc.mobs.some(usable)) {
       const rp = lr.roam;
-      if (!rp || now - rp.at > 15000 || Math.hypot(me.x - rp.x, me.y - rp.y) < 40) lr.roam = { x: r.x + 24 + Math.random() * Math.max(1, r.w - 48), y: r.y + 24 + Math.random() * Math.max(1, r.h - 48), at: now };
+      if (!rp || now - rp.at > 15000 || Math.hypot(me.x - rp.x, me.y - rp.y) < 40) {
+        // zufälliger Punkt der Zone – aber einer, zu dem es einen Weg gibt (sonst lief der Bot ins Wasser und hing 15 s)
+        let pick = null;
+        const g0 = worldScene()?.map?.grid, T0 = g0?.tile || 16;
+        const okAt = (q) => (sc.pf ? pathFree(sc.pf, q) : !g0?.blocked || g0.blocked[Math.floor(q.y / T0) * g0.w + Math.floor(q.x / T0)] !== 1);
+        for (let k = 0; k < 12 && !pick; k++) {
+          const q = { x: r.x + 24 + Math.random() * Math.max(1, r.w - 48), y: r.y + 24 + Math.random() * Math.max(1, r.h - 48) };
+          if (okAt(q)) pick = q;
+        }
+        lr.roam = pick ? { ...pick, at: now } : null; // nichts Begehbares getroffen: diesmal stehen bleiben, gleich neu würfeln
+      }
+      if (!lr.roam) return `suche Monster in ${where}`;
       if (walkTo(st, lr.roam.x, lr.roam.y, now) === 'stuck') { autopilot.nav = null; lr.roam = null; }
       return `suche Monster in ${where}`;
     }
@@ -5463,6 +5485,13 @@
   }
 
   const TICK_MS = 250;
+  // Normale Monster, die gleich fallen, nicht mit Skills erschlagen (spart DS und DS-Tränke): Rest-HP höchstens so viele
+  // Sekunden des eigenen Schadens (gemessen, je Form; enthält Skills – darum nur ein Teil davon)
+  const OVERKILL_SHARE = 0.6;
+  // Lern-Route: vor dem Kampf mit einem Feldboss auffüllen (live: Mummymon +15 bei 55 % HP begonnen)
+  const LR_BOSS_PREP_HP = 70, LR_BOSS_PREP_DS = 40;
+  // Lern-Route: Boss, der das Digimon umgehauen hat, so lange aus der Boss-Runde
+  const LR_BOSS_FAINT_MS = 30 * 60000;
   const POT_COOLDOWN_MS = 2000;  // gleichen Trank höchstens alle 2 s drücken
   // Geteilter Treffer (share: % der Max-HP des Ziels, auf alle im Kreis verteilt – allein nach den Spieldaten ⅓ von
   // 240 % = 80 %): wird gerade einer angesagt, vorher mit F1 auf SHARE_TOPUP % auffüllen
@@ -5550,6 +5579,20 @@
       }
       if (p.fainted) {
         if (this.status !== 'Digimon ist bewusstlos') logEvent('warn', 'Digimon ist bewusstlos – Bot pausiert');
+        // Lern-Route: im Kampf mit einem Feldboss umgehauen -> diesen Boss eine Weile auslassen (keine Level-Grenze, aber
+        // aus Erfahrung lernen)
+        const lb = lrOn() && lr.boss;
+        if (lb && farm.fight?.key?.startsWith(`${lb.b.map}#${lb.b.index}#`)) {
+          (lr.avoid ||= new Map()).set(`${lb.b.map}#${lb.b.species}`, now + LR_BOSS_FAINT_MS);
+          logEvent('warn', `Leveln: ${lb.b.name} hat das Digimon umgehauen – ${LR_BOSS_FAINT_MS / 60000} min aus der Boss-Runde`);
+          lr.boss = null; farm.fight = null;
+        }
+        // „Zurück zum Lager“, sobald das Spiel es erlaubt – statt auf die automatische Rückkehr zu warten
+        const pr = st.prompt;
+        if (pr?.kind === 'fainted' && Date.now() >= (pr.canReviveAt || 0) && commands()?.revive && this.can('revive', 3000, now)) {
+          this.lastPress.revive = now; commands().revive();
+          logEvent('auto', 'Bewusstlos – zurück zum Lager, sobald es geht');
+        }
         autopilot.nav = null; autopilot.arrivedAt = 0; autopilot.idleSince = 0; // nach dem Wiederbeleben Weg neu planen
         this.status = 'Digimon ist bewusstlos';
         return;
@@ -5563,8 +5606,11 @@
         }
       };
       // geteilter Treffer angesagt (Catastrophe Cannon, Black-Rain-Hülle): bis zum Einschlag möglichst volle HP
-      potion(1, (cfg.hpPot > 0 && pct(p.hp, p.maxHp) < cfg.hpPot) || (shareIncoming(now) && pct(p.hp, p.maxHp) < SHARE_TOPUP));
-      potion(2, cfg.dsPot > 0 && pct(p.ds, p.maxDs) < cfg.dsPot);
+      // Lern-Route auf dem Weg zum Feldboss / am Spawnpunkt: vorher auffüllen (im Kampf gelten die normalen Schwellen)
+      const prep = lrOn() && !!lr.boss && !(t?.kind === 'mob' && t.hp > 0 && this.attackedId === t.id && lrBossEnt(lr.boss.b)?.id === t.id);
+      potion(1, (cfg.hpPot > 0 && pct(p.hp, p.maxHp) < cfg.hpPot) || (shareIncoming(now) && pct(p.hp, p.maxHp) < SHARE_TOPUP)
+        || (prep && pct(p.hp, p.maxHp) < LR_BOSS_PREP_HP));
+      potion(2, (cfg.dsPot > 0 && pct(p.ds, p.maxDs) < cfg.dsPot) || (prep && pct(p.ds, p.maxDs) < LR_BOSS_PREP_DS));
       potion(3, tamerFoodNeeded(me, now));
 
       // 1b) Flächenangriffen ausweichen hat Vorrang vor allem anderen
@@ -5666,7 +5712,9 @@
       const addTarget = !!add && alive && t.id === add.id; // Add des Bosses: immer bekämpfen, auch außerhalb der Level-/Monster-Auswahl
       const focus = this.resting ? null : huntFocus(sc) || lrBossFocus(sc) || dungeonFocus(sc) || focusAssist(sc) || farmBossNear(sc); // Leader-Ziel bzw. Boss der Rotation zuerst
       const onFocus = !!focus && alive && t.id === focus.id, offFocus = !!focus && !onFocus && !addTarget; // anderes Ziel -> wechseln
-      const valid = !noFight && !dup && !offFocus && !(alive && safeHeld(t.id, now)) && (isAttacker || addTarget || onFocus || (!blocked && (this.resting ? fighting : alive && lvlOk)));
+      // ohne Weg zum Ziel (Insel, andere Klippenseite) nicht weiter draufhalten – außer Fokus (Boss/Leader-Ziel) und Adds
+      const noPath = !!info && info.reach === false && !onFocus && !addTarget;
+      const valid = !noFight && !dup && !offFocus && !noPath && !(alive && safeHeld(t.id, now)) && (isAttacker || addTarget || onFocus || (!blocked && (this.resting ? fighting : alive && lvlOk)));
       if (!valid) {
         this.attackedId = null;
         this.engage = null;
@@ -5807,6 +5855,7 @@
       // 6) Skills auf 2–6: den ersten aktivierten, bereiten Skill wirken (einer pro Durchgang)
       if (p.evolving || !this.can('skill', SKILL_GAP_MS, now)) return;
       if (farmShielded(t, now)) { this.status += ' · Spawn-Schutz – Skills warten'; return; }
+      if (info?.cat === 'normal' && t.maxHp > 0 && t.hp <= lrDps(p) * OVERKILL_SHARE) return; // fällt gleich: DS sparen
       let held = null;
       for (const k of SKILL_KEYS) {
         if (!skillOn(st, k) || healAt(st, k)) continue; // Heil-Skills nur über healSkill

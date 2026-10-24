@@ -217,6 +217,14 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.52.0 – Eigenständige Verbesserungen: schneller zurück, Skills sparen, sicherer an Bossen
+- Bewusstlos: „Zurück zum Lager“, sobald das Spiel es erlaubt – statt auf die automatische Rückkehr zu warten.
+- Angreifer ohne Weg (z. B. Fernkämpfer jenseits des Wassers) werden nicht mehr „abgewehrt“ – das Digimon kommt nicht hin; vorher stand der Bot bis zur Hängen-Erkennung (12 s) still und blockierte Lern-Route/Autopilot. Ein gewähltes Ziel ohne Weg wird fallen gelassen (außer Boss-/Leader-Fokus und Adds).
+- Normale Monster, die ohnehin gleich fallen (Rest-HP unter ~0,6 s des eigenen Schadens), bekommen keine Skills mehr – spart DS und DS-Tränke. Bosse, Elites und zähe Monster wie bisher.
+- Lern-Route: auf dem Weg zum Feldboss und am Spawnpunkt mit F1/F2 auf 70 % HP bzw. 40 % DS auffüllen, auch wenn die normale Trank-Schwelle aus ist (live: Mummymon +15 bei 55 % HP begonnen).
+- Lern-Route: ein Feldboss, der das Digimon umgehauen hat, bleibt 30 min aus der Boss-Runde (keine Level-Grenze – aber aus Erfahrung lernen).
+- Lern-Route: Suchpunkte in der Zone nur dort, wo man hinkommt – liegt ein Teich in der Zone, läuft der Bot nicht mehr ins Wasser.
+
 #### Neu in 2.51.0 – Zielwahl nach Weglänge (Seen, Schluchten, Wände)
 - Die Zielwahl rechnet mit der Weglänge des Digimons statt der Luftlinie: Dijkstra über das Kollisionsraster der Map (8 Richtungen, diagonal nur ohne Ecke – wie die Wegfindung des Spiels). Der Suchradius gilt für den Weg; ein Monster jenseits eines Sees, dessen Weg außen herum länger ist als der Radius, wird nicht mehr gewählt, sondern das erreichbare.
 - Monster ohne Weg (Insel, andere Seite einer Klippe ohne Übergang – getrennte begehbare Bereiche wie im Spiel) werden nie als Ziel genommen; auch der Autopilot läuft nicht mehr zu ihnen. Angreifer werden weiter abgewehrt.
