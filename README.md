@@ -217,6 +217,9 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.52.3 – Event-Boss auch im Autopilot und in der Boss-Rotation angreifen
+- Ist der Jagd-Boss (🎯 Event) in Sicht, kämpft der Bot jetzt auch dann, wenn der Autopilot gerade zur Abgabe will oder die Boss-Rotation zum nächsten Boss woanders – vorher stand er „friedlich“ vor dem Event-Boss, bis die Abgabe erledigt war.
+
 #### Neu in 2.52.2 – Dailies: nur der passende Level-Pool
 - Daily-Pools sind Level-Bereiche (z. B. forest 11–12, spiral_low 41–48). Der Autopilot nimmt nur noch den Pool, dessen Bereich zum Level passt (und zur Serie der Welt) – vorher lief er mit Lv 45 für jeden niedrigeren Pool erneut zu Elecmon („keine Dailies angeboten“, alle 3 s).
 - Bietet ein NPC keine Dailies an, gelten alle seine Pools für dieses Digimon als erledigt.
