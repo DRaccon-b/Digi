@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.50.0
+// @version      2.51.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -512,7 +512,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.50.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.51.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1951,6 +1951,106 @@
   // Pro Map gesehene Monster-Arten (z. B. Elite-Varianten, die nicht in der Spawn-Tabelle stehen) und ob sie aggressiv sind
   const seen = new Map(); // mapId -> Map(key -> { aggressive })
 
+  // ---------- Wegekarte: Weglänge auf dem Kollisionsraster der Map ----------
+  // Ein Monster jenseits eines Sees oder einer Schlucht ist in Luftlinie nah, zu Fuß aber weit weg oder gar nicht
+  // erreichbar. Die Zielwahl rechnet deshalb mit der Weglänge des Digimons: Dijkstra über das Raster (8 Richtungen,
+  // diagonal nur ohne Ecke – wie die Wegfindung des Spiels), bis etwas über den Suchradius hinaus. Getrennte begehbare
+  // Bereiche (Insel, andere Seite einer Klippe ohne Übergang) erkennt eine Zusammenhangs-Karte wie im Spiel: kein Weg.
+  const PATH_SLACK = 1.04; // Raster-Weg ist auf freier Fläche bis ~8 % länger als die Luftlinie – im Mittel ausgleichen
+  const compCache = new WeakMap();
+  function gridComps(g) {
+    let c = compCache.get(g.blocked);
+    if (c && c.length === g.w * g.h) return c;
+    const W = g.w, N = W * g.h, q = new Int32Array(N);
+    c = new Int32Array(N).fill(-1);
+    let lab = 0;
+    for (let o = 0; o < N; o++) {
+      if (c[o] !== -1 || g.blocked[o] === 1) continue;
+      let h = 0, t = 0; q[t++] = o; c[o] = lab;
+      while (h < t) {
+        const i = q[h++], x = i % W;
+        const visit = (n) => { if (c[n] === -1 && g.blocked[n] !== 1) { c[n] = lab; q[t++] = n; } };
+        if (x > 0) visit(i - 1);
+        if (x < W - 1) visit(i + 1);
+        if (i >= W) visit(i - W);
+        if (i + W < N) visit(i + W);
+      }
+      lab++;
+    }
+    compCache.set(g.blocked, c);
+    return c;
+  }
+  const pathMemo = { key: '', blocked: null, field: null, dist: null, hi: null, hk: null };
+  const DX8 = [1, -1, 0, 0, 1, 1, -1, -1], DY8 = [0, 0, 1, -1, 1, -1, 1, -1];
+  function pathField(st, self, capPx) {
+    const g = worldScene()?.map?.grid;
+    if (!g?.blocked || !g.w || !g.h || !self || !isFinite(self.x) || !isFinite(self.y)) return null;
+    const T = g.tile || 16, W = g.w, H = g.h, N = W * H;
+    const blocked = (x, y) => x < 0 || y < 0 || x >= W || y >= H || g.blocked[y * W + x] === 1;
+    let sx = Math.floor(self.x / T), sy = Math.floor(self.y / T);
+    if (blocked(sx, sy)) { // steht auf einem gesperrten Feld (Rand): nächstes freies Nachbarfeld
+      let found = false;
+      for (let r = 1; r <= 2 && !found; r++) for (let dy = -r; dy <= r && !found; dy++) for (let dx = -r; dx <= r && !found; dx++) if (!blocked(sx + dx, sy + dy)) { sx += dx; sy += dy; found = true; }
+      if (!found) return null;
+    }
+    const cap = Math.ceil(capPx / T), key = `${st.world?.mapId}|${sx},${sy}|${cap}|${W}x${H}`;
+    if (pathMemo.key === key && pathMemo.blocked === g.blocked) return pathMemo.field;
+    if (!pathMemo.dist || pathMemo.dist.length !== N) pathMemo.dist = new Float32Array(N);
+    const dist = pathMemo.dist; dist.fill(Infinity);
+    // Binär-Heap (Feld-Index, Kosten)
+    let hi = pathMemo.hi || new Int32Array(1024), hk = pathMemo.hk || new Float32Array(1024), n = 0;
+    const push = (i, k) => {
+      if (n === hi.length) { const a = new Int32Array(n * 2), b = new Float32Array(n * 2); a.set(hi); b.set(hk); hi = a; hk = b; }
+      let j = n++;
+      while (j > 0) { const p = (j - 1) >> 1; if (hk[p] <= k) break; hi[j] = hi[p]; hk[j] = hk[p]; j = p; }
+      hi[j] = i; hk[j] = k;
+    };
+    const pop = () => {
+      const top = hi[0], last = --n;
+      if (last > 0) {
+        const i = hi[last], k = hk[last]; let j = 0;
+        for (;;) { let c = 2 * j + 1; if (c >= last) break; if (c + 1 < last && hk[c + 1] < hk[c]) c++; if (hk[c] >= k) break; hi[j] = hi[c]; hk[j] = hk[c]; j = c; }
+        hi[j] = i; hk[j] = k;
+      }
+      return top;
+    };
+    const start = sy * W + sx;
+    dist[start] = 0; push(start, 0);
+    while (n > 0) {
+      const k0 = hk[0], c = pop();
+      if (k0 > dist[c]) continue; // veraltet
+      if (k0 > cap) break;
+      const cx = c % W, cy = (c - cx) / W;
+      for (let a = 0; a < 8; a++) {
+        const x = cx + DX8[a], y = cy + DY8[a];
+        if (blocked(x, y) || (a >= 4 && (blocked(x, cy) || blocked(cx, y)))) continue; // diagonal nur ohne Ecke
+        const i = y * W + x, nd = k0 + (a >= 4 ? Math.SQRT2 : 1);
+        if (nd < dist[i]) { dist[i] = nd; push(i, nd); }
+      }
+    }
+    pathMemo.hi = hi; pathMemo.hk = hk;
+    const field = { T, W, H, dist, comp: gridComps(g), start };
+    pathMemo.key = key; pathMemo.blocked = g.blocked; pathMemo.field = field;
+    return field;
+  }
+  // Weglänge (px) zum Punkt p und ob es überhaupt einen Weg gibt. Steht p auf einem gesperrten Feld (Ufer, Wand), zählt
+  // das nächste freie Nachbarfeld – das Digimon schlägt ja von dort zu. Infinity = weiter als die Grenze der Wegekarte.
+  function pathTo(field, p) {
+    const { T, W, H, dist, comp, start } = field;
+    const cx = Math.floor(p.x / T), cy = Math.floor(p.y / T), home = comp[start];
+    let best = Infinity, reach = false;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const x = cx + dx, y = cy + dy;
+      if (x < 0 || y < 0 || x >= W || y >= H) continue;
+      const i = y * W + x;
+      if (comp[i] === -1 || comp[i] !== home) continue;
+      reach = true;
+      const d = dist[i] + (dx || dy ? Math.hypot(dx, dy) : 0);
+      if (d < best) best = d;
+    }
+    return { pd: best * T / PATH_SLACK, reach };
+  }
+
   // Alle Monster in Sichtweite mit Abstand zum eigenen Digimon und Einordnung für Bot und Radar:
   //   attacker: greift mein Digimon/meinen Tamer an
   //   taken:    wird von einem anderen Spieler bekämpft (oder greift einen anderen an) -> nicht klauen
@@ -2017,11 +2117,21 @@
         grpBy: grpTgt?.get(e.id) ?? null, // Slot des Gruppenmitglieds, das es schon angreift (Ziele verteilen)
       });
     });
-    mobs.sort((a, b) => a.d - b.d);
+    // Weglänge des Digimons zu jedem Monster (pd), unerreichbare (reach = false) ans Ende
+    const pf = pathField(st, self, Math.max(cfg.radius * 1.6, 480) + 64);
+    for (const m of mobs) {
+      if (!pf) { m.pd = m.d; continue; }
+      const r = pathTo(pf, m);
+      m.reach = r.reach;
+      m.pd = r.reach ? Math.max(m.d, r.pd) : Infinity;
+    }
+    const near = (m) => (isFinite(m.pd) ? m.pd : 1e9 + m.d);
+    mobs.sort((a, b) => near(a) - near(b));
     return { mapId, self, tamer, mobs, quest, attackers: mobs.filter((m) => m.attacker) };
   }
 
-  const usable = (m) => m.enabled && m.inLvl && !m.taken && !m.banned && m.d <= cfg.radius;
+  // Suchradius gilt für die Weglänge (See/Schlucht dazwischen = weit); ohne Weg (Insel, andere Klippenseite) nie
+  const usable = (m) => m.enabled && m.inLvl && !m.taken && !m.banned && m.reach !== false && (m.pd ?? m.d) <= cfg.radius;
 
   // ---------- Quests ----------
   // Quest-Zustände im Spiel: 1 = aktiv, 2 = fertig (abgeben), 3 = abgeschlossen
@@ -3835,7 +3945,7 @@
       if (ev !== true) return `${t.label} · ${ev}`;
     }
     // Jagen: zum nächsten sichtbaren passenden Monster laufen, sonst ins Jagdgebiet, sonst warten
-    const prey = (sc?.mobs || []).find((m) => t.species.has(m.species) && m.inLvl && !m.taken && !m.banned);
+    const prey = (sc?.mobs || []).find((m) => t.species.has(m.species) && m.inLvl && !m.taken && !m.banned && m.reach !== false);
     if (prey) {
       autopilot.idleSince = 0;
       const r = walkTo(st, Math.round(prey.x / 16) * 16, Math.round(prey.y / 16) * 16, now);
@@ -5319,7 +5429,7 @@
     const pLv = getStore()?.getState?.()?.me?.partner?.level;
     if (!cfg.expPrio || !pLv || cfg.farm || cfg.dungeon || cfg.questMode || (cfg.autopilot && !autopilot.task?.grind)) return list[0];
     let best = null, bt = Infinity;
-    for (const m of list) { const t = expTier((m.level ?? pLv) - pLv); if (t < bt || (t === bt && m.d < best.d)) { best = m; bt = t; } }
+    for (const m of list) { const t = expTier((m.level ?? pLv) - pLv); if (t < bt || (t === bt && (m.pd ?? m.d) < (best.pd ?? best.d))) { best = m; bt = t; } }
     return best;
   }
 

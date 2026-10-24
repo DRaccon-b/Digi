@@ -217,6 +217,11 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.51.0 – Zielwahl nach Weglänge (Seen, Schluchten, Wände)
+- Die Zielwahl rechnet mit der Weglänge des Digimons statt der Luftlinie: Dijkstra über das Kollisionsraster der Map (8 Richtungen, diagonal nur ohne Ecke – wie die Wegfindung des Spiels). Der Suchradius gilt für den Weg; ein Monster jenseits eines Sees, dessen Weg außen herum länger ist als der Radius, wird nicht mehr gewählt, sondern das erreichbare.
+- Monster ohne Weg (Insel, andere Seite einer Klippe ohne Übergang – getrennte begehbare Bereiche wie im Spiel) werden nie als Ziel genommen; auch der Autopilot läuft nicht mehr zu ihnen. Angreifer werden weiter abgewehrt.
+- „Nächstes Monster“ heißt jetzt das nächste zu Fuß. Die Rechnung kostet unter 1 ms und läuft nur, wenn das Digimon ein neues Feld betritt. Ausweichen bleibt wie bisher.
+
 #### Neu in 2.50.0 – Option „Quests nur erledigen, nicht abgeben“, Fehler aus der Code-Durchsicht
 - Autopilot-Einstellung „Quests nur erledigen, nicht abgeben“: der Autopilot nimmt Quests an und erledigt die Ziele, fertige Quests bleiben aber stehen – abgeben macht man selbst. Der Knopf „📜 Abgeben & Annehmen (diese Map)“ gibt weiterhin ab; Mitläufer machen Abgaben des Leaders mit dieser Option nicht nach. Ist alles erledigt, sagt der Bot beim Stoppen, wie viele Quests fertig zum Abgeben sind.
 - Boss-Rotation und Named-Elite-Runde erkennen Named Elites jetzt an den Werten (erhöhte HP, Boss-Flag) wie die Lern-Route – vorher galten normale Monster gleicher Art und Stufe als Ziel (z. B. jeder Tyrannomon in Harvest Hills), und der Bot griff sie an, während er auf den Named Elite wartete.
