@@ -217,6 +217,11 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.55.0 – Weltboss/Event: Kanal halten, Sieg nur mit Beleg, unterwegs nicht kämpfen
+- **Weltboss:** solange der Boss auf dem aktuellen Kanal lebt, gekämpft oder gesucht wird, bleibt der Kanal das Ziel – kein Wechsel mitten im Kampf, auch wenn der andere Kanal gleichzeitig fällig ist.
+- **Sieg nur mit Beleg** (Weltboss und Boss-Rotation): ein Boss gilt nur als besiegt, wenn er zuletzt bei höchstens 15 % HP war, das Ziel 0 HP zeigt oder er tot daliegt. Verschwindet er mit mehr HP, ist er „vermisst“: der Bot sucht an der letzten Position, dann am Spawnpunkt; erst nach 20 s ohne ihn gilt er als besiegt (Timer 5 min, der nächste Boss-Timer korrigiert).
+- **Event und Weltboss unterwegs** (Reise, Kanalwechsel, zum Spawnpunkt, Suche): Angreifer nicht bekämpfen – Digimon zurückrufen und weiterlaufen, wie in der Boss-Rotation. **Beim Warten am Spawnpunkt** nur Angreifer abwehren, nichts Neues anfangen.
+
 #### Neu in 2.54.0 – Weltboss-Knopf, Event-Boss ohne Sperre
 - **🌍 Weltboss** (neuer Knopf neben 🎯 Event, in jedem Modus): Weltbosse aus den Spieldaten (z. B. BlackWarGreymon) spawnen auf Kanal 1 und 2 mit eigenem Timer. Lebt er oder spawnt er in den nächsten 6 min, reist der Bot hin, wechselt den Kanal, wartet am Spawnpunkt und kämpft – zuerst der Kanal, der zuerst spawnt (gleichzeitig: Kanal 1), danach der andere. Die Chat-Warnung (5 min vorher) zählt auch, wenn der Kanal-Timer noch unbekannt ist. Das Event geht vor; danach weiter wie vorher.
 - **Event: nächstes Event angesagt, alter Boss lebt noch:** erst den lebenden Boss besiegen, dann reisen.
