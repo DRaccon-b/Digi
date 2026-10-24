@@ -217,6 +217,11 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.53.1 – Event-Boss bleibt Vorrang
+- **Fenster vorbei, Boss lebt noch:** der Bot kämpft weiter (höchstens 10 min), statt mitten im Kampf zur Route, Rotation oder Abgabe zu wechseln.
+- **Boss kurz nicht angreifbar oder gesperrt** (z. B. Formwechsel): das Event behält 5 s lang Vorrang – der Bot wartet beim Boss, statt zur Abgabe zu laufen.
+- **Zielwahl:** der Event-Boss steht in der Zielwahl ganz oben; nach dem Anvisieren wird sofort mit dem neuen Ziel weitergemacht.
+
 #### Neu in 2.53.0 – Code-Review: 16 Fehler behoben
 - **Gesperrte Angreifer** (unerreichbar / ungültiges Ziel) werden nicht mehr endlos weiter angegriffen.
 - **Nach einem Kill** sofort das nächste Ziel – kein Takt Leerlauf mehr.

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.53.0
+// @version      2.53.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -512,7 +512,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.53.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.53.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -4322,6 +4322,7 @@
   const HUNT_LEAD_MS = 6 * 60000;   // so lange vor dem Erscheinen losreisen
   const HUNT_POLL_MS = 60000, HUNT_POLL_ACTIVE_MS = 10000; // Event-Fenster so oft abfragen (während einer Jagd öfter)
   const HUNT_WP_NEAR = 60;          // so nah = Suchpunkt abgehakt
+  const HUNT_OVERTIME_MS = 10 * 60000; // Event-Fenster vorbei, Boss lebt aber noch: so lange weiterkämpfen
   const hunt = { info: null, skew: 0, polledAt: 0, busy: false, goal: null, visited: new Set(), wp: null, wpAt: 0, warnTs: 0 };
   function huntPoll(now) {
     const c = commands();
@@ -4366,6 +4367,14 @@
   }
   // Fokus für den Kampf: der Jagd-Boss, sobald er in der Liste der Monster steht
   const huntFocus = (sc) => (cfg.hunt && hunt.goal && sc ? sc.mobs.find((m) => isHuntDef(m.species, hunt.goal.boss) && !m.banned) || null : null);
+  // Jagd-Boss lebt auf dieser Map (auch versteckt, unangreifbar oder gesperrt) – oder war es vor Kurzem: Event hat Vorrang,
+  // Abgabe/Rotation/Autopilot dürfen den Bot nicht wegziehen (kurze Lücken im Fokus, z. B. beim Formwechsel)
+  const HUNT_HOLD_MS = 5000;
+  function huntPresent(st, sc, now) {
+    if (!cfg.hunt || !hunt.goal || st.world?.mapId !== hunt.goal.mapId) return false;
+    if (huntFocus(sc) || huntBossEnt(hunt.goal.boss, null)) { hunt.seenAt = now; return true; }
+    return now - (hunt.seenAt || 0) < HUNT_HOLD_MS;
+  }
   // Ein Schritt der Jagd: Statuszeile, solange der Bot dafür unterwegs ist / sucht / wartet; null = nichts zu tun
   // (keine Jagd, Boss in Sicht – dann kämpft der normale Ablauf – oder erst Angreifer abwehren)
   function huntStep(st, sc, now) {
@@ -4375,7 +4384,18 @@
     if (now - hunt.polledAt > (hunt.goal ? HUNT_POLL_ACTIVE_MS : HUNT_POLL_MS)) huntPoll(now);
     const g = huntGoal(now), C = content();
     if (!g) {
-      if (hunt.goal) { logEvent('auto', `Event vorbei: ${C?.digimon?.[hunt.goal.boss]?.name || hunt.goal.boss} – weiter wie vorher`); hunt.goal = null; autopilot.nav = null; }
+      if (hunt.goal) {
+        // Fenster vorbei oder das Spiel meldet keinen aktiven Boss mehr – lebt er hier noch, den Kampf zu Ende bringen
+        // (sonst übernahm mitten im Kampf wieder Route/Rotation/Abgabe)
+        const hg = hunt.goal;
+        const still = hg.up && st.world?.mapId === hg.mapId ? huntBossEnt(hg.boss, controlled(st)) : null;
+        if (still && now - (hg.overAt ||= now) < HUNT_OVERTIME_MS) {
+          if (hg.overAt === now) logEvent('auto', `Event-Fenster vorbei, ${C?.digimon?.[hg.boss]?.name || hg.boss} lebt noch – kämpfe weiter`);
+          if (st.target?.id !== still.id && bot.can('select', SELECT_GAP_MS, now)) { bot.lastPress.select = now; hunt.selAt = now; worldScene()?.select?.(still.id); }
+          return null;
+        }
+        logEvent('auto', `Event vorbei: ${C?.digimon?.[hg.boss]?.name || hg.boss} – weiter wie vorher`); hunt.goal = null; autopilot.nav = null;
+      }
       return null;
     }
     const name = C?.digimon?.[g.boss]?.name || g.boss, where = C?.maps?.[g.mapId]?.name || g.mapId;
@@ -4383,12 +4403,12 @@
       hunt.goal = g; hunt.visited = new Set(); hunt.wp = null;
       logEvent('auto', `Event: ${name} – ${where} (Kanal ${g.ch})${g.up ? ' – ist da, suche ihn' : ` – erscheint in ${Math.max(0, Math.round((g.at - now) / 60000))} min`}`);
     }
-    hunt.goal.up = g.up;
+    hunt.goal.up = g.up; hunt.goal.overAt = 0;
     if (group.role() === 'follower' && groupLeader(now)) return null; // in der Gruppe führt der Leader, die anderen folgen ihm
     const here = st.world?.mapId === g.mapId;
     const b = here ? huntBossEnt(g.boss, controlled(st)) : null;
     if (b) { // in Sicht: anvisieren, den Kampf macht der normale Ablauf (huntFocus)
-      if (st.target?.id !== b.id && bot.can('select', SELECT_GAP_MS, now)) { bot.lastPress.select = now; worldScene()?.select?.(b.id); }
+      if (st.target?.id !== b.id && bot.can('select', SELECT_GAP_MS, now)) { bot.lastPress.select = now; hunt.selAt = now; worldScene()?.select?.(b.id); }
       return null;
     }
     if (sc?.attackers?.length) return null; // erst Angreifer abwehren
@@ -5131,6 +5151,8 @@
   function pickTarget(sc, resting) {
     if (!sc) return null;
     if (cfg.dungeon) { const att = sc.attackers.filter((m) => !safeHeld(m.id)); return (resting ? null : dungeonFocus(sc)) || att[0] || null; }
+    const hf = resting ? null : huntFocus(sc); // Event-Boss vor allem anderen
+    if (hf && !safeHeld(hf.id)) return hf;
     const focus = resting ? null : focusAssist(sc);
     if (focus && !safeHeld(focus.id)) return focus;
     const fb = resting ? null : farmBossNear(sc);
@@ -5757,6 +5779,7 @@
         const huntOn = !!(cfg.hunt && hunt.goal);
         if (huntOn && lr.boss) { lr.boss = null; lr.chainAt = 0; }
         if (hv) { this.status = `Event: ${hv}`; this.attackedId = null; return; }
+        if (hunt.selAt === now) { this.status = 'Event: Jagd-Boss anvisiert'; this.attackedId = null; kickTick(); return; }
         // Jagd (Boss in Sicht oder Angreifer): die Lern-Route nicht dazwischen funken lassen – live zog sie den Bot bei
         // Regalecusmon im Wechsel zurück in seine Zone, während der Boss neben ihm kämpfte
         const lv = huntOn ? null : levelRouteStep(st, sc, now, attackers);
@@ -5782,7 +5805,7 @@
         if (now - autopilot.dlgIdleAt > 1500) { commands()?.closeDialog?.(); autopilot.dlgIdleAt = 0; }
       } else autopilot.dlgIdleAt = 0;
       // Event-Boss in Sicht: kämpfen – auch wenn der Autopilot gerade zur Abgabe will oder die Rotation woanders hin
-      const huntNow = !!huntFocus(sc);
+      const huntNow = huntPresent(st, sc, now);
       farm.leave = cfg.farm && !this.resting && !huntNow && farmGoalElsewhere(st, p, now, sc);
       const noFight = !huntNow && ((cfg.autopilot && !cfg.farm && nextIsTurnin(st, now)) || farm.leave);
       if (group.role() === 'leader') group.noFight = noFight; // Mitläufer kämpfen dann auch nicht
@@ -5863,6 +5886,8 @@
           if (next) {
             if (this.can('select', SELECT_GAP_MS, now)) { this.lastPress.select = now; scene.select(next.id); kickTick(); } // gleich angreifen, nicht erst im nächsten Takt
             this.status = `${next.attacker ? 'Angreifer' : 'Nächstes Ziel'}: Lv ${next.level} · ${Math.round(next.d)} px`;
+          } else if (huntNow && !this.resting) {
+            this.status = 'Event: Jagd-Boss gerade nicht angreifbar – warte';
           } else if (cfg.dungeon) {
             this.status = `Dungeon: ${dungeonStep(st, sc, now)}`;
           } else if (cfg.farm && !this.resting) {
