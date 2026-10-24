@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.49.0
+// @version      2.49.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -511,7 +511,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.49.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.49.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -3060,6 +3060,9 @@
     // Mitläufer: gleiche Zielform wie der Leader – nur wenn ihr eigenes Digimon sie hat (sonst passiert unten nichts)
     const p = st?.me?.partner;
     if (species === EVO_MAX) species = maxEvolution(p); // „höchstmögliche Digitation“
+    // Schritt gelungen (andere Form als beim letzten Befehl): Fehlversuche neu zählen – sonst galt nach fünf gelungenen
+    // Schritten (z. B. Patamon -> … -> Seraphimon, zurück, Angemon) der nächste als „klappt nicht“
+    if (p && autopilot.evoFrom && p.species !== autopilot.evoFrom) { autopilot.evoTries = 0; autopilot.evoFrom = null; }
     if (!species || !p || p.species === species || p.evolving || autopilot.evoGiveUp === species) return true;
     const evos = p.evolutions || [];
     const target = evos.find((e) => e.species === species);
@@ -3078,7 +3081,7 @@
     }
     if (now - autopilot.lastEvolve > 4000) {
       if (++autopilot.evoTries > 5) { autopilot.evoGiveUp = species; logEvent('warn', `Digitation zu ${speciesName(species)} klappt nicht`); return true; }
-      autopilot.lastEvolve = now;
+      autopilot.lastEvolve = now; autopilot.evoFrom = p.species;
       commands()?.evolve?.(step.species);
       logEvent('auto', `Digitiere: ${speciesName(p.species)} → ${speciesName(step.species)}`);
     }
@@ -4059,11 +4062,15 @@
   // Boss (Wellen, Kopien – z. B. im Kera-Dungeon). Nur wenn ein Boss in der Nähe ist; nicht in der Boss-Rotation.
   // Adds nur vom Boss-Eintrag DIESER Map mit genau dieser Art (auch als Form) – live: auf Sea of Darkness stand der
   // Feldboss Divermon, und normale Divermon galten als Adds, weil MarineDevimon auf Odaiba Divermon ruft
+  // Liefert Art -> höchste HP-Schwelle (atHp, Anteil), ab der der Boss sie ruft (1 = immer).
   function addSpecies(mapId, bossSpecies) {
-    const set = new Set();
+    const set = new Map();
     for (const b of content()?.spawns?.[mapId]?.bosses || []) {
       if (![b, ...(b.forms || [])].some((fm) => fm.species === bossSpecies)) continue;
-      for (const a of [b.adds, ...(b.moreAdds || [])]) if (a?.species) set.add(a.species);
+      for (const a of [b.adds, ...(b.moreAdds || [])]) if (a?.species) {
+        const at = Array.isArray(a.atHp) && a.atHp.length ? Math.max(...a.atHp) : 1;
+        set.set(a.species, Math.max(set.get(a.species) ?? 0, at));
+      }
     }
     return set;
   }
@@ -4074,8 +4081,12 @@
     const boss = sc.mobs.filter((m) => m.cat === 'boss').sort((a, b) => a.d - b.d)[0];
     if (!boss || boss.d > ADD_BOSS_NEAR) return null;
     const set = addSpecies(sc.mapId, boss.species), raid = isRaidMap(sc.mapId);
+    // Feld-Adds erst, wenn der Boss die HP-Schwelle erreicht hat, und nur nahe am Boss (sie erscheinen an seinem Punkt) –
+    // live: Arukenimon ruft Golemon erst ab 50 %, aber jeder normale Golemon in Tower Forest galt als Add
+    const pct = boss.maxHp > 0 ? boss.hp / boss.maxHp : 1;
+    const fieldAdd = (m) => set.has(m.species) && pct <= set.get(m.species) + 0.02 && (raid || Math.hypot(m.x - boss.x, m.y - boss.y) <= ADD_RAID_RADIUS);
     return sc.mobs.find((m) => m.cat !== 'boss' && !m.banned && m.d <= ADD_RANGE
-      && (set.has(m.species) || (raid && Math.hypot(m.x - boss.x, m.y - boss.y) <= ADD_RAID_RADIUS))) || null;
+      && (fieldAdd(m) || (raid && Math.hypot(m.x - boss.x, m.y - boss.y) <= ADD_RAID_RADIUS))) || null;
   }
   // Abgabe/Gespräch unterwegs (Autopilot) – dann auch keine Adds jagen
   const noFightEarly = (st, now) => cfg.autopilot && !cfg.farm && autopilot.task && PASSIVE(autopilot.task) && !taskDone(st, autopilot.task);
@@ -5245,6 +5256,13 @@
       }
     }
     const g = lr.goal; if (!g) return null;
+    const t = st.target, fighting = !!t && t.kind === 'mob' && t.hp > 0 && bot.attackedId === t.id;
+    // Digitation zuerst – auch auf dem Weg zum Boss und im Kampf (live: 12 min Angemon statt ClavisAngemon, weil zwischen
+    // Bossen und Angreifern nie „zwischen den Kämpfen“ war). Im Kampf/unter Angriff nur den Befehl schicken, weiterkämpfen.
+    if (cfg.levelEvo) {
+      const ev = lrEvolve(st, now);
+      if (ev !== true && !attackers.length && !fighting) return `Digitation: ${ev}`;
+    }
     // Feldbosse der Map vor dem normalen Grinden: auf dem Weg zum Boss keine Kämpfe, auch nicht gegen Angreifer – Digimon
     // zurückrufen und weiterlaufen (live: der Weg wurde bei jedem Monster am Rand unterbrochen). Ohne Boss-Ziel: erst abwehren.
     if (cfg.levelBoss && (st.world?.mapId === g.mapId || lr.boss || lrBossSel(g.mapId, p.level).some((b) => b.map === st.world?.mapId))) {
@@ -5257,12 +5275,7 @@
       if (lr.boss) return null; // Boss in Sicht: Kampf über den Fokus
     } else lr.boss = null;
     if (attackers.length) return null; // erst Angreifer abwehren
-    const t = st.target;
-    if (t && t.kind === 'mob' && t.hp > 0 && bot.attackedId === t.id) return null; // laufenden Kampf beenden
-    if (cfg.levelEvo) { // zwischen den Kämpfen in die gewählte Form – je nach Map mit/ohne Dark Tower (nach dem Neuladen Rookie)
-      const ev = lrEvolve(st, now);
-      if (ev !== true) return `Digitation: ${ev}`;
-    }
+    if (fighting) return null; // laufenden Kampf beenden
     const where = `${content()?.maps?.[g.mapId]?.name || g.mapId} / ${g.zone}`;
     if (st.world?.mapId !== g.mapId) { const tr = travel(st, g.mapId, now); return tr === true ? `angekommen in ${where}` : `reise zu ${where} · ${tr}`; }
     const me = controlled(st), r = g.rect;

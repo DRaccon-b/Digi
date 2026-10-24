@@ -217,6 +217,11 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **Wichtig:** Minimierte oder verdeckte Fenster bremst der Browser stark, also alle Fenster sichtbar lassen.
   Mehrere Accounts von einer IP sind für Spielbetreiber leicht zu erkennen.
 
+#### Neu in 2.49.1 – Digitation in der Lern-Route, Adds erst ab Boss-HP-Schwelle
+- Die Lern-Route digitiert jetzt auch auf dem Weg zum Boss und im Kampf (Befehl geht raus, der Kampf läuft weiter) – live blieb ClavisAngemon 12 min Angemon, weil zwischen Bossen und Angreifern nie „zwischen den Kämpfen“ war.
+- Fehlversuche beim Digitieren werden nach jedem gelungenen Schritt neu gezählt – vorher galt nach fünf gelungenen Schritten (z. B. Patamon → … → Seraphimon, zurück, Angemon) der nächste als „klappt nicht“.
+- Feld-Adds zählen erst, wenn der Boss die HP-Schwelle aus den Spieldaten erreicht hat (atHp), und nur nahe am Boss – live galt in Tower Forest jeder Golemon als Add von Arukenimon, der sie erst ab 50 % ruft.
+
 #### Neu in 2.49.0 – Lern-Route: Digitation je nach Map (mit / ohne Dark Tower)
 - Unter „Lern-Route: zwischen den Kämpfen digitieren“ (Reiter Kampf) zwei Auswahlen: „Form ohne Dark Tower“ (Standard: höchstmögliche Digitation) und „Form mit Dark Tower“ (Standard: höchste freie Armor-Form – unter Kaisers Dark Towers klappt nur Armor). Möglich sind jeweils „keine“, „höchstmögliche“, „höchste Armor-Form“ oder eine bestimmte Form.
 - Liegt die Zielform auf einem anderen Ast (z. B. Mega → Armor beim Betreten von Harvest Hills, Kaiser's Canyon, Sunset Bay, Kaiser's Fortress oder Tower Forest), digitiert der Bot erst zurück in die Grundform und dann hoch. Aus einer Armor-Form sucht „höchstmögliche“ von der Grundform aus.
