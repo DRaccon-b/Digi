@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.52.3
+// @version      2.52.4
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -512,7 +512,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.52.3'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.52.4'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2094,8 +2094,8 @@
     const assistId = group.role() === 'follower' ? leaderTargetId(now) : null;
     const mobs = [];
     // Kiten: erste gesehene Position jedes Monsters (≈ Startplatz) merken
-    ents.forEach((e) => { if (e.kind === KIND.Mob && !mobHome.has(e.id)) mobHome.set(e.id, { x: e.x, y: e.y }); });
-    if (mobHome.size > 800) mobHome.clear();
+    ents.forEach((e) => { if (e.kind === KIND.Mob && !mobHome.has(e.id)) mobHome.set(e.id, { x: e.x, y: e.y, t: now }); });
+    if (mobHome.size > 800) { let n = 0; for (const k of mobHome.keys()) { if (n++ >= 300) break; mobHome.delete(k); } } // älteste raus
     // Leader erledigt meine Quests: ich bleibe stehen – nur, was mich selbst angreift, ist ein Angreifer
     // „Ziele verteilen“: das Monster eines anderen ist sein Kampf, kein Angreifer für alle – sonst gehen wieder alle darauf
     const guardParty = !(group.role() === 'follower' && groupLeader()?.serve) && !spreadOn();
@@ -4194,18 +4194,23 @@
   // Boss (Wellen, Kopien – z. B. im Kera-Dungeon). Nur wenn ein Boss in der Nähe ist; nicht in der Boss-Rotation.
   // Adds nur vom Boss-Eintrag DIESER Map mit genau dieser Art (auch als Form) – live: auf Sea of Darkness stand der
   // Feldboss Divermon, und normale Divermon galten als Adds, weil MarineDevimon auf Odaiba Divermon ruft
-  // Liefert Art -> höchste HP-Schwelle (atHp, Anteil), ab der der Boss sie ruft (1 = immer).
+  // Liefert Art -> { at: höchste HP-Schwelle (atHp, Anteil; 1 = immer), levels: Set der Add-Level, points: Spawnpunkte }.
   function addSpecies(mapId, bossSpecies) {
     const set = new Map();
     for (const b of content()?.spawns?.[mapId]?.bosses || []) {
       if (![b, ...(b.forms || [])].some((fm) => fm.species === bossSpecies)) continue;
       for (const a of [b.adds, ...(b.moreAdds || [])]) if (a?.species) {
         const at = Array.isArray(a.atHp) && a.atHp.length ? Math.max(...a.atHp) : 1;
-        set.set(a.species, Math.max(set.get(a.species) ?? 0, at));
+        const e = set.get(a.species) || { at: 0, levels: new Set(), points: [] };
+        e.at = Math.max(e.at, at);
+        if (a.level) e.levels.add(a.level);
+        for (const pt of a.points || []) { const p = world.maps[mapId]?.spawns?.[pt]; if (p) e.points.push(p); }
+        set.set(a.species, e);
       }
     }
     return set;
   }
+  const addSince = new Map(); // Boss-Entity -> wann er zuerst unter seiner Add-Schwelle gesehen wurde
   const ADD_RANGE = 500, ADD_BOSS_NEAR = 640, ADD_RAID_RADIUS = 300;
   function bossAdd(sc) {
     if (cfg.farm || cfg.dungeon || !sc) return null; // Dungeon: Reihenfolge macht dungeonFocus
@@ -4215,8 +4220,22 @@
     const set = addSpecies(sc.mapId, boss.species), raid = isRaidMap(sc.mapId);
     // Feld-Adds erst, wenn der Boss die HP-Schwelle erreicht hat, und nur nahe am Boss (sie erscheinen an seinem Punkt) –
     // live: Arukenimon ruft Golemon erst ab 50 %, aber jeder normale Golemon in Tower Forest galt als Add
-    const pct = boss.maxHp > 0 ? boss.hp / boss.maxHp : 1;
-    const fieldAdd = (m) => set.has(m.species) && pct <= set.get(m.species) + 0.02 && (raid || Math.hypot(m.x - boss.x, m.y - boss.y) <= ADD_RAID_RADIUS);
+    // Feld-Adds zusätzlich: erst NACH dem Unterschreiten der Schwelle erschienen (die normalen Monster derselben Art standen
+    // schon vorher da), mit dem Level aus den Spieldaten und am Boss oder an einem Add-Spawnpunkt – live: bei Puppetmon
+    // galten alle umstehenden Pumpkinmon (Lv 45–51 in Spiral Forest) als Adds
+    const pct = boss.maxHp > 0 ? boss.hp / boss.maxHp : 1, now = Date.now();
+    const maxAt = Math.max(0, ...[...set.values()].map((e) => e.at));
+    if (pct <= maxAt + 0.02 && !addSince.has(boss.id)) addSince.set(boss.id, now);
+    if (addSince.size > 50) addSince.delete(addSince.keys().next().value);
+    const since = addSince.get(boss.id);
+    const fieldAdd = (m) => {
+      const e = set.get(m.species);
+      if (!e || pct > e.at + 0.02) return false;
+      if (raid) return true;
+      if (e.at < 1 && (since == null || (mobHome.get(m.id)?.t ?? 0) < since - 2000)) return false; // war schon vorher da
+      if (e.levels.size && !e.levels.has(m.level)) return false;
+      return Math.hypot(m.x - boss.x, m.y - boss.y) <= ADD_RAID_RADIUS || e.points.some((p) => Math.hypot(m.x - p.x, m.y - p.y) <= 150);
+    };
     return sc.mobs.find((m) => m.cat !== 'boss' && !m.banned && m.d <= ADD_RANGE
       && (fieldAdd(m) || (raid && Math.hypot(m.x - boss.x, m.y - boss.y) <= ADD_RAID_RADIUS))) || null;
   }
