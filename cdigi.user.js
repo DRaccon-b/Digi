@@ -5146,6 +5146,17 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
   // nicht gegen Angreifer, die hinterherlaufen. Am Spawnpunkt darf er sie erledigen, solange der Boss nicht da ist.
   // Nur bei mindestens halben HP; sonst erst normal zu Ende kämpfen.
   const FARM_ARRIVE = 200;         // so nah am Spawnpunkt gilt der Bot als angekommen
+  const FARM_MISS_MS = 20000;      // Boss ohne Todesbeleg aus der Sicht verloren: so lange suchen, bevor er als besiegt gilt
+  const FARM_MISS_READY_MS = 5 * 60000; // dann: so lange als „besiegt“ (kurz – der nächste Boss-Timer korrigiert)
+  // Vermisster Boss: erst zur letzten bekannten Position laufen (dann weiter zum Spawnpunkt – das macht der Aufrufer)
+  function farmMissWalk(st, now, key) {
+    const f = farm.fight;
+    if (!f?.missAt || f.key !== key || f.x == null || f.posDone) return null;
+    const me = controlled(st);
+    if (!me || Math.hypot(me.x - f.x, me.y - f.y) <= 60) { f.posDone = true; return null; }
+    if (walkTo(st, f.x, f.y, now) === 'stuck') { f.posDone = true; autopilot.nav = null; }
+    return `vermisst – suche an der letzten Position (${Math.round(Math.hypot(me.x - f.x, me.y - f.y))} px)`;
+  }
   const FARM_DEPART = 350;         // … und erst so weit weg wieder als unterwegs (sonst pendelt er an der Grenze: Kampf – zurück – Kampf)
   function farmGoalElsewhere(st, p, now, sc) {
     if (cfg.farmMode === 'named' || world.state !== 'ready' || !farmChannels().length || !farmSelected().length) return false;
@@ -5273,10 +5284,15 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
       if (st.target?.id !== b.id && bot.can('select', SELECT_GAP_MS, now)) { bot.lastPress.select = now; hunt.selAt = now; worldScene()?.select?.(b.id); }
       return null;
     }
-    if (sc?.attackers?.length) return null; // erst Angreifer abwehren
-    if (!here) { const tr = travel(st, g.mapId, now); return tr === true ? `${name}: angekommen in ${where}` : `${name} – reise nach ${where} · ${tr}`; }
-    if ((st.world?.channel ?? 1) !== g.ch) { const r = farmSwitch(st, sc, g.mapId, where, g.ch, now); if (!r.done) return `${name} – Kanal ${g.ch} · ${r.status}`; }
-    if (!g.up) { const s = Math.max(0, Math.round((g.at - now) / 1000)); return `${name} erscheint in ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} in ${where} – warte`; }
+    // unterwegs (Reise, Kanalwechsel, Suche) nicht kämpfen; beim Warten auf das Erscheinen Angreifer nur abwehren
+    const busy = !!sc?.attackers?.length;
+    if (!here) { wayRecall(st, sc, now); const tr = travel(st, g.mapId, now); return tr === true ? `${name}: angekommen in ${where}` : `${name} – reise nach ${where} · ${tr}`; }
+    if ((st.world?.channel ?? 1) !== g.ch) { wayRecall(st, sc, now); const r = farmSwitch(st, sc, g.mapId, where, g.ch, now, true); if (!r.done) return `${name} – Kanal ${g.ch} · ${r.status}`; }
+    if (!g.up) {
+      if (busy) { bot.defendOnly = now; return null; } // wehre ab, fange nichts Neues an
+      const s = Math.max(0, Math.round((g.at - now) / 1000)); return `${name} erscheint in ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} in ${where} – warte`;
+    }
+    wayRecall(st, sc, now);
     // suchen: nächster noch nicht besuchter Punkt; sind alle abgehakt, von vorn
     const me = controlled(st);
     if (!me) return `${name}: suche…`;
@@ -5302,6 +5318,13 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
   const WB_UP_KEEP_MS = 20 * 60000; // einmal lebend gesehen: so lange als „lebt“ merken (Timer-Info läuft nach 60 s ab)
   const wb = { goal: null, warnTs: 0, warnings: new Map(), upSince: new Map(), skip: new Map(), arrAt: 0, seenAt: 0 };
   const wbSel = () => farmBossList().filter((b) => b.kind === 'world');
+  // Unterwegs zum Event/Weltboss angegriffen: nicht kämpfen – Digimon zurückrufen und weiterlaufen (wie die Rotation)
+  function wayRecall(st, sc, now) {
+    if (!sc?.attackers?.length) return;
+    const pe = window.dmo?.net?.state?.entities?.get?.(st.me?.partner?.entityId);
+    if ((pe?.targetId || bot.attackedId) && bot.can('follow', 1500, now)) { bot.lastPress.follow = now; commands()?.partnerFollow?.(); }
+    bot.attackedId = null;
+  }
   // Bosse, deren Timer abgefragt werden: Rotation bzw. Boss-Quest des Autopiloten, dazu die Weltbosse – eine gemeinsame
   // Liste, denn jede Timer-Antwort wird nur einmal ausgewertet
   function timerSel() {
@@ -5361,18 +5384,24 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
       return null;
     }
     if (here && wbPresent(st, sc, now)) return null; // da, aber gerade nicht wählbar: der Tick wartet beim Boss
-    if (sc?.attackers?.length) return null; // erst Angreifer abwehren
+    // unterwegs (Reise, Kanalwechsel, zum Spawnpunkt, Suche) nicht kämpfen; am Spawnpunkt Angreifer nur abwehren
+    const busy = !!sc?.attackers?.length;
     const tr = travel(st, b.map, now);
-    if (tr !== true) return `${label} · ${tr}`;
-    const sw = farmSwitch(st, sc, b.map, b.mapName, o.ch, now, false);
-    if (!sw.done) { if (sw.failed) wb.skip.set(o.key, now + 120000); return `${label} · ${sw.status}`; }
+    if (tr !== true) { wayRecall(st, sc, now); return `${label} · ${tr}`; }
+    const sw = farmSwitch(st, sc, b.map, b.mapName, o.ch, now, true);
+    if (!sw.done) { wayRecall(st, sc, now); if (sw.failed) wb.skip.set(o.key, now + 120000); return `${label} · ${sw.status}`; }
+    const mw = farmMissWalk(st, now, o.key);
+    if (mw) { wayRecall(st, sc, now); return `${label} · ${mw}`; }
     const spot = farmSpot(b), me = controlled(st);
     if (spot && me && Math.hypot(me.x - spot.x, me.y - spot.y) > FARM_ARRIVE) {
+      wayRecall(st, sc, now);
       wb.arrAt = 0;
       if (walkTo(st, spot.x, spot.y, now) === 'stuck') autopilot.nav = null;
       return `${label} · laufe zum Spawnpunkt (${Math.round(Math.hypot(me.x - spot.x, me.y - spot.y))} px)`;
     }
+    if (busy) { bot.defendOnly = now; return null; } // am Spawnpunkt: abwehren, nichts Neues anfangen
     wb.arrAt ||= now;
+    if (farm.fight?.missAt && farm.fight.key === o.key) return `${label} · vermisst – suche am Spawnpunkt`; // farmUpdate entscheidet
     if (now >= o.at) {
       // müsste da sein, ist es aber nicht: schon besiegt (lebte) bzw. auf diesem Kanal nicht gespawnt -> nächster Kanal
       if (now - Math.max(wb.arrAt, o.at) > WB_MISS_MS) {
@@ -5539,7 +5568,7 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
       farmSet(b.map, b.index, ch, { up: true, hp });
       // Kampf gegen einen Farm-Boss merken – egal ob der Bot ihn selbst gewählt hat oder er uns angreift
       if (st.target?.id === en.id && farm.fight?.id !== en.id) farm.fight = { key: farmKey(b.map, b.index, ch), id: en.id, ch, map: b.map, pct: hp };
-      if (farm.fight?.id === en.id) {farm.fight.pct = hp;farm.fight.missingAt=0;}
+      if (farm.fight?.id === en.id) { farm.fight.pct = hp; farm.fight.x = en.x; farm.fight.y = en.y; if (farm.fight.missAt) { farm.fight.missAt = 0; farm.fight.posDone = false; logEvent('auto', `${b.name} wieder in Sicht – weiter`); } }
     });
     for (const id of farm.firstSeen.keys()) if (!alive.has(id)) farm.firstSeen.delete(id);
     // Unser Kampf ist vorbei und der Boss verschwunden -> besiegt, Respawn-Timer selbst setzen
@@ -5547,20 +5576,27 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
     if (f && !alive.has(f.id) && !(st.target?.id === f.id && st.target.hp > 0)) {
       // Sieg, wenn er zuletzt fast tot war, als Ziel 0 HP hat oder auf derselben Map/demselben Kanal verschwunden ist
       // (mit Hilfe anderer Spieler fällt ein Boss oft zwischen zwei Blicken). Kanal-/Mapwechsel zählen nicht.
+      // Sieg nur mit Beleg (Tod-Ereignis, 0 HP). Sonst „vermisst“: an der letzten Position und am Spawnpunkt suchen;
+      // erst nach FARM_MISS_MS ohne ihn gilt er als besiegt, mit kurzem Timer. Kanal-/Mapwechsel zählen nicht.
+      const sameRoom = f.map === st.world?.mapId && f.ch === ch && st.screen === 'world';
       const entity=ents?.get?.(f.id);
       const confirmed=cdigiDeaths.has(f.id)||(entity && (entity.hp<=0 || (entity.flags & FLAG.Dead)))||(st.target?.id===f.id&&st.target.hp<=0);
-      if (!confirmed) {
-        f.missingAt ||= now;
-        if(now-f.missingAt<15000)return;
-        cdigiCore.record('Boss verschwunden; Tod unbestätigt',{target:f.id,hp:f.pct,map:f.map,channel:f.ch});
-      }
-      const b = confirmed ? sel.find(x=>farmKey(x.map,x.index,f.ch)===f.key) : null;
-      if (b) {
+      const b = sel.find(x=>farmKey(x.map,x.index,f.ch)===f.key);
+      if (b && confirmed) {
         farm.known.set(f.key, { up: false, readyAt: now + b.respawnMs, at: now, killed: true });
         logEvent('kill', `Boss besiegt: ${b.name} (Ch ${f.ch}) – Respawn in ${Math.round(b.respawnMs / 60000)} min`);
-      }
-      farm.fight = null;
-      farm.goal = null;
+        farm.fight = null; farm.goal = null;
+      } else if (b && sameRoom) {
+        if (!f.missAt) {
+          f.missAt = now;
+          logEvent('warn', `${b.name} (Ch ${f.ch}) bei ${f.pct ?? '?'} % aus der Sicht verloren – suche ihn`);
+          cdigiCore.record('Boss verschwunden; Tod unbestätigt',{target:f.id,hp:f.pct,map:f.map,channel:f.ch});
+        } else if (now - f.missAt > FARM_MISS_MS) {
+          farm.known.set(f.key, { up: false, readyAt: now + FARM_MISS_READY_MS, at: now, killed: true });
+          logEvent('kill', `${b.name} (Ch ${f.ch}) nicht wiedergefunden – vermutlich besiegt (Timer ${Math.round(FARM_MISS_READY_MS / 60000)} min)`);
+          farm.fight = null; farm.goal = null;
+        }
+      } else { farm.fight = null; farm.goal = null; } // Kanal-/Mapwechsel: kein Sieg
     }
     // Boss-Timer und Map-Info regelmäßig nachfragen
     const cmd = commands();
@@ -5832,7 +5868,9 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
       if (scene && bot.can('select', SELECT_GAP_MS, now)) { bot.lastPress.select = now; scene.select(boss.id); }
       return `${label} · greife an`;
     }
-    // 4) Zum Spawnpunkt und dort warten
+    // 4) Vermisst: erst an der letzten Position suchen; dann zum Spawnpunkt und dort warten
+    const mw = farmMissWalk(st, now, farmKey(b.map, b.index, o.ch));
+    if (mw) return `${label} · ${mw}`;
     const baseSpot = farmSpot(b);
     const spot = cfg.independentGroup && baseSpot ? cdigiPoint(st, `farm/${b.map}/${b.index}/${o.ch}`, baseSpot) || baseSpot : baseSpot;
     const me = controlled(st);
@@ -5846,6 +5884,7 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
       return `${label} · laufe zum Spawnpunkt (${Math.round(d)} px)`;
     }
     const s = o.s;
+    if (farm.fight?.missAt && farm.fight.key === farmKey(b.map, b.index, o.ch)) return `${label} · vermisst – suche am Spawnpunkt`;
     // Kein Timer zu bekommen und kein Boss zu sehen: als „gerade nicht da“ werten und in 2 min wieder prüfen
     if (s.state !== 'down') {
       farm.waitAt ||= now;
@@ -6852,7 +6891,8 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
       const onFocus = !!focus && alive && t.id === focus.id, offFocus = !!focus && !onFocus && !addTarget; // anderes Ziel -> wechseln
       // ohne Weg zum Ziel (Insel, andere Klippenseite) nicht weiter draufhalten – außer Fokus (Boss/Leader-Ziel) und Adds
       const noPath = !!info && info.reach === false && !onFocus && !addTarget;
-      const valid = !noFight && !dup && !offFocus && !noPath && !(alive && safeHeld(t.id, now)) && (isAttacker || addTarget || onFocus || (!blocked && (this.resting ? fighting : alive && lvlOk)));
+      const defendOnly = this.defendOnly === now && !onFocus; // Warten auf Event/Weltboss: nur Angreifer abwehren
+      const valid = !noFight && !dup && !offFocus && !noPath && !(defendOnly && !isAttacker) && !(alive && safeHeld(t.id, now)) && (isAttacker || addTarget || onFocus || (!blocked && (this.resting ? fighting : alive && lvlOk)));
       // Kampf gegen gesuchte Beute: Gebiet ist nicht leer (die 90-s-Leerlaufuhr lief sonst während der Kämpfe weiter)
       if (valid && alive && cfg.autopilot && autopilot.task?.kind === 'hunt' && autopilot.task.species?.has?.(info?.species)) autopilot.idleSince = 0;
       if (!valid) {

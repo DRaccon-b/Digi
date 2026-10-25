@@ -1,6 +1,7 @@
 // 2.55.0: Boss-Rotation – der Boss verschwindet bei ~90 % HP für 3 s aus der Sicht (Sichtweite/Verfolgung) und taucht
 // wieder auf. Vorher galt „verschwunden auf derselben Map/demselben Kanal“ sofort als Sieg (Respawn-Timer, nächstes Ziel).
-// Jetzt: vermisst, suchen, weiterkämpfen. B: verschwindet mit 10 % HP -> Sieg wie bisher.
+// Jetzt: vermisst, suchen, weiterkämpfen. B (CDigi: Sieg nur mit Beleg): verschwindet mit 10 % HP ohne Tod-Ereignis ->
+// ebenfalls vermisst, nach 20 s ohne ihn „vermutlich besiegt“ mit kurzem Timer.
 const fs = require('fs');
 const makeWorld = require('./gw');
 const script = fs.readFileSync(process.argv[2], 'utf8');
@@ -33,14 +34,16 @@ async function run(lowHp) {
   const hpBack = b.hp;
   await wait(3000);
   const log = G.w.document.body.textContent;
-  const r = { killedLog: /Boss besiegt: Tyrmon/.test(log1), missLog: /aus der Sicht verloren/.test(log), hpLossAfter: hpBack - b.hp, status: G.status() };
+  if (lowHp) await wait(19000);
+  const r = { killedLog: /Boss besiegt: Tyrmon/.test(log1), missLog: /aus der Sicht verloren/.test(log), hpLossAfter: hpBack - b.hp, status: G.status(),
+    givenUp: /Tyrmon \(Ch 1\) nicht wiedergefunden – vermutlich besiegt/.test(G.w.document.body.textContent) };
   G.w.close();
   return r;
 }
 (async () => {
   const a = await run(false), b = await run(true);
   console.log({ a, b });
-  const ok = !a.killedLog && a.missLog && a.hpLossAfter > 0 && b.killedLog;
-  console.log(ok ? 'OK – verschwundener Boss mit viel HP ist vermisst, nicht besiegt; mit wenig HP besiegt' : 'FEHLER');
+  const ok = !a.killedLog && a.missLog && a.hpLossAfter > 0 && !b.killedLog && b.missLog && b.givenUp;
+  console.log(ok ? 'OK – verschwundener Boss ist vermisst, nicht besiegt; ohne Wiedersehen nach 20 s vermutlich besiegt' : 'FEHLER');
   process.exit(ok ? 0 : 1);
 })();
