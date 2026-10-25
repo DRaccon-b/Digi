@@ -1111,7 +1111,7 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
     applyCfg(cfg);
     try {
       localStorage.setItem(CFG_KEY, JSON.stringify(cfg));
-      localStorage.setItem(CFG_SHARED_KEY, '1');
+      // CFG_SHARED_KEY setzt nur cfgProfile – sonst gälte das alte Profil schon beim Panel-Aufbau (setTab) als übernommen
       localStorage.setItem(CFG_BATCH_KEY, '1');
     } catch { cdigiCore.record('Gemeinsame Einstellungen konnten nicht gespeichert werden'); }
   };
@@ -1122,13 +1122,16 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
     cfgUser = u;
     try {
       if (localStorage.getItem(CFG_SHARED_KEY) !== '1') {
-        const saved = JSON.parse(localStorage.getItem(`${CFG_KEY}@${u}`) || 'null');
+        // altes Profil dieses Accounts: aus CDigi ≤ 1.0.9 oder aus DigiBot
+        const saved = JSON.parse(localStorage.getItem(`${CFG_KEY}@${u}`) || localStorage.getItem(`digibot.cfg@${u}`) || 'null');
         if (cdigiRecord(saved)) {
-          const ui = Object.fromEntries(UI_KEYS.map(k => [k, cfg[k]]));
-          applyCfg(saved);Object.assign(cfg,ui);
+          // Panel-Ansicht und die einmalige Umstellung auf „gemeinsam abgeben“ bleiben erhalten
+          const keep = Object.fromEntries([...UI_KEYS, 'apBatch'].map(k => [k, cfg[k]]));
+          applyCfg(saved);Object.assign(cfg,keep);
           syncCfgInputs();farm.reset();autopilot.reset();
         }
         saveCfg();
+        localStorage.setItem(CFG_SHARED_KEY, '1');
         logEvent('bot', 'Einstellungen: gemeinsames Profil für alle Accounts übernommen');
       }
     } catch { cdigiCore.record('Bisherige Einstellungen konnten nicht übernommen werden'); }
@@ -4696,7 +4699,10 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
         all = questTasks(st);
       }
       t = autopilot.task = all[0] || null;
-      if (cfg.apBatch && !t?.sameNpc) autopilot.batchPhase = !t ? 'do' : t.purpose === 'accept' || t.purpose === 'daily' ? 'accept' : t.purpose === 'turnin' ? 'turnin' : 'do';
+      // Annahme beim selben NPC schaltet trotzdem auf „annehmen“ – sonst ginge es nach der ersten neuen Quest jagen
+      // und die übrigen Annahmen kämen erst nach einem zweiten Weg (Abgabe-Phase reiht Ziele vor Annahmen)
+      const accepting = t?.purpose === 'accept' || t?.purpose === 'daily';
+      if (cfg.apBatch && (!t?.sameNpc || accepting)) autopilot.batchPhase = !t ? 'do' : accepting ? 'accept' : t.purpose === 'turnin' ? 'turnin' : 'do';
       if (t?.kind === 'hunt' && !t.grind) {
         const same = all.filter((o) => o.kind === 'hunt' && !o.grind && o.loc.mapId === t.loc.mapId && o !== t);
         if (same.length) {

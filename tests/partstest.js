@@ -26,6 +26,9 @@ const G = makeWorld({ slot: 0, tag: 'Solo', noHash: true, accounts: { leader: 0,
     if (m.defId === 'kunemon' && q.q_a.state === 1) api.setQuest('q_a', { state: 2, counters: [1] });
     if (m.defId === 'mushroomon' && q.q_b.state === 1) { const c = q.q_b.counters[0] + 1; api.setQuest('q_b', { state: c >= 3 ? 2 : 1, counters: [c] }); }
   } });
+// ohne „erst alles erledigen, dann abgeben“ (CDigi-Standard ist an) – hier geht es um die Abgabe zwischendurch
+G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ ...JSON.parse(G.w.localStorage.getItem('cdigi.cfg') || '{}'), apBatch: false }));
+G.w.localStorage.setItem('cdigi.cfg.batch.v1', '1');
 G.w.eval(script);
 (async () => {
   await wait(800);

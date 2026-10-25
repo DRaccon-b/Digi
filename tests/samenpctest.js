@@ -21,6 +21,7 @@ async function run(apBatch) {
   const L0 = G.log.push.bind(G.log);
   G.log.push = (s) => { const m = /^(abgegeben|angenommen): (\w+)/.exec(s); if (m) ev.push(m[1].slice(0, 2) + ':' + m[2]); return L0(s); };
   G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: true, apGrind: false, apBatch, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log' }));
+  G.w.localStorage.setItem('cdigi.cfg.batch.v1', '1'); // gespeichertes apBatch gilt (sonst stellt CDigi 1.0.14 einmalig auf „an“ um)
   G.w.eval(script);
   await wait(800);
   G.w.document.querySelector('[data-act="bot"]').click();
@@ -32,7 +33,8 @@ async function run(apBatch) {
 (async () => {
   const batch = await run(true), near = await run(false);
   console.log({ batch, near });
-  const ok = batch === 'ab:q_x > an:q_n > ab:q_y' && near === 'ab:q_x > an:q_n > ab:q_y';
+    // CDigi 1.0.14: mit „gemeinsam abgeben“ erst alle Abgaben, dann annehmen – der selbe NPC zieht dort nicht vor
+  const ok = batch === 'ab:q_x > ab:q_y > an:q_n' && near === 'ab:q_x > an:q_n > ab:q_y';
   console.log(ok ? 'OK – beim selben NPC gleich abgeben und annehmen' : 'FEHLER');
   process.exit(ok ? 0 : 1);
 })();
