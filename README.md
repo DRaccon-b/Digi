@@ -1,4 +1,82 @@
-# DigiBot – Status-Anzeige für play.digimmo.com.br
+# CDigi – Gruppenbot für play.digimmo.com.br
+
+**Hauptdatei:** [`cdigi.user.js`](cdigi.user.js) – in Tampermonkey installieren über
+<https://raw.githubusercontent.com/DRaccon-b/Digi/main/cdigi.user.js> (aktualisiert sich danach selbst).
+`digibot.user.js` (DigiBot 2.55.0) bleibt als Backup im Repo, wird aber nicht mehr weiterentwickelt.
+
+CDigi ist aus DigiBot hervorgegangen: Alles unten Beschriebene gilt weiter. Dazu kommen die Punkte in
+„CDigi – was anders ist“ direkt hier drunter.
+
+## CDigi – was anders ist (ab 1.0)
+- **Sicherheits-Pause statt Weiterlaufen:**
+  - Bei Anwesenheitskontrolle, Verbindungsabbruch, zu langem Map-/Kanalwechsel oder einem Fehler im Ablauf stoppt
+    der Bot und **sperrt** sich. Ein roter Hinweis oben links sagt warum.
+  - Weiter geht es nur mit einem Start **von Hand**: Klick auf ▶ Start oder Alt+B.
+  - Ein Start von Hand im Leader-Fenster nimmt gesperrte Mitläufer wieder mit (ab 1.1.0). Die Prüfungen
+    (Anwesenheitskontrolle, Verbindung) laufen dabei trotzdem.
+- **■ NOT-AUS (Alt+Esc):** stoppt und sperrt alle Gruppenfenster. Esc allein stoppt nichts, weil es im Spiel Dialoge schließt.
+  Unter Windows wechselt Alt+Esc unter Umständen das Fenster; dann den Knopf im Panel nehmen.
+- **Anmeldung:**
+  - In Gruppenfenstern immer von Hand: „⧉ Fenster öffnen“ öffnet nur die fehlenden Fenster mit ihrem Slot.
+  - Gespeicherte Passwörter aus DigiBot entfernt CDigi; ein Knopf löscht sie auch sofort.
+- **Accounts nacheinander: Quest-Runde** (Reiter Accounts, ein Fenster ohne Gruppe):
+  - Account 1 → 5 mit Haken und Benutzername. Pro Account läuft der Autopilot bis „keine machbaren Quests mehr“, dann
+    meldet CDigi ab, den nächsten an, betritt dessen Charakter und macht weiter.
+  - Das Passwort gibst du einmal ins Passwortfeld der Zeile ein. Es bleibt **nur im Arbeitsspeicher** dieses Fensters
+    und ist nach dem Neuladen weg.
+  - Fehlt ein Passwort, warten fertige Quests auf die Abgabe oder meldet das Spiel einen Fehler, pausiert die Runde.
+    Weiter geht es mit „Runde fortsetzen“.
+- **Einstellungen für alle Accounts gemeinsam** (ab 1.0.14). Beim ersten Anmelden übernimmt CDigi einmal das alte Profil
+  dieses Accounts, auch das aus DigiBot (`digibot.cfg@name`).
+- **Gruppe: eigene Wege und zufällige Bossplätze** (Haken oben, Standard an):
+  - Jedes Fenster bricht leicht versetzt auf und sucht sich am Boss einen eigenen, freien Platz.
+  - Bei Boss-Mechaniken (Warnzonen, Spiegel, Key of Hope) hat die Mechanik Vorrang.
+- **Gruppen-Nachrichten im Protokoll `cdigi/1`** (Sitzung, Folgenummer, Zeitstempel). DigiBot- und CDigi-Fenster lassen
+  sich nicht in einer Gruppe mischen.
+- **Befehlsstatus & Fehlerchronik** (Reiter Log):
+  - Jeder Befehl wird als angefordert, bestätigt oder Wirkung gesehen bzw. abgelaufen erfasst.
+  - **Diagnose exportieren** lädt die letzten Abläufe als JSON herunter – das hilft bei Fehlerberichten.
+- **Tamer-Skill automatisch** (Reiter Kampf):
+  - Heilung und Schutz nach Bedarf, Angriffsverstärkung in längeren Kämpfen.
+  - In der Party löst genau ein Fenster eine gemeinsame Fähigkeit aus.
+- **Digitation:**
+  - Freigegebene Warp-Digitation (Haken).
+  - DNA-/Jogress-Schritte mit dem Partner, den das Spiel für den Schritt vorgibt.
+  - „Autopilot: Digitationsregeln der Lern-Route übernehmen“ – Form je nach Map, mit oder ohne Dark Tower.
+- **Weltboss:**
+  - Fällig ist ein Kanal nur mit einem **bestätigten Timer** vom Server. Die Chat-Warnung löst nur die Abfrage aus.
+  - Spawnzeiten bis 30 s auseinander gelten als gleichzeitig, dann ist Kanal 1 zuerst dran.
+- **Boss-Sieg nur mit Beleg** (Tod-Ereignis oder 0 HP):
+  - Ein Boss, der so aus der Sicht verschwindet, gilt als vermisst. Der Bot sucht ihn an der letzten Position und am Spawnpunkt.
+  - Nach 20 s ohne ihn gilt er als vermutlich besiegt, mit kurzem Timer (5 min).
+- **„Erst alles erledigen, dann abgeben“ ist Standard** (ab 1.0.14, einmalig für alle umgestellt).
+  - Reihenfolge: alle Ziele, dann alle Abgaben, dann alle Annahmen.
+  - Ab 1.1.0 nimmt der Bot dabei alle neuen Quests an, bevor er jagen geht.
+
+### Änderungen in CDigi 1.1.0
+- **Party einladen** aus einem Mitläufer-Fenster wirkt wieder, auch wenn der Bot des Leaders nicht läuft.
+- **Weltboss:**
+  - 30-s-Gleichstand: Kanal 1 zuerst.
+  - Lebte der Boss laut Timer, ist am Spawnpunkt aber weg, setzt der Bot den Respawn-Timer und nimmt den nächsten Kanal.
+- **Aus DigiBot 2.55 übernommen:**
+  - Vermissten Boss suchen.
+  - Unterwegs zu Event/Weltboss nicht kämpfen: Digimon zurückrufen und weiterlaufen. Beim Warten nur abwehren.
+- **Not-Aus** jetzt auf **Alt+Esc** statt Esc.
+- **„Höchstmögliche Digitation“:** Bei gleicher Tiefe kommt die normale Linie vor Armor (Aquilamon vor Halsemon).
+- **Gemeinsame Einstellungen:** Das alte Account-Profil wird jetzt wirklich übernommen. Vorher markierte schon der
+  Panel-Aufbau es als übernommen.
+- **„Erst alles erledigen, dann abgeben“:** Alle Annahmen beim selben NPC kommen vor dem Jagen.
+
+### Tests
+`npm ci` einmal, dann `npm test` (alle Tests gegen `cdigi.user.js`, nachgebaute Spielwelten mit jsdom).
+- Zeitkritische Tests (z. B. Key of Hope) brauchen CPU. Bei Fehlschlägen unter Last weniger parallel laufen lassen,
+  zum Beispiel mit `JOBS=3 npm test`.
+- `tests/cbus.js` verpackt selbst gebaute Gruppen-Nachrichten im Protokoll `cdigi/1`.
+- `trustedClick`/`trustedKey` aus `tests/gw.js` stellen Klicks bzw. Tasten von Hand nach.
+
+---
+
+# DigiBot-Funktionen (gelten in CDigi weiter)
 
 Zeigt live in Ziffern und %:
 - **Digimon**: HP, DS und EXP
@@ -171,16 +249,15 @@ In der Reihenfolge „Map für Map: annehmen → erledigen → abgeben“ arbeit
 Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im Log.
 
 ### Gruppe mit mehreren Accounts (Reiter Accounts, ab 2.9)
-- **Bis zu 5 Accounts:** Benutzername und optional Passwort. ☑ = beim Gruppenstart dabei, ◉ = Leader.
-  Passwörter liegen **unverschlüsselt** im localStorage dieses Browsers. Ohne Passwort loggst du im Fenster selbst ein.
-- **Charaktername:** Wird bei jedem Einloggen pro Account gemerkt („zuletzt: Spencer · vor 2 h“). Im Gruppenfenster
-  wählt der Bot genau diesen Charakter aus.
-- **🔑 Alle einloggen (ab 2.9.4):** Dieses Fenster übernimmt den hier eingeloggten Account (sonst den Leader).
-  - Für jeden weiteren Account öffnet sich ein eigenes Fenster, nebeneinander gekachelt. Pop-ups für die Seite müssen
-    erlaubt sein.
-  - Ist dort noch ein anderer Account angemeldet, meldet der Bot ihn ab, loggt den richtigen ein und betritt die Welt.
-  - Der Bot startet dabei **nicht**.
-  - Eingeloggt wird nur auf Knopfdruck. Beim Öffnen oder Neuladen der Seite loggt sich nichts automatisch ein.
+- **Bis zu 5 Accounts:** Benutzername. ☑ = beim Gruppenstart dabei, ◉ = Leader.
+  CDigi speichert keine Passwörter. Das Passwortfeld ist nur für die Quest-Runde und gilt bis zum Neuladen.
+- **Charaktername:** Wird bei jedem Einloggen pro Account gemerkt („zuletzt: Spencer · vor 2 h“). Die Quest-Runde
+  betritt genau diesen Charakter.
+- **⧉ Fenster öffnen (CDigi; früher „🔑 Alle einloggen“):** Dieses Fenster übernimmt den hier eingeloggten Account
+  (sonst den Leader).
+  - Für jeden weiteren Account öffnet sich ein eigenes Fenster. Pop-ups für die Seite müssen erlaubt sein.
+  - In jedem Fenster meldest du dich **selbst** an und wählst den Charakter. CDigi meldet in Gruppenfenstern nie an
+    oder ab.
 - **Dieses Fenster ist: Account 1–5 (ab 2.10.2):** Auswahl im Reiter Accounts. Sie legt fest, welcher Account in diesem
   Fenster läuft und ob es Leader oder Mitläufer ist. Gilt sofort, ohne Neuladen und ohne neues Einloggen.
   - „– keine Gruppe –“ nimmt das Fenster aus der Gruppe.

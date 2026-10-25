@@ -40,7 +40,7 @@ const SCHADEN = 12000, AS = 1121, P_SPEED = 120, HP = 92660;
 const TRAENKE = 400, TRANK_HP = 15000, TRANK_AB = 50;
 const DAUER = num('DAUER', 600) * 1000;
 const MAP = 'dream_world';
-const script = fs.readFileSync(process.env.SKRIPT || path.join(__dirname, '..', 'digibot.user.js'), 'utf8');
+const script = fs.readFileSync(process.env.SKRIPT || path.join(__dirname, '..', 'cdigi.user.js'), 'utf8');
 const t0 = Date.now();
 const sec = () => ((Date.now() - t0) / 1000).toFixed(1).padStart(6);
 const log = [];

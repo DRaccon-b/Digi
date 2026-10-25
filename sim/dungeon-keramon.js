@@ -77,7 +77,7 @@ const TRANK_HP = Number(process.env.TRANK_HP) || 15000;   // so viel heilt ein T
 const TRANK_AB = Number(process.env.TRANK_AB) || 50;      // Bot-Einstellung: F1 unter so viel % HP
 const MOB_HIT = 1200;                                      // normaler Treffer eines Monsters
 const WAVE_GAP = 4000;
-const script = fs.readFileSync(process.env.SKRIPT || path.join(__dirname, '..', 'digibot.user.js'), 'utf8'); // SKRIPT=… andere Bot-Version testen
+const script = fs.readFileSync(process.env.SKRIPT || path.join(__dirname, '..', 'cdigi.user.js'), 'utf8'); // SKRIPT=… andere Bot-Version testen
 const t0 = Date.now();
 const sec = () => ((Date.now() - t0) / 1000).toFixed(1).padStart(6);
 const log = [];

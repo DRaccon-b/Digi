@@ -63,7 +63,7 @@ const SHARE_FOLGT = !!Number(process.env.SHARE_FOLGT ?? 1);
 const sharePct = () => 2.4 * Math.max(1 / 3, 1 + (alivePlayers().length - 3) / 3);
 const DAUER = (Number(process.env.DAUER) || 1400) * 1000;
 const MAP = 'network_revenge';
-const script = fs.readFileSync(process.env.SKRIPT || path.join(__dirname, '..', 'digibot.user.js'), 'utf8');
+const script = fs.readFileSync(process.env.SKRIPT || path.join(__dirname, '..', 'cdigi.user.js'), 'utf8');
 const t0 = Date.now();
 const sec = () => ((Date.now() - t0) / 1000).toFixed(1).padStart(6);
 const log = [];

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CDigi – Gruppenbot mit manueller Pause
 // @namespace    cdigi
-// @version      1.0.14
+// @version      1.1.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1253,7 +1253,7 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>CDigi</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '1.0.14'}</span>
+    <div class="digibot__head"><span>CDigi</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '1.1.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>

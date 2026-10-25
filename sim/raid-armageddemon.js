@@ -12,7 +12,7 @@
 const path = require('path');
 const fs = require('fs');
 const makeWorld = require(path.join(__dirname, '..', 'tests', 'gw.js'));
-let script = fs.readFileSync(path.join(__dirname, '..', 'digibot.user.js'), 'utf8');
+let script = fs.readFileSync(path.join(__dirname, '..', 'cdigi.user.js'), 'utf8');
 // Versuch: Key of Hope nicht für Black Rain verbrauchen (dem kann man ausweichen) – KOH_OHNE_RAIN=1
 if (process.env.KOH_OHNE_RAIN) script = script.replace("'armageddemon.black_rain', 'armageddemon.black_rain_storm'", "'armageddemon.black_rain_storm'");
 
