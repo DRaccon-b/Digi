@@ -726,12 +726,15 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
     if(outcome.type==='next'){cdigiQueueQuiesce();cdigiQueueStatus(`Quest-Runde: nächster Account ${outcome.slot+1}`);return true;}
     return false;
   }
+  let cdigiQueueLocked=null;
   function cdigiQueueRender() {
     const el=panel?.querySelector('[data-f="account-queue"]');if(!el)return;
-    const s=cdigiAccountQueue.summary();
-    panel.querySelectorAll('[data-act^="grp-"], [data-gmode], [data-accslot]').forEach(control=>{control.disabled=cdigiAccountQueue.active;});
+    const s=cdigiAccountQueue.summary(),locked=cdigiAccountQueue.active;
+    // Gruppen-Bedienelemente nur beim Wechsel (und während der Runde) sperren – nicht bei jedem Panel-Update durchsuchen
+    if(locked||cdigiQueueLocked!==locked){cdigiQueueLocked=locked;panel.querySelectorAll('[data-act^="grp-"], [data-gmode], [data-accslot]').forEach(control=>{control.disabled=locked;});}
     const labels={idle:'Bereit',switching:'Account prüfen','await-login':'Abmeldung läuft','await-auth':'Anmeldung läuft','await-world':'Charakter lädt',starting:'Autopilot startet',running:'Quests laufen',paused:'Pausiert',done:'Abgeschlossen'};
-    el.textContent=`${labels[s.phase]||s.phase} · ${s.index}/${s.total} Accounts bearbeitet${s.slot!==undefined?` · Account ${s.slot+1}`:''}${s.reason?` · ${s.reason}`:''}`;
+    const text=`${labels[s.phase]||s.phase} · ${s.index}/${s.total} Accounts bearbeitet${s.slot!==undefined?` · Account ${s.slot+1}`:''}${s.reason?` · ${s.reason}`:''}`;
+    if(el.textContent!==text)el.textContent=text;
   }
 
 
