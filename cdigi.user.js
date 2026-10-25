@@ -3132,7 +3132,8 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
     if (!group.active()) return;
     if (m.type === 'start' && !bot.on) groupStartBot('Gruppe: Start aus dem Leader-Fenster');
     if (m.type === 'stop') groupStopBot('Gruppe: Stopp aus dem Leader-Fenster',m.scope!=='bot');
-    if (m.type === 'invite' && group.role() === 'leader') partyInviteNow();
+    // Einladung aus einem Mitläufer-Fenster: auch ohne laufenden Bot freigeben (Befehle gehen sonst nicht durch den Core)
+    if (m.type === 'invite' && group.role() === 'leader') cdigiCore.runPassive('Gruppe', 20, () => partyInviteNow());
     if (m.type === 'maptalk') startMapTalk('Gruppe: Abgeben & Annehmen auf dieser Map (aus einem anderen Fenster)');
   }
   // Was ein anderes Fenster sofort wissen muss (Ziel, Aufgabe, Gespräche, Kampf, Map, Quests) – Position nicht
@@ -3923,7 +3924,8 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
     const evos = p?.evolutions || [];
     const by = new Map(evos.map((e) => [e.species, e]));
     const chain = (e) => { const out = []; for (let i = 0, x = e; x && i < 12; i++, x = by.get(x.from)) out.push(x); return out; };
-    const stageRank={rookie:1,'in-training':0,champion:2,armor:2,ultimate:3,mega:4,super:5,ultra:5};
+    // Armor nach Champion: auf Maps ohne Dark Tower gilt bei gleicher Tiefe die normale Linie (Aquilamon vor Halsemon)
+    const stageRank={rookie:1,'in-training':0,armor:1.5,champion:2,ultimate:3,mega:4,super:5,ultra:5};
     let best = null, bestD = -1;
     for (const e of evos) {
       const c = chain(e);
@@ -5296,7 +5298,7 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
   // Chat. Knopf 🌍 Weltboss: fällig ist ein Kanal, auf dem er lebt oder in den nächsten WB_LEAD_MS spawnt – dann hinreisen,
   // Kanal wechseln, am Spawnpunkt warten und kämpfen; danach der nächste Kanal. Reihenfolge nach Spawnzeit, gleichzeitig =
   // Kanal 1 zuerst. Timer, Kanalwechsel und Sieg-Erkennung wie in der Boss-Rotation.
-  const WB_LEAD_MS = 6 * 60000, WB_CHANNELS = [1, 2], WB_MISS_MS = 8000;
+  const WB_LEAD_MS = 6 * 60000, WB_CHANNELS = [1, 2], WB_TIE_MS = 30000, WB_MISS_MS = 8000; // Spawnzeiten bis 30 s auseinander gelten als gleichzeitig -> Kanal 1 zuerst
   const WB_UP_KEEP_MS = 20 * 60000; // einmal lebend gesehen: so lange als „lebt“ merken (Timer-Info läuft nach 60 s ab)
   const wb = { goal: null, warnTs: 0, warnings: new Map(), upSince: new Map(), skip: new Map(), arrAt: 0, seenAt: 0 };
   const wbSel = () => farmBossList().filter((b) => b.kind === 'world');
@@ -5323,7 +5325,7 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
         opts.push({ b, ch, at, s, key });
       }
     }
-    opts.sort((x, y) => (x.at === y.at ? x.ch - y.ch : x.at - y.at));
+    opts.sort((x, y) => (Math.abs(x.at - y.at) <= WB_TIE_MS ? x.ch - y.ch : x.at - y.at));
     return opts[0] || null;
   }
   function wbStep(st, sc, now) {
@@ -5374,8 +5376,14 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
     if (now >= o.at) {
       // müsste da sein, ist es aber nicht: schon besiegt (lebte) bzw. auf diesem Kanal nicht gespawnt -> nächster Kanal
       if (now - Math.max(wb.arrAt, o.at) > WB_MISS_MS) {
-        wb.skip.set(o.key, now + 30000);
-        logEvent('auto', `Weltboss: ${label} nicht sichtbar – später erneut prüfen, kein Tod bestätigt`);
+        if (o.s.state === 'up' || wb.upSince.has(o.key)) {
+          // lebte laut Timer bzw. selbst gesehen, ist jetzt weg: vermutlich von anderen besiegt -> Respawn-Timer setzen
+          farmSet(b.map, b.index, o.ch, { up: false, readyAt: now + (b.respawnMs || 3600000) }); wb.upSince.delete(o.key);
+          logEvent('auto', `Weltboss: ${label} lebte, ist aber nicht mehr da – vermutlich besiegt, nächster Kanal`);
+        } else {
+          wb.skip.set(o.key, now + 30000);
+          logEvent('auto', `Weltboss: ${label} nicht sichtbar – später erneut prüfen, kein Tod bestätigt`);
+        }
         wb.arrAt = 0;
         return `${label} · nicht da`;
       }

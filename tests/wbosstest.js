@@ -1,6 +1,7 @@
 // 2.54.0: Knopf 🌍 Weltboss – ein Weltboss (worldBoss in den Spieldaten, z. B. BlackWarGreymon) spawnt auf Kanal 1 und 2.
-// A: Chat-Warnung, beide Kanäle ohne Timer (gleichzeitig) -> erst Kanal 1, dann Kanal 2.
-// B: Boss-Timer: Kanal 2 lebt schon, Kanal 1 spawnt erst 40 s nach der Warnung -> erst Kanal 2, dann Kanal 1.
+// CDigi: fällig wird ein Kanal nur über einen bestätigten Timer (Boss-Pins), die Chat-Warnung löst nur die Abfrage aus.
+// A: Timer Kanal 2 in 4 s, Kanal 1 in 12 s (innerhalb von 30 s = gleichzeitig) -> trotzdem erst Kanal 1, dann Kanal 2.
+// B: Boss-Timer: Kanal 2 lebt schon, Kanal 1 spawnt erst in 40 s -> erst Kanal 2, dann Kanal 1.
 // C: Knopf aus -> kein Kanalwechsel, kein Angriff auf den Weltboss.
 const fs = require('fs');
 const makeWorld = require('./gw');
@@ -27,26 +28,32 @@ async function run({ on, ch2Up }) {
     const ch = roomId === 'r2' ? 2 : 1;
     setTimeout(() => {
       for (const k of [...G.ents.keys()]) if (k.startsWith('w:')) G.ents.delete(k);
-      if (!dead.has(`w:${ch}`) && (on || ch === 1)) G.ents.set(`w:${ch}`, boss(ch));
+      if (!dead.has(`w:${ch}`) && (on || ch === 1) && Date.now() >= spawnAt[ch]) G.ents.set(`w:${ch}`, boss(ch));
       G.store.setState({ world: { ...G.state.world, channel: ch, roomId }, target: null });
     }, 300);
   };
   cmds.requestMapInfo = () => {};
-  let pinned = false;
+  // Server-Timer je Kanal: bis zum Spawn Restzeit, danach lebt er (ohne Restzeit), besiegt: lange Restzeit
+  const t0 = Date.now(), spawnAt = { 1: t0 + (ch2Up ? 40000 : 12000), 2: ch2Up ? 0 : t0 + 4000 };
   cmds.requestBossPins = () => {
-    if (!ch2Up || pinned) return; pinned = true;
-    G.store.setState({ bossPins: { at: G.w.performance.now(), bosses: [{ map: 'native_forest', index: 0, channel: 2 }] } }); // Ch 2 lebt
+    const now = Date.now();
+    G.store.setState({ bossPins: { at: G.w.performance.now(), bosses: [1, 2].map((channel) => (dead.has(`w:${channel}`)
+      ? { map: 'native_forest', index: 0, channel, respawnInMs: 10800000 }
+      : spawnAt[channel] > now ? { map: 'native_forest', index: 0, channel, respawnInMs: spawnAt[channel] - now }
+        : { map: 'native_forest', index: 0, channel })) } });
   };
   G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20, radius: 120, wboss: on, autopilot: false, levelRoute: false }));
   G.w.eval(script);
   await wait(1000);
   // Kanal 1: der Boss spawnt erst nach der Warnung (4 s), Kanal 2 hat ihn schon (B) bzw. auch erst dann (A)
   G.w.document.querySelector('[data-act="bot"]').click();
-  G.store.setState({ chat: [{ code: 'worldboss_warning', ts: Date.now(), text: 'BlackWarGreymon erscheint gleich' }] });
-  setTimeout(() => { if (G.state.world.channel === 1 && !dead.has('w:1')) G.ents.set('w:1', boss(1)); }, 4000);
+  G.store.setState({ chat: [{ code: 'worldboss_warning', ts: Date.now(), params: { boss: 'bwg' }, text: 'BlackWarGreymon erscheint gleich' }] });
+  // Spawn auf dem Kanal, auf dem der Bot gerade steht
+  const spawner = setInterval(() => { const ch = G.state.world.channel; if (Date.now() >= spawnAt[ch] && !dead.has(`w:${ch}`) && !G.ents.has(`w:${ch}`) && (on || ch === 1)) G.ents.set(`w:${ch}`, boss(ch)); }, 200);
   const sts = new Set();
   for (let i = 0; i < 420 && order.length < 2; i++) { sts.add(G.status().replace(/\d+:\d\d/, 'm:ss').replace(/\(\d+ px\)/, '').slice(0, 75)); await wait(150); }
   const r = { order: order.join(' > '), switches, sts: [...sts].slice(0, 8), btn: G.w.document.querySelector('[data-act="wboss"]')?.classList.contains('on') };
+  clearInterval(spawner);
   G.w.close();
   return r;
 }
