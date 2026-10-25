@@ -2,7 +2,7 @@
 
 Stand: 2026-10-25 – **historischer Vergleich** von CDigi 1.0.9 mit DigiBot 2.55.0. Inzwischen ist CDigi (ab 1.1.0)
 die Hauptdatei. Die unten genannten Fehler und Rückschritte sind behoben, die 2.55-Änderungen übernommen; Einzelheiten
-stehen in der README unter „Änderungen in CDigi 1.1.0“. Nachträglich zeigte sich: Der rote Key-of-Hope-Test (Punkt 2
+stehen in `CHANGELOG.md` unter „CDigi 1.1.0“. Nachträglich zeigte sich: Der rote Key-of-Hope-Test (Punkt 2
 unter „Echte Fehler“) lag an überschriebenen Netz-Listenern in der Testwelt und an der CPU-Last beim parallelen
 Testlauf, nicht an den zufälligen Bossplätzen.
 

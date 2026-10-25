@@ -1,7 +1,7 @@
 {
   "name": "digibot",
   "private": true,
-  "description": "CDigi – Tampermonkey-Userscript für Digi MMO (cdigi.user.js, Backup: digibot.user.js). Die Tests laufen in nachgebauten Spielwelten (jsdom).",
+  "description": "CDigi – Tampermonkey-Userscript für Digi MMO (cdigi.user.js; DigiBot-Backup in archiv/). Die Tests laufen in nachgebauten Spielwelten (jsdom).",
   "scripts": {
     "test": "node tests/run.js"
   },
