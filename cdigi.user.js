@@ -102,7 +102,8 @@ function createCDigiCore({ now = Date.now, state, halt, network = () => null, tr
     if (m.leader !== leader || typeof m.session !== 'string' || m.session.length > 80 || !Number.isSafeInteger(m.seq) || !Number.isFinite(m.sentAt) || Math.abs(now() - m.sentAt) > 6000) return false;
     if (!['state','pos','start','stop','invite','maptalk','koh','kohplan'].includes(m.type)) return false;
     if (['start','maptalk','pos'].includes(m.type) && m.slot !== leader) return false;
-    if (['start','maptalk'].includes(m.type) && latch) return false;
+    // Gesperrt: nur ein von Hand ausgelöster Start des Leaders hebt die Sperre auf (Startprüfungen laufen trotzdem)
+    if (['start','maptalk'].includes(m.type) && latch && !(m.type === 'start' && m.manual === true)) return false;
     if (lastLeader !== leader) { peers.clear(); lastLeader = leader; }
     const p = peers.get(m.slot);
     if (p && p.session === m.session && m.seq <= p.seq) return false;
@@ -1267,7 +1268,7 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
       <button class="digibot__btn digibot__run" data-act="bot" title="Alt+B">▶ Start</button>
       <button class="digibot__btn digibot__hunt" data-act="hunt" title="Event (Mega-Jagd): Sobald der Weltboss angekündigt ist (6 min vorher), reist der Bot zur Map, Kanal 1, wartet, sucht ihn und kämpft. Danach weiter wie vorher. Gilt in jedem Modus.">🎯 Event</button>
       <button class="digibot__btn digibot__hunt" data-act="wboss" title="Weltboss (z. B. BlackWarGreymon): spawnt auf Kanal 1 und 2 mit eigenem Timer. Lebt er oder spawnt er in den nächsten 6 min, reist der Bot hin, wartet am Spawnpunkt und kämpft – zuerst der Kanal, der zuerst spawnt (gleichzeitig: Kanal 1), danach der andere. Danach weiter wie vorher. Das Event geht vor.">🌍 Weltboss</button>
-      <button class="digibot__btn" data-act="cdigi-stop">■ NOT-AUS (Esc)</button>
+      <button class="digibot__btn" data-act="cdigi-stop" title="Stoppt und sperrt alle Gruppenfenster (Tastenkürzel Alt+Esc)">■ NOT-AUS (Alt+Esc)</button>
       <button class="digibot__btn" data-act="cdigi-export">Diagnose exportieren</button>
       ${check('independentGroup', 'Gruppe: eigene Wege und zufällige Bossplätze')}
       <div class="digibot__status" data-f="status">Bot aus</div>
@@ -3130,7 +3131,10 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
     if (m.type === 'koh' && m.src && m.slot !== group.slot()) kohState.claims.set(m.src, Date.now());
     if (m.type === 'kohplan' && Number.isInteger(m.slot) && m.slot !== group.slot()) kohState.plans.set(m.slot, { ...m, seen: Date.now() });
     if (!group.active()) return;
-    if (m.type === 'start' && !bot.on) groupStartBot('Gruppe: Start aus dem Leader-Fenster');
+    if (m.type === 'start' && !bot.on) {
+      const prev = cdigiManual; cdigiManual = m.manual === true; // Start von Hand im Leader-Fenster gilt auch hier als manuell
+      try { groupStartBot('Gruppe: Start aus dem Leader-Fenster'); } finally { cdigiManual = prev; }
+    }
     if (m.type === 'stop') groupStopBot('Gruppe: Stopp aus dem Leader-Fenster',m.scope!=='bot');
     // Einladung aus einem Mitläufer-Fenster: auch ohne laufenden Bot freigeben (Befehle gehen sonst nicht durch den Core)
     if (m.type === 'invite' && group.role() === 'leader') cdigiCore.runPassive('Gruppe', 20, () => partyInviteNow());
@@ -3687,7 +3691,7 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
     group.msg = 'Bots gestartet.';
     if (!cdigiCore.start(cdigiManual)) return;
     groupStartBot('Gruppe: Bots gestartet');
-    groupPush(true);groupSend('start');
+    groupPush(true);groupSend('start', undefined, cdigiManual);
     groupTick();
     schedule();
   }
@@ -3745,7 +3749,7 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
     cdigiCore.stop(why, hard); logEvent('bot', why);
     schedule();
   }
-  const groupSend = (type,scope) => cdigiSend({type,...scope?{scope}:{}});
+  const groupSend = (type,scope,manual) => cdigiSend({type,...scope?{scope}:{},...manual===true?{manual:true}:{}});
   function stopGroup() {
     groupSend('stop');
     groupStopBot('Gruppe gestoppt');
@@ -6718,7 +6722,7 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
       if (this.on) this.timer = setInterval(() => this.tick(), TICK_MS);
       this.status = this.on ? 'Bot läuft' : 'Bot aus';
       logEvent('bot', this.on ? `Bot gestartet${cfg.farm ? ' (Boss-Rotation)' : cfg.autopilot ? ' (Quest-Autopilot)' : cfg.questMode ? ' (Quest-Modus)' : ''}` : 'Bot gestoppt');
-      if (group.role() === 'leader' && !quiet) {if(this.on)groupPush(true);groupSend(this.on ? 'start' : 'stop',this.on?undefined:'bot');}
+      if (group.role() === 'leader' && !quiet) {if(this.on)groupPush(true);groupSend(this.on ? 'start' : 'stop',this.on?undefined:'bot',this.on&&cdigiManual);}
       schedule();
     },
 
@@ -8028,7 +8032,8 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
     cdigiObserve();
     setInterval(cdigiObserve, 500);
     setInterval(cdigiQueueTick, 1000);
-    window.addEventListener('keydown',e=>{if(e.isTrusted&&e.code==='Escape'){groupSend('stop');cdigiCore.stop('Not-Aus',true);}},true);
+    // Not-Aus nur mit Alt+Esc – Esc allein schließt im Spiel Dialoge
+    window.addEventListener('keydown',e=>{if(e.isTrusted&&e.altKey&&e.code==='Escape'){groupSend('stop');cdigiCore.stop('Not-Aus',true);}},true);
     store.subscribe(schedule);
     if (cfg.autopilot || cfg.farm) setTimeout(loadWorld, 2000);
     setInterval(schedule, 250); // Fallback, falls ein Update am Store vorbeiläuft

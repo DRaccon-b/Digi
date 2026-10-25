@@ -1,6 +1,7 @@
 // Kleine Spielwelt für die Gruppen-Tests: Native Forest (Kunemon) <-> Primary Village (Gennai, Elecmon)
 const { JSDOM, VirtualConsole } = require('jsdom');
 const { BroadcastChannel } = require('worker_threads');
+const jsdomUtils = require('jsdom/lib/jsdom/living/generated/utils.js');
 module.exports = function makeWorld({ slot, quests, accounts, tag, setup, viewRange, noHash, onKill, extraEnts, mobs }) {
   const dom = new JSDOM('<!doctype html><body></body>', { runScripts: 'outside-only', url: noHash ? 'https://play.digimmo.com.br/' : `https://play.digimmo.com.br/#dbslot=${slot}`, pretendToBeVisual: true, virtualConsole: new VirtualConsole() });
   const w = dom.window;
@@ -150,5 +151,15 @@ module.exports = function makeWorld({ slot, quests, accounts, tag, setup, viewRa
   loadMap('native_forest', { x: 400, y: 330 });
   w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: true, apGrind: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'acc' }));
   w.localStorage.setItem('cdigi.accounts', JSON.stringify(accounts));
-  return { w, store, ents, log, invites, get state() { return state; }, get kills() { return kills; }, status: () => w.document.querySelector('[data-f="status"]')?.textContent || '' };
+  // Klick „von Hand“ (isTrusted) – CDigi hebt Sperren nur bei echten Nutzeraktionen auf; el.click() ist in jsdom nie vertrauenswürdig
+  const trustedClick = (sel) => {
+    const el = w.document.querySelector(sel), ev = new w.MouseEvent('click', { bubbles: true, cancelable: true }), impl = jsdomUtils.implForWrapper(ev);
+    impl.isTrusted = true; jsdomUtils.implForWrapper(el)._dispatch(impl);
+  };
+  // Taste „von Hand“ (isTrusted) an das Fenster
+  const trustedKey = (code, mods = {}) => {
+    const ev = new w.KeyboardEvent('keydown', { code, key: code, bubbles: true, cancelable: true, ...mods }), impl = jsdomUtils.implForWrapper(ev);
+    impl.isTrusted = true; jsdomUtils.implForWrapper(w)._dispatch(impl);
+  };
+  return { w, store, ents, log, invites, trustedClick, trustedKey, get state() { return state; }, get kills() { return kills; }, status: () => w.document.querySelector('[data-f="status"]')?.textContent || '' };
 };

@@ -1,4 +1,5 @@
 // 2.9.3: Start/Stopp im Leader-Fenster und „Gruppe starten/stoppen“ schalten alle Gruppenfenster
+// CDigi 1.1.0: nach „Gruppe stoppen“ sind alle gesperrt; ein Start von Hand im Leader-Fenster nimmt die Mitläufer wieder mit
 const fs = require('fs');
 const makeWorld = require('./gw');
 const script = fs.readFileSync(process.argv[2], 'utf8');
@@ -26,8 +27,10 @@ const until = async (fn, ms = 6000) => { const t0 = Date.now(); while (Date.now(
   B.w.document.querySelector('[data-act="grp-stop"]').click();     // Gruppe stoppen aus dem Mitläufer-Fenster
   r.grpStop = await until(() => !on(A) && !on(B));
   r.stillGroup = A.w.sessionStorage.getItem('digibot.group') === '1' && B.w.sessionStorage.getItem('digibot.group') === '1';
-  A.w.document.querySelector('[data-act="bot"]').click();          // danach geht Start wieder an alle
-  r.restart = await until(() => on(B));
+  A.w.document.querySelector('[data-act="bot"]').click();          // CDigi: nach „Gruppe stoppen“ gesperrt – Klick ohne Nutzeraktion startet nichts
+  r.lockedWithoutUser = !(await until(() => on(A) || on(B), 1500));
+  A.trustedClick('[data-act="bot"]');                              // Start von Hand im Leader-Fenster nimmt die Gruppe wieder mit
+  r.restart = await until(() => on(A) && on(B));
   console.log(r);
   const ok = Object.values(r).every((v) => v === true);
   console.log(ok ? 'OK – Start/Stopp für die ganze Gruppe' : 'FEHLER');
