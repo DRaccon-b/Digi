@@ -50,11 +50,11 @@ const W = members.map((m, i) => {
     setup({ content }) { content.skills = SKILLS; content.digimon.armageddemon = { name: 'Armageddemon', skills: Object.values(SKILLS).filter((s) => s.id.startsWith('armageddemon')) }; },
     extraEnts: () => [{ id: 'b:1', kind: 2, defId: 'armageddemon', x: BOSS.x, y: BOSS.y, hp: 9e9, maxHp: 1e10, level: 99, flags: 16 | 32, targetId: 'p:me' }] });
   G.handlers = {};
-  G.w.dmo.net.on = (name, fn) => { G.handlers[name] = fn; return () => {}; };
+  G.w.dmo.net.on = (name, fn) => { { const prev = G.handlers[name]; G.handlers[name] = prev ? (...a) => { prev(...a); fn(...a); } : fn; } return () => {}; };
   const scene = G.w.dmo.game.scene.getScene('world');
   scene.telegraphs = { active: [], circles: [], marksActive: [] };
   scene.mechB = { lines: [] };
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'data', lvlDiff: 100, radius: 400,
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'data', lvlDiff: 100, radius: 400,
     dodge: !OHNE, koh: !OHNE }));
   const me = G.store.getState().me;
   G.store.setState({ me: { ...me, hotbar: m.clavis ? ['cmd:attack', 'skill:0'] : ['cmd:attack'], partner: { ...me.partner, species: m.species, level: 99, hp: HP, maxHp: HP, ds: 99999, maxDs: 99999,

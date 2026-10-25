@@ -10,7 +10,7 @@ const G = makeWorld({ slot: 0, tag: 'S', noHash: true, accounts: { leader: 0, li
   extraEnts: () => [{ id: 'g:1', kind: 2, defId: 'golemon_peaks', x: 300, y: 330, hp: 9000, maxHp: 10000, level: 5, flags: 32, targetId: 'p:me' }] });
 const scene = G.w.dmo.game.scene.getScene('world');
 scene.telegraphs = { active: [], marksActive: [], circles: [] }; scene.mechB = { lines: [] };
-G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, dodge: true, tab: 'log', lvlDiff: 20 }));
+G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, dodge: true, tab: 'log', lvlDiff: 20 }));
 G.w.eval(script);
 (async () => {
   await wait(800);

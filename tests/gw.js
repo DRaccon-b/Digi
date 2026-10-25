@@ -127,8 +127,8 @@ module.exports = function makeWorld({ slot, quests, accounts, tag, setup, viewRa
       store.setState({ target: e ? { id, kind: 'mob', name: 'Kunemon', level: e.level, hp: e.hp, maxHp: e.maxHp } : null });
     },
   };
-  w.fetch = async (url) => ({ json: async () => MAPS[url.match(/maps\/(\w+)\.tmj/)[1]] });
-  w.dmo = { store, net: { state: { entities: ents }, charId: 'c1' }, game: { scene: { getScene: (k) => (k === 'world' ? scene : null) } } };
+  w.fetch = async (url) => ({ ok: true, json: async () => MAPS[url.match(/maps\/(\w+)\.tmj/)[1]] });
+  w.dmo = { store, net: { connected: true, transferring: false, state: { entities: ents }, charId: 'c1' }, game: { scene: { getScene: (k) => (k === 'world' ? scene : null) } } };
   w.addEventListener('keydown', (e) => {
     if (e.code !== 'Digit1' || !state.target) return;
     const m = ents.get(state.target.id);
@@ -148,7 +148,7 @@ module.exports = function makeWorld({ slot, quests, accounts, tag, setup, viewRa
       partner: { entityId: 'p:me', name: 'Gabumon', level: 6, hp: 3000, maxHp: 3000, ds: 500, maxDs: 700, exp: 1, expNext: 100, skills: [] } },
     world: { mapId, mapName: 'Native Forest', channel: 1 }, target: null });
   loadMap('native_forest', { x: 400, y: 330 });
-  w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: true, apGrind: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'acc' }));
-  w.localStorage.setItem('digibot.accounts', JSON.stringify(accounts));
+  w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: true, apGrind: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'acc' }));
+  w.localStorage.setItem('cdigi.accounts', JSON.stringify(accounts));
   return { w, store, ents, log, invites, get state() { return state; }, get kills() { return kills; }, status: () => w.document.querySelector('[data-f="status"]')?.textContent || '' };
 };

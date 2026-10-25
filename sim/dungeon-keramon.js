@@ -214,8 +214,8 @@ function makeWindow(i) {
     mechB: { lines: [], view: { t: 'mech', terminals: [] } },
   };
   pl.scene = scene;
-  w.fetch = async (url) => ({ json: async () => ({ layers: [{ type: 'objectgroup', name: 'objects', objects: MAPS[url.match(/maps\/(\w+)\.tmj/)[1]] }] }) });
-  w.dmo = { store, net: { state: { entities: view }, charId: `c${i}`, on: (n, fn) => { pl.handlers[n] = fn; return () => {}; } }, game: { scene: { getScene: (k) => (k === 'world' ? scene : null) } } };
+  w.fetch = async (url) => ({ ok: true, json: async () => ({ layers: [{ type: 'objectgroup', name: 'objects', objects: MAPS[url.match(/maps\/(\w+)\.tmj/)[1]] }] }) });
+  w.dmo = { store, net: { connected: true, transferring: false, state: { entities: view }, charId: `c${i}`, on: (n, fn) => { { const prev = pl.handlers[n]; pl.handlers[n] = prev ? (...a) => { prev(...a); fn(...a); } : fn; } return () => {}; } }, game: { scene: { getScene: (k) => (k === 'world' ? scene : null) } } };
   w.addEventListener('keydown', (e) => { // F1: HP-Trank
     if (e.code !== 'F1' || pl.fainted) return;
     const me = state.me, inv = me.inventory.find((x) => x.itemId === 'hp_pot');
@@ -254,8 +254,8 @@ function makeWindow(i) {
       partner: { entityId: `p:${i}`, name: M.name, species: M.species, stage: 'mega', level: M.level, hp: M.hp, maxHp: M.hp, ds: M.ds, maxDs: M.ds, exp: 0, expNext: 0,
         stats: { at: M.at, as: M.as, ms: 120 }, skills: M.psk.map((k) => ({ id: k.id, name: k.name, dsCost: k.dsCost, cooldownMs: k.cooldownMs, range: k.range, unlocked: true })) } },
     world: { mapId: 'network', mapName: 'Network', channel: 1 }, target: null });
-  w.localStorage.setItem('digibot.cfg', JSON.stringify({ dungeon: true, autopilot: false, farm: false, questMode: false, hpPot: TRANK_AB, dsPot: 0, tdsPot: 0, tab: 'data', lvlDiff: 100, radius: 400 }));
-  w.localStorage.setItem('digibot.accounts', JSON.stringify(accounts));
+  w.localStorage.setItem('cdigi.cfg', JSON.stringify({ dungeon: true, autopilot: false, farm: false, questMode: false, hpPot: TRANK_AB, dsPot: 0, tdsPot: 0, tab: 'data', lvlDiff: 100, radius: 400 }));
+  w.localStorage.setItem('cdigi.accounts', JSON.stringify(accounts));
   w.eval(script);
   pl.status = () => w.document.querySelector('[data-f="status"]')?.textContent || '';
   pl.blog = () => [...w.document.querySelectorAll('.digibot__log li, [data-f="log"] li')].map((x) => x.textContent);

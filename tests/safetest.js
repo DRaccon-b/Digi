@@ -14,12 +14,12 @@ scene.deps.commands = { partnerFollow() {} };
 scene.deps.assetsBase = '/assets/';
 scene.deps.manifest = { maps: { native_forest: { tmj: 'maps/native_forest.tmj' } } };
 // Schutzzone um den Tamer (480..560 x 470..540), Ziel m:1 bei 560,470 liegt am Rand -> wird verschoben
-w.fetch = async () => ({ json: async () => ({ layers: [{ type: 'objectgroup', objects: [{ type: 'safe', name: 'gate', x: 470, y: 480, width: 80, height: 60 }] }] }) });
+w.fetch = async () => ({ ok: true, json: async () => ({ layers: [{ type: 'objectgroup', objects: [{ type: 'safe', name: 'gate', x: 470, y: 480, width: 80, height: 60 }] }] }) });
 for (const id of ['m:2', 'm:3', 'm:4', 'm:5', 'm:6']) F.ents.delete(id);
 const m1 = F.ents.get('m:1'); m1.x = 640; m1.y = 510;
 const keys = [];
 w.addEventListener('keydown', (e) => { keys.push(e.code); if (e.code === 'Digit1') order.push('1'); }, true);
-w.localStorage.setItem('digibot.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0, lvlDiff: 10 }));
+w.localStorage.setItem('cdigi.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0, lvlDiff: 10 }));
 w.eval(script);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 (async () => {

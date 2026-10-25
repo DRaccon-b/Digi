@@ -8,7 +8,7 @@ setTimeout(() => {
   const p = w.document.querySelector('.digibot'), b = p.querySelector('[data-act="min"]');
   b.click();
   const vis = (s) => w.getComputedStyle(p.querySelector(s)).display !== 'none';
-  const r = { min: p.classList.contains('is-min'), head: vis('.digibot__head'), runbar: vis('.digibot__runbar'), tabs: vis('.digibot__tabs'), body: vis('.digibot__body'), btn: b.textContent, saved: JSON.parse(w.localStorage.getItem('digibot.cfg')).min };
+  const r = { min: p.classList.contains('is-min'), head: vis('.digibot__head'), runbar: vis('.digibot__runbar'), tabs: vis('.digibot__tabs'), body: vis('.digibot__body'), btn: b.textContent, saved: JSON.parse(w.localStorage.getItem('cdigi.cfg')).min };
   b.click();
   r.back = vis('.digibot__runbar') && vis('.digibot__body') && b.textContent === '–';
   console.log(r);

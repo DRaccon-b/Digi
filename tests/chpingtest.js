@@ -26,7 +26,7 @@ cmds.openChannel = async () => { switched.push('open2'); ch2Open = true; setCh(2
 cmds.requestBossPins = () => G.store.setState({ bossPins: { at: G.w.performance.now(), bosses: [{ map: 'native_forest', index: 0, channel: 1, respawnInMs: Math.max(1, ready[1] - Date.now()) }] } });
 cmds.requestMapInfo = () => G.store.setState({ mapInfo: { mapId: 'native_forest', at: G.w.performance.now(), bosses: [{ index: 0, respawnInMs: Math.max(1, ready[ch()] - Date.now()) }] } });
 setInterval(() => { if (Date.now() >= ready[ch()] && !G.ents.has('m:boss')) G.ents.set('m:boss', { id: 'm:boss', kind: 2, defId: 'phantomon', level: 3, x: 705, y: 505, hp: 300, maxHp: 300, flags: 16, targetId: '' }); }, 200);
-G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: true, apGrind: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log' }));
+G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: true, apGrind: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log' }));
 G.w.eval(script);
 (async () => {
   await wait(800);

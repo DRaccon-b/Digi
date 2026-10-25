@@ -14,7 +14,7 @@ const B = makeWorld({ slot: 1, tag: 'F', accounts, mobs: [],
     content.quests.q02_first_steps.minLevel = 99;
   } });
 B.w.eval(script);
-const bus = new BroadcastChannel('digibot-group');
+const bus = require('./cbus')();
 let serve = false;
 const tick = setInterval(() => bus.postMessage({ type: 'state', slot: 0, role: 'leader', name: 'Lead', inWorld: true, mapId: 'native_forest', channel: 1, x: 400, y: 330,
   bot: true, status: 'x', quests: {}, fin: ['q00_meet_gennai', 'q_r'], ents: [], talks: [], done: [], busy: null, noFight: false, task: null, hunt: [], targetId: null, serve }), 300);

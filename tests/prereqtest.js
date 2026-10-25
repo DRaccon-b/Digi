@@ -18,7 +18,7 @@ const B = makeWorld({ slot: 1, tag: 'Folger', accounts, mobs: [], extraEnts: (id
 B.w.eval(script);
 // Spiel: „Word“ ist gleich nach dem Annehmen erfüllt
 setInterval(() => { const s = B.store.getState(), q = s.me.quests.q07_word; if (q?.state === 1) B.store.setState({ me: { ...s.me, quests: { ...s.me.quests, q07_word: { state: 2, counters: [1] } } } }); }, 200);
-const bus = new BroadcastChannel('digibot-group');
+const bus = require('./cbus')();
 const talks = [{ key: 'accept:q07b_hall@1', tkey: 'accept:q07b_hall', kind: 'talk', at: Date.now(), purpose: 'accept', questId: 'q07b_hall', objIndex: null, need: null,
   npcId: 'elder', pool: null, loc: { mapId: 'native_forest', x: 330, y: 300 }, label: '„Hall“ annehmen bei Elder' }];
 const tick = setInterval(() => bus.postMessage({ type: 'state', slot: 0, role: 'leader', name: 'Lead', inWorld: true, mapId: 'native_forest', channel: 1, x: 400, y: 330,

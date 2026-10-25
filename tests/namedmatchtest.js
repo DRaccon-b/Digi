@@ -22,7 +22,7 @@ cmds.listChannels = async () => [{ channel: 1, roomId: 'r1', clients: 1, maxClie
 cmds.requestBossPins = () => {}; cmds.requestMapInfo = () => {};
 const st = G.store.getState();
 G.store.setState({ me: { ...st.me, partner: { ...st.me.partner, level: 3, stats: { at: 2000, as: 1200 } } } });
-G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 8, radius: 250,
+G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 8, radius: 250,
   levelRoute: true, levelA2: false, levelBoss: true, levelEvo: false, farmChannels: [1] }));
 G.w.eval(script);
 (async () => {

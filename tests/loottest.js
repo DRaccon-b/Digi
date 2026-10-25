@@ -6,7 +6,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const G = makeWorld({ slot: 0, tag: 'Solo', noHash: true, accounts: { leader: 0, list: [{ user: 'solo' }] }, mobs: [], quests: { q00_meet_gennai: { state: 3, counters: [] } } });
 const st0 = G.store.getState();
 G.store.setState({ me: { ...st0.me, bits: 1000, inventory: [{ itemId: 'potion', qty: 5 }] } });
-G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ tab: 'data' }));
+G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ tab: 'data' }));
 G.w.eval(script);
 const set = (p) => { const s = G.store.getState(); G.store.setState({ me: { ...s.me, ...p } }); };
 (async () => {

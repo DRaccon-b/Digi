@@ -127,8 +127,8 @@ const scene = {
     store.setState({ target: e ? { id, kind: 'mob', name: 'Kunemon', level: e.level, hp: e.hp, maxHp: e.maxHp } : null });
   },
 };
-w.fetch = async (url) => ({ json: async () => MAPS[url.match(/maps\/(\w+)\.tmj/)[1]] });
-w.dmo = { store, net: { state: { entities: ents } }, game: { scene: { getScene: (k) => (k === 'world' ? scene : null) } } };
+w.fetch = async (url) => ({ ok: true, json: async () => MAPS[url.match(/maps\/(\w+)\.tmj/)[1]] });
+w.dmo = { store, net: { connected: true, transferring: false, state: { entities: ents } }, game: { scene: { getScene: (k) => (k === 'world' ? scene : null) } } };
 // Kampf: Taste 1 -> 150 Schaden aufs Ziel; Tod zaehlt fuer die Kill-Quest
 w.addEventListener('keydown', (e) => {
   if (e.code !== 'Digit1' || !state.target) return;
@@ -149,7 +149,7 @@ w.addEventListener('keydown', (e) => {
 
 store.setState({ screen: 'world', inputFocus: 'game', cooldowns: {}, me: me0, world: { mapId, mapName: 'Native Forest' }, target: null });
 loadMap('native_forest', { x: 400, y: 330 });
-w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: true, apGrind: false, hpPot: 0, dsPot: 0, tdsPot: 0 }));
+w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: true, apGrind: false, hpPot: 0, dsPot: 0, tdsPot: 0 }));
 w.eval(script);
 const $ = (s) => w.document.querySelector(s);
 let lastStatus = '';

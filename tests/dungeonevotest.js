@@ -14,7 +14,7 @@ async function run(evo, want) {
   const cmds = G.w.dmo.game.scene.getScene('world').deps.commands;
   cmds.evolve = (sp) => { evolved.push(sp); const s = G.store.getState(); const evos = s.me.partner.evolutions.map((e) => ({ ...e, canEvolveNow: e.from === sp }));
     G.store.setState({ me: { ...s.me, partner: { ...s.me.partner, species: sp, evolutions: evos } } }); };
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, farm: false, dungeon: true, hpPot: 0, dsPot: 0, tdsPot: 0, apEvo: evo, tab: 'log' }));
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, farm: false, dungeon: true, hpPot: 0, dsPot: 0, tdsPot: 0, apEvo: evo, tab: 'log' }));
   G.w.eval(script);
   await wait(800);
   G.w.document.querySelector('[data-act="bot"]').click();

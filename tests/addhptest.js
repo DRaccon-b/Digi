@@ -19,7 +19,7 @@ async function run(bossHp, wave = false) {
       { id: 'b:1', kind: 2, defId: 'puppetmon', x: 450, y: 330, hp: bossHp, maxHp: 100000, level: 3, flags: 16 | 32, targetId: 'p:me' },
       { id: 'a:1', kind: 2, defId: 'pumpkinmon', x: 380, y: 360, hp: 300, maxHp: 300, level: wave ? 50 : 3, flags: 32, targetId: '' },
     ] });
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20 }));
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20 }));
   G.w.eval(script);
   await wait(800);
   G.w.document.querySelector('[data-act="bot"]').click();

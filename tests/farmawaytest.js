@@ -25,7 +25,7 @@ cmds.requestBossPins = () => G.store.setState({ bossPins: { at: G.w.performance.
   ? { map: 'native_forest', index: 0, channel: 2 }
   : { map: 'native_forest', index: 0, channel: 2, respawnInMs: ready[2] - Date.now() }] } });
 cmds.requestMapInfo = () => G.store.setState({ mapInfo: { mapId: 'native_forest', at: G.w.performance.now(), bosses: [ch() === 2 && ch2Alive ? { index: 0 } : { index: 0, respawnInMs: Math.max(1, ready[ch()] - Date.now()) }] } });
-G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, farm: true, farmMode: 'boss', farmBosses: ['native_forest#myotismon_fog'], farmChannels: [1, 2],
+G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, farm: true, farmMode: 'boss', farmBosses: ['native_forest#myotismon_fog'], farmChannels: [1, 2],
   hpPot: 0, dsPot: 0, tdsPot: 0, radius: 400, lvlDiff: 20, tab: 'log' }));
 G.w.eval(script);
 (async () => {

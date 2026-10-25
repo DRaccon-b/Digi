@@ -16,7 +16,7 @@ async function run(circle, leftMs, watchMs) {
   scene.telegraphs = { active: [], circles: [] };
   scene.deps.commands = { partnerFollow: () => {} };
   w.addEventListener('keydown', (e) => keys.push({ code: e.code, t: Date.now() }), true);
-  w.localStorage.setItem('digibot.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0, dodge: true, lvlDiff: 10 }));
+  w.localStorage.setItem('cdigi.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0, dodge: true, lvlDiff: 10 }));
   w.eval(script);
   await wait(600);
   F.store.setState({ target: F.toTarget('m:1') });

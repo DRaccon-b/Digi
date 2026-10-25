@@ -1,11 +1,14 @@
 // ==UserScript==
 // @name         CDigi – Gruppenbot mit manueller Pause
 // @namespace    cdigi
-// @version      1.0.9
+// @version      1.0.14
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
 // @grant        none
+// @homepageURL  https://github.com/DRaccon-b/Digi
+// @updateURL    https://raw.githubusercontent.com/DRaccon-b/Digi/main/cdigi.user.js
+// @downloadURL  https://raw.githubusercontent.com/DRaccon-b/Digi/main/cdigi.user.js
 // ==/UserScript==
 
 (function () {
@@ -322,33 +325,62 @@ function createCDigiHistory({now=Date.now,emit=()=>{}}={}) {
 }
 if(typeof module!=='undefined')module.exports={createCDigiHistory};
 
-// Finite quest queue. Authentication and character entry are always manual.
 function createCDigiAccountQueue({now=Date.now}={}) {
-  let plan=[],index=0,phase='idle',reason='',generation=0;
+  let plan=[],index=0,phase='idle',reason='',generation=0,pending=false,since=0;
   const normalize=u=>String(u||'').trim().toLowerCase();
-  const active=()=>['switching','starting','running'].includes(phase);
-  function pause(message){phase='paused';reason=message;generation++;return {type:'pause',reason:message};}
-  function start(entries){if(active())return {type:'none'};plan=[];index=0;const seen=new Set();
-    for(const e of entries){const user=normalize(e.user);if(!Number.isInteger(e.slot)||e.slot<0||e.slot>=5||!user||seen.has(user)){plan=[];return pause('Account-Auswahl ungültig oder Benutzername doppelt');}seen.add(user);plan.push({slot:e.slot,user,char:String(e.char||'').trim()});}
-    if(!plan.length)return pause('Bitte mindestens einen Account mit Haken und Benutzername auswählen');
-    plan.sort((a,b)=>a.slot-b.slot);generation++;phase='switching';reason='';return {type:'started'};
+  const active=()=>!['idle','paused','done'].includes(phase);
+  function pause(message){phase='paused';reason=message;generation++;pending=false;return {type:'pause',reason:message};}
+  function start(entries){if(active())return {type:'none'};plan=[];index=0;const seen=new Set();const selected=[];
+    for(const e of entries){const user=normalize(e.user);if(!Number.isInteger(e.slot)||e.slot<0||e.slot>=5||!user||seen.has(user)){plan=[];return pause('Account-Auswahl ungültig oder Benutzername doppelt');}seen.add(user);selected.push({slot:e.slot,user,char:String(e.char||'').trim()});}
+    if(!selected.length)return pause('Bitte mindestens einen Account mit Haken und Benutzername auswählen');
+    plan=selected.sort((a,b)=>a.slot-b.slot);index=0;generation++;phase='switching';reason='';pending=false;since=now();return {type:'started'};
   }
-  function resume(){if(phase!=='paused'||!plan[index])return false;generation++;phase='switching';reason='';return true;}
-  function complete(){if(phase!=='running')return {type:'none'};index++;generation++;if(index>=plan.length){phase='done';return {type:'done'};}phase='switching';return {type:'next',slot:plan[index].slot};}
+  function resume(){if(phase!=='paused'||!plan[index])return false;generation++;phase='switching';reason='';pending=false;since=now();return true;}
+  function complete(){if(phase!=='running')return {type:'none'};index++;generation++;pending=false;since=now();if(index>=plan.length){phase='done';return {type:'done'};}phase='switching';return {type:'next',slot:plan[index].slot};}
+  function action(type,extras={}){pending=true;return {type,...extras,slot:plan[index].slot,generation};}
+  function settled(token,error=false){if(token!==generation||!active())return false;pending=false;if(error)pause('Account-Aktion fehlgeschlagen – Anmeldung und Verbindung prüfen');return true;}
   function step(s){
     if(!active())return {type:'none'};
     if(s.challenge)return pause('Anwesenheitskontrolle – bitte selbst beantworten');
     if(s.disconnected)return pause('Verbindung unterbrochen');
-    const e=plan[index];if(normalize(s.configuredUser)!==e.user)return pause('Account-Zuordnung geändert – Runde neu starten');
-    if(phase==='running')return normalize(s.user)===e.user?{type:'none'}:pause('Der angemeldete Account hat sich geändert');
-    if(s.screen==='loading'||s.busy)return {type:'none'};
-    if(s.screen!=='world'||normalize(s.user)!==e.user)return pause(`Account ${e.slot+1} bitte selbst im Spiel anmelden, Charakter betreten und „Runde fortsetzen“ drücken`);
-    if(e.char&&normalize(s.character)!==normalize(e.char))return pause('Bitte den vorgesehenen Charakter selbst betreten und Runde fortsetzen');
-    if(!s.ready)return {type:'none'};
-    phase='starting';return {type:'begin',slot:e.slot,generation};
+    const entry=plan[index];
+    if(normalize(s.configuredUser)!==entry.user)return pause('Account-Zuordnung wurde verändert – Runde neu starten');
+    if(phase==='running')return normalize(s.user)===entry.user?{type:'none'}:pause('Der angemeldete Account hat sich unerwartet geändert');
+    if(s.error&&!s.busy)return pause('Das Spiel meldet einen Anmelde- oder Charakterfehler – bitte im Spiel prüfen');
+    if(now()-since>90000)return pause('Account-Wechsel dauert zu lange – bitte im Spiel prüfen');
+    if(pending||s.busy||s.screen==='loading')return {type:'none'};
+    if(phase==='await-login'&&s.screen!=='login')return {type:'none'};
+    const same=normalize(s.user)===entry.user;
+    if(s.screen==='world'){
+      if(!s.ready)return {type:'none'};
+      const correctChar=!entry.char||normalize(s.character)===normalize(entry.char);
+      if(same&&correctChar){phase='starting';return action('begin');}
+      if(phase!=='switching')return pause('Unerwarteter Account oder Charakter nach dem Wechsel');
+      if(!s.hasPassword)return pause(`Passwort für Account ${entry.slot+1} fehlt – im Account-Feld eingeben`);
+      phase='await-login';return action('logout');
+    }
+    if(s.screen==='login'){
+      if(phase==='await-auth'||phase==='await-world'||phase==='starting')return {type:'none'};
+      if(!s.hasPassword)return pause(`Passwort für Account ${entry.slot+1} fehlt – im Account-Feld eingeben`);
+      phase='await-auth';return action('login');
+    }
+    if(s.screen==='charSelect'){
+      if(!same){
+        if(phase!=='switching')return pause('Anmeldung stimmt nicht mit dem vorgesehenen Account überein');
+        if(!s.hasPassword)return pause(`Passwort für Account ${entry.slot+1} fehlt – im Account-Feld eingeben`);
+        phase='await-login';return action('logout');
+      }
+      if(phase==='await-world')return {type:'none'};
+      const chars=Array.isArray(s.characters)?s.characters:[];
+      const chosen=entry.char?chars.find(c=>normalize(c.name)===normalize(entry.char)):chars.length===1?chars[0]:null;
+      if(!chosen?.id)return pause('Charakter nicht eindeutig – Namen für diesen Account festlegen oder selbst betreten');
+      phase='await-world';return action('enter', {characterId:chosen.id});
+    }
+    if(s.screen==='charCreate')return pause('Dieser Account benötigt zuerst einen Charakter');
+    return pause('Unbekannter Anmeldezustand – bitte selbst prüfen');
   }
-  function began(token){if(token!==generation||phase!=='starting')return false;phase='running';return true;}
-  return {start,resume,complete,step,began,pause,cancel(message){if(active())pause(message);},get active(){return active();},get phase(){return phase;},get slot(){return plan[index]?.slot;},get user(){return plan[index]?.user;},get generation(){return generation;},get index(){return index;},summary:()=>({phase,index,total:plan.length,slot:plan[index]?.slot,reason,completedSlots:plan.slice(0,index).map(e=>e.slot)})};
+  function began(token){if(token!==generation||phase!=='starting')return false;pending=false;phase='running';since=now();return true;}
+  return {start,resume,complete,step,settled,began,pause,cancel(message){if(active())pause(message);},get active(){return active();},get phase(){return phase;},get slot(){return plan[index]?.slot;},get user(){return plan[index]?.user;},get generation(){return generation;},get index(){return index;},summary:()=>({phase,index,total:plan.length,slot:plan[index]?.slot,reason,completedSlots:plan.slice(0,index).map(e=>e.slot)})};
 }
 if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
 
@@ -429,6 +461,7 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
     try {
       const legacy=JSON.parse(localStorage.getItem('digibot.accounts')||'null');
       if(legacy&&Array.isArray(legacy.list)){legacy.list=legacy.list.map(a=>({...a,pass:''}));localStorage.setItem('digibot.accounts',JSON.stringify(legacy));}
+      cdigiQueuePasswords.clear();panel?.querySelectorAll('[data-queue-password]').forEach(el=>{el.value='';});
       saveAcc();renderAccounts(getStore()?.getState?.());
       cdigiCore.record('Gespeicherte Passwörter entfernt');
     } catch {cdigiSignal('Passwörter konnten nicht entfernt werden');}
@@ -651,12 +684,7 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
   function cdigiQueueBegin(token) {
     const st=window.dmo?.store?.getState?.();if(token!==cdigiAccountQueue.generation||!cdigiAccountQueue.active||!cdigiCore.armed||cdigiCore.latched)return;
     if(String(st?.session?.username||'').trim().toLowerCase()!==cdigiAccountQueue.user)return;
-    const u=cdigiAccountQueue.user;
-    if(cfgUser!==u){
-      let exists=false;try{exists=cdigiRecord(JSON.parse(localStorage.getItem(profileKey(u))||'null'));}catch{}
-      if(!exists){const ui=Object.fromEntries(UI_KEYS.map(k=>[k,cfg[k]]));Object.assign(cfg,JSON.parse(JSON.stringify(CFG_DEFAULTS)),ui);}
-      cfgProfile(st);
-    }
+    cfgProfile(st);
     noteCharacter(st,Date.now());
     cfg.autopilot=true;cfg.farm=false;cfg.dungeon=false;cfg.questMode=false;
     if(!cdigiCore.loginMode(false))return;
@@ -669,10 +697,18 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
     cdigiCore.run('Account-Runde',30,()=>{
       if(cdigiAccountQueue.phase==='running'&&!cfg.autopilot){cdigiCore.stop('Quest-Runde gestoppt: Betriebsart geändert',true);return;}
       const st=window.dmo?.store?.getState?.(),slot=cdigiAccountQueue.slot,acc=accounts.list[slot];
-      const action=cdigiAccountQueue.step({screen:st?.screen,user:st?.session?.username,character:charName(st),characters:st?.session?.characters,busy:st?.session?.busy,error:!!st?.session?.error,challenge:!!st?.challenge,disconnected:st?.screen==='disconnected',ready:cdigiNetworkState(window.dmo?.net,st)?.ready??!!st?.me?.partner,configuredUser:acc?.user});
+      const action=cdigiAccountQueue.step({screen:st?.screen,user:st?.session?.username,character:charName(st),characters:st?.session?.characters,busy:st?.session?.busy,error:!!st?.session?.error,challenge:!!st?.challenge,disconnected:st?.screen==='disconnected',ready:cdigiNetworkState(window.dmo?.net,st)?.ready??!!st?.me?.partner,configuredUser:acc?.user,hasPassword:!!cdigiQueuePasswords.get(String(acc?.user||'').trim().toLowerCase())});
       if(action.type==='pause'){cdigiCore.stop(action.reason,true);return;}
       if(action.type==='none')return;
       if(action.type==='begin'){cdigiQueueBegin(action.generation);return;}
+      const client=cdigiCommands(window.dmo?.client);
+      const fn={logout:'logout',login:'login',enter:'enterWorld'}[action.type];
+      if(typeof client?.[fn]!=='function'){cdigiAccountQueue.pause('Client-Funktion für Account-Wechsel fehlt');cdigiCore.stop('Account-Wechsel wird vom Client nicht unterstützt',true);return;}
+      cdigiQueueStatus(`Quest-Runde: Account ${slot+1} – ${{logout:'Abmelden',login:'Anmelden',enter:'Charakter betreten'}[action.type]}`);
+      try{
+        const result=action.type==='login'?client.login(acc.user.trim(),cdigiQueuePasswords.get(acc.user.trim().toLowerCase())):action.type==='enter'?client.enterWorld(action.characterId):client.logout();
+        Promise.resolve(result).then(()=>cdigiAccountQueue.settled(action.generation),()=>{if(cdigiAccountQueue.settled(action.generation,true))cdigiCore.stop('Account-Wechsel fehlgeschlagen – im Spiel prüfen',true);});
+      }catch{cdigiAccountQueue.settled(action.generation,true);cdigiCore.stop('Account-Wechsel fehlgeschlagen – im Spiel prüfen',true);}
 
     });
   }
@@ -998,7 +1034,7 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
   const CFG_KEY = 'cdigi.cfg';
   const SKILL_KEYS = [2, 3, 4, 5, 6]; // Tasten, deren Skills automatisch gewirkt werden dürfen
   const cfg = {
-    tamerAuto: true, evoWarp: false, evoJogress: false, evoWithPartner: '', apMapEvo: true, independentGroup: true, width: 320, compact: false, min: false,
+    tamerAuto: true, evoWarp: false, apMapEvo: true, independentGroup: true, width: 320, compact: false, min: false,
     tab: 'data', lvlDiff: 5, radius: 300, hpPot: 40, dsPot: 20, tdsPot: 20,
     skills: { 2: true, 3: true, 4: true, 5: true, 6: true },
     heal: {},       // alt (vor 2.12): Heil-Skills je Taste – wird beim ersten Start in skillSets übernommen
@@ -1023,7 +1059,7 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
     safeCast: true,   // gegen Bosse: Skills nur, wenn danach noch Zeit zum Ausweichen bleibt (und kein Spiegel droht)
     autopilot: false, // Quests annehmen, hinreisen, erledigen, abgeben
     apGrind: true,    // Autopilot: bei Level-Sperren/Level-Zielen grinden statt stoppen
-    apBatch: false,   // Autopilot: erst alle Ziele erledigen, dann alles abgeben, dann alles annehmen (keine Abgabe zwischendurch)
+    apBatch: true,   // Autopilot: erst alle Ziele erledigen, dann alles abgeben, dann alles annehmen (keine Abgabe zwischendurch)
     apNoTurnin: false, // Autopilot: Quests annehmen und erledigen, aber nicht abgeben (fertige bleiben im Log, Abgeben macht man selbst)
     apOrder: 'near',  // 'near' = nächste Aufgabe zuerst, 'sweep' = Map für Map absteigend
     apStartMap: '',   // Start-Map der Runde ('' = höchste bzw. niedrigste erreichbare, je nach Richtung)
@@ -1048,16 +1084,16 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
     routeEnd: '',         // Named-Runde: End-Map (leer = höchste)
     open: {},             // auf-/zugeklappte Gruppen im Panel
   };
-  // Einstellungen je Account: Sobald der Login-Name bekannt ist, lädt das Fenster das Profil dieses Accounts
-  // (digibot.cfg@name) – so überschreiben sich die Fenster der Gruppe nicht mehr gegenseitig. Ein neuer Account
-  // startet mit den bisherigen Einstellungen. Nur die Panel-Ansicht (Reiter, Breite, …) gilt für alle Fenster.
+  // One shared configuration; account identity remains separate for quest progress.
   const CFG_DEFAULTS = JSON.parse(JSON.stringify(cfg));
   const UI_KEYS = ['tab', 'open', 'logFilter', 'width', 'compact', 'min'];
-  let cfgUser = null; // Login-Name, dessen Profil gerade geladen ist
-  const profileKey = (u) => `${CFG_KEY}@${u}`;
+  const CFG_BATCH_KEY = 'cdigi.cfg.batch.v1';
+  const CFG_SHARED_KEY = 'cdigi.cfg.shared.v1';
+  let cfgUser = null;
   function applyCfg(saved) {
     const checked = cdigiConfig(saved, CFG_DEFAULTS);
     Object.assign(cfg, checked.value);
+    try{if(localStorage.getItem(CFG_BATCH_KEY)!=='1')cfg.apBatch=true;}catch{}
     if (checked.issues.length) cdigiCore.record('Einstellungen korrigiert', {action: checked.issues.join(', ')});
     const m = modeOf(); // alte Einstellungen mit mehreren Schaltern auf eine Betriebsart bringen
     cfg.questMode = m === 'quest'; cfg.autopilot = m === 'auto'; cfg.farm = m === 'farm'; cfg.dungeon = m === 'dungeon';
@@ -1073,34 +1109,41 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
   const saveCfg = () => {
     applyCfg(cfg);
     try {
-      if (cfgUser) {
-        localStorage.setItem(profileKey(cfgUser), JSON.stringify(cfg));
-        // Panel-Ansicht gilt für alle Fenster
-        const shared = JSON.parse(localStorage.getItem(CFG_KEY) || '{}');
-        for (const k of UI_KEYS) shared[k] = cfg[k];
-        localStorage.setItem(CFG_KEY, JSON.stringify(shared));
-      } else localStorage.setItem(CFG_KEY, JSON.stringify(cfg));
-    } catch {}
+      localStorage.setItem(CFG_KEY, JSON.stringify(cfg));
+      localStorage.setItem(CFG_SHARED_KEY, '1');
+      localStorage.setItem(CFG_BATCH_KEY, '1');
+    } catch { cdigiCore.record('Gemeinsame Einstellungen konnten nicht gespeichert werden'); }
   };
-  // Profil des eingeloggten Accounts laden (oder mit den jetzigen Einstellungen anlegen)
+  // Import the first signed-in account's former settings once, then never load profiles again.
   function cfgProfile(st) {
     const u = String(st?.session?.username || '').trim().toLowerCase();
     if (!u || u === cfgUser) return;
-    let saved = null;
-    try { saved = JSON.parse(localStorage.getItem(profileKey(u)) || 'null'); } catch {}
-    const first = cfgUser === null;
     cfgUser = u;
-    if (!cdigiRecord(saved)) { saveCfg(); logEvent('bot', `Einstellungen: neues Profil für ${st.session.username} (aus den bisherigen Einstellungen)`); return; }
-    const ui = Object.fromEntries(UI_KEYS.map((k) => [k, cfg[k]]));
-    for (const k of Object.keys(cfg)) delete cfg[k];
-    Object.assign(cfg, JSON.parse(JSON.stringify(CFG_DEFAULTS)));
-    applyCfg(saved);
-    Object.assign(cfg, ui);
-    syncCfgInputs();
-    farm.reset(); autopilot.reset();
-    logEvent('bot', `Einstellungen: Profil von ${st.session.username}${first ? '' : ' geladen (Account gewechselt)'}`);
+    try {
+      if (localStorage.getItem(CFG_SHARED_KEY) !== '1') {
+        const saved = JSON.parse(localStorage.getItem(`${CFG_KEY}@${u}`) || 'null');
+        if (cdigiRecord(saved)) {
+          const ui = Object.fromEntries(UI_KEYS.map(k => [k, cfg[k]]));
+          applyCfg(saved);Object.assign(cfg,ui);
+          syncCfgInputs();farm.reset();autopilot.reset();
+        }
+        saveCfg();
+        logEvent('bot', 'Einstellungen: gemeinsames Profil für alle Accounts übernommen');
+      }
+    } catch { cdigiCore.record('Bisherige Einstellungen konnten nicht übernommen werden'); }
+    try{if(localStorage.getItem(CFG_BATCH_KEY)!=='1')saveCfg();}catch{}
     schedule();
   }
+  window.addEventListener('storage', (event) => {
+    if(event.key!==CFG_KEY || !event.newValue)return;
+    try {
+      const saved=JSON.parse(event.newValue);if(!cdigiRecord(saved))return;
+      const behavior=()=>JSON.stringify(Object.fromEntries(Object.entries(cfg).filter(([key])=>!UI_KEYS.includes(key))));
+      const before=behavior();applyCfg(saved);syncCfgInputs();
+      if(before!==behavior()){farm.reset();autopilot.reset();}
+      schedule();
+    } catch { cdigiCore.record('Gemeinsame Einstellungen konnten nicht geladen werden'); }
+  });
   // Panel-Elemente, die ihren Wert nur beim Aufbau aus cfg nehmen, nach einem Profilwechsel nachziehen
   function syncCfgInputs() {
     if (!panel) return;
@@ -1121,6 +1164,8 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
   // sessionStorage des Fensters (Slot) – die Bot-Einstellungen in localStorage teilen sich ja alle Fenster.
   const ACC_KEY = 'cdigi.accounts';
   const ACC_MAX = 5;
+  // Per-window volatile credentials; never serialize or broadcast this map.
+  const cdigiQueuePasswords = new Map();
   const accounts = { leader: 0, popup: true, mirror: false, mirrorAtk: true, leadBoss: false, dungeon: false, spread: false, serve: false, list: [] };
   function reloadAcc() {
 
@@ -1204,7 +1249,7 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>CDigi</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '1.0.9'}</span>
+    <div class="digibot__head"><span>CDigi</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '1.0.14'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1273,8 +1318,6 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
             <label>Quest-Digimon<select data-apsel="apQuestPartner"></select></label>
             <label>Digitation<select data-apsel="apEvo"></select></label>
             ${check('evoWarp', 'Freigegebene Warp-Digitation verwenden')}
-            ${check('evoJogress', 'DNA-/Jogress-Digitation freigeben')}
-            <label>DNA-Partner<select data-apsel="evoWithPartner"></select></label>
             ${check('apMapEvo', 'Autopilot: Digitationsregeln der Lernroute übernehmen')}
             <div class="digibot__hint">Im Autopiloten gelten dann der Lernrouten-Schalter sowie „Form ohne Dark Tower“ und „Form mit Dark Tower“ im Reiter Kampf. Für eine feste Quest-Form den Haken ausschalten.</div>
             <label>Abgabe-Digimon<select data-apsel="apTurninPartner"></select></label>
@@ -1384,8 +1427,8 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
         <label class="digibot__slotsel" title="Welcher Account läuft in diesem Fenster? Bestimmt, ob es Leader oder Mitläufer ist. Gilt nur für dieses Fenster.">Dieses Fenster ist
           <select data-accslot><option value="">– keine Gruppe –</option>${accounts.list.map((a, i) => `<option value="${i}">Account ${i + 1}${a.user ? ` (${escAttr(a.user)})` : ''}</option>`).join('')}</select></label>
         <div class="digibot__grpinfo" data-f="grpinfo">–</div>
-        ${grp('account-queue', 'Accounts nacheinander: Quest-Runde', '<div class="digibot__hint">Ein Fenster, Account 1 → 5 mit Haken und Benutzername. Pro Account läuft der Autopilot bis zum normalen Abschluss. Keine Wiederholungsschleife. Das Fenster darf keiner laufenden Gruppe zugeordnet sein. Beim Account-Wechsel selbst im Spiel anmelden und anschließend die Runde fortsetzen.</div><div class="digibot__grpbtns"><button class="digibot__btn" data-act="queue-start">▶ Quest-Runde starten</button><button class="digibot__btn" data-act="queue-resume">↪ Runde fortsetzen</button><button class="digibot__btn" data-act="queue-stop">■ Runde stoppen</button></div><div class="digibot__hint" data-f="account-queue">Bereit</div>', true)}
-        ${grp('accounts', 'Accounts verwalten', `<div class="digibot__accwarn">Anmeldung ausschließlich manuell im Spiel. CDigi speichert und verwendet keine Passwörter. <button class="digibot__btn" data-act="cdigi-passwords">Alte gespeicherte Passwörter löschen</button></div>
+        ${grp('account-queue', 'Accounts nacheinander: Quest-Runde', '<div class="digibot__hint">Ein Fenster, Account 1 → 5 mit Haken und Benutzername. Pro Account läuft der Autopilot bis zum normalen Abschluss. Keine Wiederholungsschleife. Das Fenster darf keiner laufenden Gruppe zugeordnet sein. Automatischer Account-Wechsel mit den unten eingegebenen Passwörtern. Passwörter gelten nur bis zum Neuladen dieses Fensters.</div><div class="digibot__grpbtns"><button class="digibot__btn" data-act="queue-start">▶ Quest-Runde starten</button><button class="digibot__btn" data-act="queue-resume">↪ Runde fortsetzen</button><button class="digibot__btn" data-act="queue-stop">■ Runde stoppen</button></div><div class="digibot__hint" data-f="account-queue">Bereit</div>', true)}
+        ${grp('accounts', 'Accounts verwalten', `<div class="digibot__accwarn">Für die Quest-Runde: Passwörter einmal hier eingeben. Sie bleiben nur im Arbeitsspeicher dieses Fensters und werden beim Neuladen verworfen. <button class="digibot__btn" data-act="cdigi-passwords">Alte gespeicherte Passwörter löschen</button></div>
           <div data-f="acclist">${accRows()}</div>
           <label class="digibot__skill digibot__chk"><input type="checkbox" data-accpopup ${accounts.popup ? 'checked' : ''}><span>Als eigene Fenster nebeneinander öffnen (empfohlen)</span></label>`, !accounts.list.some((a) => a.user),
           '☑ = in der Gruppe dabei · ◉ = Leader. Der Leader fährt den Autopilot und sucht die Monster aus. Die anderen folgen ihm, helfen beim Kämpfen und nehmen dieselben Quests an und geben sie mit ab. Der Charaktername wird beim Einloggen gemerkt.')}
@@ -3053,6 +3096,7 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
     avoidSpots: new Map(), // Jagdgebiet-Schlüssel -> bis wann gemieden (war leer)
     phase: 0, // aktuelle Phase der Map-für-Map-Runde (nur fürs Log)
     newRun() { // beim Start des Bots: Wechsel/Digitation/Dailies neu versuchen
+      this.turninPartnerHeld=false;this.questHome=null;this.questHomeUser=null;this.evoPartner=null;
       this.switchGiveUp = null; this.evoGiveUp = null; this.switchTries = 0; this.evoTries = 0;
       this.dailyVisited = new Set(); this.dailyAccepted = new Set(); this.failed = new Map(); this.tpBlock = new Map(); this.tp = null; this.phase = 0;
     },
@@ -3873,18 +3917,19 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
   }
 
   // „Höchstmögliche Digitation“: die tiefste freigeschaltete Form auf dem Ast des aktuellen Digimons (Kette über „from“).
-  // Bei mehreren gleich tiefen Formen die erste. null = es gibt keine höhere Form.
+  // Bei gleicher Tiefe entscheiden Entwicklungsstufe und Freischaltlevel. null = keine höhere Form.
   const EVO_MAX = '__max';
   function maxEvolution(p) {
     const evos = p?.evolutions || [];
     const by = new Map(evos.map((e) => [e.species, e]));
     const chain = (e) => { const out = []; for (let i = 0, x = e; x && i < 12; i++, x = by.get(x.from)) out.push(x); return out; };
+    const stageRank={rookie:1,'in-training':0,champion:2,armor:2,ultimate:3,mega:4,super:5,ultra:5};
     let best = null, bestD = -1;
     for (const e of evos) {
       const c = chain(e);
-      if (!c.some((x) => x.species === p.species) || c.some((x) => x.unlocked === false || x.selected === false || (x.stage==='jogress' && !cfg.evoJogress))) continue; // anderer Ast / gesperrt
+      if (!c.some((x) => x.species === p.species) || c.some((x) => x.unlocked === false || x.selected === false)) continue; // anderer Ast / gesperrt
       if (e.level && (p.level ?? 0) < e.level) continue;
-      if (c.length > bestD) { best = e; bestD = c.length; }
+      if (c.length > bestD || c.length===bestD && ((stageRank[e.stage]||0)>(stageRank[best?.stage]||0) || (stageRank[e.stage]||0)===(stageRank[best?.stage]||0) && (e.level||0)>(best?.level||0))) { best = e; bestD = c.length; }
     }
     return best && best.species !== p.species ? best.species : null;
   }
@@ -3894,6 +3939,7 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
   function ensureEvolution(st, species, now) {
     // Mitläufer: gleiche Zielform wie der Leader – nur wenn ihr eigenes Digimon sie hat (sonst passiert unten nichts)
     const p = st?.me?.partner;
+    cdigiEvolutionContext(st);
     if (species === EVO_MAX) species = maxEvolution(p); // „höchstmögliche Digitation“
     // Schritt gelungen (andere Form als beim letzten Befehl): Fehlversuche neu zählen – sonst galt nach fünf gelungenen
     // Schritten (z. B. Patamon -> … -> Seraphimon, zurück, Angemon) der nächste als „klappt nicht“
@@ -3906,16 +3952,12 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
     if(target.unlocked===false)return note(`gesperrt (${target.lock||'Voraussetzungen fehlen'})`);
     const warp=!!(cfg.evoWarp && target.warp && !target.warp.blocker && !lrDarkMap(st));
     if(target.blocked && !warp)return note(target.blockReason==='dark_tower'?'durch Dark Tower blockiert':target.blockReason==='reaper'?'durch Reaper blockiert':'vom Spiel blockiert');
-    const dna=target.stage==='jogress'||!!target.jogress;
-    let withPartner;
-    if(dna){
-      if(!cfg.evoJogress)return note('DNA-Digitation nicht freigegeben');
-      withPartner=target.jogress?.partner?.partnerId||cfg.evoWithPartner;
-      if(!withPartner || !teamOf(st).some(x=>x.partnerId===withPartner&&!x.active&&!x.locked))return note('passenden mitgeführten DNA-Partner auswählen');
-    }
     let step = target;
     for (let i = 0; !warp && i < 8 && step && step.from !== p.species; i++) step = evos.find((e) => e.species === step.from);
     if (!step || step.unlocked === false) return true; // Ziel liegt auf einem anderen Ast
+    // Match the game client: only the actual next step supplies a fusion partner.
+    // An existing fusion can evolve further even while its partner is locked/absent.
+    const withPartner = warp ? undefined : step.jogress?.partner?.partnerId;
     if (evoCooldownLeft(st) > 0) return true;            // Abklingzeit: erst mal in aktueller Form weiter
     const cost=warp?target.warp.dsCost:step.dsCost;
     const ready=warp?!target.warp.blocker && (st.me.tamerDs??0)>=cost:step.canEvolveNow;
@@ -3953,6 +3995,7 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
     const st=window.dmo?.store?.getState?.(),p=st?.me?.partner;
     return {mode:cfg.autopilot?'autopilot':cfg.farm?'farm':cfg.dungeon?'dungeon':'other',
       apMapEvo:!!cfg.apMapEvo,levelEvo:!!cfg.levelEvo,normalForm:cfg.levelEvoForm,darkForm:cfg.levelEvoDark,fixedForm:cfg.apEvo,
+      questPartner:cdigiConfiguredPartner(st,'apQuestPartner')||autopilot.questHome,turninPartner:cdigiConfiguredPartner(st,'apTurninPartner'),activePartner:activePartner(st)?.partnerId,apBatch:!!cfg.apBatch,batchPhase:autopilot.batchPhase,turninPartnerHeld:!!autopilot.turninPartnerHeld,
       species:p?.species,darkTower:lrDarkMap(st),tamerDs:st?.me?.tamerDs,tamerMaxDs:st?.me?.tamerMaxDs,
       options:(p?.evolutions||[]).slice(0,60).map(e=>({species:e.species,stage:e.stage,from:e.from,level:e.level,unlocked:e.unlocked,selected:e.selected,blocked:e.blocked,blockReason:e.blockReason,canEvolveNow:e.canEvolveNow,dsCost:e.dsCost,lock:e.lock}))};
   }
@@ -3963,7 +4006,11 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
     if (sp === EVO_ARMOR) {sp = maxArmor(p);if(!sp)return cdigiEvoReason(st,'keine freigeschaltete Armor-Form für das aktuelle Level gefunden');}
     else if (sp === EVO_MAX) { // aus einer Armor-Form (z. B. nach einer Dark-Tower-Map) von der Grundform aus suchen
       const root = (p.evolutions || []).find((e) => !e.from)?.species;
-      sp = maxEvolution(p) || (p.stage === 'armor' && root ? maxEvolution({ ...p, species: root }) : null) || p.species;
+      sp = maxEvolution(p) || (root ? maxEvolution({ ...p, species: root }) : null) || p.species;
+    }
+    if(sp && !(p.evolutions||[]).some(e=>e.species===sp) && sp!==p.species){
+      cdigiEvoReason(st,`Zielform ${speciesName(sp)} gehört nicht zu diesem Partner – verwende dessen höchste Form`);
+      sp=lrDarkMap(st)?maxArmor(p):(maxEvolution(p)||p.species);
     }
     if (!sp) return cdigiEvoReason(st,'für diese Map ist keine Zielform eingestellt');
     if (sp === p.species || p.evolving) return true;
@@ -3989,13 +4036,63 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
     if (cfg.autopilot && !cfg.farm && !cfg.dungeon && cfg.apMapEvo) {
       return cfg.levelEvo ? lrEvolve(st, now) : cdigiEvoReason(st,'Digitationsregeln übernommen, aber Lernrouten-Digitation ist ausgeschaltet');
     }
-    return ensureEvolution(st, cfg.apEvo, now);
+    const p=st?.me?.partner;let sp=cfg.apEvo;
+    if(sp && sp!==EVO_MAX && sp!==p?.species && !(p?.evolutions||[]).some(e=>e.species===sp)){
+      cdigiEvoReason(st,`Zielform ${speciesName(sp)} gehört nicht zu diesem Partner – verwende dessen höchste Form`);
+      sp=EVO_MAX;
+    }
+    return ensureEvolution(st, sp, now);
   }
 
+  // IDs belong to one account. A missing saved partner means keep this account's active partner.
+  function cdigiConfiguredPartner(st,key) {
+    const id=cfg[key];return id&&teamOf(st).some(p=>p.partnerId===id)?id:'';
+  }
+
+  function cdigiEvolutionContext(st) {
+    const key=activePartner(st)?.partnerId||st?.me?.partner?.entityId;
+    if(key && autopilot.evoPartner!==key){
+      autopilot.evoPartner=key;autopilot.evoGiveUp=null;autopilot.evoTries=0;autopilot.evoFrom=null;autopilot.evoNote=null;
+    }
+  }
+  function cdigiQuestPartner(st) {
+    const explicit=cdigiConfiguredPartner(st,'apQuestPartner');
+    const user=String(st?.session?.username||'').trim().toLowerCase();
+    if(autopilot.questHomeUser!==user){autopilot.questHome=null;autopilot.questHomeUser=user;}
+    if(explicit){autopilot.questHome=explicit;return explicit;}
+    if(autopilot.questHome && teamOf(st).some(p=>p.partnerId===autopilot.questHome))return autopilot.questHome;
+    // Capture before a temporary turn-in switch, not after it.
+    autopilot.questHome=activePartner(st)?.partnerId||null;
+    return autopilot.questHome||'';
+  }
+  function cdigiTurninPartner(st) {
+    const home=cdigiQuestPartner(st);
+    autopilot.turninPartnerHeld=true;
+    return cdigiConfiguredPartner(st,'apTurninPartner')||home;
+  }
   function cdigiAutopilotEvolveTick(st,now) {
-    if(!cfg.autopilot||cfg.farm||cfg.dungeon||!cfg.apMapEvo)return true;
-    if(autopilot.task?.purpose==='turnin')return true;
-    if(cfg.apQuestPartner&&activePartner(st)?.partnerId!==cfg.apQuestPartner)return true;
+    if(!cfg.autopilot||cfg.farm||cfg.dungeon||group.role()==='follower')return true;
+    cdigiEvolutionContext(st);
+    const home=cdigiQuestPartner(st),task=autopilot.task;
+    // A completed turn-in task must not keep the reward partner active during combat.
+    const eventUp=cfg.hunt && (hunt.goal?.up || huntGoal(now)?.up);
+    if(!eventUp){
+      if(task?.purpose==='turnin' && (!task.questId || st.me?.quests?.[task.questId]?.state===2))return true;
+      // Complete the hand-in sequence before restoring/evolving the quest partner.
+      // The current task can already be done (or reset) while the planner has yet to select the next reward.
+      if((autopilot.turninPartnerHeld || task?.purpose==='turnin') && (!task || task.purpose==='turnin')){
+        if(world.state!=='ready')return true;
+        const next=autopilot.mapTalk
+          ?questTasks(st).find(t=>t.kind==='talk' && ['turnin','accept','objective'].includes(t.purpose) && t.loc?.mapId===autopilot.mapTalk.mapId)
+          :questTasks(st)[0];
+        if(next?.purpose==='turnin')return true;
+      }
+      autopilot.turninPartnerHeld=false;
+    }
+
+    const sw=ensurePartner(st,home,now);
+    if(sw!==true)return sw;
+    if(home&&activePartner(st)?.partnerId!==home)return true;
     return autopilotEvolution(st,now);
   }
   // ---------- Map-für-Map-Runde ----------
@@ -4212,11 +4309,21 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
     const ln = autopilot.lastNpc;
     const sameNpc = (t) => !!ln && now - ln.at < SAME_NPC_MS && t.kind === 'talk' && (t.purpose === 'accept' || t.purpose === 'turnin')
       && t.npcId === ln.npcId && t.loc?.mapId === ln.mapId;
-    return tasks
-      .filter((t) => !M || t.grind ? !M : t.purpose === 'daily' ? t.loc.mapId === M : questOnMap(t.def, M))
-      .filter((t) => (autopilot.failed.get(t.key) || 0) < now && hops(mapId, t.loc.mapId) < Infinity)
-      .map((t) => { const same = sameNpc(t); return { ...t, sameNpc: same, cost: hops(mapId, t.loc.mapId) * 10 + t.prio, phase: same ? -1 : M ? taskPhase(t) : cfg.apBatch ? batchRank(t, mapId) : 0 }; })
-      .sort((a, b) => a.phase - b.phase || a.cost - b.cost);
+    let available=tasks
+      .filter((t) => {
+        if(cfg.apBatch && !t.grind && taskPhase(t)===2)return true;
+        if(cfg.apBatch && autopilot.batchPhase==='turnin' && t.purpose==='turnin')return true;
+        if(!M)return true;if(t.grind)return false;
+        return t.purpose==='daily'?t.loc.mapId===M:questOnMap(t.def,M);
+      })
+      .filter((t) => (autopilot.failed.get(t.key) || 0) < now && hops(mapId, t.loc.mapId) < Infinity);
+    // A nearby reward NPC never outranks another feasible objective, including on another map.
+    if(cfg.apBatch && available.some(t=>!t.grind && taskPhase(t)===2))available=available.filter(t=>t.purpose!=='turnin');
+    return available
+      .map((t) => { const same=sameNpc(t);return {...t,sameNpc:same,cost:hops(mapId,t.loc.mapId)*10+t.prio,
+        phase:M && !(cfg.apBatch && autopilot.batchPhase==='turnin')?taskPhase(t):cfg.apBatch?batchRank(t,mapId):same?-1:0}; })
+      .sort((a,b)=>a.phase-b.phase || Number(b.sameNpc)-Number(a.sameNpc) || a.cost-b.cost);
+
   }
   // Phasen der Map-für-Map-Runde: 1 = Quests annehmen, 2 = Ziele erledigen, 3 = abgeben.
   // So wird pro Map erst alles angenommen, dann alles erledigt und ganz zum Schluss abgegeben –
@@ -4232,7 +4339,7 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
     const p = taskPhase(t);
     if (p === 1 && t.loc?.mapId !== mapId) return 3;
     // Phase bleibt, bis es darin nichts mehr gibt: erledigen -> abgeben -> annehmen -> erledigen …
-    return ({ accept: { 1: 0, 2: 1, 3: 2 }, turnin: { 3: 0, 1: 1, 2: 2 } }[autopilot.batchPhase] || { 2: 0, 3: 1, 1: 2 })[p];
+    return ({ accept: { 1: 0, 2: 1, 3: 2 }, turnin: { 2: 0, 3: 1, 1: 2 } }[autopilot.batchPhase] || { 2: 0, 3: 1, 1: 2 })[p];
   }
 
   function taskDone(st, t) {
@@ -4559,6 +4666,7 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
         t = null; autopilot.reset(); if (mt) mt.n++;
       }
     }
+    if(cfg.apBatch && !mt && t?.purpose==='turnin' && questTasks(st).some(o=>!o.grind && taskPhase(o)===2)){autopilot.reset();t=null;}
     if (!t && mt) { // Abgeben & Annehmen: nur Gespräche auf dieser Map
       t = autopilot.task = questTasks(st).find((o) => o.kind === 'talk' && (o.purpose === 'turnin' || o.purpose === 'accept' || o.purpose === 'objective') && o.loc?.mapId === mt.mapId) || null;
       if (!t) { endMapTalk(); return 'Abgeben & Annehmen fertig'; }
@@ -4646,9 +4754,9 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
     // vor dem ersten Annehmen digitiert. Das Abgabe-Digimon kommt erst beim Quest-Geber dran (zurück-digitieren,
     // wechseln, abgeben) – unterwegs scheitert der Wechsel an Kämpfen, und man läuft in der Grundform herum.
     if (t.purpose !== 'turnin') {
-      const sw = ensurePartner(st, cfg.apQuestPartner, now);
+      const sw = ensurePartner(st, cdigiQuestPartner(st), now);
       if (sw !== true) return `${t.label} · ${sw}`;
-      if (cfg.apOrder === 'sweep' && (!cfg.apQuestPartner || activePartner(st)?.partnerId === cfg.apQuestPartner)) {
+      if (cfg.apOrder === 'sweep' && (!cdigiQuestPartner(st) || activePartner(st)?.partnerId === cdigiQuestPartner(st))) {
         const ev = autopilotEvolution(st, now);
         if (ev !== true) return `${t.label} · ${ev}`;
       }
@@ -4674,6 +4782,7 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
       const name = C?.npcs?.[t.npcId]?.name || t.npcId;
       if (t.purpose === 'daily' && st.dailies?.board) return acceptFromBoard(st, t, now);
       if (t.purpose === 'turnin' && st.dailies?.board) {
+        const sw=ensurePartner(st,cdigiTurninPartner(st),now);if(sw!==true)return `${t.label} · ${sw}`;
         // Dieser NPC öffnet nur das Daily-Board: direkte Abgabe versuchen, sonst einen anderen NPC des Pools nehmen
         commands()?.closeDailyBoard?.();
         autopilot.boardOnly.add(t.npcId);
@@ -4683,7 +4792,7 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
         return `${t.label} · versuche direkte Abgabe…`;
       }
       if (t.purpose === 'turnin' && st.dialog?.npc === t.npcId) { // Abgabe-Digimon auch bei schon offenem Dialog
-        const sw = ensurePartner(st, cfg.apTurninPartner || cfg.apQuestPartner, now);
+        const sw = ensurePartner(st, cdigiTurninPartner(st), now);
         if (sw !== true) return `${t.label} · ${sw}`;
       }
       if (st.dialog?.npc === t.npcId) return handleDialog(st, t, now) ?? fail('keine passende Auswahl im Dialog');
@@ -4699,7 +4808,7 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
       }
       if (!npc) { autopilot.arrivedAt ||= now; return now - autopilot.arrivedAt > 6000 ? fail(`${name} ist nicht da`) : `Suche ${name}…`; }
       if (t.purpose === 'turnin') { // Abgabe mit dem gewählten Abgabe-Digimon
-        const sw = ensurePartner(st, cfg.apTurninPartner || cfg.apQuestPartner, now);
+        const sw = ensurePartner(st, cdigiTurninPartner(st), now);
         if (sw !== true) return `${t.label} · ${sw}`;
       }
       if (now - autopilot.lastTalk > 3000) {
@@ -4711,7 +4820,7 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
     }
 
     // Jagen mit der gewählten Digitation (nur wenn das Quest-Digimon aktiv ist)
-    if (!cfg.apQuestPartner || activePartner(st)?.partnerId === cfg.apQuestPartner) {
+    if (!cdigiQuestPartner(st) || activePartner(st)?.partnerId === cdigiQuestPartner(st)) {
       const ev = autopilotEvolution(st, now);
       if (ev !== true) return `${t.label} · ${ev}`;
     }
@@ -5060,6 +5169,7 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
   // der Chat warnt 5 min vorher (hunt_warning). Den genauen Ort verrät das Spiel nicht: der Bot reist hin, wartet bis
   // zum Erscheinen und läuft dann die Jagdgebiete der Map ab, bis er ihn sieht – dann Kampf (Fokus wie bei Bossen).
   const HUNT_POLL_MS = 60000, HUNT_POLL_ACTIVE_MS = 10000; // Event-Fenster so oft abfragen (während einer Jagd öfter)
+  const HUNT_QUEST_PREP_MS = 30000; // During quest autopilot, keep working through the early warning.
   const HUNT_WP_NEAR = 60;          // so nah = Suchpunkt abgehakt
   const hunt = { info: null, skew: 0, polledAt: 0, busy: false, goal: null, visited: new Set(), wp: null, wpAt: 0, warnTs: 0 };
   function huntPoll(now) {
@@ -5139,6 +5249,14 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
     if (!g) {
       if (hunt.goal) { logEvent('auto', `Event vorbei: ${C?.digimon?.[hunt.goal.boss]?.name || hunt.goal.boss} – weiter wie vorher`); hunt.goal = null; autopilot.nav = null; }
       return null;
+    }
+    if(cfg.autopilot && !cfg.farm && !g.up){
+      const visible=st.world?.mapId===g.mapId && huntBossEnt(g.boss,controlled(st));
+      const turningIn=!!autopilot.turninPartnerHeld || autopilot.task?.purpose==='turnin' && st.me?.quests?.[autopilot.task.questId]?.state===2;
+      if(!visible && (g.at-now>HUNT_QUEST_PREP_MS || turningIn)){
+        if(hunt.goal){hunt.goal=null;hunt.wp=null;autopilot.nav=null;logEvent('auto','Event erst angekündigt – erledige bis zum Aufbruch weiter Quests');}
+        return null;
+      }
     }
     const name = C?.digimon?.[g.boss]?.name || g.boss, where = C?.maps?.[g.mapId]?.name || g.mapId;
     if (hunt.goal?.key !== g.key) {
@@ -6738,7 +6856,7 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
           // (sonst digitieren in der Gruppe nur die Mitläufer, der Leader in der Rotation nicht).
           const at = autopilot.task;
           const folIdle = group.role() === 'follower' && !at; // Mitläufer zwischen den Kämpfen
-          const questMon = !cfg.apQuestPartner || activePartner(st)?.partnerId === cfg.apQuestPartner;
+          const questMon = !cdigiQuestPartner(st) || activePartner(st)?.partnerId === cdigiQuestPartner(st);
           const farmEvo = cfg.farm && questMon;
           // Dungeon: vor dem Betreten (an der Tür) und zwischen den Kämpfen – z. B. nach einem Zurück-Digitieren durch Infermon
           if (!attackers.length && (farmEvo || (cfg.dungeon && questMon) || (!cfg.farm && cfg.autopilot && (folIdle || (at?.kind === 'hunt' && st.world?.mapId === at.loc.mapId && questMon))))) {
@@ -7181,11 +7299,10 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
     panel.querySelectorAll('[data-sweeponly]').forEach((el) => el.classList.toggle('hide', cfg.apOrder !== 'sweep'));
     const team = teamOf(st);
     const teamOpts = team.map((p) => [p.partnerId, partnerLabel(p) + (p.active ? ' (aktiv)' : '')]);
-    fillSelect('evoWithPartner', [['', 'bitte auswählen'], ...team.filter(p=>!p.active&&!p.locked).map(p=>[p.partnerId,partnerLabel(p)])]);
     fillSelect('apQuestPartner', [['', 'aktuelles behalten'], ...teamOpts]);
     fillSelect('apTurninPartner', [['', 'wie Quest-Digimon'], ...teamOpts]);
     const act = activePartner(st);
-    const evoFor = !cfg.apQuestPartner || act?.partnerId === cfg.apQuestPartner;
+    const evoFor = !cdigiQuestPartner(st) || act?.partnerId === cdigiQuestPartner(st);
     const evos = evoFor ? (st?.me?.partner?.evolutions || []).filter((e) => !e.isCurrent || e.species !== st.me.partner.species) : [];
     fillSelect('apEvo', [['', 'keine Digitation'], [EVO_MAX, '⬆ höchstmögliche Digitation'], ...evos.map((e) => [e.species,
       `${speciesName(e.species)} (${e.stage}, ab Lv ${e.level}${e.unlocked === false ? ', gesperrt' : ''})`])]);
@@ -7231,7 +7348,7 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
       const note = `· gilt nur im Modus ${modes.map((x) => MODE_NAMES[x] || x).join(' / ')}`;
       if (el.dataset.offnote !== note) el.dataset.offnote = note;
     });
-    const prof = panel.querySelector('[data-f="prof"]'), txt = cfgUser ? `👤 ${cfgUser}` : '';
+    const prof = panel.querySelector('[data-f="prof"]'), txt = '🌐 Einstellungen für alle Accounts';
     if (prof && prof.textContent !== txt) prof.textContent = txt;
   }
   let farmPickSig = '';
@@ -7348,6 +7465,7 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
         <input type="checkbox" data-acc="${i}" data-k="on" ${a.on ? 'checked' : ''} title="Beim Gruppenstart dabei">
         <input type="radio" name="digibot-leader" data-accleader="${i}" ${accounts.leader === i ? 'checked' : ''} title="Leader">
         <input type="text" data-acc="${i}" data-k="user" placeholder="Account ${i + 1}: Benutzername" value="${escAttr(a.user)}" autocomplete="off" spellcheck="false">
+        <input type="password" data-queue-password="${i}" placeholder="Quest-Runde: Passwort bis zum Neuladen" autocomplete="new-password">
         <div class="digibot__accinfo" data-accinfo="${i}">–</div>
       </div>`).join('');
   }
@@ -7680,6 +7798,12 @@ if(typeof module!=='undefined')module.exports={createCDigiAccountQueue};
       }
     }));
     panel.addEventListener('input', (e) => {
+      if(e.target.dataset.queuePassword !== undefined){
+        const row=accounts.list[Number(e.target.dataset.queuePassword)];
+        const user=String(row?.user||'').trim().toLowerCase();
+        if(user){if(e.target.value)cdigiQueuePasswords.set(user,e.target.value);else cdigiQueuePasswords.delete(user);}
+        return;
+      }
       const ai = e.target.dataset.acc;
       if (ai !== undefined) {
         reloadAcc();

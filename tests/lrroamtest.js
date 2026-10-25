@@ -27,7 +27,7 @@ const T = 16, W = 60, H = 45;
   G.store.setState({ me: { ...st.me, partner: { ...st.me.partner, level: 3, stats: { at: 2000, as: 1200 } } } });
   // Start am Zonenrand (links unten, begehbar)
   Object.assign(G.ents.get('t:me'), { x: 380, y: 440 }); Object.assign(G.ents.get('p:me'), { x: 390, y: 440 });
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 10, radius: 250,
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 10, radius: 250,
     levelRoute: true, levelA2: false, levelBoss: false, levelEvo: false }));
   G.w.eval(script);
   await wait(800);

@@ -20,7 +20,7 @@ async function run({ on, state, startIn, form, route, turnin }) {
   let asked = 0;
   cmds.requestEvents = async () => { asked++; const now = Date.now(); return [{ id: 'mega_hunt', now, slot: { key: 's1', startMs: now - 60000, endMs: now + 3600000 },
     boss: 'bigmon_hunt', mapId: 'primary_village', channel: 1, state, next: { boss: 'bigmon_hunt', mapId: 'primary_village', startMs: now + (startIn || 7200000) } }]; };
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20, hunt: on, autopilot: !!turnin, apGrind: false, levelRoute: !!route, levelA2: false, levelBoss: false }));
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20, hunt: on, autopilot: !!turnin, apGrind: false, levelRoute: !!route, levelA2: false, levelBoss: false }));
   G.w.eval(script);
   await wait(1000);
   G.w.document.querySelector('[data-act="bot"]').click();

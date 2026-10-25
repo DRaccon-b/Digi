@@ -19,7 +19,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   cmds.requestMapInfo = () => {}; cmds.requestBossPins = () => {};
   const st = G.store.getState();
   G.store.setState({ me: { ...st.me, partner: { ...st.me.partner, species: 'agumon', name: 'agumon', level: 2, stats: { at: 200, as: 1200 }, evolutions: [{ species: 'agumon' }] } } });
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 8, radius: 300,
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 8, radius: 300,
     levelRoute: true, levelA2: false, levelBoss: false, levelEvo: false, farmChannels: [1] }));
   const keys = []; G.w.addEventListener('keydown', (e) => keys.push({ c: e.code, t: Date.now(), tg: G.state.target?.id }), true);
   G.w.eval(script);

@@ -7,7 +7,7 @@ const w = dom.window;
 w.HTMLCanvasElement.prototype.getContext = () => null;
 w.eval(fake);
 const F = w.__fake;
-w.localStorage.setItem('digibot.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0 }));
+w.localStorage.setItem('cdigi.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0 }));
 w.eval(script);
 const status = () => w.document.querySelector('[data-f="status"]').textContent;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));

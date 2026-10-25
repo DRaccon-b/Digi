@@ -20,7 +20,7 @@ const t = G.ents.get('t:me');
 const chase = setInterval(() => { const m = G.ents.get('m:1'); if (!m) return; if (m.hp <= 0) return; m.targetId = 'p:me'; m.flags |= 32; m.x = t.x + 25; m.y = t.y; }, 50);
 const hits = [];
 G.w.addEventListener('keydown', (e) => { if (e.code === 'Digit1') hits.push({ at: Date.now(), d: Math.round(Math.hypot(t.x - 1200, t.y - 800)), tgt: G.store.getState().target?.id }); }, true);
-G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, farm: true, farmMode: 'boss', farmBosses: ['native_forest#arukenimon'], farmChannels: [1],
+G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, farm: true, farmMode: 'boss', farmBosses: ['native_forest#arukenimon'], farmChannels: [1],
   hpPot: 0, dsPot: 0, tdsPot: 0, radius: 300, lvlDiff: 20, tab: 'log' }));
 G.w.eval(script);
 (async () => {

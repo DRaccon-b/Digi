@@ -17,7 +17,7 @@ async function run(levelEvo, { chain = false, attacked = false } = {}) {
   if (attacked) G.ents.set('m:agg', { id: 'm:agg', kind: 2, defId: 'kunemon', level: 2, x: 420, y: 330, hp: 900000, maxHp: 900000, flags: 0, targetId: 'p:me' });
   const evolved = [];
   G.w.dmo.game.scene.getScene('world').deps.commands.evolve = (sp) => { evolved.push(sp); const s = G.store.getState(); G.store.setState({ me: { ...s.me, partner: { ...s.me.partner, species: sp } } }); };
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 10, levelRoute: true, levelA2: false, levelEvo, levelBoss: false }));
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 10, levelRoute: true, levelA2: false, levelEvo, levelBoss: false }));
   G.w.eval(script);
   await wait(800);
   G.w.document.querySelector('[data-act="bot"]').click();

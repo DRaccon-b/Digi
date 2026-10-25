@@ -8,7 +8,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const accounts = { leader: 0, popup: true, list: [{ on: true, user: 'lead', char: 'Lead' }, { on: true, user: 'foll', char: 'Foll' }] };
 const B = makeWorld({ slot: 1, tag: 'Folger', accounts, quests: { q00_meet_gennai: { state: 3, counters: [] } } });
 B.w.eval(script);
-const bus = new BroadcastChannel('digibot-group');
+const bus = require('./cbus')();
 const lead = { hunt: ['kunemon'] };
 const tick = setInterval(() => bus.postMessage({ type: 'state', slot: 0, role: 'leader', name: 'Lead', inWorld: true, mapId: 'native_forest', channel: 1, x: 410, y: 320,
   bot: true, status: 'x', quests: {}, ents: ['t:lead', 'p:lead'], talks: [], done: [], busy: null, noFight: false, task: null, targetId: null, ...lead }), 300);

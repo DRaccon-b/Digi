@@ -28,7 +28,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const st = G.store.getState();
   const mon = (species, level) => ({ ...G.store.getState().me.partner, species, name: species, level, stats: { at: 2000, as: 1200 }, evolutions: [{ species }] });
   G.store.setState({ me: { ...st.me, partner: mon('hawkmon', 46) } });
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 8, radius: 300,
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 8, radius: 300,
     levelRoute: true, levelA2: false, levelBoss: true, levelEvo: false, farmChannels: [1] }));
   G.w.eval(script);
   await wait(1000);

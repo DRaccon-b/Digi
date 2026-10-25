@@ -9,7 +9,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     setup({ content }) {
       content.quests.a2_01h_ring_gang = { id: 'a2_01h_ring_gang', name: 'Rings on the Little Ones', giver: 'gennai', turnIn: 'gennai', minLevel: 1, objectives: [{ kind: 'kill', species: 'kunemon', count: 3 }] };
     } });
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'quest' }));
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'quest' }));
   G.w.eval(script);
   await wait(1500);
   const box = G.w.document.querySelector('[data-f="quests"]');

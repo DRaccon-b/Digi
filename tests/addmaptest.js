@@ -18,7 +18,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       { id: 'b:1', kind: 2, defId: 'puppetmon', x: 450, y: 330, hp: 100000, maxHp: 100000, level: 3, flags: 16 | 32, targetId: 'p:me' },
       { id: 'a:1', kind: 2, defId: 'pumpkinmon', x: 380, y: 360, hp: 300, maxHp: 300, level: 3, flags: 32, targetId: '' },
     ] });
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20 }));
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20 }));
   G.w.eval(script);
   await wait(800);
   G.w.document.querySelector('[data-act="bot"]').click();
@@ -43,10 +43,10 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       { id: 'b:1', kind: 2, defId: 'puppetmon', x: 450, y: 330, hp: 100000, maxHp: 100000, level: 3, flags: 16 | 32, targetId: '' },
       { id: 'a:1', kind: 2, defId: 'pumpkinmon', x: 380, y: 360, hp: 300, maxHp: 300, level: 3, flags: 0, targetId: '' },
     ] });
-  F.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: true, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20 }));
+  F.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: true, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20 }));
   F.w.eval(script);
   const { BroadcastChannel } = require('worker_threads');
-  const bus = new BroadcastChannel('digibot-group');
+  const bus = require('./cbus')();
   const me = F.ents.get('t:me');
   const lead = () => bus.postMessage({ type: 'state', slot: 0, role: 'leader', name: 'Lead', inWorld: true, mapId: 'native_forest', channel: 1,
     x: me?.x ?? 300, y: me?.y ?? 300, bot: true, status: 'Bosse: warte', quests: {}, ents: [], targetId: null, hunt: [], noFight: false,

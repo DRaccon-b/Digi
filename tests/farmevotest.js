@@ -21,7 +21,7 @@ async function run(evo, want) {
     G.store.setState({ me: { ...s.me, partner: { ...s.me.partner, species: sp, evolutions: evos } } }); };
   cmds.requestBossPins = () => G.store.setState({ bossPins: { at: G.w.performance.now(), bosses: [{ map: 'native_forest', index: 0, channel: 1, respawnInMs: 300000 }] } });
   cmds.listChannels = async () => [{ channel: 1, roomId: 'r1', clients: 2, maxClients: 40 }];
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, farm: true, farmMode: 'boss', farmBosses: ['native_forest#myotismon_fog'], farmChannels: [1],
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, farm: true, farmMode: 'boss', farmBosses: ['native_forest#myotismon_fog'], farmChannels: [1],
     hpPot: 0, dsPot: 0, tdsPot: 0, apEvo: evo, tab: 'log' }));
   G.w.eval(script);
   await wait(800);

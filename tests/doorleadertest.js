@@ -12,7 +12,7 @@ const G = makeWorld({ slot: 1, tag: 'F', accounts, mobs: [], quests: { q00_meet_
     content.spawns.primary_village.bosses = [{ species: 'apocalymon', level: 3, at: 'boss_x' }];
     MAPS.primary_village.layers[0].objects.push({ type: 'spawn', name: 'boss_x', x: 600, y: 330 });
   } });
-G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, farm: false, dungeon: true, dgMode: 'apocalymon', hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log' }));
+G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, farm: false, dungeon: true, dgMode: 'apocalymon', hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log' }));
 G.w.eval(script);
 (async () => {
   await wait(1200);

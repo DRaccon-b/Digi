@@ -8,10 +8,10 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 (async () => {
   const accounts = { leader: 0, popup: true, mirror: false, list: [{ on: true, user: 'lead', char: 'Lead' }, { on: true, user: 'foll', char: 'Foll' }] };
   const L = makeWorld({ slot: 0, accounts, tag: 'L', mobs: [[430, 330]], quests: { q00_meet_gennai: { state: 3, counters: [] } } });
-  L.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'acc' }));
+  L.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'acc' }));
   L.w.eval(script);
   const seen = [];
-  const bus = new BroadcastChannel('digibot-group');
+  const bus = require('./cbus')();
   bus.onmessage = (e) => { if (e.data?.type === 'state' && e.data.slot === 0) seen.push(e.data.targetId ?? null); };
   await wait(1500);
   L.store.setState({ target: { id: 'm:1', kind: 'mob', name: 'Kunemon', level: 2, hp: 300, maxHp: 300 } }); // nur ausgewählt, Bot aus

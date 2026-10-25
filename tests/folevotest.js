@@ -10,9 +10,9 @@ const st = B.store.getState();
 B.store.setState({ me: { ...st.me, tamerDs: 300, partner: { ...st.me.partner, species: 'patamon', evolutions: [{ species: 'patamon' }, { species: 'angemon', from: 'patamon', canEvolveNow: true, dsCost: 10 }] } } });
 const evolved = [];
 B.w.dmo.game.scene.getScene('world').deps.commands.evolve = (sp) => { evolved.push(sp); const s = B.store.getState(); B.store.setState({ me: { ...s.me, partner: { ...s.me.partner, species: sp } } }); };
-B.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: true, apGrind: false, hpPot: 0, dsPot: 0, tdsPot: 0, apEvo: 'angemon' }));
+B.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: true, apGrind: false, hpPot: 0, dsPot: 0, tdsPot: 0, apEvo: 'angemon' }));
 B.w.eval(script);
-const bus = new BroadcastChannel('digibot-group');
+const bus = require('./cbus')();
 const tick = setInterval(() => bus.postMessage({ type: 'state', slot: 0, role: 'leader', name: 'Lead', inWorld: true, mapId: 'native_forest', channel: 1, x: 410, y: 330,
   bot: true, status: 'x', quests: {}, ents: ['t:lead', 'p:lead'], talks: [], done: [], busy: null, noFight: false, task: null, hunt: [], targetId: null }), 300);
 (async () => {

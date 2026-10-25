@@ -13,7 +13,7 @@ C.dailyById = {};
 C.digimon.mushroomon.mob = { drops: [{ itemId: 'sleepy_spore', chance: 0.5 }] };
 const me = F.store.getState().me;
 F.store.setState({ me: { ...me, quests: { s_spores: { state: 1, counters: [1] } } } });
-w.localStorage.setItem('digibot.cfg', JSON.stringify({ questMode: true, hpPot: 0, dsPot: 0, tdsPot: 0, lvlDiff: 5 }));
+w.localStorage.setItem('cdigi.cfg', JSON.stringify({ questMode: true, hpPot: 0, dsPot: 0, tdsPot: 0, lvlDiff: 5 }));
 w.eval(script);
 (async () => {
   await new Promise((r) => setTimeout(r, 600));

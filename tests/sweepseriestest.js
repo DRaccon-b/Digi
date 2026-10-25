@@ -11,7 +11,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       content.maps.native_forest = { id: 'native_forest', name: 'Spiral Mountain', levelRange: [53, 56] };          // Adventure
       content.maps.primary_village = { id: 'primary_village', name: 'Sunset Bay', levelRange: [49, 55], series: 2 }; // A02, niedriger
     } });
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: true, apOrder: 'sweep', apSweepDir: 'up', hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'quest' }));
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: true, apOrder: 'sweep', apSweepDir: 'up', hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'quest' }));
   G.w.eval(script);
   await wait(800);
   G.w.document.querySelector('[data-act="bot"]').click(); // lädt die Weltkarte

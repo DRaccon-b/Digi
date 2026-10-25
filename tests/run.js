@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Testlauf: alle Tests in diesem Ordner parallel gegen ../digibot.user.js (nachgebaute Spielwelten mit jsdom).
+// Testlauf: alle Tests in diesem Ordner parallel gegen ../cdigi.user.js (nachgebaute Spielwelten mit jsdom).
 //   node tests/run.js              alle Tests
 //   node tests/run.js kohtest ...  nur diese
 // Die langsamsten Tests starten zuerst (Dauer des letzten Laufs in tests/.times.json), sonst bleibt am Ende ein
@@ -11,8 +11,8 @@ const path = require('path');
 const os = require('os');
 
 const dir = __dirname;
-const script = path.resolve(dir, '..', 'digibot.user.js');
-const helpers = new Set(['run.js', 'gw.js', 'fakeworld.js']);
+const script = path.resolve(dir, '..', 'cdigi.user.js');
+const helpers = new Set(['run.js', 'gw.js', 'fakeworld.js', 'cbus.js']);
 const wanted = process.argv.slice(2);
 const all = fs.readdirSync(dir).filter((f) => f.endsWith('.js') && !helpers.has(f)).map((f) => f.slice(0, -3)).sort();
 const timesFile = path.join(dir, '.times.json');

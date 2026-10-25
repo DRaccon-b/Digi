@@ -14,7 +14,7 @@ async function run(hp) {
     skills: [{ id: 'kunemon.zap', name: 'Zap', dsCost: 20, unlocked: true }] } } });
   let skill = 0;
   G.w.addEventListener('keydown', (e) => { if (e.code === 'Digit2') skill++; }, true);
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20 }));
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20 }));
   G.w.eval(script);
   await wait(600);
   G.w.document.querySelector('[data-act="bot"]').click();

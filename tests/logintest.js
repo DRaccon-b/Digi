@@ -13,8 +13,8 @@ function make(url) {
   let state = {};
   const subs = [];
   const store = { getState: () => state, setState: (p) => { state = { ...state, ...p }; subs.forEach((f) => f()); }, subscribe: (f) => subs.push(f) };
-  w.localStorage.setItem('digibot.accounts', JSON.stringify(accounts));
-  w.localStorage.setItem('digibot.cfg', JSON.stringify({ tab: 'acc' }));
+  w.localStorage.setItem('cdigi.accounts', JSON.stringify(accounts));
+  w.localStorage.setItem('cdigi.cfg', JSON.stringify({ tab: 'acc' }));
   return { w, store, get state() { return state; } };
 }
 (async () => {
@@ -23,7 +23,7 @@ function make(url) {
   const opened = [];
   A.w.open = (u, name, feat) => { opened.push({ u, name, feat }); return {}; };
   A.store.setState({ screen: 'charSelect', session: { username: 'lead', characters: [] } });
-  A.w.dmo = { store: A.store, net: { state: { entities: new Map() } }, client: {}, game: { scene: { getScene: () => null } } };
+  A.w.dmo = { store: A.store, net: { connected: true, transferring: false, state: { entities: new Map() } }, client: {}, game: { scene: { getScene: () => null } } };
   A.w.eval(script);
   await wait(700);
   A.w.document.querySelector('[data-act="grp-login"]').click();
@@ -38,7 +38,7 @@ function make(url) {
   B.store.setState({ screen: 'charSelect', session: { username: 'lead', characters: [{ id: 'c1', name: 'Lead' }] } });
   const ents = new Map([['t:me', { id: 't:me', kind: 0, x: 100, y: 100 }], ['p:me', { id: 'p:me', kind: 1, x: 110, y: 100 }]]);
   B.w.dmo = {
-    store: B.store, net: { state: { entities: ents }, charId: null },
+    store: B.store, net: { connected: true, transferring: false, state: { entities: ents }, charId: null },
     game: { scene: { getScene: () => null } },
     client: {
       logout() { calls.push('logout'); B.store.setState({ screen: 'login', session: { characters: [] } }); },
@@ -62,11 +62,11 @@ function make(url) {
   const C = make('https://play.digimmo.com.br/#dbslot=1');
   const cCalls = [];
   C.store.setState({ screen: 'login', session: { characters: [] } });
-  C.w.dmo = { store: C.store, net: { state: { entities: new Map() } }, game: { scene: { getScene: () => null } }, client: { async login() { cCalls.push('login'); }, logout() { cCalls.push('logout'); } } };
+  C.w.dmo = { store: C.store, net: { connected: true, transferring: false, state: { entities: new Map() } }, game: { scene: { getScene: () => null } }, client: { async login() { cCalls.push('login'); }, logout() { cCalls.push('logout'); } } };
   C.w.eval(script);
   await wait(3500);
   const noLoginOnReload = cCalls.length === 0;
-  const savedChar = JSON.parse(B.w.localStorage.getItem('digibot.accounts')).list[1];
+  const savedChar = JSON.parse(B.w.localStorage.getItem('cdigi.accounts')).list[1];
   const r = { botOffAfterLogin, noLoginOnReload, slotA, urls, popupFeat: opened[0]?.feat, calls, botOn, savedChar: savedChar.char, hashGone: !B.w.location.hash };
   console.log(r);
   const ok = slotA === '0' && urls.join() === '#dbslot=1&login=1,#dbslot=3&login=1' && botOffAfterLogin && noLoginOnReload && /popup,width=/.test(opened[0]?.feat || '')

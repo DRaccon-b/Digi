@@ -10,7 +10,7 @@ const acc = (mirror) => ({ leader: 0, popup: true, mirror, list: [{ on: true, us
 const B = makeWorld({ slot: 1, tag: 'Folger', accounts: acc(false), quests: q() });
 const C = makeWorld({ slot: 2, tag: 'Spiegel', accounts: acc(true), quests: q() });
 B.w.eval(script); C.w.eval(script);
-const bus = new BroadcastChannel('digibot-group');
+const bus = require('./cbus')();
 const lead = { mapId: 'native_forest', x: 420, y: 330 };
 const tick = setInterval(() => bus.postMessage({ type: 'state', slot: 0, role: 'leader', name: 'Lead', inWorld: true, channel: 1, bot: true, status: 'x', quests: {},
   ents: ['t:lead', 'p:lead'], talks: [], done: [], busy: null, noFight: false, task: null, hunt: [], targetId: null, ...lead }), 1000);

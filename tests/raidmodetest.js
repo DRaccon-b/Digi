@@ -28,7 +28,7 @@ G.store.setState({ me: { ...st0.me, tamerDs: 300, partner: { ...st0.me.partner, 
 let evolvedOn = null;
 const cmds = G.w.dmo.game.scene.getScene('world').deps.commands;
 cmds.evolve = (sp) => { evolvedOn = G.store.getState().world.mapId; const s = G.store.getState(); G.store.setState({ me: { ...s.me, partner: { ...s.me.partner, species: sp } } }); };
-G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, farm: false, dungeon: true, dgMode: RAID, apEvo: 'angemon', hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 100 }));
+G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, farm: false, dungeon: true, dgMode: RAID, apEvo: 'angemon', hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 100 }));
 G.w.eval(script);
 return (async () => {
   await wait(1200);

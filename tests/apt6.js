@@ -154,8 +154,8 @@ const scene = {
   tapGround: (x, y) => { goal = { x, y }; },
   select: (id) => { const e = ents.get(id); store.setState({ target: e ? { id, kind: 'mob', name: e.defId, level: e.level, hp: e.hp, maxHp: e.maxHp } : null }); },
 };
-w.fetch = async (url) => ({ json: async () => MAPS[url.match(/maps\/(\w+)\.tmj/)[1]] });
-w.dmo = { store, net: { state: { entities: ents } }, game: { scene: { getScene: (k) => (k === 'world' ? scene : null) } } };
+w.fetch = async (url) => ({ ok: true, json: async () => MAPS[url.match(/maps\/(\w+)\.tmj/)[1]] });
+w.dmo = { store, net: { connected: true, transferring: false, state: { entities: ents } }, game: { scene: { getScene: (k) => (k === 'world' ? scene : null) } } };
 w.addEventListener('keydown', (e) => {
   if (e.code === 'F3') { // DS-Trank
     const inv = state.me.inventory.map((it) => it && it.itemId === 'ds_pot' ? { ...it, qty: it.qty - 1 } : it);
@@ -185,7 +185,7 @@ store.setState({ screen: 'world', inputFocus: 'game', cooldowns: {}, dailies: { 
     partner: { entityId: 'p:me', name: 'Patamon', level: 20, hp: 3000, maxHp: 3000, ds: 500, maxDs: 700, exp: 1, expNext: 100, skills: [] } } });
 publishPartner();
 loadMap('tief', { x: 400, y: 330 });
-w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: true, hpPot: 0, dsPot: 0, tdsPot: 0, apOrder: 'sweep', apStartMap: 'hoch',
+w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: true, hpPot: 0, dsPot: 0, tdsPot: 0, apOrder: 'sweep', apStartMap: 'hoch',
   apQuestPartner: 'gabu', apEvo: 'garurumon', apTurninPartner: 'pata', apDailies: true, apRepeat: true, apTeleport: true }));
 w.eval(script);
 const $ = (s) => w.document.querySelector(s);

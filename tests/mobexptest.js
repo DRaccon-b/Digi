@@ -8,8 +8,8 @@ const W = makeWorld({ slot: 0, tag: 'X', noHash: true, accounts: { leader: 0, li
   quests: { q00_meet_gennai: { state: 3, counters: [] }, q02_first_steps: { state: 3, counters: [] } },
   setup({ content }) { content.digimon.bigmon = { name: 'Bigmon' }; content.digimon.tokomon = { name: 'Tokomon' }; } });
 W.handlers = {};
-W.w.dmo.net.on = (name, fn) => { W.handlers[name] = fn; return () => {}; };
-W.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'data' }));
+W.w.dmo.net.on = (name, fn) => { { const prev = W.handlers[name]; W.handlers[name] = prev ? (...a) => { prev(...a); fn(...a); } : fn; } return () => {}; };
+W.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'data' }));
 W.store.setState({ chat: [] });
 W.w.eval(script);
 const ev = (list) => W.handlers.evs?.(list);

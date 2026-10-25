@@ -30,7 +30,7 @@ const status = () => $('[data-f="status"]').textContent;
   F.ents.get('m:2').hp = 0; F.ents.get('m:2').targetId = ''; F.store.setState({ target: F.toTarget('m:2') }); F.selects.length = 0;
   $('[data-act="mobs-all"]').click(); await wait(600);
   console.log('E "alle" -> Boss jetzt an     -> select', F.selects.join(','), '| Boss-Checkbox:', cb('kuwagamon|boss').checked, '|', status());
-  console.log('cfg.mobs:', w.localStorage.getItem('digibot.cfg').match(/"mobs":\{.*\}\}/)?.[0]);
+  console.log('cfg.mobs:', w.localStorage.getItem('cdigi.cfg').match(/"mobs":\{.*\}\}/)?.[0]);
   $('[data-tab="attack"]').click(); await wait(300);
   console.log('Gruppe Tränke sichtbar:', $('[data-page="attack"]').classList.contains('on') && !!$('[data-grp="pots"]').open, '| Inhalt:', $('[data-grp="pots"]').textContent.replace(/\s+/g, ' ').trim().slice(0, 120));
   process.exit(0);

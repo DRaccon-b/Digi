@@ -22,7 +22,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const boss = { id: 'w:2', kind: 2, defId: 'bwg', x: 470, y: 330, hp: 90000, maxHp: 90000, level: 3, flags: 16, targetId: 'p:other' };
   G.ents.set('w:2', boss);
   const keepT = setInterval(() => { boss.targetId = 'p:other'; }, 5);
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20, radius: 200, wboss: true, autopilot: false, levelRoute: false }));
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20, radius: 200, wboss: true, autopilot: false, levelRoute: false }));
   G.w.eval(script);
   await wait(1000);
   G.w.document.querySelector('[data-act="bot"]').click();

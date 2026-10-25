@@ -27,7 +27,7 @@ async function run(mode) {
     partner: { ...st.me.partner, level: 3, hp: 500, maxHp: 1000, ds: 100, maxDs: 500, stats: { at: 2000, as: 1200 } } } });
   const keys = [];
   G.w.addEventListener('keydown', (e) => { if (e.code === 'F1' || e.code === 'F2') keys.push(e.code); }, true);
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 10, radius: 250,
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 10, radius: 250,
     levelRoute: true, levelA2: false, levelBoss: true, levelEvo: false, farmChannels: [1] }));
   G.w.eval(script);
   await wait(1000);

@@ -12,7 +12,7 @@ const scene = G.w.dmo.game.scene.getScene('world');
 scene.telegraphs = { active: [], marksActive: [], circles: [] }; scene.mechB = { lines: [] };
 const keys = [];
 G.w.addEventListener('keydown', (e) => keys.push({ c: e.code, t: Date.now() }), true);
-G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, dodge: true, tab: 'log', lvlDiff: 20 }));
+G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, dodge: true, tab: 'log', lvlDiff: 20 }));
 G.w.eval(script);
 (async () => {
   await wait(800);

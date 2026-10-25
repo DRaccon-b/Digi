@@ -21,7 +21,7 @@ setInterval(() => {
   const t = B.ents.get('t:me'), q = B.store.getState().me.quests.q_r;
   if (q.state === 1 && t.x >= 650 && t.x <= 800 && t.y >= 450 && t.y <= 600) { const s = B.store.getState(); B.store.setState({ me: { ...s.me, quests: { ...s.me.quests, q_r: { state: 2, counters: [1] } } } }); }
 }, 100);
-const bus = new BroadcastChannel('digibot-group');
+const bus = require('./cbus')();
 const FIN = ['q00_meet_gennai'];
 const tick = setInterval(() => bus.postMessage({ type: 'state', slot: 0, role: 'leader', name: 'Lead', inWorld: true, mapId: 'native_forest', channel: 1, x: 400, y: 330,
   bot: true, status: 'x', quests: { q_next: { state: 1, counters: [0] } }, fin: FIN, ents: [], talks: [], done: [], busy: null, noFight: false, task: null, hunt: [], targetId: null }), 300);

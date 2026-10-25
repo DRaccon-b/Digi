@@ -24,7 +24,7 @@ async function run(mode) {
     return [{ id: 'mega_hunt', now, slot: { key: 's1', startMs: now - 60000, endMs },
       boss: 'bigmon_hunt', mapId: 'primary_village', channel: 1, state: 'up', next: { boss: 'bigmon_hunt', mapId: 'primary_village', startMs: now + 7200000 } }];
   };
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20, hunt: true, autopilot: true, apGrind: false, levelRoute: false }));
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20, hunt: true, autopilot: true, apGrind: false, levelRoute: false }));
   const keys = []; G.w.addEventListener('keydown', (e) => { if (e.code === 'Digit1') keys.push(Date.now()); }, true);
   G.w.eval(script);
   await wait(1000);

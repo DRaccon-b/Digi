@@ -17,7 +17,7 @@ const killedIds = [];
 const cmds = G.w.dmo.game.scene.getScene('world').deps.commands;
 cmds.listChannels = async () => [{ channel: 1, roomId: 'r1', clients: 2, maxClients: 40 }];
 cmds.requestBossPins = () => {}; cmds.requestMapInfo = () => {};
-G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: true, apGrind: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20 }));
+G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: true, apGrind: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20 }));
 G.w.eval(script);
 (async () => {
   await wait(800);

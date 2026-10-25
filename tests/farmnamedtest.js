@@ -21,7 +21,7 @@ async function run(withBoss) {
   const cmds = G.w.dmo.game.scene.getScene('world').deps.commands;
   cmds.listChannels = async () => [{ channel: 1, roomId: 'r1', clients: 1, maxClients: 40 }];
   cmds.requestBossPins = () => {}; cmds.requestMapInfo = () => {};
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, farm: true, farmMode: 'boss', farmBosses: ['native_forest#tyrmon'], farmChannels: [1],
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, farm: true, farmMode: 'boss', farmBosses: ['native_forest#tyrmon'], farmChannels: [1],
     hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 8, radius: 500 }));
   G.w.eval(script);
   await wait(1000);

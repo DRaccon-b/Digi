@@ -21,7 +21,7 @@
   const selects = [];
   const toTarget = (id) => { const e = ents.get(id); return e ? { id, kind: 'mob', name: e.defId, level: e.level, hp: e.hp, maxHp: e.maxHp } : null; };
   const scene = { deps: { content }, select: (id) => { selects.push(id); store.setState({ target: toTarget(id) }); } };
-  w.dmo = { store, net: { state: { entities: ents } }, game: { scene: { getScene: (k) => (k === 'world' ? scene : null) } } };
+  w.dmo = { store, net: { connected: true, transferring: false, state: { entities: ents } }, game: { scene: { getScene: (k) => (k === 'world' ? scene : null) } } };
   E({ id: 'p:me', kind: 1, x: 500, y: 500 }); E({ id: 't:me', kind: 0, x: 515, y: 512 });
   E({ id: 'm:1', kind: 2, defId: 'kunemon', level: 4, x: 560, y: 470 });                       // normal, nah
   E({ id: 'm:2', kind: 2, defId: 'kunemon', level: 5, x: 430, y: 560, flags: 1024 | 32 });      // Elite, aggressiv

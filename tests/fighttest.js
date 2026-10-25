@@ -17,7 +17,7 @@ function setup(cfg) {
   scene.telegraphs = { active: [], mirrors: [] };
   scene.mechB = { lines: [] };
   scene.deps.commands = { partnerFollow: () => follows.push(Date.now()) };
-  w.localStorage.setItem('digibot.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0, dodge: true, lvlDiff: 10, ...cfg }));
+  w.localStorage.setItem('cdigi.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0, dodge: true, lvlDiff: 10, ...cfg }));
   w.addEventListener('keydown', (e) => keys.push({ code: e.code, t: Date.now() }), true);
   w.eval(script);
   const status = () => w.document.querySelector('[data-f="status"]').textContent;

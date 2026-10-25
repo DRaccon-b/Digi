@@ -11,7 +11,7 @@ async function run(dst) {
   const scene = G.w.dmo.game.scene.getScene('world');
   scene.telegraphs = { active: [], marksActive: [] };
   scene.mechB = { lines: [] };
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, dodge: true, tab: 'log' }));
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, dodge: true, tab: 'log' }));
   G.w.eval(script);
   await wait(800);
   G.w.document.querySelector('[data-act="bot"]').click();

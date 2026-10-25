@@ -12,7 +12,7 @@ G.store.setState({ me: { ...st0.me, tamerDs: 300, partner: { ...st0.me.partner, 
   { species: 'seraphimon', from: 'magnaangemon', unlocked: false }] } } });
 const evolved = [];
 G.w.dmo.game.scene.getScene('world').deps.commands.evolve = (sp) => { evolved.push(sp); const s = G.store.getState(); G.store.setState({ me: { ...s.me, partner: { ...s.me.partner, species: sp } } }); };
-G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: true, apGrind: false, hpPot: 0, dsPot: 0, tdsPot: 0, apEvo: '__max' }));
+G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: true, apGrind: false, hpPot: 0, dsPot: 0, tdsPot: 0, apEvo: '__max' }));
 G.w.eval(script);
 (async () => {
   await wait(800);

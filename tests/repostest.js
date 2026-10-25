@@ -14,7 +14,7 @@ scene.deps.commands = { partnerFollow() {} };
 for (const id of ['m:3', 'm:4', 'm:5', 'm:6']) F.ents.delete(id);
 const keys = [];
 w.addEventListener('keydown', (e) => keys.push({ c: e.code, t: Date.now() }), true);
-w.localStorage.setItem('digibot.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0, lvlDiff: 10, radius: 400 }));
+w.localStorage.setItem('cdigi.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0, lvlDiff: 10, radius: 400 }));
 w.eval(script);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const status = () => w.document.querySelector('[data-f="status"]').textContent;

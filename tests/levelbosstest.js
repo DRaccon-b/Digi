@@ -25,7 +25,7 @@ async function run(levelBoss, lvlDiff = 10, chans = [1], agg = false, pinMs = 0)
   const pinAt = Date.now() + pinMs; cmds.requestMapInfo = () => {};
   const st = G.store.getState();
   G.store.setState({ me: { ...st.me, partner: { ...st.me.partner, level: 3, stats: { at: 2000, as: 1200 } } } });
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff, radius: 250,
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff, radius: 250,
     levelRoute: true, levelA2: false, levelBoss, farmChannels: chans }));
   G.w.eval(script);
   await wait(1000);

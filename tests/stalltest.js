@@ -10,7 +10,7 @@ const G = makeWorld({ slot: 0, tag: 'Solo', noHash: true, accounts: { leader: 0,
     content.digimon.kunemon.mob = { drops: [{ itemId: 'spore', chance: 0.01 }] };
     content.items.spore = { name: 'Spore' };
   } });
-G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: true, apGrind: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log' }));
+G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: true, apGrind: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log' }));
 G.w.eval(script);
 (async () => {
   await wait(800);

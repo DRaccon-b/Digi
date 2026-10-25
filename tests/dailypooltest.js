@@ -17,7 +17,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     } });
   const st = G.store.getState();
   G.store.setState({ me: { ...st.me, partner: { ...st.me.partner, level: 45 } } });
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: true, apDailies: true, apGrind: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20 }));
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: true, apDailies: true, apGrind: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20 }));
   G.w.eval(script);
   await wait(800);
   G.w.document.querySelector('[data-act="bot"]').click();

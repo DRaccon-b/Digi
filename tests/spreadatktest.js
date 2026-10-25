@@ -13,9 +13,9 @@ async function run(spread) {
     extraEnts: () => [{ id: 't:L', kind: 0, x: 395, y: 330, hp: 1, flags: 0, targetId: '' }, { id: 'p:L', kind: 1, x: 405, y: 330, hp: 1, flags: 0, targetId: 'm:1' }] });
   // Monster sterben nicht; m:1 kämpft mit dem Digimon des Leaders, die anderen sind frei
   setInterval(() => { for (const m of F.ents.values()) if (m.kind === 2) { m.hp = 300; m.targetId = m.id === 'm:1' ? 'p:L' : ''; } }, 50);
-  F.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: true, apGrind: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'acc' }));
+  F.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: true, apGrind: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'acc' }));
   F.w.eval(script);
-  const bus = new BroadcastChannel('digibot-group');
+  const bus = require('./cbus')();
   const tick = setInterval(() => bus.postMessage({ type: 'state', slot: 0, role: 'leader', name: 'Lead', inWorld: true, mapId: 'native_forest', channel: 1, x: 395, y: 330,
     bot: true, status: 'x', quests: { q_k: { state: 1, counters: [0] } }, fin: ['q00_meet_gennai', 'q02_first_steps'], ents: ['t:L', 'p:L'], talks: [], done: [], busy: null, noFight: false, task: null, hunt: ['kunemon'], targetId: 'm:1' }), 300);
   await wait(1200);

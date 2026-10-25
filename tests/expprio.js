@@ -12,7 +12,7 @@ async function run(expPrio) {
   const F = w.__fake;
   const st = F.store.getState();
   F.store.setState({ me: { ...st.me, partner: { ...st.me.partner, level: 1 } } }); // m:1 Lv 4 (+3) am nächsten, m:3/m:4 Lv 6 (+5)
-  w.localStorage.setItem('digibot.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0, lvlDiff: 8, radius: 400, expPrio }));
+  w.localStorage.setItem('cdigi.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0, lvlDiff: 8, radius: 400, expPrio }));
   w.eval(script);
   await wait(600);
   w.document.querySelector('[data-act="bot"]').click();

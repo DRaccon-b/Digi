@@ -5,7 +5,7 @@ const script = fs.readFileSync(process.argv[2], 'utf8');
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const accounts = { leader: 0, popup: true, mirror: true, mirrorAtk: true, list: [{ on: true, user: 'lead', char: 'Lead' }, { on: true, user: 'foll', char: 'Foll' }] };
 const L = makeWorld({ slot: 0, accounts, tag: 'L', mobs: [], quests: { q00_meet_gennai: { state: 3, counters: [] } } });
-L.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 40, dsPot: 20, tdsPot: 20, tab: 'acc' }));
+L.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 40, dsPot: 20, tdsPot: 20, tab: 'acc' }));
 const st = L.store.getState();
 const hotbar = ['cmd:attack', null, null, null, null, null, null, null, null, null, 'item:ds_pot'];
 L.store.setState({ me: { ...st.me, tamerDs: 30, tamerMaxDs: 360, hotbar, inventory: [{ itemId: 'ds_pot', qty: 5 }] } });

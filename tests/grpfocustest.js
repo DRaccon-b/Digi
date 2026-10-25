@@ -11,10 +11,10 @@ async function run({ lowHp = false, strong = false } = {}) {
   // m:1 = Ziel des Leaders, m:2 greift den Mitläufer an; beide sterben nicht
   setInterval(() => { const a = F.ents.get('m:1'), b = F.ents.get('m:2');
     if (a) { a.hp = 300; a.targetId = 't:lead'; a.level = strong ? 40 : 2; } if (b) { b.hp = 300; b.targetId = 'p:me'; b.flags |= 32; } }, 50);
-  F.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: true, apGrind: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'acc', lvlDiff: 5 }));
+  F.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: true, apGrind: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'acc', lvlDiff: 5 }));
   if (lowHp) { const s = F.store.getState(); F.store.setState({ me: { ...s.me, partner: { ...s.me.partner, hp: 900 } } }); }
   F.w.eval(script);
-  const bus = new BroadcastChannel('digibot-group');
+  const bus = require('./cbus')();
   const tick = setInterval(() => bus.postMessage({ type: 'state', slot: 0, role: 'leader', name: 'Lead', inWorld: true, mapId: 'native_forest', channel: 1, x: 440, y: 330,
     bot: true, status: 'x', quests: {}, fin: ['q00_meet_gennai', 'q02_first_steps'], ents: [], talks: [], done: [], busy: null, noFight: false, task: null, hunt: [], targetId: 'm:1' }), 300);
   await wait(1200);

@@ -123,8 +123,8 @@ const scene = {
   select: (id) => { const e = ents.get(id); store.setState({ target: e ? { id, kind: 'mob', name: content.digimon[e.defId].name, level: e.level, hp: e.hp, maxHp: e.maxHp } : null }); },
   telegraphs: { active: [], mirrors: [] }, mechB: { lines: [] },
 };
-w.fetch = async (url) => ({ json: async () => MAPS[url.match(/maps\/(\w+)\.tmj/)[1]] });
-w.dmo = { store, net: { state: { entities: ents } }, game: { scene: { getScene: (k) => (k === 'world' ? scene : null) } } };
+w.fetch = async (url) => ({ ok: true, json: async () => MAPS[url.match(/maps\/(\w+)\.tmj/)[1]] });
+w.dmo = { store, net: { connected: true, transferring: false, state: { entities: ents } }, game: { scene: { getScene: (k) => (k === 'world' ? scene : null) } } };
 w.addEventListener('keydown', (e) => {
   if (e.code !== 'Digit1' || !state.target) return;
   const m = ents.get(state.target.id);
@@ -146,7 +146,7 @@ store.setState({ screen: 'world', inputFocus: 'game', cooldowns: {}, world: { ma
   me: { tamerEntityId: 't:me', tamerDs: 300, tamerMaxDs: 360, hotbar: ['cmd:attack'], inventory: [], quests: {}, bits: 5000,
     partner: { entityId: 'p:me', name: 'Gabumon', level: 30, hp: 3000, maxHp: 3000, ds: 500, maxDs: 700, exp: 1, expNext: 100, skills: [] } } });
 loadMap('map_a', { x: 820, y: 330 }, 1);
-w.localStorage.setItem('digibot.cfg', JSON.stringify({ farm: true, farmMode: 'named', routeStart: 'map_a', routeEnd: 'map_c', farmChannels: [1, 2], hpPot: 0, dsPot: 0, tdsPot: 0, lvlDiff: 3 }));
+w.localStorage.setItem('cdigi.cfg', JSON.stringify({ farm: true, farmMode: 'named', routeStart: 'map_a', routeEnd: 'map_c', farmChannels: [1, 2], hpPot: 0, dsPot: 0, tdsPot: 0, lvlDiff: 3 }));
 w.eval(script);
 const $ = (s) => w.document.querySelector(s);
 let last = '';

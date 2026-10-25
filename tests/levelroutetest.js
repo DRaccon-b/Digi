@@ -17,7 +17,7 @@ async function run({ route, a2, series, lowerTo, lvlDiff = 10, roam }) {
     } });
   const st = G.store.getState();
   G.store.setState({ me: { ...st.me, partner: { ...st.me.partner, level: 3, stats: { at: 2000, as: 1200 } } } });
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff, radius: 300, levelRoute: route, levelA2: a2 }));
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff, radius: 300, levelRoute: route, levelA2: a2 }));
   G.w.eval(script);
   await wait(1000);
   G.w.document.querySelector('[data-act="bot"]').click();

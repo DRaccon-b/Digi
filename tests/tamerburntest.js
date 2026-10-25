@@ -15,8 +15,8 @@ const W = makeWorld({ slot: 0, tag: 'B', noHash: true, accounts: { leader: 0, li
     content.digimon.malomyotismon = { name: 'MaloMyotismon', skills: [content.skills[BURN]] };
   } });
 W.handlers = {};
-W.w.dmo.net.on = (name, fn) => { W.handlers[name] = fn; return () => {}; };
-W.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 20, tab: 'log' }));
+W.w.dmo.net.on = (name, fn) => { { const prev = W.handlers[name]; W.handlers[name] = prev ? (...a) => { prev(...a); fn(...a); } : fn; } return () => {}; };
+W.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 20, tab: 'log' }));
 const me = W.store.getState().me;
 const hotbar = [...me.hotbar]; hotbar[10] = 'item:bento';
 W.store.setState({ me: { ...me, tamerDs: 200, tamerMaxDs: 360, hotbar, inventory: [{ itemId: 'bento', qty: 5 }] } }); // 55 %

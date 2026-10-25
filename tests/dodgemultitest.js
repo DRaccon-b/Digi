@@ -17,7 +17,7 @@ async function run(name, setup) {
   scene.controlledId = () => 'p:me';
   scene.telegraphs = { active: [], circles: [] };
   scene.deps.commands = { partnerFollow: () => {} };
-  w.localStorage.setItem('digibot.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0, dodge: true, lvlDiff: 10 }));
+  w.localStorage.setItem('cdigi.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0, dodge: true, lvlDiff: 10 }));
   w.eval(script);
   await wait(600);
   setup(F, scene, w.performance.now());

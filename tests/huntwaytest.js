@@ -16,7 +16,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     boss: 'bigmon_hunt', mapId: 'primary_village', channel: 1, state: 'up', next: { boss: 'bigmon_hunt', mapId: 'primary_village', startMs: now + 7200000 } }]; };
   // greift an, solange man in seiner Nähe ist
   setInterval(() => { const a = G.ents.get('m:agg'), me = G.ents.get('t:me'); if (a && me) a.targetId = Math.hypot(a.x - me.x, a.y - me.y) < 250 ? 'p:me' : ''; }, 50);
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20, hunt: true, autopilot: false, levelRoute: false }));
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20, hunt: true, autopilot: false, levelRoute: false }));
   G.w.eval(script);
   await wait(1000);
   G.w.document.querySelector('[data-act="bot"]').click();

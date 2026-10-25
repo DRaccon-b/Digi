@@ -15,7 +15,7 @@ async function run(farm) {
       { id: 'b:1', kind: 2, defId: 'puppetmon', x: 450, y: 330, hp: 100000, maxHp: 100000, level: 3, flags: 16 | 32, targetId: 'p:me' },
       { id: 'a:1', kind: 2, defId: 'pumpkinmon', x: 380, y: 360, hp: 300, maxHp: 300, level: 3, flags: 32, targetId: '' },
     ] });
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20,
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20,
     ...(farm ? { farm: true, farmMode: 'boss', farmBosses: ['native_forest#puppetmon'], farmChannels: [1] } : {}) }));
   const cmds = G.w.dmo.game.scene.getScene('world').deps.commands;
   cmds.requestBossPins = () => {}; cmds.listChannels = async () => [{ channel: 1, roomId: 'r1', clients: 1, maxClients: 40 }];

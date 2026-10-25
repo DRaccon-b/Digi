@@ -11,7 +11,7 @@ C.quests = { q_kune: { id: 'q_kune', name: 'Kunemon', objectives: [{ kind: 'kill
 C.dailyById = {};
 const me = F.store.getState().me;
 F.store.setState({ me: { ...me, quests: { q_kune: { state: 1, counters: [0] } }, partner: { ...me.partner, level: 9 } } });
-w.localStorage.setItem('digibot.cfg', JSON.stringify({ questMode: true, lvlDiff: 3, hpPot: 0, dsPot: 0, tdsPot: 0 }));
+w.localStorage.setItem('cdigi.cfg', JSON.stringify({ questMode: true, lvlDiff: 3, hpPot: 0, dsPot: 0, tdsPot: 0 }));
 const keys = [];
 w.addEventListener('keydown', (e) => keys.push(e.code), true);
 w.eval(script);

@@ -7,7 +7,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const G = makeWorld({ slot: 0, tag: 'S', noHash: true, accounts: { leader: 0, list: [{ user: 'solo' }] }, mobs: [[420, 320]],
   quests: { q00_meet_gennai: { state: 3, counters: [] }, q02_first_steps: { state: 3, counters: [] }, q_h: { state: 1, counters: [0] } },
   setup({ content }) { content.quests.q_h = { id: 'q_h', name: 'Viele Kunemon', giver: 'gennai', turnIn: 'gennai', minLevel: 1, objectives: [{ kind: 'kill', species: 'kunemon', count: 99 }] }; } });
-G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: true, apGrind: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log' }));
+G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: true, apGrind: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log' }));
 const keep = setInterval(() => { const m = G.ents.get('m:1'); if (m) m.hp = Math.max(m.hp, 250); }, 30); // zäh: Kampf dauert an
 G.w.eval(script);
 const setFaint = (v) => { const s = G.store.getState(); G.store.setState({ me: { ...s.me, partner: { ...s.me.partner, fainted: v } } }); };

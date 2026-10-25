@@ -11,7 +11,7 @@ const boss = () => ({ id: 'boss:1', kind: 2, defId: 'etemon', x: 440, y: 330, hp
 function world(slot, accounts, cfgExtra) {
   const W = makeWorld({ slot, accounts, tag: 'W' + slot, mobs: [], quests: { q00_meet_gennai: { state: 3, counters: [] }, q02_first_steps: { state: 3, counters: [] } },
     setup({ content }) { content.digimon.etemon = { name: 'Etemon', skills: [] }; } });
-  W.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'acc', lvlDiff: 20, ...cfgExtra }));
+  W.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'acc', lvlDiff: 20, ...cfgExtra }));
   const me = W.store.getState().me;
   W.store.setState({ me: { ...me, hotbar: ['cmd:attack', 'skill:0'], partner: { ...me.partner, species: 'patamon', skills: [{ id: 'x.blast', name: 'Blast', dsCost: 0, unlocked: true }] } } });
   W.keys = [];
@@ -42,7 +42,7 @@ function world(slot, accounts, cfgExtra) {
   {
     const acc = { leader: 0, popup: true, mirror: true, mirrorAtk: true, list: [{ on: true, user: 'l', char: 'Lead' }, { on: true, user: 'f', char: 'Foll' }] };
     const F = world(1, acc, {});
-    const bus = new BroadcastChannel('digibot-group');
+    const bus = require('./cbus')();
     await wait(1200);
     for (const id of [...F.ents.keys()]) if (id.startsWith('m:')) F.ents.delete(id);
     const t0 = Date.now();

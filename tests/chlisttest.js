@@ -26,7 +26,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   cmds.switchChannel = (roomId) => { used.push(roomId); const s = G.store.getState(); G.store.setState({ world: { ...s.world, channel: roomId === 'r2' || roomId === 'p2' ? 2 : 1 }, target: null }); };
   const st = G.store.getState();
   G.store.setState({ me: { ...st.me, partner: { ...st.me.partner, level: 3, stats: { at: 2000, as: 1200 } } } });
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 10, radius: 250,
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 10, radius: 250,
     levelRoute: true, levelA2: false, levelBoss: true, farmChannels: [1, 2] }));
   G.w.eval(script);
   await wait(1000);

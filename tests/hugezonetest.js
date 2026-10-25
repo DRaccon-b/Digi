@@ -10,7 +10,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const sc = G.w.dmo.game.scene.getScene('world');
   const huge = { x: 420, y: 330, r: 640 };
   sc.telegraphs = { active: [huge], circles: [{ ...huge, end: G.w.performance.now() + 20000 }], marksActive: [] };
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, farm: false, dodge: true, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 100 }));
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, farm: false, dodge: true, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 100 }));
   G.w.eval(script);
   await wait(1200);
   G.w.document.querySelector('[data-act="bot"]').click();

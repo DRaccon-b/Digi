@@ -11,7 +11,7 @@ const taps = [], follows = [];
 scene.tapGround = (x, y) => taps.push([x, y]);
 scene.telegraphs = { active: [] };
 scene.deps.commands = { partnerFollow: () => follows.push(1) };
-w.localStorage.setItem('digibot.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0, dodge: true, lvlDiff: 10 }));
+w.localStorage.setItem('cdigi.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0, dodge: true, lvlDiff: 10 }));
 const keys = [];
 w.addEventListener('keydown', (e) => keys.push(e.code), true);
 w.eval(script);

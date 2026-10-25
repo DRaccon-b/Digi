@@ -19,7 +19,7 @@ async function run(apBatch) {
       const q = api.state.me.quests.q_b; if (q?.state === 1) { const c = q.counters[0] + 1; api.setQuest('q_b', { state: c >= 3 ? 2 : 1, counters: [c] }); } } });
   const L0 = G.log.push.bind(G.log);
   G.log.push = (s) => { const m = /^(abgegeben|angenommen): (\w+)/.exec(s); if (m) ev.push(m[1] + ':' + m[2]); return L0(s); };
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: true, apGrind: false, apBatch, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20 }));
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: true, apGrind: false, apBatch, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20 }));
   G.w.eval(script);
   await wait(800);
   G.w.document.querySelector('[data-act="bot"]').click();

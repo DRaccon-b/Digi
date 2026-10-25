@@ -9,7 +9,7 @@ const C = makeWorld({ slot: 1, tag: 'Spiegel', accounts, quests: { q00_meet_genn
 C.w.eval(script);
 const keys = [];
 C.w.addEventListener('keydown', (e) => keys.push(e.code), true);
-const bus = new BroadcastChannel('digibot-group');
+const bus = require('./cbus')();
 const st = setInterval(() => bus.postMessage({ type: 'state', slot: 0, role: 'leader', name: 'Lead', inWorld: true, mapId: 'native_forest', channel: 1, x: 400, y: 320, bot: false,
   status: 'x', quests: {}, ents: ['t:lead', 'p:lead'], talks: [], done: [], busy: null, task: null, hunt: [], targetId: null }), 1000);
 const pos = { mapId: 'native_forest', x: 400, y: 320, atk: null };

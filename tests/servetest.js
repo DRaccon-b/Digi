@@ -15,7 +15,7 @@ const base = { q00_meet_gennai: { state: 3, counters: [] } };
 const respawn = (m) => setTimeout(() => { m.hp = 300; m.targetId = ''; }, 600);
 const L = makeWorld({ slot: 0, accounts, tag: 'L', setup: (x) => { setup(x); x.content.quests.q_k.minLevel = 99; }, quests: { ...base }, onKill: respawn });
 const F = makeWorld({ slot: 1, accounts, tag: 'F', setup, mobs: [[600, 330], [650, 360]], quests: { ...base, q_k: { state: 1, counters: [0] }, q_lead: { state: 3, counters: [] } }, onKill: respawn });
-for (const W of [L, F]) { W.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: true, apGrind: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'acc', radius: 400 })); W.w.eval(script); }
+for (const W of [L, F]) { W.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: true, apGrind: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'acc', radius: 400 })); W.w.eval(script); }
 const pos = (W) => { const t = W.ents.get('t:me'); return { x: Math.round(t.x), y: Math.round(t.y) }; };
 (async () => {
   await wait(1200);

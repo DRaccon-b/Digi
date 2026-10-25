@@ -14,7 +14,7 @@ scene.tapGround = (x, y) => { taps.push([Math.round(x), Math.round(y)]); goal = 
 scene.controlledId = () => 'p:me'; // Spiel steht auf Digimon-Steuerung
 scene.telegraphs = { active: [] };
 scene.deps.commands = { partnerFollow: () => follows.push(1) };
-w.localStorage.setItem('digibot.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0, dodge: true, lvlDiff: 10 }));
+w.localStorage.setItem('cdigi.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0, dodge: true, lvlDiff: 10 }));
 w.eval(script);
 const status = () => w.document.querySelector('[data-f="status"]').textContent;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));

@@ -13,7 +13,7 @@ async function run(chCheck, counts) {
   const ch = () => G.store.getState().world.channel;
   cmds.listChannels = async () => Object.entries(counts).map(([c, n]) => ({ channel: Number(c), roomId: 'r' + c, clients: n + (Number(c) === ch() ? 1 : 0), maxClients: 50 }));
   cmds.switchChannel = (roomId) => { const c = Number(roomId.slice(1)); switches.push(c); const s = G.store.getState(); G.store.setState({ world: { ...s.world, channel: c } }); };
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', chCheck }));
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', chCheck }));
   G.w.eval(script);
   await wait(800);
   G.w.document.querySelector('[data-act="bot"]').click();

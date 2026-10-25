@@ -37,7 +37,7 @@ async function run({ on, ch2Up }) {
     if (!ch2Up || pinned) return; pinned = true;
     G.store.setState({ bossPins: { at: G.w.performance.now(), bosses: [{ map: 'native_forest', index: 0, channel: 2 }] } }); // Ch 2 lebt
   };
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20, radius: 120, wboss: on, autopilot: false, levelRoute: false }));
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20, radius: 120, wboss: on, autopilot: false, levelRoute: false }));
   G.w.eval(script);
   await wait(1000);
   // Kanal 1: der Boss spawnt erst nach der Warnung (4 s), Kanal 2 hat ihn schon (B) bzw. auch erst dann (A)

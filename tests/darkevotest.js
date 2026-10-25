@@ -23,7 +23,7 @@ async function run({ dark, start, cfgX = {} }) {
   const set = (sp) => { const s = G.store.getState(); G.store.setState({ me: { ...s.me, partner: { ...s.me.partner, species: sp, stage: stage[sp] } } }); };
   cmds.evolve = (sp) => { did.push(sp); set(sp); };
   cmds.devolve = () => { did.push('devolve'); set('hawkmon'); };
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 10, levelRoute: true, levelA2: false, levelEvo: true, levelBoss: false, ...cfgX }));
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 10, levelRoute: true, levelA2: false, levelEvo: true, levelBoss: false, ...cfgX }));
   G.w.eval(script);
   await wait(800);
   G.w.document.querySelector('[data-act="bot"]').click();

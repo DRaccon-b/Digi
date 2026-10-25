@@ -11,7 +11,7 @@ const G = makeWorld({ slot: 0, tag: 'C', noHash: true, accounts: { leader: 0, li
 const sc = G.w.dmo.game.scene.getScene('world');
 const taps = [];
 sc.tapGround = (x, y) => taps.push({ x, y });
-G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, dodge: true, tab: 'log', lvlDiff: 20 }));
+G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, dodge: true, tab: 'log', lvlDiff: 20 }));
 G.w.eval(script);
 (async () => {
   await wait(1500); // Karte laden

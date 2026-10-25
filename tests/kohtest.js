@@ -17,8 +17,8 @@ const wins = [0, 1].map((slot) => {
     extraEnts: (id) => (id === 'native_forest' ? [{ id: 'boss:1', kind: 2, defId: 'armageddemon', x: 520, y: 330, hp: 900000, maxHp: 900000, level: 80, flags: 16 }] : []),
     setup({ content }) { content.skills = skills; content.digimon.armageddemon = { name: 'Armageddemon', skills: Object.values(skills).filter((s) => !s.id.startsWith('clavis')) }; } });
   W.handlers = {};
-  W.w.dmo.net.on = (name, fn) => { W.handlers[name] = fn; return () => {}; };
-  W.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'acc' }));
+  W.w.dmo.net.on = (name, fn) => { { const prev = W.handlers[name]; W.handlers[name] = prev ? (...a) => { prev(...a); fn(...a); } : fn; } return () => {}; };
+  W.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'acc' }));
   const me = W.store.getState().me;
   W.store.setState({ me: { ...me, hotbar: ['cmd:attack', 'skill:0'], partner: { ...me.partner, species: 'clavisangemon', ds: 5000, maxDs: 5000,
     skills: [{ id: KOH, name: 'Key of Hope', dsCost: 535, unlocked: true }] } } });

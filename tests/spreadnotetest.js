@@ -6,7 +6,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 async function run(extra) {
   const accounts = { leader: 0, popup: true, spread: true, ...extra, list: [{ on: true, user: 'acc1', char: 'Char1' }, { on: true, user: 'acc2', char: 'Char2' }] };
   const G = makeWorld({ slot: 0, accounts, tag: 'N', mobs: [], quests: { q00_meet_gennai: { state: 3, counters: [] } } });
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'acc' }));
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'acc' }));
   G.w.eval(script);
   await wait(1500);
   const note = G.w.document.querySelector('[data-f="spreadoff"]')?.textContent || '';

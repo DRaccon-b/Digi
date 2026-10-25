@@ -13,7 +13,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   cmds.revive = () => { calls.push(Date.now() - t0); const s = G.store.getState(); G.store.setState({ prompt: null, me: { ...s.me, partner: { ...s.me.partner, fainted: false, hp: 1 } } }); };
   const st = G.store.getState();
   G.store.setState({ prompt: { kind: 'fainted', canReviveAt: allowAt }, me: { ...st.me, partner: { ...st.me.partner, fainted: true, hp: 0 } } });
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log' }));
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log' }));
   G.w.eval(script);
   await wait(500);
   G.w.document.querySelector('[data-act="bot"]').click();

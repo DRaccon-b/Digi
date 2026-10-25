@@ -33,7 +33,7 @@ cmds.chooseDialog = (id) => {
   }
   G.store.setState({ dialog: null });
 };
-G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: true, apGrind: false, apRepeat: true, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log' }));
+G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: true, apGrind: false, apRepeat: true, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log' }));
 G.w.eval(script);
 (async () => {
   await wait(800);

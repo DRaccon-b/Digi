@@ -7,8 +7,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const W = makeWorld({ slot: 0, tag: 'E', noHash: true, accounts: { leader: 0, list: [{ user: 'solo' }] }, mobs: [[430, 330], [470, 330]],
   quests: { q00_meet_gennai: { state: 3, counters: [] }, q02_first_steps: { state: 3, counters: [] } } });
 W.handlers = {};
-W.w.dmo.net.on = (name, fn) => { W.handlers[name] = fn; return () => {}; };
-W.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', expMess: true }));
+W.w.dmo.net.on = (name, fn) => { { const prev = W.handlers[name]; W.handlers[name] = prev ? (...a) => { prev(...a); fn(...a); } : fn; } return () => {}; };
+W.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', expMess: true }));
 const me = W.store.getState().me;
 W.store.setState({ me: { ...me, partner: { ...me.partner, species: 'patamon', level: 7, exp: 40, expNext: 500 } }, chat: [] });
 W.w.eval(script);

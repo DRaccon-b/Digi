@@ -19,7 +19,7 @@ G.store.setState({ me: { ...me, hotbar: ['cmd:attack', 'skill:0', 'skill:1', 'sk
   skills: [{ id: 'x.beam', name: 'Beam', dsCost: 0, unlocked: true }, { id: 'x.slash', name: 'Slash', dsCost: 0, unlocked: true }, { id: 'x.rush', name: 'Rush', dsCost: 0, unlocked: true }] } } });
 const keys = [];
 G.w.addEventListener('keydown', (e) => keys.push(e.code), true);
-G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, dodge: true, tab: 'log', lvlDiff: 20 }));
+G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, dodge: true, tab: 'log', lvlDiff: 20 }));
 G.w.eval(script);
 (async () => {
   await wait(800);

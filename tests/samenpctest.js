@@ -20,7 +20,7 @@ async function run(apBatch) {
     } });
   const L0 = G.log.push.bind(G.log);
   G.log.push = (s) => { const m = /^(abgegeben|angenommen): (\w+)/.exec(s); if (m) ev.push(m[1].slice(0, 2) + ':' + m[2]); return L0(s); };
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: true, apGrind: false, apBatch, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log' }));
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: true, apGrind: false, apBatch, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log' }));
   G.w.eval(script);
   await wait(800);
   G.w.document.querySelector('[data-act="bot"]').click();

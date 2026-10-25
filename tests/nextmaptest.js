@@ -18,7 +18,7 @@ async function run(nfHi, lv) {
     } });
   const st = G.store.getState();
   G.store.setState({ me: { ...st.me, partner: { ...st.me.partner, level: lv, exp: 10, expNext: 60, stats: { at: 2000, as: 1200 } } } });
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'data', lvlDiff: 3 }));
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'data', lvlDiff: 3 }));
   G.w.eval(script);
   await wait(1500);
   const text = G.w.document.querySelector('[data-f="nextmap"]')?.textContent || '', tip = G.w.document.querySelector('[data-tip="nextmap"]')?.title || '';

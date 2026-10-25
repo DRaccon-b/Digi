@@ -31,7 +31,7 @@ async function run(bossLv, spawnIn = 0, mid = false, late = 0) {
   cmds.requestBossPins = () => { if (spawnIn) G.store.setState({ bossPins: { at: G.w.performance.now(), bosses: [{ map: 'native_forest', index: 0, channel: 1, respawnInMs: Math.max(1, pinAt - Date.now()) }] } }); }; cmds.requestMapInfo = () => {};
   const st = G.store.getState();
   G.store.setState({ me: { ...st.me, partner: { ...st.me.partner, level: 7, stats: { at: 2000, as: 1200 } } } });
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 8, radius: 250,
+  G.w.localStorage.setItem('cdigi.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 8, radius: 250,
     levelRoute: true, levelA2: false, levelBoss: true, farmChannels: [1] }));
   G.w.eval(script);
   await wait(1000);
