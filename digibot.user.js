@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.0.0
+// @version      3.0.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -509,6 +509,44 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function digibotExport() {
     const url=URL.createObjectURL(new Blob([digibotCore.export()],{type:'application/json'}));
     const a=document.createElement('a');a.href=url;a.download='digibot-diagnose.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
+  // Presets: Bot-Einstellungen als .txt speichern und wieder laden. Accounts (Benutzer/Passwörter) liegen getrennt in
+  // digibot.accounts und kommen nie hinein; Panel-Ansicht und Rundenfortschritt bleiben ebenfalls draußen.
+  const PRESET_SKIP=['apSweepMap'];
+  const presetKeyOk=(k)=>!UI_KEYS.includes(k)&&!PRESET_SKIP.includes(k)&&!/user|pass|pw|login|account|token|session/i.test(k);
+  function digibotPresetSave(){
+    let name='';
+    try{name=window.prompt('Name für das Preset:',MODES[modeOf()]||'Preset');}catch{name='Preset';}
+    if(name===null)return;
+    name=String(name||'Preset').trim().slice(0,60)||'Preset';
+    const settings=Object.fromEntries(Object.entries(JSON.parse(JSON.stringify(cfg))).filter(([k])=>presetKeyOk(k)));
+    const text=`DigiBot-Preset\nName: ${name}\nGespeichert: ${new Date().toLocaleString('de-DE')}\n\n`+
+      JSON.stringify({format:'digibot-preset/1',name,settings},null,2)+'\n';
+    const url=URL.createObjectURL(new Blob([text],{type:'text/plain'}));
+    const a=document.createElement('a');a.href=url;a.download=`digibot-preset-${name.replace(/[^\w\-äöüÄÖÜß ]+/g,'').replace(/\s+/g,'-')||'preset'}.txt`;a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    logEvent('bot',`Preset „${name}“ gespeichert`);
+  }
+  function digibotPresetParse(text){
+    const s=String(text||''),i=s.indexOf('{'),j=s.lastIndexOf('}');
+    if(i<0||j<i)return null;
+    let p;try{p=JSON.parse(s.slice(i,j+1));}catch{return null;}
+    if(!digibotRecord(p)||p.format!=='digibot-preset/1'||!digibotRecord(p.settings))return null;
+    return {name:String(p.name||'Preset').slice(0,60),settings:Object.fromEntries(Object.entries(p.settings).filter(([k])=>presetKeyOk(k)&&Object.hasOwn(CFG_DEFAULTS,k)))};
+  }
+  function digibotPresetApply(text){
+    const p=digibotPresetParse(text);
+    if(!p){digibotSignal('Preset-Datei nicht lesbar – bitte eine mit „Preset speichern“ erstellte .txt wählen');return false;}
+    const keep=Object.fromEntries([...UI_KEYS,...PRESET_SKIP].map(k=>[k,cfg[k]]));
+    applyCfg({...JSON.parse(JSON.stringify(cfg)),...p.settings});Object.assign(cfg,keep);
+    saveCfg();syncCfgInputs();farm.reset();autopilot.reset();schedule();
+    logEvent('bot',`Preset „${p.name}“ geladen`);
+    return true;
+  }
+  function digibotPresetLoad(){
+    const input=document.createElement('input');input.type='file';input.accept='.txt,text/plain';
+    input.addEventListener('change',async()=>{const f=input.files?.[0];if(f)digibotPresetApply(await f.text());});
+    input.click();
   }
   function digibotResetContext(st) {
     const key=`${st?.session?.username||''}|${st?.world?.mapId||''}|${st?.world?.channel||1}`;
@@ -1438,7 +1476,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.0.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.0.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1458,6 +1496,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       <button class="digibot__btn digibot__hunt" data-act="wboss" title="Weltboss (z. B. BlackWarGreymon): spawnt auf Kanal 1 und 2 mit eigenem Timer. Lebt er oder spawnt er in den nächsten 6 min, reist der Bot hin, wartet am Spawnpunkt und kämpft – zuerst der Kanal, der zuerst spawnt (gleichzeitig: Kanal 1), danach der andere. Danach weiter wie vorher. Das Event geht vor.">🌍 Weltboss</button>
       <button class="digibot__btn" data-act="digibot-stop">■ NOT-AUS (Esc)</button>
       <button class="digibot__btn" data-act="digibot-export">Diagnose exportieren</button>
+      <button class="digibot__btn" data-act="preset-save" title="Alle Bot-Einstellungen (Modus, Tränke, Skills, Quests, Bosse …) als .txt-Datei speichern. Accounts und Passwörter kommen nicht hinein.">💾 Preset speichern</button>
+      <button class="digibot__btn" data-act="preset-load" title="Bot-Einstellungen aus einer gespeicherten Preset-.txt laden. Accounts bleiben unverändert.">📂 Preset laden</button>
       ${check('independentGroup', 'Gruppe: eigene Wege und feste Bossplätze je Fenster')}
       <div class="digibot__status" data-f="status">Bot aus</div>
       <div class="digibot__task" data-f="task"><span class="t"></span><span class="pb"><i></i></span></div>
@@ -4341,7 +4381,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       }
     }
     const score = (sp) => (sp.lo > lvl + cfg.lvlDiff ? 1000 : 0)
-      + (sp.boss && itemId ? 500 : 0)                // Boss nur als letzte Quelle für Items
+      + (sp.boss ? 500 : 0)                          // Boss-Spawn nur als letzte Quelle (Items und normale Kills)
       + (avoid?.has(sp.key) ? 300 : 0)                // gerade leer gewesen
       + hops(curMap, sp.mapId) * 10
       + Math.abs((Math.min(sp.hi, lvl + cfg.lvlDiff) + sp.lo) / 2 - lvl) * 0.5
@@ -4920,7 +4960,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       .filter((t) => (autopilot.failed.get(t.key) || 0) < now && hops(mapId, t.loc.mapId) < Infinity);
     // Cache ETA once per planning pass; all boss objectives use confirmed timers,
     // independent of quest-log order or how far away the NPC list places them.
-    available=available.map(t=>({...t,bossEta:digibotQuestBossETA(st,t,now)}));
+    available=available.map(t=>({...t,bossEta:digibotQuestBossETA(st,t,now),bossIdle:digibotQuestBossIdle(st,t,now)}));
+    // Boss-Quests zuerst – außer der Boss braucht nach der Anreise noch lange bis zum Respawn: dann erst die anderen Ziele
+    // (Grinden endet nie von selbst – es verdrängt keinen Boss)
+    const bossRank=(t)=>!t.loc?.boss?(t.grind?3:1):t.bossIdle>BOSS_IDLE_DEFER_MS?2:0;
     // A nearby reward NPC never outranks another feasible objective, including on another map.
     // (nicht mitten in der Abgabe-Phase: begonnene Abgaben werden alle erledigt, auch wenn eine neue Quest schon offen ist)
     if(cfg.apBatch && autopilot.batchPhase!=='turnin' && available.some(t=>!t.grind && taskPhase(t)===2))available=available.filter(t=>t.purpose!=='turnin');
@@ -4928,7 +4971,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       .map((t) => { const same=sameNpc(t);return {...t,sameNpc:same,cost:hops(mapId,t.loc.mapId)*10+t.prio,
         // Gespräche beim selben NPC zuerst (Abgeben/Annehmen in einem Besuch), auch im Batch-Modus
         phase:same?-1:M && !(cfg.apBatch && autopilot.batchPhase==='turnin')?taskPhase(t):cfg.apBatch?batchRank(t,mapId):0}; })
-      .sort((a,b)=>a.phase-b.phase || Number(b.sameNpc)-Number(a.sameNpc) || Number(!a.loc?.boss)-Number(!b.loc?.boss) || (a.loc?.boss&&b.loc?.boss&&a.bossEta!==b.bossEta?a.bossEta-b.bossEta:0) || a.cost-b.cost);
+      .sort((a,b)=>a.phase-b.phase || Number(b.sameNpc)-Number(a.sameNpc) || bossRank(a)-bossRank(b) || (a.loc?.boss&&b.loc?.boss&&a.bossEta!==b.bossEta?a.bossEta-b.bossEta:0) || a.cost-b.cost);
 
   }
   // Phasen der Map-für-Map-Runde: 1 = Quests annehmen, 2 = Ziele erledigen, 3 = abgeben.
@@ -4960,6 +5003,18 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     return best;
   }
+  // Wartezeit am Boss nach der Anreise (bester Kanal): lebt = 0, tot = Rest-Respawn minus Reisezeit, unbekannt = 0 (nachsehen)
+  const BOSS_IDLE_DEFER_MS = 90000;
+  function digibotQuestBossIdle(st,t,now){
+    if(t.kind!=='hunt'||!t.loc?.boss)return 0;
+    let best=Infinity;
+    for(const b of questBossSel(t))for(const ch of (cfg.farmChannels?.length?cfg.farmChannels:[1,2])){
+      if((farm.chBan.get(`${b.map}#${ch}`)||0)>now)continue;
+      const state=farmState(b,ch,now);
+      best=Math.min(best,state.state==='down'?Math.max(0,state.readyAt-now-lrBossTripMs(st,b,ch)):0);
+    }
+    return best===Infinity?0:best;
+  }
   function digibotQuestBossReplan(st,sc,now){
     const t=autopilot.task;
     if(!t?.loc?.boss||t.kind!=='hunt'||group.role()==='follower'||autopilot.mapTalk)return;
@@ -4967,7 +5022,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if(sc?.mobs?.some(m=>t.species.has(m.species)&&!m.banned))return; // finish the living boss
     if(now-(autopilot.bossRankAt||0)<5000)return;
     autopilot.bossRankAt=now;
-    const best=questTasks(st).find(o=>o.kind==='hunt'&&o.loc?.boss);
+    const tasks=questTasks(st),first=tasks[0];
+    if(first && first.key!==t.key && !first.loc?.boss && !first.grind && digibotQuestBossIdle(st,t,now)>BOSS_IDLE_DEFER_MS){
+      logEvent('auto',`${t.names}: Respawn dauert noch – erst ${first.label||first.names||'andere Ziele'}`);
+      autopilot.reset();autopilot.route=null;autopilot.tp=null;return;
+    }
+    const best=tasks.find(o=>o.kind==='hunt'&&o.loc?.boss);
     if(best && best.key!==t.key && best.bossEta+15000<digibotQuestBossETA(st,t,now)){
       logEvent('auto',`Boss-Reihenfolge: ${best.names} ist früher verfügbar – plane Questziel neu`);
       autopilot.reset();autopilot.route=null;autopilot.tp=null;
@@ -5477,7 +5537,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       for(const [i,o]of (def.objectives||[]).entries()){
         if(o.kind!=='kill' || (q.counters?.[i]??0)>=(o.count||1))continue;
         const species=[].concat(o.species||[]);
-        const mob=sc?.mobs?.find(m=>species.includes(m.species)&&!m.banned&&m.reach!==false&&((entities?.get?.(m.id)?.flags&FLAG.Boss)||farmBossList().some(b=>b.map===map&&b.species===m.species)));
+        // Nur echte Bosse (Boss-Flag): ein named Boss teilt oft die Art mit normalen Monstern (Divermon Captain / Divermon)
+        const isBoss=m=>{const e=entities?.get?.(m.id);return e?!!(e.flags&FLAG.Boss):farmBossList().some(b=>b.map===map&&b.species===m.species);};
+        const mob=sc?.mobs?.find(m=>species.includes(m.species)&&!m.banned&&m.reach!==false&&isBoss(m));
         if(!mob)continue;
         const b=farmBossList().find(b=>b.map===map&&b.species===mob.species);
         const task={key:`hunt:${id}:${i}`,kind:'hunt',questId:id,objIndex:i,need:o.count||1,def,species:new Set([mob.species]),names:C?.digimon?.[mob.species]?.name||mob.species,loc:{mapId:map,x:mob.x,y:mob.y,boss:true,key:b?`${map}|boss|${b.at}`:null},prio:3,label:`${def.name}: sichtbaren Boss bekämpfen`};
@@ -8823,6 +8885,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (act === 'queue-stop'){digibotCore.stop('Quest-Runde manuell gestoppt',true);return;}
       if (act === 'digibot-stop') { groupSend('stop');digibotCore.stop('Not-Aus',true);return; }
       if (act === 'digibot-export') {digibotExport();return;}
+      if (act === 'preset-save') {digibotPresetSave();return;}
+      if (act === 'preset-load') {digibotPresetLoad();return;}
       if (act === 'digibot-passwords') {digibotClearLegacyPasswords();return;}
       if (act === 'bot') bot.toggle();
       if (act === 'grp-desktop'){digibotDesktopStart();return;}

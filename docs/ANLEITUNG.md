@@ -11,6 +11,10 @@ Oben immer sichtbar:
   Früher waren das einzelne Schalter in den Reitern.
 - **Start/Stopp** (Alt+B) mit dem Namen des Modus, darunter die Statuszeile (Maus darüber = ganzer Text)
 - **Mini-Leisten** für HP und DS des Digimons und die HP des Ziels – in jedem Reiter sichtbar
+- **💾 Preset speichern / 📂 Preset laden (ab 3.0.1)** – speichert alle Bot-Einstellungen (Modus, Tränke, Skills,
+  Monsterliste, Quest-/Boss-Auswahl …) unter einem Namen als `.txt`-Datei und lädt sie wieder. Accounts, Benutzernamen
+  und Passwörter kommen nie hinein und bleiben beim Laden unverändert. Ebenfalls draußen: Panel-Ansicht (Reiter,
+  Breite, aufgeklappte Gruppen) und der Fortschritt einer laufenden Map-Runde.
 
 Darunter fünf Reiter; jede Gruppe darin lässt sich auf- und zuklappen (wird gespeichert), Erklärungen stehen im
 ⓘ-Tooltip der Gruppe. Das Panel ist immer 320 px breit.

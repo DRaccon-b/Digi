@@ -2,6 +2,17 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.0.1 – Presets, Boss-Quests ohne Leerlauf
+- **Presets:** 💾 Preset speichern legt alle Bot-Einstellungen unter einem Namen als `.txt` ab, 📂 Preset laden holt
+  sie zurück. Accounts, Benutzernamen und Passwörter kommen nie hinein, Panel-Ansicht und Rundenfortschritt auch nicht.
+- **Kein langes Warten am Boss mehr:** Braucht ein Quest-Boss nach der Anreise noch über 90 s bis zum Respawn, erledigt
+  der Autopilot erst die anderen Ziele (Jagen, Annehmen, Abgeben) und kommt danach zurück. Wartet er schon am Boss,
+  plant er entsprechend um. Grinden verdrängt keinen Boss.
+- **Normale Monster sind keine Bosse mehr:** Teilt ein named Boss die Art mit normalen Monstern (z. B. Divermon Captain
+  und Divermon in Spiral Sea), gilt nur noch das Monster mit Boss-Markierung als Boss. Normale Divermon werden wieder
+  direkt angegriffen statt mit dem vorsichtigen Boss-Anmarsch.
+- Für normale Kill-Ziele wählt der Autopilot eine normale Spawn-Zone statt des Boss-Spawnpunkts derselben Art.
+
 ## 3.0.0 – Neue Basis: CDigi, mit Fixes
 DigiBot baut jetzt auf **CDigi 1.0.34** auf (Fork von 2.54.0 durch einen Freund). Name, Einstellungen und Update-Weg
 bleiben gleich.
