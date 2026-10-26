@@ -68,7 +68,7 @@ npm install
 npm test                      # alle Tests (nachgebaute Spielwelten mit jsdom)
 node tests/run.js kohtest     # einzelne Tests
 node sim/dungeon-keramon.js   # Probelauf Kera Easy mit echten Bot-Fenstern
-TEMPO=4 node sim/testboss.js  # Test-Boss: jede Grundform einer Boss-Attacke, Auswertung je Attacke
+TEMPO=4 node sim/testboss.js  # Test-Boss: jede Grundform und Sondermechanik einer Boss-Attacke, Auswertung je Attacke
 ```
 
 - `digibot.user.js` – das Skript (ein File, wird so installiert)

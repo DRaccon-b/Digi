@@ -2,6 +2,13 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## Unveröffentlicht
+- **Test-Boss (Stufe 2 – Sondermechaniken):** `sim/testboss.js` wirkt jetzt auch Fächer (Reaper), verstreute Kreise in
+  Wellen (Terrible Gaze), liegenbleibende Fallen (Banana Slip), Inseln (Kouen), Deckung hinter Platten (Ultimate Flare),
+  geteilten Treffer (D-Reaper Zone + Pendulum Feet), Markierung (Tekken Seisai), Lade-Ring (Corona Sanctions) und
+  Greifarm (Creep Hands) – mit echten Werten aus den Spieldaten. Neue Spalte „Extra“ (z. B. gebrochen, gepackt, geteilt);
+  `NUR=stufe1` / `NUR=stufe2` wählt eine Stufe. Annahmen zum Server-Verhalten stehen im Dateikopf.
+
 ## 3.0.2 – Kein Stopp mehr an der Wand, Test-Boss
 - **„Alles nicht erreichbar“ behoben:** Stand der Tamer nach einem Kampf dicht an einer Wand (unter 7 px), fiel jede
   Laufprüfung schon am Startpunkt durch – der Bot übersprang im Sekundentakt jede Aufgabe als „nicht erreichbar“ und
