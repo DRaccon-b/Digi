@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.0.3
+// @version      3.0.4
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1303,6 +1303,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     expMess: false,       // EXP-Messung: je Kill Monster, EXP, Kampfdauer, Treffer mitschreiben (Reiter Log)
     hunt: false,          // Event (Mega-Jagd): zum angesagten Weltboss reisen, ihn suchen und bekämpfen – in jedem Modus
     wboss: false,         // Weltboss (z. B. BlackWarGreymon): beide Kanäle nach Spawnzeit abarbeiten – in jedem Modus
+    eventsOnly: false,    // Modus „Nur Event/Weltboss“: nichts anderes tun, nur auf Event und Weltbosse warten (3.0.4)
     routeStart: '',       // Named-Runde: Start-Map (leer = niedrigste)
     routeEnd: '',         // Named-Runde: End-Map (leer = höchste)
     open: {},             // auf-/zugeklappte Gruppen im Panel
@@ -1320,12 +1321,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     try{if(localStorage.getItem(CFG_BATCH_KEY)!=='1'&&!(digibotRecord(saved)&&Object.hasOwn(saved,'apBatch')))cfg.apBatch=true;}catch{}
     if (checked.issues.length) digibotCore.record('Einstellungen korrigiert', {action: checked.issues.join(', ')});
     const m = modeOf(); // alte Einstellungen mit mehreren Schaltern auf eine Betriebsart bringen
-    cfg.questMode = m === 'quest'; cfg.autopilot = m === 'auto'; cfg.farm = m === 'farm'; cfg.dungeon = m === 'dungeon';
+    cfg.questMode = m === 'quest'; cfg.autopilot = m === 'auto'; cfg.farm = m === 'farm'; cfg.dungeon = m === 'dungeon'; cfg.eventsOnly = m === 'events';
     cfg.mirror = true; cfg.safeCast = true; // immer an (siehe ALWAYS_ON)
   }
   // Betriebsart (genau eine): Grinden, Quest-Jagd (Quest-Modus), Quest-Autopilot oder Bosse (Rotation/Named-Runde)
-  const MODES = { grind: 'Grinden', quest: 'Quest-Jagd', auto: 'Autopilot', farm: 'Bosse', dungeon: 'Dungeon' };
-  const modeOf = () => (cfg.dungeon ? 'dungeon' : cfg.farm ? 'farm' : cfg.autopilot ? 'auto' : cfg.questMode ? 'quest' : 'grind');
+  const MODES = { grind: 'Grinden', quest: 'Quest-Jagd', auto: 'Autopilot', farm: 'Bosse', dungeon: 'Dungeon', events: 'Nur Event/WB' };
+  const modeOf = () => (cfg.dungeon ? 'dungeon' : cfg.farm ? 'farm' : cfg.autopilot ? 'auto' : cfg.questMode ? 'quest' : cfg.eventsOnly ? 'events' : 'grind');
   try { applyCfg(JSON.parse(localStorage.getItem(CFG_KEY) || localStorage.getItem('digibot.cfg') || '{}')); } catch {}
   const ALWAYS_ON = ['mirror', 'safeCast']; // früher Haken – ausgeschaltet schadete man sich nur selbst
   if (cfg.tab === 'care') cfg.tab = 'attack';
@@ -1476,7 +1477,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.0.3'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.0.4'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1490,6 +1491,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         auto: 'Quests annehmen, hinreisen, erledigen und abgeben (Reiter Quests)',
         farm: 'Boss-Rotation oder Named-Elite-Runde (Reiter Bosse)',
         dungeon: 'Kera-Dungeon: zur Tür, betreten, Räume räumen, Boss, wieder hinaus (Reiter Bosse)',
+        events: 'Nichts anderes tun: nur auf das Event (Mega-Jagd) und die Weltbosse warten, hinreisen und kämpfen. Schaltet 🎯 Event und 🌍 Weltboss ein.',
       }[k])}">${l}</button>`).join('')}</div>
       <button class="digibot__btn digibot__run" data-act="bot" title="Alt+B">▶ Start</button>
       <button class="digibot__btn digibot__hunt" data-act="hunt" title="Event (Mega-Jagd): Sobald der Weltboss angekündigt ist (6 min vorher), reist der Bot zur Map, Kanal 1, wartet, sucht ihn und kämpft. Danach weiter wie vorher. Gilt in jedem Modus.">🎯 Event</button>
@@ -1993,6 +1995,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   //    Zielpunkt (tx/ty) mit halber Breite r; mit skill.sweep ein Fächer, der um den Boss schwenkt.
   // Steht der Tamer oder das Digimon in einer Zone, läuft der Tamer zum nächsten freien Punkt und ruft das Digimon.
   const DODGE_MARGIN = 28;
+  const FAN_SAFE_DEG = 25;      // so viel Winkel neben einem Fächer gilt als voller Sicherheitsabstand (alle Fächer ≤ 180°)
   const DODGE_BASIC_PAD = 4;    // Reserve inside the real basic-attack range.
   const DODGE_LATE_ABORT_MS = 3000; // begonnene Flucht abbrechen, wenn danach noch so viel Zeit bliebe
   const DODGE_BASIC_RANGE = 32;     // Grundangriff-Reichweite, falls die Spieldaten keine nennen
@@ -2180,13 +2183,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const nx = z.x + dx * k, ny = z.y + dy * k;
       return { d: Math.hypot(p.x - nx, p.y - ny) - z.r, nx, ny };
     }
-    // Fächer: Kreisausschnitt um den Boss
+    // Fächer: Kreisausschnitt um den Boss. Außerhalb des Winkels zählt auch der Winkelabstand: FAN_SAFE_DEG neben dem
+    // Fächer gelten wie der volle Sicherheitsabstand – so ist der Platz direkt hinter dem Boss frei, auch dicht dran,
+    // und das Digimon schlägt von dort weiter zu (3.0.4; vorher galt nur der Abstand zur Spitze = zum Boss)
     const dist = Math.hypot(p.x - z.x, p.y - z.y);
     let diff = Math.abs(Math.atan2(p.y - z.y, p.x - z.x) - z.dir) % (2 * Math.PI);
     if (diff > Math.PI) diff = 2 * Math.PI - diff;
     if (diff <= z.half) return { d: dist - z.len, nx: z.x, ny: z.y };
     const side = dist * Math.sin(Math.min(Math.PI / 2, diff - z.half));
-    return { d: Math.max(side, dist - z.len), nx: z.x, ny: z.y };
+    const ang = (diff - z.half) / (FAN_SAFE_DEG * Math.PI / 180) * DODGE_MARGIN * 1.5;
+    return { d: Math.max(side, dist - z.len, ang), nx: z.x, ny: z.y };
   }
   function digibotDodgeZoneSafe(z,p,margin=DODGE_MARGIN){
     // Small protected islands need an interior reserve, not a 28px border that leaves only a 2px target.
@@ -7927,7 +7933,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         }
         const daily = !huntOn && !wbOn ? digibotDailyStep(st,now) : null;
         if(daily){this.status=`Autopilot: ${daily}`;return;}
-        const lv = huntOn || wbOn ? null : levelRouteStep(st, sc, now, attackers);
+        const lv = huntOn || wbOn || cfg.eventsOnly ? null : levelRouteStep(st, sc, now, attackers);
         if (lv) { this.status = `Leveln: ${lv}`; this.attackedId = null; return; }
         attackers = sc ? sc.attackers.map((m) => m.id) : []; // die Lern-Route nimmt aussichtslose Angreifer heraus
       }
@@ -7956,6 +7962,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         if(!(cfg.hunt||cfg.wboss)){this.toggle();this.status='Quests fertig – Event-Funktionen ausgeschaltet';return;}
         if(this.attackedId || this.engage){commands()?.partnerStop?.();this.attackedId=null;this.engage=null;}
         this.status='Quests fertig – warte auf aktivierte Events';return;
+      }
+      // Modus „Nur Event/Weltboss“: außer Event und Weltboss nichts tun (keine Monster suchen, nicht grinden)
+      if(cfg.eventsOnly && !huntNow){
+        if(this.attackedId || this.engage){commands()?.partnerStop?.();this.attackedId=null;this.engage=null;}
+        this.status=!(cfg.hunt||cfg.wboss)?'Nur Event/Weltboss: 🎯 Event und 🌍 Weltboss sind aus – nichts zu tun':`Nur Event/Weltboss: warte auf ${[cfg.hunt&&'Event',cfg.wboss&&'Weltboss'].filter(Boolean).join(' und ')}…`;
+        return;
       }
       farm.leave = cfg.farm && !this.resting && !huntNow && farmGoalElsewhere(st, p, now, sc);
       const noFight = !huntNow && ((cfg.autopilot && !cfg.farm && nextIsTurnin(st, now)) || farm.leave);
@@ -8518,7 +8530,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
 
   const pageOn = (p) => !!panel.querySelector(`[data-page="${p}"]`)?.classList.contains('on');
   // Bereiche, die im aktuellen Modus nicht gelten, abblenden (z. B. Autopilot-Optionen in der Boss-Rotation)
-  const MODE_NAMES = { grind: 'Grinden', quest: 'Quest-Jagd', auto: 'Autopilot', farm: 'Bosse', dungeon: 'Dungeon' };
+  const MODE_NAMES = { grind: 'Grinden', quest: 'Quest-Jagd', auto: 'Autopilot', farm: 'Bosse', dungeon: 'Dungeon', events: 'Nur Event/Weltboss' };
   function syncModeScope() {
     const m = modeOf();
     panel.querySelectorAll('[data-modes]').forEach((el) => {
@@ -8972,7 +8984,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (tab) setTab(tab);
       const mode = e.target.closest('[data-mode]')?.dataset.mode;
       if (mode && mode !== modeOf()) {
-        cfg.questMode = mode === 'quest'; cfg.autopilot = mode === 'auto'; cfg.farm = mode === 'farm'; cfg.dungeon = mode === 'dungeon';
+        cfg.questMode = mode === 'quest'; cfg.autopilot = mode === 'auto'; cfg.farm = mode === 'farm'; cfg.dungeon = mode === 'dungeon'; cfg.eventsOnly = mode === 'events';
+        if (mode === 'events') { cfg.hunt = true; cfg.wboss = true; loadWorld(); } // ohne die beiden gäbe es nichts zu tun
         dg.reset();
         saveCfg(); autopilot.reset(); farm.reset(); questSig = '';
         if (mode === 'auto' || mode === 'farm') loadWorld();

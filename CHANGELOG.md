@@ -2,6 +2,16 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.0.4 – Modus „Nur Event/Weltboss“, hinter den Boss bei Fächern
+- **Neuer Modus „Nur Event/WB“:** Der Bot tut nichts anderes, als auf das Event (Mega-Jagd) und die Weltbosse zu
+  warten – keine Monster suchen, nicht grinden, keine Lern-Route. Ist eins fällig, reist er hin und kämpft, danach
+  wartet er wieder. Beim Wählen des Modus werden 🎯 Event und 🌍 Weltboss eingeschaltet.
+- **Fächer (Ultimate Flare, Reaper, Bao Bang Sweep …): hinter den Boss statt weit weg.** Neben einem Fächer zählt jetzt
+  der Winkel (25° gelten als voller Sicherheitsabstand) statt nur der Abstand zur Spitze. Der Platz direkt hinter dem
+  Boss ist damit frei, auch dicht dran, und das Digimon schlägt von dort weiter zu. Test-Boss (5 Runden): Reaper
+  allein 69 → 88 % Schaden, zu dritt 51 → 78 %; Ultimate Flare allein 2 → 0 Treffer, zu dritt 70 → 88 % Schaden;
+  Armageddemon-Raid weiter ohne Treffer.
+
 ## 3.0.3 – Map für Map: pro Map abgeben, längeres Log
 - **Abgeben pro Map:** In der Map-für-Map-Runde mit „erst alles erledigen, dann abgeben“ halten nur noch offene Ziele
   von Quests der aktuellen Runden-Map die Abgaben auf. Vorher blockierte jede offene Quest irgendwo (z. B. eine

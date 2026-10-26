@@ -7,7 +7,8 @@
 ## Aufbau des Panels (ab 2.6)
 Oben immer sichtbar:
 - **Modus-Schalter** – genau eine Betriebsart: **Grinden** (Monsterliste im Suchradius), **Quest-Jagd** (nur
-  Quest-Monster dieser Map), **Autopilot** (Quests komplett) oder **Bosse** (Boss-Rotation / Named-Elite-Runde).
+  Quest-Monster dieser Map), **Autopilot** (Quests komplett) oder **Bosse** (Boss-Rotation / Named-Elite-Runde),
+  dazu **Dungeon** und **Nur Event/WB** (ab 3.0.4: nichts anderes tun, nur auf Event und Weltbosse warten und dann kämpfen).
   Früher waren das einzelne Schalter in den Reitern.
 - **Start/Stopp** (Alt+B) mit dem Namen des Modus, darunter die Statuszeile (Maus darüber = ganzer Text)
 - **Mini-Leisten** für HP und DS des Digimons und die HP des Ziels – in jedem Reiter sichtbar
