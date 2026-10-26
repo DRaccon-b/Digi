@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.0.1
+// @version      3.0.2
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1476,7 +1476,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.0.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.0.2'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2286,11 +2286,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     return null;
   }
-  function digibotDodgeGridClear(a,b,grid,radius=0) {
+  // fromStart: der Abstand zu blockierten Feldern wächst erst vom Startpunkt aus auf radius an – wer dicht an einer Wand
+  // steht, darf von ihr weggehen (sonst fiel jede Strecke schon am Start durch: alles „nicht erreichbar“, 3.0.2)
+  function digibotDodgeGridClear(a,b,grid,radius=0,fromStart=false) {
     if(!grid?.blocked||!grid.w||!grid.h)return false;
-    const count=Math.max(1,Math.ceil(Math.hypot(b.x-a.x,b.y-a.y)/4)),tile=grid.tile||16,pad=radius?radius+2:0;
+    const len=Math.hypot(b.x-a.x,b.y-a.y),count=Math.max(1,Math.ceil(len/4)),tile=grid.tile||16,full=radius?radius+2:0;
     for(let i=0;i<=count;i++){
-      const x=a.x+(b.x-a.x)*i/count,y=a.y+(b.y-a.y)*i/count;
+      const x=a.x+(b.x-a.x)*i/count,y=a.y+(b.y-a.y)*i/count,pad=fromStart?Math.min(full,len*i/count):full;
       for(let gy=Math.floor((y-pad)/tile);gy<=Math.floor((y+pad)/tile);gy++)for(let gx=Math.floor((x-pad)/tile);gx<=Math.floor((x+pad)/tile);gx++)if(gx<0||gy<0||gx>=grid.w||gy>=grid.h||grid.blocked[gy*grid.w+gx]===1)return false;
     }
     return true;
@@ -2792,6 +2794,22 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // gekämpft, auch nicht gegen Angreifer (Map-Wechsel inklusive). Auch wenn der Autopilot die nächste Aufgabe noch
   // nicht gewählt hat (die alte ist erledigt, ein Angreifer kam dazwischen), wird vorausgeschaut (max. 1×/s).
   const PASSIVE = (tk) => !!tk && (tk.kind === 'talk' || tk.kind === 'reach');
+  // Quest-Boss (3.0.2, wie die Boss-Rotation): unterwegs zum Boss nicht kämpfen, auch nicht gegen Verfolger – weiter
+  // zum Spawnpunkt. Dort (FARM_ARRIVE, erst ab FARM_DEPART wieder „unterwegs“) Verfolger erledigen, solange der Boss
+  // fehlt; ist er da, wird er bekämpft. Nur bei mindestens halben HP, sonst erst normal zu Ende kämpfen.
+  function digibotQuestBossTravel(st, tk) {
+    if (tk.kind !== 'hunt' || !tk.loc?.boss || tk.grind) return false;
+    const p = st.me?.partner, me = controlled(st);
+    if (!me || !p?.maxHp || p.hp / p.maxHp < 0.5) return false;
+    const ents = window.dmo?.net?.state?.entities;
+    let bossHere = false;
+    ents?.forEach?.((e) => { if (e.kind === KIND.Mob && e.hp > 0 && (e.flags & FLAG.Boss) && tk.species?.has?.(e.defId)) bossHere = true; });
+    if (bossHere) { tk.bossArrived = true; return false; }
+    if (st.world?.mapId !== tk.loc.mapId) { tk.bossArrived = false; return true; }
+    const d = Math.hypot(me.x - tk.loc.x, me.y - tk.loc.y);
+    tk.bossArrived = d <= (tk.bossArrived ? FARM_DEPART : FARM_ARRIVE);
+    return !tk.bossArrived;
+  }
   const turninPeek = { at: 0, val: false };
   function nextIsTurnin(st, now) {
     if (group.role() === 'leader' && groupFighters(now).length && (Date.now() - (group.fightWait || now)) <= GROUP_FIGHT_MAX_MS) return false;
@@ -2805,11 +2823,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       return !!me && L.x != null && Math.hypot(me.x - L.x, me.y - L.y) > FOLLOW_FAR;
     }
     const tk = autopilot.task;
-    if (tk && !taskDone(st, tk)) return PASSIVE(tk);
+    if (tk && !taskDone(st, tk)) return PASSIVE(tk) || digibotQuestBossTravel(st, tk);
     if (world.state !== 'ready') return false;
     if (now - turninPeek.at > 1000) {
       turninPeek.at = now;
-      try { turninPeek.val = PASSIVE(questTasks(st)[0]); } catch { turninPeek.val = false; }
+      try { const nt = questTasks(st)[0]; turninPeek.val = PASSIVE(nt) || (!!nt && digibotQuestBossTravel(st, nt)); } catch { turninPeek.val = false; }
     }
     return turninPeek.val;
   }
@@ -3676,6 +3694,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const NPC_TALK_DIST = 36;       // so nah muss man für ein Gespräch stehen
   const WALK_RETRY_MS = 2500;     // Laufbefehl frühestens nach so langer Zeit ohne Fortschritt wiederholen
   const NAV_STUCK_MS = 15000;     // so lange kein Fortschritt -> Ziel gilt als unerreichbar
+  const UNREACH_SERIES = 3, UNREACH_WINDOW_MS = 15000; // so viele „nicht erreichbar“ so schnell hintereinander = Standortproblem
   const TASK_BAN_MS = 5 * 60000;  // gescheiterte Aufgabe so lange überspringen
   const HUNT_IDLE_MS = 90000;     // im Jagdgebiet so lange kein passendes Monster -> aufgeben
 
@@ -5147,7 +5166,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   function digibotNavigationSegment(a,b,grid,zones){
     const actual=worldScene()?.map?.grid;
-    return digibotDodgeGridClear(a,b,grid,5)&&(!actual?.blocked||actual.blocked===grid.blocked||digibotDodgeGridClear(a,b,actual,5))&&digibotDodgeZonePath(a,b,zones);
+    return digibotDodgeGridClear(a,b,grid,5,true)&&(!actual?.blocked||actual.blocked===grid.blocked||digibotDodgeGridClear(a,b,actual,5,true))&&digibotDodgeZonePath(a,b,zones);
   }
   function gridRoute(fromX,fromY,toX,toY,grid=null,nearest=false) {
     const g=grid||worldScene()?.map?.grid;
@@ -5289,6 +5308,21 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return true;
   }
 
+  // Nächstes freies Feld mit Platz drumherum, wenn der Tamer selbst an/auf einem blockierten Feld steht (sonst null)
+  function digibotFreeStep(me){
+    const g=worldScene()?.map?.grid;
+    if(!g?.blocked||!me||digibotDodgeGridClear(me,me,g,5))return null;
+    const T=g.tile||16,cx=Math.floor(me.x/T),cy=Math.floor(me.y/T);
+    const ownBlocked=cx<0||cy<0||cx>=g.w||cy>=g.h||g.blocked[cy*g.w+cx]===1;
+    let best=null,bd=Infinity;
+    for(let r=0;r<=6&&!best;r++)for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++){
+      if(Math.max(Math.abs(dx),Math.abs(dy))!==r)continue;
+      const p={x:(cx+dx+.5)*T,y:(cy+dy+.5)*T},d=Math.hypot(p.x-me.x,p.y-me.y);
+      if(d>=bd||!digibotDodgeGridClear(p,p,g,5)||!(ownBlocked||digibotDodgeGridClear(me,p,g,5,true)))continue;
+      best=p;bd=d;
+    }
+    return best;
+  }
   // Keep a successful native movement order intact. Guarded routes keep two
   // verified segments ready and hand off early only across a safe shortcut.
   const LONG_WALK = 260; // weiter als das: über die Wegfindung laufen (Spiegeln zum Leader) – fehlte in CDigi, Spiegeln brach ab
@@ -5319,6 +5353,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if(zones.length&&zones.every(z=>digibotDodgeZoneSafe(z,me))&&gridRoute(me.x,me.y,x,y,digibotPortalGrid(st,options.portal),!!options.nearestSafe)){
         if(!nav.held){worldScene()?.tapGround?.(me.x,me.y);if(st.me?.partner?.entityId)commands()?.partnerStop?.();}
         nav.held=true;nav.wp={x:me.x,y:me.y};nav.progressAt=now;nav.hazardWaitKey=zoneKey;nav.waitCheckAt=now;nav.nextWp=null;
+        return d;
+      }
+      // Steht der Tamer selbst auf/an einem blockierten Feld (nach Kampf oder Rückstoß), erst auf freien Boden gehen,
+      // statt das Ziel als unerreichbar zu werten (3.0.2)
+      if(nav.freeAt&&now-nav.freeAt<1500)return d;
+      const free=(nav.freeTries||0)<3?digibotFreeStep(me):null;
+      if(free){
+        if(!nav.freeTries)logEvent('auto','Stehe an einer Wand – gehe erst auf freien Boden');
+        worldScene()?.tapGround?.(free.x,free.y);autopilot.lastTap=now;autopilot.route=null;
+        nav.freeTries=(nav.freeTries||0)+1;nav.freeAt=now;nav.wp=free;nav.held=false;nav.progressAt=now;
         return d;
       }
       return 'stuck';
@@ -5703,6 +5747,21 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       autopilot.failed.set(t.key, now + TASK_BAN_MS);
       autopilot.reset();
       logEvent('warn', `${t.label}: ${why} – 5 min übersprungen`);
+      // Sicherheitsgurt (3.0.2): mehrere Ziele kurz hintereinander „nicht erreichbar“ liegt fast immer am eigenen
+      // Standort – auf freien Boden gehen und die Ziele wieder freigeben, statt den Bot zu stoppen (höchstens 2× in 10 min)
+      if (/nicht erreichbar/.test(why)) {
+        const rec = (autopilot.unreach || []).filter((x) => now - x.at < UNREACH_WINDOW_MS);
+        rec.push({ at: now, key: t.key }); autopilot.unreach = rec;
+        const resets = (autopilot.unreachResets || []).filter((at) => now - at < 600000);
+        if (rec.length >= UNREACH_SERIES && resets.length < 2) {
+          autopilot.unreachResets = [...resets, now]; autopilot.unreach = [];
+          for (const x of rec) autopilot.failed.delete(x.key);
+          const free = digibotFreeStep(controlled(st));
+          if (free) worldScene()?.tapGround?.(free.x, free.y);
+          logEvent('warn', `${rec.length} Ziele hintereinander nicht erreichbar – liegt wohl am Standort${free ? ', gehe auf freien Boden' : ''} und versuche es erneut`);
+          return 'Mehrere Ziele nicht erreichbar – versuche es erneut…';
+        }
+      }
       return `${t.label}: ${why} – übersprungen`;
     };
     const gc = autopilot.mapTalk ? null : groupCombatWait(st, t, now);

@@ -2,6 +2,23 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.0.2 – Kein Stopp mehr an der Wand, Test-Boss
+- **„Alles nicht erreichbar“ behoben:** Stand der Tamer nach einem Kampf dicht an einer Wand (unter 7 px), fiel jede
+  Laufprüfung schon am Startpunkt durch – der Bot übersprang im Sekundentakt jede Aufgabe als „nicht erreichbar“ und
+  stoppte mit „keine machbaren Quests mehr“ (live in The Kaiser's Fortress). Jetzt:
+  - Von einer Wand weggehen ist erlaubt (der Abstand wächst erst vom Startpunkt aus an; in die Wand hinein bleibt verboten).
+  - Steht der Tamer auf einem blockierten Feld, geht er zuerst auf freien Boden („Stehe an einer Wand …“ im Log).
+  - Sicherheitsgurt: drei Ziele in 15 s „nicht erreichbar“ gelten als Standortproblem – freier Boden, Ziele wieder
+    freigeben und neu versuchen statt stoppen (höchstens 2× in 10 min, danach wie bisher).
+- **Quest-Bosse wie die Boss-Rotation:** Auf dem Weg zu einem Quest-Boss (Bounty u. a.) kämpft der Autopilot nicht mehr
+  gegen Verfolger, sondern läuft weiter zum Spawnpunkt. Dort (ab 200 px, wieder „unterwegs“ ab 350 px) erledigt er sie,
+  solange der Boss fehlt; ist der Boss da, wird er bekämpft. Nur bei mindestens halben HP – sonst erst zu Ende kämpfen.
+- **Test-Boss (Stufe 1):** `node sim/testboss.js` – eine Arena mit einem Boss, der jede Grundform einer Boss-Attacke
+  mit echten Spielwerten wirkt (Warnkreis, tankbarer Kreis, Kreis um den Boss, zwei Ringe mit sicherem Innenkreis,
+  Strahl, Ansturm mit Folge-Stößen, vier Bahnen, Spiegel, Zurück-Digitieren, Kreis auf jedem Spieler, raumweiter Kreis).
+  Ausgabe je Attacke: getroffen, getankt, ausgewichen, unnötig gelaufen und wie viel Schaden am Boss verloren ging.
+  `GRUPPE`, `RUNDEN`, `NUR`, `TEMPO` wie bei den anderen Probeläufen.
+
 ## 3.0.1 – Presets, Boss-Quests ohne Leerlauf
 - **Presets:** 💾 Preset speichern legt alle Bot-Einstellungen unter einem Namen als `.txt` ab, 📂 Preset laden holt
   sie zurück. Accounts, Benutzernamen und Passwörter kommen nie hinein, Panel-Ansicht und Rundenfortschritt auch nicht.
