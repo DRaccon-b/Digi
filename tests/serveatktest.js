@@ -11,7 +11,7 @@ async function run(serve) {
     extraEnts: () => [{ id: 't:lead', kind: 0, x: 440, y: 330, hp: 1, flags: 0, targetId: 'm:1' }] });
   setInterval(() => { const m = F.ents.get('m:1'); if (m) { m.targetId = 't:lead'; m.flags |= 32 | 8; m.hp = 300; } }, 50);
   F.w.eval(script);
-  const bus = new BroadcastChannel('digibot-group');
+  const bus = require('./groupbus')('digibot-group');
   const tick = setInterval(() => bus.postMessage({ type: 'state', slot: 0, role: 'leader', name: 'Lead', inWorld: true, mapId: 'native_forest', channel: 1, x: 440, y: 330,
     bot: true, status: 'x', quests: {}, fin: ['q00_meet_gennai'], ents: ['t:lead'], talks: [], done: [], busy: null, noFight: false, task: null, hunt: [], targetId: 'm:1', serve }), 300);
   await wait(1200);

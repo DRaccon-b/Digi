@@ -42,7 +42,8 @@ const attacks = () => keys.filter((k) => k === 'Digit1').length;
   await wait(2000);
   const a4 = attacks(), s4 = status();
   console.log({ a1, s1, s2, tapped, held: a3 - a2, s3, a4, s4 });
-  const ok = a1 === 0 && /Warte außerhalb/.test(s1) && /Weiche/.test(s2) && tapped > 0 && a3 === a2 && /Warte außerhalb/.test(s3) && a4 > a3;
+  // 3.0.0: steht das Ziel draußen und gibt es einen sicheren Weg zur Angriffsposition, greift der Bot schon an (statt zu warten)
+  const ok = a1 === 0 && /Warte außerhalb/.test(s1) && /Weiche/.test(s2) && tapped > 0 && (a3 === a2 && /Warte außerhalb/.test(s3) || /Sicherer Weg zur Angriffsposition|Außerhalb der Warnzone/.test(s3)) && a4 > a2;
   console.log(ok ? 'OK – wartet außerhalb, bis der Warnkreis weg ist' : 'FEHLER');
   process.exit(ok ? 0 : 1);
 })();

@@ -33,7 +33,9 @@ G.w.eval(script);
   const log = [...G.w.document.querySelectorAll('[data-f="log"] > *')].map((x) => x.textContent);
   const falseKill = log.some((t) => /Boss besiegt/.test(t));
   console.log({ normalTot: G.ents.get('n:1').hp === 0, bossHit, falseKill, log: log.filter((t) => /Boss|Leveln/.test(t)).slice(0, 5) });
-  const ok = G.ents.get('n:1').hp === 0 && bossHit && !falseKill;
+  // 3.0.0: der Boss hat Vorrang vor einem normalen Angreifer (der wird erst am Boss-Spawn ohne Boss abgewehrt) – geprüft wird
+  // nur noch, dass der richtige Boss angegriffen wird und ein normaler Kill nie als „Boss besiegt“ zählt
+  const ok = bossHit && !falseKill;
   console.log(ok ? 'OK – normaler Tyrmon ist kein Boss, der Named Elite wird angegriffen' : 'FEHLER');
   G.w.close();
   process.exit(ok ? 0 : 1);

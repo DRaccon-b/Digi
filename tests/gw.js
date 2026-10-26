@@ -121,14 +121,15 @@ module.exports = function makeWorld({ slot, quests, accounts, tag, setup, viewRa
   const scene = {
     deps: { content, commands, assetsBase: '/assets/', manifest: { maps: { native_forest: { tmj: 'maps/native_forest.tmj' }, primary_village: { tmj: 'maps/primary_village.tmj' } } } },
     controlledId: () => 't:me',
+    map: { grid: { w: 120, h: 120, tile: 16, blocked: new Uint8Array(120 * 120) } }, // begehbares Raster (Wegfindung des Bots)
     tapGround: (x, y) => { goal = { x, y }; },
     select: (id) => {
       const e = ents.get(id);
       store.setState({ target: e ? { id, kind: 'mob', name: 'Kunemon', level: e.level, hp: e.hp, maxHp: e.maxHp } : null });
     },
   };
-  w.fetch = async (url) => ({ json: async () => MAPS[url.match(/maps\/(\w+)\.tmj/)[1]] });
-  w.dmo = { store, net: { state: { entities: ents }, charId: 'c1' }, game: { scene: { getScene: (k) => (k === 'world' ? scene : null) } } };
+  w.fetch = async (url) => ({ ok: true, status: 200, json: async () => MAPS[url.match(/maps\/(\w+)\.tmj/)[1]] });
+  w.dmo = { store, net: { state: { entities: ents }, charId: 'c1', connected: true, transferring: false }, game: { scene: { getScene: (k) => (k === 'world' ? scene : null) } } };
   w.addEventListener('keydown', (e) => {
     if (e.code !== 'Digit1' || !state.target) return;
     const m = ents.get(state.target.id);

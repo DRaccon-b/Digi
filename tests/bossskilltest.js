@@ -21,7 +21,7 @@ C.digimon.kuwagamon.skills = [
 ];
 C.skills = Object.fromEntries(C.digimon.kuwagamon.skills.map((k) => [k.id, k]));
 for (const id of ['m:1', 'm:2', 'm:3', 'm:4', 'm:6']) F.ents.delete(id);
-{ const b = F.ents.get('m:5'); b.hp = Math.floor(b.maxHp * 0.98); } // nicht frisch gespawnt (Spawn-Schutz gilt seit 2.13.3 überall)
+{ const b = F.ents.get('m:5'); b.x = 600; b.y = 480; b.hp = Math.floor(b.maxHp * 0.98); } // nicht frisch gespawnt (Spawn-Schutz gilt seit 2.13.3 überall); 3.0.0: in Reichweite – die Testwelt bewegt den Tamer nicht, und weit entfernte Bosse läuft der Bot erst an
 const me = F.store.getState().me;
 F.store.setState({ me: { ...me, hotbar: ['cmd:attack', 'skill:2', 'skill:0', null, null, null, null, null, 'item:meat'],
   partner: { ...me.partner, skills: [...me.partner.skills, { name: 'Gaia Force', dsCost: 0, unlocked: true, castMs: 1200 }] } } });

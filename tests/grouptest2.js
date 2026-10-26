@@ -6,7 +6,7 @@ const script = fs.readFileSync(process.argv[2], 'utf8');
 const accounts = { leader: 0, popup: true, list: [{ on: true, user: 'lead', char: 'Lead' }, { on: true, user: 'foll', char: 'Foll' }] };
 const G = makeWorld({ slot: 1, tag: 'Folger', accounts, quests: { q00_meet_gennai: { state: 3, counters: [] } } });
 G.w.eval(script);
-const bus = new BroadcastChannel('digibot-group');
+const bus = require('./groupbus')('digibot-group');
 const seen = { busy: false, done: false };
 bus.onmessage = (e) => {
   const m = e.data;

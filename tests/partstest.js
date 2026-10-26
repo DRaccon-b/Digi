@@ -26,6 +26,7 @@ const G = makeWorld({ slot: 0, tag: 'Solo', noHash: true, accounts: { leader: 0,
     if (m.defId === 'kunemon' && q.q_a.state === 1) api.setQuest('q_a', { state: 2, counters: [1] });
     if (m.defId === 'mushroomon' && q.q_b.state === 1) { const c = q.q_b.counters[0] + 1; api.setQuest('q_b', { state: c >= 3 ? 2 : 1, counters: [c] }); }
   } });
+G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: true, apBatch: false })); // 3.0.0: Standard ist jetzt „erst alles erledigen, dann abgeben“ – hier das Abgeben zwischendurch
 G.w.eval(script);
 (async () => {
   await wait(800);

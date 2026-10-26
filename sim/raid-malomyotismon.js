@@ -130,14 +130,15 @@ function makeWindow(i) {
   const scene = {
     deps: { content: CONTENT(), commands, assetsBase: '/assets/', manifest: { maps: { [MAP]: { tmj: `maps/${MAP}.tmj` }, myotismon_castle: { tmj: 'maps/myotismon_castle.tmj' } } } },
     controlledId: () => `t:${i}`,
+    map: { grid: { w: 160, h: 120, tile: 16, blocked: new Uint8Array(160 * 120) } }, // begehbares Raster (Wegfindung des Bots)
     tapGround: (x, y) => { pl.goal = { x, y }; },
     select: (id) => { const e = view.get(id); store.setState({ target: e ? targetOf(e) : null }); },
     telegraphs: { active: [], circles: [], marksActive: [], mirrors: [] },
     mechB: { lines: [], view: { t: 'mech' } },
   };
   pl.scene = scene;
-  w.fetch = async (url) => ({ json: async () => ({ layers: [{ type: 'objectgroup', name: 'objects', objects: MAPS[url.match(/maps\/(\w+)\.tmj/)[1]] || [] }] }) });
-  w.dmo = { store, net: { state: { entities: view }, charId: `c${i}`, on: (n, fn) => { pl.handlers[n] = fn; return () => {}; } }, game: { scene: { getScene: (k) => (k === 'world' ? scene : null) } } };
+  w.fetch = async (url) => ({ ok: true, status: 200, json: async () => ({ layers: [{ type: 'objectgroup', name: 'objects', objects: MAPS[url.match(/maps\/(\w+)\.tmj/)[1]] || [] }] }) });
+  w.dmo = { store, net: { state: { entities: view }, charId: `c${i}`, connected: true, transferring: false, on: (n, fn) => { pl.handlers[n] = fn; return () => {}; } }, game: { scene: { getScene: (k) => (k === 'world' ? scene : null) } } };
   w.addEventListener('keydown', (e) => {
     if (e.code !== 'F1' || pl.fainted) return;
     const me = state.me, inv = me.inventory.find((x) => x.itemId === 'hp_pot');

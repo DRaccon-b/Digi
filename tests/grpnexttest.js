@@ -14,7 +14,7 @@ setInterval(() => { const a = F.ents.get('m:1'), b = F.ents.get('m:2'), c = F.en
   if (b) { b.hp = 300; b.targetId = 'p:me'; b.flags |= 32; } if (c) { c.hp = 300; c.targetId = 't:lead'; c.flags |= 32; } }, 50);
 F.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: true, apGrind: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'acc', radius: 400 }));
 F.w.eval(script);
-const bus = new BroadcastChannel('digibot-group');
+const bus = require('./groupbus')('digibot-group');
 let lt = 'm:1';
 const tick = setInterval(() => bus.postMessage({ type: 'state', slot: 0, role: 'leader', name: 'Lead', inWorld: true, mapId: 'native_forest', channel: 1, x: 600, y: 330,
   bot: true, status: 'x', quests: {}, fin: ['q00_meet_gennai', 'q02_first_steps'], ents: ['t:lead'], talks: [], done: [], busy: null, noFight: false, task: null, hunt: [], targetId: lt }), 200);

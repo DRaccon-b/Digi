@@ -24,7 +24,7 @@ setInterval(() => { // Spiel: Zone betreten zählt
 // --- Leader ---
 const A = makeWorld({ slot: 0, tag: 'Leader', accounts, setup, extraEnts, mobs: [], quests: { q00_meet_gennai: { state: 3, counters: [] }, q_r: { state: 2, counters: [1] } } });
 A.w.eval(script);
-const bus = new BroadcastChannel('digibot-group');
+const bus = require('./groupbus')('digibot-group');
 const talks = [{ key: 'reach:q_r:0@1', tkey: 'reach:q_r:0', kind: 'reach', at: Date.now(), purpose: undefined, questId: 'q_r', objIndex: 0, need: 1, npcId: undefined,
   pool: null, loc: { mapId: 'native_forest', x: 725, y: 525 }, label: 'Zur Lichtung: nach Native Forest (glade) reisen' }];
 // Für B spielt ein Test-Leader (Slot 0) – A ist auch Slot 0; damit B nicht A folgt, schickt der Test die Gespräche mit

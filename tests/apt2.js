@@ -123,6 +123,7 @@ const scene = {
     content, commands, assetsBase: '/assets/',
     manifest: { maps: { native_forest: { tmj: 'maps/native_forest.tmj' }, primary_village: { tmj: 'maps/primary_village.tmj' } } },
   },
+  map: { grid: { w: 120, h: 120, tile: 16, blocked: new Uint8Array(120 * 120) } }, // begehbares Raster (Wegfindung des Bots)
   controlledId: () => 't:me',
   tapGround: (x, y) => { goal = { x, y }; },
   select: (id) => {
@@ -130,8 +131,8 @@ const scene = {
     store.setState({ target: e ? { id, kind: 'mob', name: e.defId, level: e.level, hp: e.hp, maxHp: e.maxHp } : null });
   },
 };
-w.fetch = async (url) => ({ json: async () => MAPS[url.match(/maps\/(\w+)\.tmj/)[1]] });
-w.dmo = { store, net: { state: { entities: ents } }, game: { scene: { getScene: (k) => (k === 'world' ? scene : null) } } };
+w.fetch = async (url) => ({ ok: true, status: 200, json: async () => MAPS[url.match(/maps\/(\w+)\.tmj/)[1]] });
+w.dmo = { store, net: { state: { entities: ents }, connected: true, transferring: false }, game: { scene: { getScene: (k) => (k === 'world' ? scene : null) } } };
 // Kampf: Taste 1 -> 150 Schaden aufs Ziel; Tod zaehlt fuer die Kill-Quest
 w.addEventListener('keydown', (e) => {
   if (e.code !== 'Digit1' || !state.target) return;

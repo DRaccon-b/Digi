@@ -11,7 +11,7 @@ L.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot
 L.w.eval(script);
 const results = [];
 const check = (name, ok, info) => { results.push(ok); console.log((ok ? 'OK     ' : 'FEHLER ') + name, info ?? ''); };
-const bus = new BroadcastChannel('digibot-group');
+const bus = require('./groupbus')('digibot-group');
 const tick = setInterval(() => bus.postMessage({ type: 'state', slot: 1, role: 'follower', name: 'Clavis', inWorld: true, mapId: 'native_forest', channel: 2, x: 420, y: 330,
   bot: true, status: 'Gruppe: bei Lead', quests: {}, ents: [], talks: [], done: [], busy: null, task: null, hunt: [], targetId: null, hp: 30, kohAt: Date.now() - 1 }), 300);
 (async () => {

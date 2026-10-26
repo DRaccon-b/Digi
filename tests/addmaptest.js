@@ -46,7 +46,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   F.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: true, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20 }));
   F.w.eval(script);
   const { BroadcastChannel } = require('worker_threads');
-  const bus = new BroadcastChannel('digibot-group');
+  const bus = require('./groupbus')('digibot-group');
   const me = F.ents.get('t:me');
   const lead = () => bus.postMessage({ type: 'state', slot: 0, role: 'leader', name: 'Lead', inWorld: true, mapId: 'native_forest', channel: 1,
     x: me?.x ?? 300, y: me?.y ?? 300, bot: true, status: 'Bosse: warte', quests: {}, ents: [], targetId: null, hunt: [], noFight: false,

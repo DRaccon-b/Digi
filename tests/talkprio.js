@@ -17,7 +17,7 @@ const B = makeWorld({ slot: 1, tag: 'Folger', accounts, mobs: [[380, 330, 'kunem
 B.w.eval(script);
 // Angreifer: hört nie auf anzugreifen (stirbt nicht, HP bleiben)
 setInterval(() => { const m = B.ents.get('m:1'); if (m) { m.targetId = 'p:me'; m.flags = 32; m.hp = 300; } }, 100);
-const bus = new BroadcastChannel('digibot-group');
+const bus = require('./groupbus')('digibot-group');
 const talks = [{ key: 'accept:q07_task@1', tkey: 'accept:q07_task', kind: 'talk', at: Date.now(), purpose: 'accept', questId: 'q07_task', objIndex: null, need: null,
   npcId: 'elder', pool: null, loc: { mapId: 'native_forest', x: 330, y: 300 }, label: '„Patrol“ annehmen bei Elder' }];
 const tick = setInterval(() => bus.postMessage({ type: 'state', slot: 0, role: 'leader', name: 'Lead', inWorld: true, mapId: 'native_forest', channel: 1, x: 340, y: 320,

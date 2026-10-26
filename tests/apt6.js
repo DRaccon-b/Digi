@@ -150,12 +150,13 @@ const commands = {
 };
 const scene = {
   deps: { content, commands, assetsBase: '/assets/', manifest: { maps: Object.fromEntries(Object.keys(MAPS).map((k) => [k, { tmj: `maps/${k}.tmj` }])) } },
+  map: { grid: { w: 120, h: 120, tile: 16, blocked: new Uint8Array(120 * 120) } }, // begehbares Raster (Wegfindung des Bots)
   controlledId: () => 't:me',
   tapGround: (x, y) => { goal = { x, y }; },
   select: (id) => { const e = ents.get(id); store.setState({ target: e ? { id, kind: 'mob', name: e.defId, level: e.level, hp: e.hp, maxHp: e.maxHp } : null }); },
 };
-w.fetch = async (url) => ({ json: async () => MAPS[url.match(/maps\/(\w+)\.tmj/)[1]] });
-w.dmo = { store, net: { state: { entities: ents } }, game: { scene: { getScene: (k) => (k === 'world' ? scene : null) } } };
+w.fetch = async (url) => ({ ok: true, status: 200, json: async () => MAPS[url.match(/maps\/(\w+)\.tmj/)[1]] });
+w.dmo = { store, net: { state: { entities: ents }, connected: true, transferring: false }, game: { scene: { getScene: (k) => (k === 'world' ? scene : null) } } };
 w.addEventListener('keydown', (e) => {
   if (e.code === 'F3') { // DS-Trank
     const inv = state.me.inventory.map((it) => it && it.itemId === 'ds_pot' ? { ...it, qty: it.qty - 1 } : it);

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      2.55.0
+// @version      3.0.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -13,6 +13,911 @@
 
 (function () {
   'use strict';
+// DigiBot: lifecycle, action arbitration, bounded diagnostics and group envelopes.
+function createDigiBotCore({ now = Date.now, state, halt, network = () => null, trace = () => {}, diagnostics = () => ({}), signal = () => {}, random = Math.random }) {
+  let armed = false, loginOnly = false, latch = '', epoch = 0, owner = null;
+  let lastMove = -Infinity, lastPriority = -1, lastStore = now(), lastLeader = null;
+  const timers = new Set(), records = [], critical = [], peers = new Map();
+  const session = `${now().toString(36)}-${random().toString(36).slice(2)}`;
+  let seq = 0, loadingAt = null;
+  function record(reason, details = {}, important = false) {
+    // Explicit allowlist: never serialize game state, credentials or messages wholesale.
+    const row = { at: now(), reason: String(reason).slice(0, 180) };
+    for (const key of ['map', 'channel', 'target', 'hp', 'action', 'mode', 'duration', 'slot','id','status','evidence']) {
+      if (['string', 'number', 'boolean'].includes(typeof details[key])) row[key] = typeof details[key] === 'string' ? details[key].slice(0, 120) : details[key];
+    }
+    trace(row,important);
+    records.push(row); if (records.length > 500) records.shift();
+    if(important){critical.push(row);if(critical.length>100)critical.shift();}
+  }
+  function stop(reason = 'Manuell gestoppt', locked = false) {
+    armed = false; loginOnly = false; epoch++; owner = null;
+    for (const id of timers) clearTimeout(id); timers.clear();
+    if (locked) latch = reason;
+    halt(reason,{locked}); record(reason,{},true); if (locked) signal(reason);
+  }
+  function health() {
+    const st = state();
+    if (st?.challenge) return 'Anwesenheitskontrolle – bitte selbst beantworten';
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return 'Verbindung unterbrochen';
+    if(loginOnly && st?.screen==='disconnected')return 'Verbindung unterbrochen';
+    const net=network();
+    if(!loginOnly && net && st?.screen==='world' && (net.transfer || !net.ready)) {loadingAt ??= now();return now()-loadingAt<60000?'__loading':'Netzwerkübergang dauert zu lange – Verbindung prüfen';}
+    if (!loginOnly && (st?.screen === 'loading' || (st?.screen === 'world' && !st.me?.partner))) { loadingAt ??= now(); return now()-loadingAt<15000 ? '__loading' : 'Karten-/Kanalwechsel dauert zu lange – Verbindung prüfen'; }
+    loadingAt=null;
+    if (!loginOnly && (st?.screen !== 'world' || !st.me?.partner)) return 'Spielwelt nicht verfügbar – neu starten, sobald verbunden';
+    if (!loginOnly && !net?.ready && now() - lastStore > 30000) return 'Spieldaten seit 30 Sekunden unverändert – Verbindung prüfen';
+    return '';
+  }
+  function inspect() {
+    const why = health();
+    if ((armed||owner?.passive) && why && why !== '__loading') stop(why, true);
+    return !why;
+  }
+  function start(manual = false, login = false) {
+    if (latch && !manual) return false;
+    loginOnly = login;
+    const why = health();
+    if (why) { loginOnly = false; latch = why === '__loading' ? 'Spielwelt wird noch geladen – bitte kurz warten' : why; signal(latch); return false; }
+    latch = ''; armed = true; epoch++; owner=null; record(login ? 'Manuelle Anmeldung abwarten' : 'Gestartet'); return true;
+  }
+  function allowed() { return (armed||owner?.passive===true) && inspect(); }
+  function run(mode, priority, fn) {
+    if (!allowed() || owner || (loginOnly && !['Gruppe','Account-Runde'].includes(mode))) return;
+    const token = epoch, started = now(); owner = { mode, priority };
+    try { return fn(); }
+    catch (e) { record('Fehler im Ablauf', { mode, action: e?.name || 'Error' }); stop(`Fehler in ${mode} – Diagnose exportieren`, true); }
+    finally { if (token === epoch) owner = null; if (now() - started > 50) record('Langsamer Durchlauf', { mode, duration: now() - started }); }
+  }
+  function enablePassive(manual=false) {
+    if(!manual)return false;const why=health();if(why)return false;
+    latch='';record('Gruppenfunktionen manuell freigegeben');return true;
+  }
+  function runPassive(mode,priority,fn) {
+    if(!['Gruppe','Spiegeln'].includes(mode)||latch||owner)return;
+    const why=health();if(why){if(why!=='__loading')stop(why,true);return;}
+    const scope={mode,priority,passive:true};owner=scope;
+    try{return fn();}catch(e){record('Fehler im Gruppenablauf',{mode,action:e?.name||'Error'},true);stop(`Fehler in ${mode}`,true);}
+    finally{if(owner===scope)owner=null;}
+  }
+  function action(name, fn, args) {
+    if (!allowed()) return;
+    if (/tapGround|moveTo/.test(name)) {
+      const priority = owner?.priority ?? 0;
+      if (now() - lastMove < 180 && priority <= lastPriority) return;
+      lastMove = now(); lastPriority = priority;
+    }
+    const st = state();
+    if (/select|switchChannel|teleport|tapGround/.test(name)) record('Aktion', { action: name, map: st?.world?.mapId, channel: st?.world?.channel, target: st?.target?.id, hp: st?.target?.hp });
+    return fn(...args);
+  }
+  function defer(fn, ms) {
+    const token = epoch;
+    const id = setTimeout(() => { timers.delete(id); if (token === epoch && allowed()) fn(); }, ms);
+    timers.add(id); return id;
+  }
+  function envelope(message, slot, leader) { return { ...message, protocol: 'digibot/1', slot, leader, session, seq: ++seq, sentAt: now() }; }
+  function accept(m, slot, leader, enabled) {
+    if (!m || m.protocol !== 'digibot/1' || !Number.isInteger(m.slot) || m.slot < 0 || m.slot >= 5 || m.slot === slot || !enabled(m.slot)) return false;
+    if (m.leader !== leader || typeof m.session !== 'string' || m.session.length > 80 || !Number.isSafeInteger(m.seq) || !Number.isFinite(m.sentAt) || Math.abs(now() - m.sentAt) > 6000) return false;
+    if (!['state','pos','start','stop','invite','maptalk','koh','kohplan'].includes(m.type)) return false;
+    if (['start','maptalk','pos'].includes(m.type) && m.slot !== leader) return false;
+    if (['start','maptalk'].includes(m.type) && latch) return false;
+    if (lastLeader !== leader) { peers.clear(); lastLeader = leader; }
+    const p = peers.get(m.slot);
+    if (p && p.session === m.session && m.seq <= p.seq) return false;
+    if (p && p.session !== m.session && m.sentAt <= p.at) return false;
+    peers.set(m.slot, { session: m.session, seq: m.seq, at: m.sentAt });
+    if (m.type === 'state' && (typeof m.inWorld !== 'boolean' || !Array.isArray(m.ents) || m.ents.length > 10)) return false;
+    return true;
+  }
+  function priority(value, fn) { const old=owner;owner={mode:old?.mode||'Sicherheit',priority:value};try{return fn();}finally{owner=old;} }
+  function loginMode(value){if(!armed||latch)return false;loginOnly=!!value;return true;}
+  return { runPassive, enablePassive, loginMode, priority, start, stop, inspect, allowed, run, action, defer, record, envelope, accept,
+    touch: () => { lastStore = now(); }, get armed() { return armed; }, get latched() { return !!latch; },
+    export: () => JSON.stringify({ format: 'digibot-diagnostics/1', records, critical, ...diagnostics() }, null, 2) };
+}
+
+// Fester Platz je Slot: getrennte Sektoren um den Boss/Spawnpunkt plus Abstand zu den Plätzen der anderen Fenster.
+// Kein Zufall und keine künstliche Aufbruch-Verzögerung (keine Verschleierung) – nur so viel Abstand, dass nicht alle auf
+// einem Fleck stehen und ein Flächenangriff nicht alle zugleich trifft.
+function createDigiBotFormation({ now = Date.now } = {}) {
+  let cached = null;
+  const failed = new Set();
+  function reset() { cached = null; failed.clear(); }
+  function delay() { return 0; } // gemeinsamer Aufbruch
+  function point(key, center, slot, valid, peers = [], radius = 120) {
+    if (!center || !Number.isFinite(center.x) || !Number.isFinite(center.y)) return null;
+    if (cached?.key !== key) { cached = null; failed.clear(); }
+    const free = p => valid(p) && !peers.some(q => Math.hypot(p.x-q.x,p.y-q.y) < 38);
+    if (cached?.key === key && Math.hypot(center.x-cached.center.x,center.y-cached.center.y)<80 && free(cached.point)) return cached.point;
+    // Sektormitte zuerst, dann feste Schritte zur Seite und nach innen/außen
+    const base = (slot % 5) * Math.PI * 2 / 5;
+    for (const dr of [1, 0.85, 1.15, 0.75, 1.25]) for (const da of [0, 0.15, -0.15, 0.3, -0.3]) {
+      const angle = base + da, r = radius * dr;
+      const p = {x:center.x+Math.cos(angle)*r,y:center.y+Math.sin(angle)*r};
+      const cell = `${Math.round(p.x/24)},${Math.round(p.y/24)}`;
+      if (!failed.has(cell) && free(p)) { cached={key,center:{...center},point:p};return p; }
+    }
+    return null; // no safe point: do not fall back to the occupied center
+  }
+  function reject() { if(cached) { failed.add(`${Math.round(cached.point.x/24)},${Math.round(cached.point.y/24)}`); cached.point={x:NaN,y:NaN}; } }
+  return { reset,delay,point,reject,get reservation(){return cached && Number.isFinite(cached.point.x)?{key:cached.key,...cached.point}:null;} };
+}
+
+function digibotRecord(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
+function digibotClean(v, depth=0) {
+  if(depth>6)return undefined;
+  if(Array.isArray(v))return v.slice(0,500).map(x=>digibotClean(x,depth+1)).filter(x=>x!==undefined);
+  if(digibotRecord(v))return Object.fromEntries(Object.entries(v).slice(0,1000).filter(([k])=>!['__proto__','constructor','prototype'].includes(k)).map(([k,x])=>[k,digibotClean(x,depth+1)]).filter(([,x])=>x!==undefined));
+  if(typeof v==='string')return v.slice(0,1000);
+  if(typeof v==='boolean'||(typeof v==='number'&&Number.isFinite(v)))return v;
+  return undefined;
+}
+function digibotConfig(saved, defaults) {
+  const out=JSON.parse(JSON.stringify(defaults)), issues=[];
+  if(!digibotRecord(saved))return {value:out,issues:['Ungültiges Einstellungsformat']};
+  const bounds={width:[300,900],radius:[80,2000],lvlDiff:[-100,100],hpPot:[0,100],dsPot:[0,100],tdsPot:[0,100]};
+  const boolMap=v=>Object.fromEntries(Object.entries(digibotRecord(v)?digibotClean(v):{}).filter(([,x])=>typeof x==='boolean'));
+  const skills=v=>Object.fromEntries(Object.entries(boolMap(v)).filter(([k])=>/^[2-6]$/.test(k)));
+  const heals=v=>Object.fromEntries(Object.entries(digibotRecord(v)?digibotClean(v):{}).filter(([k,x])=>/^[2-6]$/.test(k)&&typeof x==='number').map(([k,x])=>[k,Math.max(0,Math.min(100,x))]));
+  for(const [k,d]of Object.entries(defaults)) {
+    if(!Object.hasOwn(saved,k))continue;const v=saved[k];
+    if(Array.isArray(d)) {if(Array.isArray(v)&&v.every(x=>typeof x===typeof d[0]))out[k]=digibotClean(v);else issues.push(k);}
+    else if(digibotRecord(d)) {if(digibotRecord(v))out[k]=digibotClean(v);else issues.push(k);}
+    else if(typeof v===typeof d&&(typeof v!=='number'||Number.isFinite(v)))out[k]=v;else issues.push(k);
+  }
+  for(const [k,[min,max]]of Object.entries(bounds))if(typeof out[k]==='number'){const x=Math.max(min,Math.min(max,out[k]));if(x!==out[k])issues.push(k);out[k]=x;}
+  out.skills={...defaults.skills,...skills(out.skills)};out.heal=heals(out.heal);
+  out.skillSets=Object.fromEntries(Object.entries(out.skillSets||{}).filter(([,v])=>digibotRecord(v)).map(([k,v])=>[k,{skills:{...defaults.skills,...skills(v.skills)},heal:heals(v.heal)}]));
+  for(const k of ['open','questOff'])out[k]=boolMap(out[k]);
+  out.mobs=Object.fromEntries(Object.entries(out.mobs||{}).filter(([,v])=>digibotRecord(v)).map(([k,v])=>[k,boolMap(v)]));
+  out.farmChannels=[...new Set((out.farmChannels||[]).filter(x=>Number.isInteger(x)&&x>=1&&x<=100))];
+  const enums={farmMode:['boss','named'],apOrder:['near','sweep'],apSweepDir:['up','down'],dgMode:['easy','hard','apocalymon','malomyotismon']};
+  for(const [k,vals]of Object.entries(enums))if(!vals.includes(out[k])){out[k]=defaults[k];issues.push(k);}
+  return {value:out,issues};
+}
+
+// Values verified against the uploaded content.js (mega_hunt), 2026-10-25.
+const CDIGI_HUNT_DEFAULTS=Object.freeze({id:'mega_hunt',slotMs:7200000,warnMs:300000,channel:1});
+function digibotHuntPolicy(content, server) {
+  const candidates=[content?.hunt,...(Array.isArray(content?.events)?content.events:[])];
+  const def=candidates.find(x=>x?.id==='mega_hunt')||CDIGI_HUNT_DEFAULTS;
+  const valid=(n,f)=>Number.isFinite(n)&&n>0?n:f;
+  return {channel:Number.isInteger(server?.channel)&&server.channel>0?server.channel:valid(def.channel,1),
+    slotMs:valid(server?.slot?.endMs-server?.slot?.startMs,valid(def.slotMs,7200000)),
+    warnMs:valid(def.warnMs,300000),leadMs:valid(def.warnMs,300000)+60000};
+}
+function digibotTowerState(st, content) {
+  if(typeof st?.me?.partner?.darkTower==='boolean')return st.me.partner.darkTower;
+  return content?.maps?.[st?.world?.mapId]?.darkTower===true;
+}
+function digibotNetworkState(net, st) {
+  if(!net || typeof net.connected!=='boolean')return null;
+  const ids=[st?.me?.tamerEntityId,st?.me?.partner?.entityId];
+  const entitiesReady=ids.every(id=>!!id&&net.state?.entities?.has?.(id));
+  return {transfer:net.transferring===true,connected:net.connected,
+    ready:net.connected&&net.transferring!==true&&st?.screen==='world'&&entitiesReady};
+}
+function digibotLatency(rtt) {return Math.min(2500,Math.max(350,200+(Number.isFinite(rtt)?Math.max(0,rtt):150)*1.5));}
+function createDigiBotCombat({now=Date.now}={}) {
+  let pending=null;const damage=new Map();
+  function sent(id,rtt){pending={id,until:now()+Math.min(3000,Math.max(600,2*(rtt||0)+300))};}
+  function ack(){pending=null;}
+  function waiting(id){if(pending&&now()>=pending.until)pending=null;return !!pending&&pending.id===id;}
+  function noteDamage(ev){if(ev?.t==='dmg'&&ev.dst&&ev.amount>0){damage.set(ev.dst,now());if(damage.size>500)damage.delete(damage.keys().next().value);}}
+  return {sent,ack,waiting,noteDamage,lastDamage:id=>damage.get(id)||0,reset(){pending=null;damage.clear();}};
+}
+function digibotMechanicActive(st, scene) {
+  const boss=st?.boss;
+  if(boss&&(boss.held||boss.mark||boss.mirror))return true;
+  if((scene?.mech?.padsActive||[]).length || (scene?.mech?.reticlesActive||[]).length || (scene?.mech?.arrowsActive||[]).length)return true;
+  return !!(scene?.telegraphs?.active||[]).length;
+}
+
+// Pure decisions, independent of game internals and browser timers.
+function digibotTamerDecision({skill, partner, allies=[], target, fighting=false, incoming=false, debuffed=false, skillsOnCooldown=0}) {
+  if(!skill||!partner||partner.fainted||partner.evolving||partner.hp<=0)return null;
+  const own=partner.maxHp>0?partner.hp/partner.maxHp*100:100;
+  const members=skill.scope==='party'?[partner,...allies.filter(p=>p.hp>0)]:[partner];
+  const low=members.some(p=>p.maxHp>0&&p.hp/p.maxHp<.6);
+  const critical=members.some(p=>p.maxHp>0&&p.hp/p.maxHp<.3);
+  const longFight=fighting&&target?.hp>0&&((target.flags&16)||target.cat==='boss'||(target.maxHp>0&&target.hp>partner.maxHp));
+  if(skill.healPct)return low?'Heilung bei niedrigen HP':null;
+  if(skill.cleanse)return debuffed?'Aktive Debuffs entfernen':null;
+  if(skill.protectionMs)return fighting&&(incoming||own<30)?'Eigener Schutz vor gefährlichem Treffer':null;
+  if(skill.cheatDeath)return fighting&&(critical||incoming)?'Schutz vor Bewusstlosigkeit':null;
+  if(skill.resetCooldowns)return longFight&&skillsOnCooldown>=2?'Mindestens zwei Angriffsskills auf Abklingzeit':null;
+  if(skill.split)return fighting&&members.length>=2&&(incoming||critical)?'Schaden in der Gruppe aufteilen':null;
+  if(skill.damageReduction||skill.absorb)return fighting&&(incoming||low)?'Gruppenschutz im gefährlichen Kampf':null;
+  if(skill.fill)return fighting&&(low||members.some(p=>p.maxDs>0&&p.ds/p.maxDs<.4))?'HP-/DS-Reserve auffüllen':null;
+  if((skill.effects||[]).some(e=>['ms','ev'].includes(e.stat)&&e.pct>0))return fighting&&incoming?'Beweglichkeit vor gefährlichem Treffer':null;
+  if(skill.skillDmg||skill.critDmg||skill.damageBoost||(skill.effects||[]).some(e=>['at','as'].includes(e.stat)&&e.pct>0))return longFight?'Angriffsverstärkung im längeren Kampf':null;
+  return null;
+}
+function digibotTamerElection({skillId,slot,now,peers=[],partyId}) {
+  const eligible=peers.filter(p=>p.partyId===partyId&&p.tamer?.skill===skillId&&now-p.seen<6000);
+  if(eligible.some(p=>p.tamer.last && now-p.tamer.last < Math.min(300000,Math.max(0,p.tamer.cooldown||0))))return false;
+  return !eligible.some(p=>p.bot&&p.tamer.want&&p.slot<slot);
+}
+if(typeof module!=='undefined')module.exports={digibotTamerDecision,digibotTamerElection};
+
+// Bounded local evidence. Requests and observations are never equated with causation.
+function createDigiBotHistory({now=Date.now,emit=()=>{}}={}) {
+  let seq=0;const commands=[],pending=new Map(),trail=[],incidents=[];
+  const text=v=>typeof v==='string'?v.slice(0,160):undefined;
+  function context(s={}) {return Object.fromEntries(['screen','map','room','channel','partner','species','target','hp'].filter(k=>['string','number','boolean'].includes(typeof s[k])).map(k=>[k,typeof s[k]==='string'?text(s[k]):s[k]]));}
+  function view(c) {return {id:c.id,command:c.command,status:c.status,requestedAt:c.at,updatedAt:c.updatedAt,context:{...c.context},...c.target?{target:c.target}:{},...c.evidence?{evidence:c.evidence}:{},...c.detail?{detail:c.detail}:{}};}
+  function incident(reason,id) {
+    const last=incidents.at(-1);if(last?.reason===reason&&last?.commandId===id&&now()-last.at<5000)return;
+    incidents.push({at:now(),reason:text(reason),...(id?{commandId:id}:{}),timeline:trail.slice(-60).map(r=>({...r})),commands:commands.slice(-20).map(view)});
+    if(incidents.length>12)incidents.shift();
+  }
+  function breadcrumb(row,important=false) {
+    const clean={at:row.at,reason:text(row.reason)};
+    for(const k of ['map','channel','target','hp','action','mode','id','status','evidence'])if(['string','number','boolean'].includes(typeof row[k]))clean[k]=typeof row[k]==='string'?text(row[k]):row[k];
+    trail.push(clean);if(trail.length>150)trail.shift();
+    if(important&&/Fehler|Anwesenheits|Verbindung|gestoppt|Not-Aus|unbestätigt/i.test(row.reason))incident(row.reason);
+  }
+  function update(c,status,evidence,terminal=false,detail) {
+    if(c.status===status&&c.evidence===evidence)return;
+    c.status=status;c.evidence=text(evidence);c.detail=text(detail);c.updatedAt=now();
+    if(terminal)pending.delete(c.id);
+    emit('Befehlsstatus',{id:c.id,action:c.command,status,evidence:c.evidence,...c.context},['rejected','timed_out','effect_unobserved'].includes(status));
+    if(['rejected','timed_out','effect_unobserved'].includes(status))incident(status,c.id);
+  }
+  function request(command,s={},expected={}) {
+    if(!['attack','skill','tamer','evolve','devolve','move','channel','teleport'].includes(command))return null;
+    // Only one outstanding command per category. A replacement is not a failed command.
+    for(const c of pending.values())if(c.command===command) {
+      if(command==='move'&&c.expected.x===expected.x&&c.expected.y===expected.y)return c.id;
+      update(c,'superseded','durch neuere Anforderung ersetzt',true);
+    }
+    const c={id:`c${++seq}`,command,status:'requested',at:now(),updatedAt:now(),context:context(s),target:text(expected.species||expected.skill||expected.room||expected.map||s.target),before:{...s},expected:{...expected},deadline:now()+(expected.timeout||(['channel','teleport'].includes(command)?60000:command==='move'?15000:8000))};
+    commands.push(c);pending.set(c.id,c);
+    while(commands.length>120){const old=commands.shift();pending.delete(old.id);}
+    emit('Befehl angefordert',{id:c.id,action:command,status:'requested',...c.context},false);return c.id;
+  }
+  function reject(id,reason='lokaler Fehler'){const c=pending.get(id);if(c)update(c,'rejected','lokaler Aufruf fehlgeschlagen',true,reason);}
+  function cancel(reason='gestoppt',except=[]) {for(const c of [...pending.values()])if(!except.includes(c.command))update(c,'cancelled',reason,true);}
+  function event(e,s={}) {
+    const candidates=[...pending.values()].filter(c=>c.context.partner===s.partner&&c.context.map===s.map&&c.context.room===s.room&&c.context.channel===s.channel && (c.command!=='skill'||c.context.species===s.species));
+    if(e?.t==='attackAck') {const c=candidates.find(c=>c.command==='attack');if(c)update(c,'confirmed','attackAck beobachtet; nur eine passende offene Anforderung');}
+    if(e?.t==='cooldown'&&e.ms>0) {
+      for(const c of candidates)if((c.command==='skill'&&e.key===c.expected.ref)||(c.command==='tamer'&&e.key==='tamer'))
+        update(c,c.command==='tamer'?'cooldown_observed':'confirmed',c.command==='tamer'?'gemeinsamer Cooldown beobachtet; Auslöser nicht eindeutig':'passender Skill-Cooldown vom Server');
+    }
+    if(e?.t==='dmg'&&e.amount>0&&e.src===s.partner) {
+      for(const c of candidates)if(e.dst===c.context.target&&((c.command==='skill'&&e.skill===c.expected.skill)||(c.command==='attack'&&c.status==='confirmed'&&!e.skill)))
+        update(c,'observed',c.command==='skill'?'passendes Schadensereignis':'Treffer am Ziel beobachtet; Einzelangriff nicht eindeutig',true);
+    }
+    if(e?.t==='toast'&&e.kind==='error'&&typeof e.code==='string') {
+      // Generic errors carry no request ID: retain uncertainty instead of assigning a failure.
+      const recent=candidates.filter(c=>now()-c.at<2000);
+      if(recent.length===1)update(recent[0],'possible_rejection','Fehlermeldung zeitlich passend, Zuordnung unbestätigt',false,e.code);
+      emit('Server-Ablehnung beobachtet',{evidence:text(e.code),status:'unassigned'},true);
+    }
+  }
+  function observe(s={}) {
+    for(const c of [...pending.values()]) {
+      const transfer=['channel','teleport'].includes(c.command);
+      if(c.command==='skill'&&c.context.species!==s.species){update(c,'cancelled','Digitationsform gewechselt',true);continue;}
+      if(!transfer&&(c.context.partner!==s.partner||c.context.map!==s.map||c.context.room!==s.room||c.context.channel!==s.channel)) {update(c,'cancelled','Spielkontext gewechselt',true);continue;}
+      if(c.command==='evolve'&&s.species===c.expected.species&&s.species!==c.before.species)update(c,'observed','Zielform im Spielzustand erreicht',true);
+      else if(c.command==='devolve'&&s.species!==c.before.species&&(!c.expected.species||s.species===c.expected.species))update(c,'observed','Zurück-Digitation im Spielzustand gesehen',true);
+      else if(c.command==='channel'&&s.ready&&s.room===c.expected.room&&s.room!==c.before.room)update(c,'observed','Zielraum verbunden und eigene Entities vorhanden',true);
+      else if(c.command==='teleport'&&s.ready&&s.map===c.expected.map&&s.map!==c.before.map)update(c,'observed','Zielkarte verbunden und eigene Entities vorhanden',true);
+      else if(c.command==='move'&&Number.isFinite(s.x)&&Number.isFinite(s.y)) {
+        if(Math.hypot(s.x-c.expected.x,s.y-c.expected.y)<=24)update(c,'observed','Laufziel erreicht',true);
+        else if(Math.hypot(s.x-c.before.x,s.y-c.before.y)>6&&Math.hypot(s.x-c.expected.x,s.y-c.expected.y)<Math.hypot(c.before.x-c.expected.x,c.before.y-c.expected.y)-4)update(c,'progress','Bewegung in Richtung Laufziel beobachtet');
+      }
+      if(c.command==='skill'&&(s.cooldowns?.[c.expected.ref]||0)>(c.before.cooldowns?.[c.expected.ref]||0))update(c,'confirmed','passender Skill-Cooldown im Zustand');
+      if(c.command==='tamer') {
+        if((s.cooldowns?.tamer||0)>(c.before.cooldowns?.tamer||0))update(c,'cooldown_observed','gemeinsamer Cooldown; kein Beweis eigener Auslösung');
+        const fx=s.effects?.[c.expected.skill],before=c.before.effects?.[c.expected.skill];
+        if(fx!==undefined&&fx!==before)update(c,'observed','passender Effekt am eigenen Partner; Quelle kann Gruppenmitglied sein',true);
+        // HP gains alone can come from potions, healers or regeneration; never attribute them.
+      }
+      if(pending.has(c.id)&&now()>=c.deadline)update(c,['confirmed','cooldown_observed','progress'].includes(c.status)?'effect_unobserved':'timed_out','keine weitere eindeutige Beobachtung innerhalb der Wartezeit',true);
+    }
+  }
+  return {request,reject,cancel,event,observe,breadcrumb,recent:(n=5)=>commands.slice(-Math.min(120,Math.max(0,n))).map(view),export:()=>({commandHistoryVersion:1,commands:commands.map(view),incidents:incidents.map(i=>JSON.parse(JSON.stringify(i)))})};
+}
+if(typeof module!=='undefined')module.exports={createDigiBotHistory};
+
+function createDigiBotAccountQueue({now=Date.now}={}) {
+  let plan=[],index=0,phase='idle',reason='',generation=0,pending=false,since=0;
+  const normalize=u=>String(u||'').trim().toLowerCase();
+  const active=()=>!['idle','paused','done'].includes(phase);
+  function pause(message){phase='paused';reason=message;generation++;pending=false;return {type:'pause',reason:message};}
+  function start(entries){if(active())return {type:'none'};plan=[];index=0;const seen=new Set();const selected=[];
+    for(const e of entries){const user=normalize(e.user);if(!Number.isInteger(e.slot)||e.slot<0||e.slot>=5||!user||seen.has(user)){plan=[];return pause('Account-Auswahl ungültig oder Benutzername doppelt');}seen.add(user);selected.push({slot:e.slot,user,char:String(e.char||'').trim()});}
+    if(!selected.length)return pause('Bitte mindestens einen Account mit Haken und Benutzername auswählen');
+    plan=selected.sort((a,b)=>a.slot-b.slot);index=0;generation++;phase='switching';reason='';pending=false;since=now();return {type:'started'};
+  }
+  function resume(){if(phase!=='paused'||!plan[index])return false;generation++;phase='switching';reason='';pending=false;since=now();return true;}
+  function complete(){if(phase!=='running')return {type:'none'};index++;generation++;pending=false;since=now();if(index>=plan.length){phase='done';return {type:'done'};}phase='switching';return {type:'next',slot:plan[index].slot};}
+  function action(type,extras={}){pending=true;return {type,...extras,slot:plan[index].slot,generation};}
+  function settled(token,error=false){if(token!==generation||!active())return false;pending=false;if(error)pause('Account-Aktion fehlgeschlagen – Anmeldung und Verbindung prüfen');return true;}
+  function step(s){
+    if(!active())return {type:'none'};
+    if(s.challenge)return pause('Anwesenheitskontrolle – bitte selbst beantworten');
+    if(s.disconnected)return pause('Verbindung unterbrochen');
+    const entry=plan[index];
+    if(normalize(s.configuredUser)!==entry.user)return pause('Account-Zuordnung wurde verändert – Runde neu starten');
+    if(phase==='running')return normalize(s.user)===entry.user?{type:'none'}:pause('Der angemeldete Account hat sich unerwartet geändert');
+    if(s.error&&!s.busy)return pause('Das Spiel meldet einen Anmelde- oder Charakterfehler – bitte im Spiel prüfen');
+    if(now()-since>90000)return pause('Account-Wechsel dauert zu lange – bitte im Spiel prüfen');
+    if(pending||s.busy||s.screen==='loading')return {type:'none'};
+    if(phase==='await-login'&&s.screen!=='login')return {type:'none'};
+    const same=normalize(s.user)===entry.user;
+    if(s.screen==='world'){
+      if(!s.ready)return {type:'none'};
+      const correctChar=!entry.char||normalize(s.character)===normalize(entry.char);
+      if(same&&correctChar){phase='starting';return action('begin');}
+      if(phase!=='switching')return pause('Unerwarteter Account oder Charakter nach dem Wechsel');
+      if(!s.hasPassword)return pause(`Passwort für Account ${entry.slot+1} fehlt – im Account-Feld eingeben`);
+      phase='await-login';return action('logout');
+    }
+    if(s.screen==='login'){
+      if(phase==='await-auth'||phase==='await-world'||phase==='starting')return {type:'none'};
+      if(!s.hasPassword)return pause(`Passwort für Account ${entry.slot+1} fehlt – im Account-Feld eingeben`);
+      phase='await-auth';return action('login');
+    }
+    if(s.screen==='charSelect'){
+      if(!same){
+        if(phase!=='switching')return pause('Anmeldung stimmt nicht mit dem vorgesehenen Account überein');
+        if(!s.hasPassword)return pause(`Passwort für Account ${entry.slot+1} fehlt – im Account-Feld eingeben`);
+        phase='await-login';return action('logout');
+      }
+      if(phase==='await-world')return {type:'none'};
+      const chars=Array.isArray(s.characters)?s.characters:[];
+      const chosen=entry.char?chars.find(c=>normalize(c.name)===normalize(entry.char)):chars.length===1?chars[0]:null;
+      if(!chosen?.id)return pause('Charakter nicht eindeutig – Namen für diesen Account festlegen oder selbst betreten');
+      phase='await-world';return action('enter', {characterId:chosen.id});
+    }
+    if(s.screen==='charCreate')return pause('Dieser Account benötigt zuerst einen Charakter');
+    return pause('Unbekannter Anmeldezustand – bitte selbst prüfen');
+  }
+  function began(token){if(token!==generation||phase!=='starting')return false;pending=false;phase='running';since=now();return true;}
+  return {start,resume,complete,step,settled,began,pause,cancel(message){if(active())pause(message);},get active(){return active();},get phase(){return phase;},get slot(){return plan[index]?.slot;},get user(){return plan[index]?.user;},get generation(){return generation;},get index(){return index;},summary:()=>({phase,index,total:plan.length,slot:plan[index]?.slot,reason,completedSlots:plan.slice(0,index).map(e=>e.slot)})};
+}
+if(typeof module!=='undefined')module.exports={createDigiBotAccountQueue};
+
+// Four-window desktop layout and a shared launch barrier. No credentials.
+function digibotDesktopRoster(accounts){
+  const list=(accounts.list||[]).map((a,slot)=>({slot,user:String(a.user||'').trim()})).filter(a=>accounts.list[a.slot].on&&a.user);
+  if(list.length!==4)return {error:'Bitte genau vier Accounts mit Haken und Benutzername auswählen.'};
+  if(!list.some(a=>a.slot===accounts.leader))return {error:'Der ausgewählte Leader muss zu den vier Accounts gehören.'};
+  if(new Set(list.map(a=>a.user.toLowerCase())).size!==4)return {error:'Die vier Accounts müssen unterschiedliche Benutzernamen haben.'};
+  return {slots:[list.find(a=>a.slot===accounts.leader),...list.filter(a=>a.slot!==accounts.leader)]};
+}
+function digibotDesktopTiles(screen){
+  const left=Number.isFinite(screen?.availLeft)?screen.availLeft:0,top=Number.isFinite(screen?.availTop)?screen.availTop:0;
+  const width=Math.floor(Number(screen?.availWidth)||0),height=Math.floor(Number(screen?.availHeight)||0);
+  if(width<800||height<600)return null;
+  const w=Math.floor(width/2),h=Math.floor(height/2);
+  return [{left,top,width:w,height:h},{left:left+w,top,width:width-w,height:h},{left,top:top+h,width:w,height:height-h},{left:left+w,top:top+h,width:width-w,height:height-h}];
+}
+function digibotDesktopValid(plan,now){
+  if(!plan||plan.version!==1||typeof plan.id!=='string'||!/^[a-z0-9-]{8,100}$/.test(plan.id)||!Number.isFinite(plan.created)||!Number.isFinite(plan.expires)||plan.created>now+5000||plan.expires<=now||plan.expires>plan.created+900000)return false;
+  if(!['waiting','arming','scheduled','running','cancelled'].includes(plan.phase)||!Array.isArray(plan.slots)||plan.slots.length!==4||!Number.isInteger(plan.leader))return false;
+  if(plan.slots.some(a=>!Number.isInteger(a.slot)||a.slot<0||a.slot>=5||typeof a.user!=='string'||!a.user.trim()||a.user.length>64))return false;
+  if(new Set(plan.slots.map(a=>a.slot)).size!==4||new Set(plan.slots.map(a=>a.user.toLowerCase())).size!==4||!plan.slots.some(a=>a.slot===plan.leader))return false;
+  return !['scheduled','running'].includes(plan.phase)||(Number.isFinite(plan.startAt)&&plan.startAt>=plan.created&&plan.startAt<plan.expires);
+}
+function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
+  const rows=plan.slots.map(a=>members.find(m=>m?.slot===a.slot&&m.id===plan.id));
+  for(let i=0;i<rows.length;i++){
+    const row=rows[i],expected=plan.slots[i];
+    if(!row||!Number.isFinite(row.seen)||now-row.seen>3000||row.seen>now+1000)return {ok:false,reason:`Warte auf Fenster für ${expected.user}`};
+    if(typeof row.user!=='string'||row.user.toLowerCase()!==expected.user.toLowerCase()||row.ready!==true||typeof row.name!=='string'||!row.name)return {ok:false,reason:`${expected.user}: ${row.reason||'richtigen Account anmelden und Charakter betreten'}`};
+    if(armed&&row.armed!==true)return {ok:false,reason:`${expected.user}: Startfreigabe wird vorbereitet`};
+  }
+  const names=rows.map(r=>r.name.toLowerCase());
+  if(new Set(names).size!==4)return {ok:false,reason:'Vier unterschiedliche Charaktere werden benötigt.'};
+  if(party){
+    const id=rows[0].partyId;
+    if(!id||rows.some(r=>r.partyId!==id||!Array.isArray(r.partyNames)||names.some(n=>!r.partyNames.includes(n))))return {ok:false,reason:'Leader lädt ein – warte auf vollständige Vierer-Party'};
+  }
+  return {ok:true,rows};
+}
+
+  if (window.__digibotInstalled) return;
+  window.__digibotInstalled = true;
+
+  // DigiBot integration: adapters are evaluated lazily after the original declarations.
+  let digibotManual = false, digibotNotice = null, digibotNet = null, digibotStore = null;
+  let digibotLastContext = '', digibotLastLeader = null, digibotLastPrune = 0, digibotCurrentObjective = null;
+  const digibotKeys = new Map(), digibotDeaths = new Map();
+  const digibotCombat=createDigiBotCombat();
+  const digibotHistory=createDigiBotHistory({emit:(reason,details,important)=>digibotCore.record(reason,details,important)});
+  const digibotFormation = createDigiBotFormation({});
+  // Keep user intent within the actual event handler, not a preceding capture listener.
+  function digibotUserIntent(handler) {
+    return function(event) {
+      const previous=digibotManual;
+      digibotManual=event.isTrusted===true;
+      try { return handler.call(this,event); }
+      finally { digibotManual=previous; }
+    };
+  }
+  function digibotRawScene() { try { return window.dmo?.game?.scene?.getScene?.('world'); } catch { return null; } }
+  function digibotSignal(text) {
+    if (!digibotNotice) {
+      digibotNotice = document.createElement('aside'); digibotNotice.id='digibot-notice'; digibotNotice.setAttribute('role','alert');
+      digibotNotice.style.cssText='position:fixed;top:12px;left:12px;z-index:2147483647;background:#581b20;color:#fff;padding:14px;max-width:400px;font:14px system-ui;border:2px solid #ffb86b;border-radius:8px';
+      document.body.append(digibotNotice);
+    }
+    digibotNotice.textContent=`DigiBot pausiert: ${text}. Nach dem Beheben über Start manuell fortsetzen.`;
+    notify(text);
+  }
+  function digibotHalt(reason,{locked=true}={}) {
+    // Deliberate direct calls: emergency stop must work after closing the command gate.
+    if(!digibotDesktopJoining)digibotDesktopCancel(reason);
+    digibotAccountQueue.cancel(reason);
+    digibotHistory.cancel(reason);
+    const scene=digibotRawScene();
+    try { scene?.deps?.commands?.partnerStop?.(); scene?.approach?.cancel?.();
+      const st=window.dmo?.store?.getState?.(), id=scene?.controlledId?.()||st?.me?.tamerEntityId;
+      const me=window.dmo?.net?.state?.entities?.get?.(id);
+      if (st?.screen==='world'&&me) scene?.tapGround?.(me.x,me.y);
+    } catch {}
+    for(const opts of digibotKeys.values())window.dispatchEvent(new KeyboardEvent('keyup',opts));digibotKeys.clear();
+    digibotTamer.want=false;digibotTamer.since=0;
+    digibotCombat.reset();digibotDodgeReset();digibotAttackTravel=null;digibotBossWalk=null;digibotChannelPeace=null;digibotChannelCleanup=null;lr.scanPeace=false;
+    clearInterval(bot.timer); bot.questIdle=false;bot.on=false;bot.attackedId=null;bot.engage=null;bot.status=reason;
+    ss.set('digibot.go',null);ss.set('digibot.login',null);
+    group.mirroring=false;if(locked)group.leaderPos=null;group.lastPos=null;group.worldAt=0;
+    digibotCombatPlace=null;autopilot.reset();autopilot.route=null;autopilot.tp=null;autopilot.mapTalk=null;
+    hunt.goal=null;hunt.seenAt=0;wb.goal=null;wb.seenAt=0;farm.reset();lr.boss=null;
+    digibotFormation.reset();digibotCurrentObjective=null;
+    schedule();
+  }
+  const digibotCore=createDigiBotCore({state:()=>window.dmo?.store?.getState?.(),halt:digibotHalt,signal:digibotSignal,trace:digibotHistory.breadcrumb,diagnostics:()=>({...digibotHistory.export(),evolution:digibotEvolutionSnapshot(),accountQueue:digibotAccountQueue.summary(),events:digibotEventSnapshot(),combat:digibotInputSnapshot(),navigation:digibotNavigationSnapshot(),dailies:digibotDailiesSnapshot(),desktop:digibotDesktopSnapshot()}),network:()=>digibotNetworkState(window.dmo?.net,window.dmo?.store?.getState?.())});
+  const digibotProxyCache=new WeakMap();
+  function digibotCommands(raw) {
+    if(!raw)return raw;if(digibotProxyCache.has(raw))return digibotProxyCache.get(raw);
+    const proxy=new Proxy(raw,{get(target,key){const value=Reflect.get(target,key,target);if(typeof value!=='function')return value;
+      if(/^(request|list|get)|^teleportStops$/.test(String(key)))return value.bind(target);
+      return (...args)=>digibotCore.action(String(key),(...xs)=>digibotInvoke(String(key),value.bind(target),xs),args);
+    }});digibotProxyCache.set(raw,proxy);return proxy;
+  }
+  const digibotSceneCache=new WeakMap();
+  function digibotScene(raw) {
+    if(!raw)return raw;if(digibotSceneCache.has(raw))return digibotSceneCache.get(raw);
+    const proxy=new Proxy(raw,{get(target,key){const value=Reflect.get(target,key,target);
+      if(key==='deps')return {...value,commands:digibotCommands(value?.commands)};
+      if(typeof value!=='function')return value;
+      if(['select','tapGround','approachNpc','interact'].includes(key))return (...args)=>digibotCore.action(String(key),(...xs)=>digibotInvoke(String(key),value.bind(target),xs),args);
+      return value.bind(target);
+    }});digibotSceneCache.set(raw,proxy);return proxy;
+  }
+  function digibotSend(message) {
+    if(!group.bus||!group.active())return;
+    try {group.bus.postMessage(digibotCore.envelope(message,group.slot(),accounts.leader));} catch {}
+  }
+  function digibotClearLegacyPasswords() {
+    try {
+      const legacy=JSON.parse(localStorage.getItem('digibot.accounts')||'null');
+      if(legacy&&Array.isArray(legacy.list)){legacy.list=legacy.list.map(a=>({...a,pass:''}));localStorage.setItem('digibot.accounts',JSON.stringify(legacy));}
+      digibotQueuePasswords.clear();panel?.querySelectorAll('[data-queue-password]').forEach(el=>{el.value='';});
+      saveAcc();renderAccounts(getStore()?.getState?.());
+      digibotCore.record('Gespeicherte Passwörter entfernt');
+    } catch {digibotSignal('Passwörter konnten nicht entfernt werden');}
+  }
+  function digibotExport() {
+    const url=URL.createObjectURL(new Blob([digibotCore.export()],{type:'application/json'}));
+    const a=document.createElement('a');a.href=url;a.download='digibot-diagnose.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
+  function digibotResetContext(st) {
+    const key=`${st?.session?.username||''}|${st?.world?.mapId||''}|${st?.world?.channel||1}`;
+    if(key!==digibotLastContext) {
+      digibotCombatPlace=null;digibotCombat.reset();digibotDodgeReset();digibotAttackTravel=null;digibotBossWalk=null;
+      digibotLastContext=key;autopilot.nav=null;autopilot.route=null;refusal.repos=null;
+      bot.attackedId=null;bot.engage=null;digibotFormation.reset();digibotCurrentObjective=null;
+      hunt.seenAt=0;wb.seenAt=0;hunt.polledAt=0;hunt.busy=false;hunt.pollToken=(hunt.pollToken||0)+1;
+      digibotNavigationContext(st);
+      digibotCore.record('Spielkontext gewechselt',{map:st?.world?.mapId,channel:st?.world?.channel});
+    }
+    if(digibotLastLeader===null)digibotLastLeader=accounts.leader;
+    else if(digibotLastLeader!==accounts.leader){digibotLastLeader=accounts.leader;group.peers.clear();group.leaderPos=null;group.talks=[];group.handled.clear();autopilot.reset();digibotFormation.reset();}
+  }
+  function digibotObserve() {
+    const st=window.dmo?.store?.getState?.();
+    digibotCore.inspect();
+    digibotHistory.observe(digibotHistoryState());
+    if(st?.challenge&&!digibotCore.latched)digibotCore.stop('Anwesenheitskontrolle – bitte selbst beantworten',true);
+    if(window.dmo?.store!==digibotStore && window.dmo?.store?.subscribe) {
+      digibotStore=window.dmo.store;digibotCore.touch();digibotStore.subscribe(()=>{digibotCore.touch();digibotCore.inspect();digibotHistory.observe(digibotHistoryState());});
+    }
+    const net=window.dmo?.net;
+    if(net?.on&&net!==digibotNet){digibotNet=net;
+      for(const type of ['dropped','rejoining','kicked','disconnected'])net.on(type,()=>{if(net===digibotNet&&digibotCore.armed)digibotCore.stop('Verbindung unterbrochen – manuell fortsetzen',true);});
+      net.on('map:leave',e=>{if(net!==digibotNet)return;digibotHistory.cancel('Raum verlassen',['channel','teleport']);digibotCombat.reset();autopilot.nav=null;autopilot.route=null;digibotCore.record('Raum verlassen',{action:e?.reason,map:e?.mapId},true);if(e?.reason==='disconnected'&&digibotCore.armed)digibotCore.stop('Verbindung unterbrochen – manuell fortsetzen',true);});
+      net.on('map:enter',()=>{if(net===digibotNet){digibotCore.touch();digibotCore.record('Raum beigetreten',{},true);}});
+      net.on('me',list=>{if(net!==digibotNet)return;for(const e of Array.isArray(list)?list:[]){digibotHistory.event(e,digibotHistoryState());digibotPhoneServerEvent(window.dmo?.store?.getState?.(),e);if(e?.t==='attackAck')digibotCombat.ack();}});
+      net.on('evs',list=>{if(net!==digibotNet)return;for(const e of Array.isArray(list)?list:[]){digibotHistory.event(e,digibotHistoryState());digibotPhoneServerEvent(window.dmo?.store?.getState?.(),e);digibotCombat.noteDamage(e);if(e?.t==='die'&&e.id){digibotDeaths.set(e.id,Date.now());digibotCore.record('Tod bestätigt',{target:e.id},true);}}});
+    }
+    const now=Date.now();if(now-digibotLastPrune<10000)return;digibotLastPrune=now;
+    for(const [id,t]of digibotDeaths)if(now-t>60000)digibotDeaths.delete(id);
+    for(const [id,p]of group.peers)if(now-p.seen>GROUP_STALE_MS*3)group.peers.delete(id);
+    for(const map of [blacklist,refusal.ban,autopilot.failed,autopilot.avoidSpots,farm.chBan,wb.skip])for(const [k,v]of map)if(typeof v==='number'&&v<now)map.delete(k);
+    for(const map of [mobHome,refusal.tries,seen,bossSeen,wb.upSince,farm.known])while(map.size>500)map.delete(map.keys().next().value);
+    if(huntSeen.size>500)huntSeen.clear();
+  }
+  function digibotObjective(st) {
+    if(hunt.goal&&cfg.hunt)return {kind:'event',key:hunt.goal.key,mapId:hunt.goal.mapId,channel:hunt.goal.ch,boss:hunt.goal.boss};
+    if(wb.goal&&cfg.wboss){const g=wb.goal;return {kind:'world',key:g.key,mapId:g.b.map,channel:g.ch,boss:g.b.species,...farmSpot(g.b)};}
+    if(cfg.farm&&farm.goal){const g=farm.goal,b=farmSelected().find(x=>x.map===g.map&&x.index===g.index);if(b)return {kind:'farm',key:`${g.map}/${g.index}/${g.ch}`,mapId:g.map,channel:g.ch,boss:b.species,...farmSpot(b)};}
+    return null;
+  }
+  function digibotSharedFocus(sc) {
+    if(!cfg.independentGroup||group.role()!=='follower')return null;
+    const L=groupLeader(),o=L?.objective,st=getStore()?.getState?.();
+    if(!o||!L.bot||o.mapId!==st?.world?.mapId||o.channel!==(st?.world?.channel??1))return null;
+    return sc?.mobs?.find(m=>!m.banned&&(m.species===o.boss||m.species.startsWith(o.boss+'_')))||null;
+  }
+  function digibotPoint(st,key,center,radius=120) {
+    if(!group.active()||digibotMechanicActive(st,digibotRawScene()))return null;
+    const me=controlled(st),field=me&&pathField(st,me,Math.max(1000,Math.hypot(me.x-center.x,me.y-center.y)+500));
+    if(!field)return null;const zones=dangerZones();
+    const peers=[...group.peers.values()].filter(p=>fresh(p,Date.now())&&p.mapId===st.world?.mapId&&p.channel===(st.world?.channel??1)&&p.reservation?.key===key).map(p=>p.reservation);
+    return digibotFormation.point(key,center,group.slot(),p=>pathFree(field,p)&&!zones.some(z=>zoneDist(z,p).d<32),peers,radius);
+  }
+  function digibotSharedStep(st,sc,now) {
+    if(!cfg.independentGroup||group.role()!=='follower'||!bot.on)return null;
+    const L=groupLeader(now),o=L?.objective;
+    if(!L?.bot||!o||!['event','world','farm'].includes(o.kind)||typeof o.mapId!=='string'||typeof o.boss!=='string')return null;
+    digibotCurrentObjective=o;
+    if(sc?.attackers?.length)return null; // self-defence has priority over delayed travel
+    const key=`${o.kind}/${o.key}/${o.mapId}/${o.channel}`;
+    if(st.world?.mapId!==o.mapId||(st.world?.channel??1)!==o.channel) {
+      const delay=digibotFormation.delay(key,group.slot());
+      if(delay>0)return `Gruppe: eigener Aufbruch in ${(delay/1000).toFixed(1)} s`;
+      if(st.world?.mapId!==o.mapId){const tr=travel(st,o.mapId,now);return tr===true?'Gruppe: Zielkarte erreicht':`Gruppe: ${tr}`;}
+      const sw=farmSwitch(st,sc,o.mapId,o.mapId,o.channel,now,false);if(!sw.done)return `Gruppe: ${sw.status}`;
+    }
+    const boss=digibotSharedFocus(sc);
+    if(boss){if(st.target?.id!==boss.id&&bot.can('select',SELECT_GAP_MS,now)){bot.lastPress.select=now;worldScene()?.select?.(boss.id);return 'Gruppe: gemeinsamer Boss anvisiert';}return null;}
+    if(digibotMechanicActive(st,digibotRawScene()))return 'Gruppe: Bossmechanik hat Vorrang vor Warteplatz';
+    if(Number.isFinite(o.x)&&Number.isFinite(o.y)) {
+      const p=digibotPoint(st,key,o),me=controlled(st);
+      if(p&&me&&Math.hypot(me.x-p.x,me.y-p.y)>20){if(walkTo(st,p.x,p.y,now)==='stuck')digibotFormation.reject();return 'Gruppe: eigener Boss-Warteplatz';}
+      return 'Gruppe: warte am gemeinsamen Bossziel';
+    }
+    return null; // event position unknown: normal follower search until boss seen
+  }
+  let digibotCombatPlace=null;
+  function digibotPositionBoss(st,t,now) {
+    if(!cfg.independentGroup||!group.active()||digibotMechanicActive(st,digibotRawScene()))return null;
+    const en=window.dmo?.net?.state?.entities?.get?.(t.id);if(!en||!(en.flags&FLAG.Boss))return null;
+    // One staging move per encounter; combat remains free to close to skill/melee range.
+    const scene=digibotRawScene(),id=scene?.controlledId?.();
+    if(id!==st.me?.tamerEntityId&&id!==st.me?.partner?.entityId)return null;
+    const radius=id===st.me?.tamerEntityId?120:60;
+    const key=`fight/${st.world?.mapId}/${st.world?.channel}/${t.id}`;
+    if(digibotCombatPlace?.key===key&&(digibotCombatPlace.done||now-digibotCombatPlace.at>8000))return null;
+    if(digibotCombatPlace?.key!==key)digibotCombatPlace={key,at:now,done:false};
+    const p=digibotPoint(st,key,en,radius),me=controlled(st);if(!p||!me)return null;
+    if(Math.hypot(me.x-p.x,me.y-p.y)<=20){digibotCombatPlace.done=true;return null;}
+    if(walkTo(st,p.x,p.y,now)==='stuck')digibotFormation.reject();
+    return 'Gruppe: eigene Position am Boss';
+  }
+
+  const digibotTamer={skill:'',want:false,since:0,last:0,cooldown:0,retryAt:0,attempts:0};
+  function digibotTamerTick(st,now) {
+    const p=st?.me?.partner,C=content(),sk=C?.tamers?.[st?.me?.tamerId]?.skill;
+    if(digibotTamer.skill!==sk?.id){Object.assign(digibotTamer,{skill:sk?.id||'',want:false,since:0,last:0,cooldown:sk?.cooldownMs||0,retryAt:0,attempts:0});}
+    digibotTamer.want=false;
+    if(!cfg.tamerAuto||!bot.on||!digibotCore.allowed()||!sk||!p||p.fainted){digibotTamer.since=0;return;}
+    const remaining=Math.max(0,(st.cooldowns?.tamer?.end||0)-performance.now());
+    if(remaining>0){
+      digibotTamer.since=0;
+      if(!digibotTamer.last||digibotTamer.cooldown<=3000){digibotTamer.last=now;digibotTamer.cooldown=remaining;}
+      digibotTamer.attempts=0;return;
+    }
+    if(now<digibotTamer.retryAt)return;
+    if(digibotTamer.cooldown>3000){digibotTamer.last=0;digibotTamer.cooldown=0;}
+    if(digibotTamer.attempts>=3){digibotTamer.attempts=0;digibotTamer.retryAt=now+30000;logEvent('warn','Tamer-Skill nicht bestätigt – erneute Prüfung in 30 s');return;}
+
+    const ents=window.dmo?.net?.state?.entities,own=ents?.get?.(p.entityId);
+    const allies=(st.party?.members||[]).filter(m=>!m.me&&m.here&&m.online!==false&&m.partnerEntityId).map(m=>ents?.get?.(m.partnerEntityId)).filter(e=>e&&own&&Math.hypot(e.x-own.x,e.y-own.y)<=(sk.range||128));
+    const effectsFor=id=>(st.effects?.[id]||[]).filter(e=>!e.end||e.end>performance.now());
+    const affected=[p.entityId,...(sk.scope==='party'?allies.map(e=>e.id):[])];
+    const debuffed=affected.some(id=>effectsFor(id).some(e=>{const d=C.skills?.[e.id];return (d?.effects||[]).some(x=>x.pct<0)||d?.stunMs>0||d?.rootMs>0;}));
+    // Avoid renewing an already active copy of the same ability.
+    if(!sk.healPct && !sk.resetCooldowns && !sk.cleanse && affected.some(id=>effectsFor(id).some(e=>e.id===sk.id||e.id===`${sk.id}:damageReduction`)))return;
+    const target=ents?.get?.(st.target?.id);
+    const dangerous=!!own&&dangerZones().some(z=>zoneDist(z,own).d<24&&(zoneLeftMs(z)==null||zoneLeftMs(z)<2000));
+    const skillsOnCooldown=SKILL_KEYS.filter(k=>skillOn(st,k)&&!healAt(st,k)).map(k=>skillOnKey(st,k)).filter(s=>s?.skill?.unlocked!==false&&s?.cdLeft>1000).length;
+    const reason=digibotTamerDecision({skill:sk,partner:p,allies,target,fighting:inCombat(st),incoming:dangerous||shareIncoming(now),debuffed,skillsOnCooldown});
+    if(!reason){digibotTamer.since=0;return;}
+    digibotTamer.want=true;
+    const partyId=st.party?.id||null;
+    if(group.active()&&partyId){
+      if(!digibotTamer.since){digibotTamer.since=now;groupPush(true);return;}
+      // Let the intent reach other windows before electing one sender.
+      if(now-digibotTamer.since<600+group.slot()*150)return;
+      if(!digibotTamerElection({skillId:sk.id,slot:group.slot(),now,peers:[...group.peers.values()],partyId}))return;
+    }
+    const cmd=commands();if(typeof cmd?.tamerSkill!=='function')return;
+    const sentAt=now;
+    digibotTamer.retryAt=now+3000;digibotTamer.want=false;digibotTamer.since=0;
+    digibotTamer.attempts++;cmd.tamerSkill();
+    // Provisional claim covers propagation; server cooldown provides final confirmation.
+    digibotTamer.last=sentAt;digibotTamer.cooldown=3000;
+    groupPush(true);
+    logEvent('bot',`Tamer-Skill angefordert: ${sk.name||sk.id} – ${reason}`);
+  }
+
+  function digibotHistoryState() {
+    const st=window.dmo?.store?.getState?.(),net=window.dmo?.net,p=st?.me?.partner;
+    const scene=digibotRawScene(),id=scene?.controlledId?.()||st?.me?.tamerEntityId;
+    const actor=net?.state?.entities?.get?.(id);
+    const cooldowns=Object.fromEntries(Object.entries(st?.cooldowns||{}).filter(([k])=>k==='tamer'||/^skill:[0-9]+$/.test(k)).slice(0,65).map(([k,v])=>[k,v?.end||0]));
+    const effects=Object.fromEntries((st?.effects?.[p?.entityId]||[]).slice(0,100).map(e=>[e.id,e.end||0]));
+    return {screen:st?.screen,map:st?.world?.mapId,room:st?.world?.roomId||net?.hello?.roomId,channel:st?.world?.channel,partner:p?.entityId,species:p?.species,target:st?.target?.id,hp:st?.target?.hp,x:actor?.x,y:actor?.y,cooldowns,effects,ready:digibotNetworkState(net,st)?.ready??!!(st?.screen==='world'&&p)};
+  }
+  function digibotTrackCommand(name,args=[]) {
+    const st=window.dmo?.store?.getState?.();const snapshot=digibotHistoryState();
+    if(name==='evolve')return digibotHistory.request('evolve',snapshot,{species:args[0],timeout:12000});
+    if(name==='devolve')return digibotHistory.request('devolve',snapshot,{species:st?.me?.partner?.evolutions?.find(e=>!e.from)?.species,timeout:12000});
+    if(name==='tamerSkill')return digibotHistory.request('tamer',snapshot,{skill:content()?.tamers?.[st?.me?.tamerId]?.skill?.id,timeout:5000});
+    if(name==='switchChannel')return digibotHistory.request('channel',snapshot,{room:args[0]});
+    if(name==='teleport')return digibotHistory.request('teleport',snapshot,{map:args[0]});
+    if(name==='tapGround'&&args.every(Number.isFinite))return digibotHistory.request('move',snapshot,{x:args[0],y:args[1],timeout:Math.min(60000,Math.max(15000,Math.hypot(snapshot.x-args[0],snapshot.y-args[1])/60*1000+10000))});
+    if(name==='attackTarget')return digibotHistory.request('attack',snapshot);
+    return null;
+  }
+  function digibotInvoke(name,fn,args) {
+    if(name==='select'){const s=digibotHistoryState();digibotCore.record('Zielwahl',{action:args[0]==null?'Ziel gelöscht':'Ziel gewählt',target:typeof args[0]==='string'?args[0]:undefined,map:s.map,channel:s.channel});}
+    const id=digibotTrackCommand(name,args);
+    try {
+      const result=fn(...args);
+      // Resolution only means the client call finished. It is NOT confirmation of game effect.
+      if(result&&typeof result.then==='function')result.then(()=>{},e=>{if(id)digibotHistory.reject(id,e?.name||'Error');});
+      return result;
+    } catch(e){if(id)digibotHistory.reject(id,e?.name||'Error');throw e;}
+  }
+  function digibotTrackKey(code) {
+    const st=window.dmo?.store?.getState?.(),s=digibotHistoryState();
+    if(code==='Digit1')return digibotHistory.request('attack',s);
+    if(/^Digit[2-6]$/.test(code)) {
+      const ref=st?.me?.hotbar?.[Number(code.slice(5))-1];
+      if(typeof ref==='string'&&/^skill:[0-9]+$/.test(ref)){const skill=st.me.partner?.skills?.[Number(ref.slice(6))];return digibotHistory.request('skill',s,{ref,skill:skill?.id,timeout:Math.min(60000,Math.max(8000,(skill?.castMs||content()?.skills?.[skill?.id]?.castMs||0)+digibotLatency(window.dmo?.net?.rttMs)+5000))});}
+    }
+    return null;
+  }
+  function digibotRenderHistory() {
+    const el=panel?.querySelector('[data-f="command-history"]');if(!el)return;
+    const names={requested:'angefordert',confirmed:'bestätigt',observed:'Zustandsänderung gesehen',cooldown_observed:'gemeinsame Abklingzeit gesehen',possible_rejection:'mögliche Ablehnung',progress:'Bewegung gesehen',rejected:'abgelehnt',timed_out:'unbestätigt abgelaufen',effect_unobserved:'Wirkung nicht eindeutig gesehen',cancelled:'abgebrochen',superseded:'ersetzt'};
+    const rows=digibotHistory.recent(5);
+    const summary=rows.length?rows.map(c=>`${c.id} · ${c.command}: ${names[c.status]||c.status}`).join('\n'):'Noch keine Befehle erfasst.';
+    if(el.textContent!==summary)el.textContent=summary;
+  }
+
+  let digibotQueueLaunching=false;
+  const digibotAccountQueue=createDigiBotAccountQueue();
+  function digibotQueueStatus(message) {bot.status=message;digibotCore.record('Account-Runde',{action:message,slot:digibotAccountQueue.slot},true);schedule();}
+  function digibotQueueQuiesce() {
+    clearInterval(bot.timer);bot.on=false;bot.attackedId=null;bot.engage=null;bot.lastPress={};
+    digibotHistory.cancel('Account-Wechsel');digibotCombat.reset();
+    const scene=digibotRawScene(),st=window.dmo?.store?.getState?.();
+    try{scene?.deps?.commands?.partnerStop?.();const me=controlled(st);if(me)scene?.tapGround?.(me.x,me.y);}catch{}
+    autopilot.reset();autopilot.newRun();autopilot.avoidSpots.clear();autopilot.route=null;autopilot.sweepAt=null;autopilot.batchPhase='do';
+    autopilot.lastEvolve=0;autopilot.lastSwitch=0;autopilot.lastTalk=0;autopilot.lastTap=0;autopilot.evoNote=null;autopilot.evoReasonKey=null;
+    blacklist.clear();refusal.ban.clear();refusal.tries.clear();refusal.repos=null;lr.goal=null;lr.boss=null;lr.calcAt=0;
+    hunt.goal=null;wb.goal=null;farm.reset();digibotFormation.reset();
+    digibotCore.loginMode(true);
+  }
+  function digibotQueueStart(resume=false) {
+    if(digibotAccountQueue.active)return;
+    if(group.active()){digibotSignal('Quest-Runde läuft in einem Fenster. Zuerst bei „Dieses Fenster ist“ die Option „keine Gruppe“ wählen');return;}
+    reloadAcc();const st=window.dmo?.store?.getState?.();
+    if(!st?.challenge&&st?.session?.username&&st.screen==='world')cfgProfile(st);
+    const result=resume?{type:digibotAccountQueue.resume()?'started':'none'}:digibotAccountQueue.start(accounts.list.map((a,slot)=>({...a,slot})).filter(a=>a.on&&a.user.trim()));
+    if(result.type!=='started'){if(result.reason)digibotSignal(result.reason);return;}
+    if(!digibotCore.start(digibotManual,true)){digibotAccountQueue.pause('Manuelle Freigabe oder Anmeldung erforderlich');return;}
+    digibotNotice?.remove();digibotNotice=null;
+    digibotQueueQuiesce();digibotQueueStatus('Quest-Runde gestartet – Accounts nacheinander');digibotQueueTick();
+  }
+  function digibotQueueBegin(token) {
+    const st=window.dmo?.store?.getState?.();if(token!==digibotAccountQueue.generation||!digibotAccountQueue.active||!digibotCore.armed||digibotCore.latched)return;
+    if(String(st?.session?.username||'').trim().toLowerCase()!==digibotAccountQueue.user)return;
+    cfgProfile(st);
+    noteCharacter(st,Date.now());
+    cfg.autopilot=true;cfg.farm=false;cfg.dungeon=false;cfg.questMode=false;
+    if(!digibotCore.loginMode(false))return;
+    if(!bot.on){digibotQueueLaunching=true;try{bot.toggle(true);}finally{digibotQueueLaunching=false;}}
+    if(!bot.on){digibotCore.stop('Autopilot konnte nicht gestartet werden',true);return;}
+    digibotAccountQueue.began(token);digibotQueueStatus(`Quest-Runde: Account ${digibotAccountQueue.slot+1} – Autopilot läuft`);
+  }
+  function digibotQueueTick() {
+    if(!digibotAccountQueue.active)return;
+    digibotCore.run('Account-Runde',30,()=>{
+      if(digibotAccountQueue.phase==='running'&&!cfg.autopilot){digibotCore.stop('Quest-Runde gestoppt: Betriebsart geändert',true);return;}
+      const st=window.dmo?.store?.getState?.(),slot=digibotAccountQueue.slot,acc=accounts.list[slot];
+      const action=digibotAccountQueue.step({screen:st?.screen,user:st?.session?.username,character:charName(st),characters:st?.session?.characters,busy:st?.session?.busy,error:!!st?.session?.error,challenge:!!st?.challenge,disconnected:st?.screen==='disconnected',ready:digibotNetworkState(window.dmo?.net,st)?.ready??!!st?.me?.partner,configuredUser:acc?.user,hasPassword:!!digibotQueuePasswords.get(String(acc?.user||'').trim().toLowerCase())});
+      if(action.type==='pause'){digibotCore.stop(action.reason,true);return;}
+      if(action.type==='none')return;
+      if(action.type==='begin'){digibotQueueBegin(action.generation);return;}
+      const client=digibotCommands(window.dmo?.client);
+      const fn={logout:'logout',login:'login',enter:'enterWorld'}[action.type];
+      if(typeof client?.[fn]!=='function'){digibotAccountQueue.pause('Client-Funktion für Account-Wechsel fehlt');digibotCore.stop('Account-Wechsel wird vom Client nicht unterstützt',true);return;}
+      digibotQueueStatus(`Quest-Runde: Account ${slot+1} – ${{logout:'Abmelden',login:'Anmelden',enter:'Charakter betreten'}[action.type]}`);
+      try{
+        const result=action.type==='login'?client.login(acc.user.trim(),digibotQueuePasswords.get(acc.user.trim().toLowerCase())):action.type==='enter'?client.enterWorld(action.characterId):client.logout();
+        Promise.resolve(result).then(()=>digibotAccountQueue.settled(action.generation),()=>{if(digibotAccountQueue.settled(action.generation,true))digibotCore.stop('Account-Wechsel fehlgeschlagen – im Spiel prüfen',true);});
+      }catch{digibotAccountQueue.settled(action.generation,true);digibotCore.stop('Account-Wechsel fehlgeschlagen – im Spiel prüfen',true);}
+
+    });
+  }
+  function digibotQueueComplete(st) {
+    if(!digibotAccountQueue.active||digibotAccountQueue.phase!=='running')return false;
+    if(String(st.session?.username||'').trim().toLowerCase()!==digibotAccountQueue.user){digibotCore.stop('Quest-Runde gestoppt: Account stimmt nicht überein',true);return true;}
+    const actor=window.dmo?.net?.state?.entities?.get?.(st.me?.partner?.entityId);
+    if(inCombat(st)||(actor?.flags&FLAG.InCombat)){bot.status='Quest-Runde: warte auf Kampfende vor dem Account-Wechsel';return true;}
+    const pending=Object.values(st.me?.quests||{}).some(q=>q.state===2);
+    const now=Date.now(),failed=[...autopilot.failed.values(),...autopilot.avoidSpots.values()].some(until=>until>now);
+    if(pending||failed){digibotCore.stop(pending?'Quest-Runde pausiert: fertige Quests warten noch auf Abgabe':'Quest-Runde pausiert: Aufgaben wurden vorübergehend übersprungen',true);return true;}
+    const outcome=digibotAccountQueue.complete();
+    if(outcome.type==='done'){if(bot.waitForEvents('Quest-Runde abgeschlossen'))return true;digibotCore.stop('Quest-Runde abgeschlossen – alle ausgewählten Accounts bearbeitet',false);return true;}
+    if(outcome.type==='next'){digibotQueueQuiesce();digibotQueueStatus(`Quest-Runde: nächster Account ${outcome.slot+1}`);return true;}
+    return false;
+  }
+  function digibotQueueRender() {
+    const el=panel?.querySelector('[data-f="account-queue"]');if(!el)return;
+    const s=digibotAccountQueue.summary();
+    panel.querySelectorAll('[data-act^="grp-"], [data-gmode], [data-accslot]').forEach(control=>{control.disabled=digibotAccountQueue.active;});
+    const labels={idle:'Bereit',switching:'Account prüfen','await-login':'Abmeldung läuft','await-auth':'Anmeldung läuft','await-world':'Charakter lädt',starting:'Autopilot startet',running:'Quests laufen',paused:'Pausiert',done:'Abgeschlossen'};
+    el.textContent=`${labels[s.phase]||s.phase} · ${s.index}/${s.total} Accounts bearbeitet${s.slot!==undefined?` · Account ${s.slot+1}`:''}${s.reason?` · ${s.reason}`:''}`;
+  }
+
+  window.__digibotDesktopVersion=1;
+  const CDIGI_DESKTOP_KEY='digibot.desktop.launch.v1';
+  let digibotDesktop=null,digibotDesktopControl=null,digibotDesktopJoining=false,digibotDesktopMessage='';
+  const digibotDesktopWindows=new Map();
+  function digibotDesktopRead(){try{const p=JSON.parse(localStorage.getItem(CDIGI_DESKTOP_KEY)||'null');return digibotDesktopValid(p,Date.now())?p:null;}catch{return null;}}
+  function digibotDesktopWrite(p){try{localStorage.setItem(CDIGI_DESKTOP_KEY,JSON.stringify(p));return true;}catch{digibotDesktopStatus('Desktopstart: gemeinsamer Browser-Speicher ist nicht verfügbar.');return false;}}
+  function digibotDesktopPublish(p,d,state){try{localStorage.setItem(digibotDesktopMemberKey(p.id,d.slot),JSON.stringify(state));return true;}catch{groupSend('stop');digibotCore.stop('Desktopstart: Fensterstatus konnte nicht gespeichert werden',true);return false;}}
+  const digibotDesktopMemberKey=(id,slot)=>`${CDIGI_DESKTOP_KEY}.${id}.${slot}`;
+  function digibotDesktopMembers(p){return p.slots.map(a=>{try{return JSON.parse(localStorage.getItem(digibotDesktopMemberKey(p.id,a.slot))||'null');}catch{return null;}}).filter(Boolean);}
+  function digibotDesktopStatus(text){digibotDesktopMessage=text+(digibotDesktop?.layoutOk===false?' · Browser begrenzt die Fensterpositionierung.':'');const el=panel?.querySelector('[data-f="desktop-launch"]');if(el)el.textContent=digibotDesktopMessage;}
+  function digibotDesktopCancel(reason='Desktopstart abgebrochen',force=false){
+    const p=digibotDesktopRead();
+    if(!p||p.phase==='running'||p.phase==='cancelled'||!force&&digibotDesktop?.id!==p.id&&digibotDesktopControl!==p.id)return;
+    p.phase='cancelled';p.reason=String(reason).slice(0,200);digibotDesktopWrite(p);digibotDesktopStatus(p.reason);
+  }
+  function digibotDesktopPlace(win,rect){
+    try{win.moveTo(rect.left,rect.top);win.resizeTo(rect.width,rect.height);return ![['screenX',rect.left],['screenY',rect.top],['outerWidth',rect.width],['outerHeight',rect.height]].some(([key,value])=>Number.isFinite(win[key])&&Math.abs(win[key]-value)>32);}catch{return false;}
+  }
+  function digibotDesktopJoin(id,slot){
+    const p=digibotDesktopRead();
+    if(!p||p.id!==id||p.phase==='cancelled'||p.phase==='running'||!p.slots.some(a=>a.slot===slot))return false;
+    if(digibotDesktop?.id===id&&digibotDesktop.slot===slot)return true;
+    if(digibotAccountQueue.active)return false;
+    digibotDesktopJoining=true;
+    try{if(bot.on)digibotCore.stop('Desktopstart vorbereiten',false);}finally{digibotDesktopJoining=false;}
+    ss.set('digibot.slot',String(slot));ss.set('digibot.group','1');ss.set('digibot.go',null);
+    digibotDesktop={id,slot,armed:false,started:false,committed:false,timer:null};
+    group.peers.clear();group.talks=[];group.handled.clear();group.done=[];group.cur=null;group.invited.clear();
+    window.name=`digibot-slot-${slot}`;
+    const index=p.slots.findIndex(a=>a.slot===slot),rect=p.tiles?.[index];
+    if(rect&&[rect.left,rect.top,rect.width,rect.height].every(Number.isFinite))digibotDesktop.layoutOk=digibotDesktopPlace(window,rect);
+    groupPush(true);schedule();return true;
+  }
+  function digibotDesktopBootstrap(){
+    const request=ss.get('digibot.desktop.request');ss.set('digibot.desktop.request',null);
+    if(request)digibotDesktopJoin(request,group.slot());
+  }
+  window.addEventListener('message',e=>{
+    const m=e.data;
+    if(e.origin!==location.origin||!m||m.kind!=='digibot-desktop-prepare'||!Number.isInteger(m.slot)||window.name!==`digibot-slot-${m.slot}`)return;
+    const p=digibotDesktopRead();if(!p||p.id!==m.id)return;
+    digibotDesktopJoin(m.id,m.slot);
+  });
+  function digibotDesktopStart(){
+    if(!digibotManual)return;
+    if(digibotAccountQueue.active){digibotDesktopStatus('Zuerst die laufende Account-Runde stoppen.');return;}
+    reloadAcc();const roster=digibotDesktopRoster(accounts),tiles=digibotDesktopTiles(window.screen);
+    if(roster.error){digibotDesktopStatus(roster.error);return;}
+    if(!tiles){digibotDesktopStatus('Vierer-Anordnung benötigt einen Desktop-Bildschirm mit mindestens 800 × 600 Pixeln.');return;}
+    const st=getStore()?.getState?.(),user=String(st?.session?.username||'').trim().toLowerCase();
+    const mine=roster.slots.find(a=>a.user.toLowerCase()===user)||(!user?roster.slots[0]:null);
+    if(!mine){digibotDesktopStatus('Dieses Fenster muss mit einem der vier ausgewählten Accounts angemeldet sein.');return;}
+    digibotDesktopCancel('Durch neuen Desktopstart ersetzt',true);
+    const now=Date.now(),p={version:1,id:`${now.toString(36)}-${Math.random().toString(36).slice(2)}`,created:now,expires:now+600000,leader:accounts.leader,slots:roster.slots,tiles,phase:'waiting',startAt:0};
+    digibotDesktopControl=p.id;
+    if(!digibotDesktopWrite(p))return;
+    accounts.mirror=false;accounts.leadBoss=false;accounts.dungeon=false;accounts.serve=false;accounts.popup=true;saveAcc();
+    cfg.autopilot=true;cfg.farm=false;cfg.dungeon=false;cfg.questMode=false;saveCfg();
+    digibotDesktopJoin(p.id,mine.slot);
+    if(st?.screen==='world'&&st.me?.partner)digibotCore.enablePassive(true);
+    let blocked=0;
+    // All window.open calls stay inside the trusted click, before any waits.
+    for(let i=0;i<p.slots.length;i++){
+      const a=p.slots[i],r=tiles[i];if(a.slot===mine.slot)continue;
+      const features=`popup=yes,left=${r.left},top=${r.top},width=${r.width},height=${r.height},resizable=yes,scrollbars=yes`;
+      let w=digibotDesktopWindows.get(a.slot);
+      try{if(!w||w.closed)w=window.open('',`digibot-slot-${a.slot}`,features);}catch{w=null;}
+      if(!w){blocked++;continue;}
+      digibotDesktopWindows.set(a.slot,w);digibotDesktopPlace(w,r);
+      try{
+        if(!w.location.href||w.location.href==='about:blank'||!w.__digibotDesktopVersion)w.location.href=`${location.origin}${location.pathname}#dbslot=${a.slot}&dblaunch=${p.id}`;
+        else w.postMessage({kind:'digibot-desktop-prepare',id:p.id,slot:a.slot},location.origin);
+      }catch{blocked++;}
+    }
+    if(blocked){digibotDesktopCancel(`${blocked} Fenster blockiert. Pop-ups für die Spielseite erlauben und Desktopstart erneut drücken.`,true);return;}
+    digibotDesktopStatus('Vier Fenster vorbereitet. Falls nötig anmelden; danach Party bilden und gemeinsam starten.');
+    logEvent('bot','Desktopstart: vier Accounts, Party und gemeinsamer Autopilot vorbereitet');
+    digibotDesktopTick();
+  }
+  function digibotDesktopLocalState(p,st){
+    const d=digibotDesktop,expected=p.slots.find(a=>a.slot===d.slot),user=String(st?.session?.username||'').trim();
+    let reason='';
+    if(digibotAccountQueue.active)reason='Account-Runde läuft in diesem Fenster';
+    else if(digibotCore.latched||st?.challenge)reason='manuell pausiert – erst in diesem Fenster freigeben';
+    else if(user.toLowerCase()!==expected.user.toLowerCase())reason=`mit ${expected.user} anmelden`;
+    else if(st?.screen!=='world'||!st.me?.partner)reason='Charakter betreten und Spielwelt laden';
+    else if(!charName(st))reason='Charaktername noch nicht verfügbar';
+    const net=digibotNetworkState(window.dmo?.net,st);
+    if(!reason&&net&&(net.transfer||!net.ready))reason='Verbindung oder Kartenwechsel noch nicht bereit';
+    return {id:p.id,slot:d.slot,user,name:charName(st)||'',seen:Date.now(),ready:!reason,reason,armed:d.armed&&digibotCore.armed&&!digibotCore.latched,started:d.started,partyId:st?.party?.id||null,partyNames:(st?.party?.members||[]).map(m=>String(m.name||'').toLowerCase())};
+  }
+  function digibotDesktopPartyAllowed(st,now){
+    const p=digibotDesktopRead();
+    if(!p||!digibotDesktop||digibotDesktop.id!==p.id||p.phase==='running'||p.phase==='cancelled')return true;
+    return digibotDesktopBarrier(p,digibotDesktopMembers(p),now,{party:false}).ok;
+  }
+  function digibotDesktopFinish(p){
+    const d=digibotDesktop,now=Date.now(),current=digibotDesktopRead(),st=getStore()?.getState?.();
+    if(!d||d.id!==p.id||d.started||!current||current.id!==p.id||current.phase!=='scheduled')return;
+    if(now-current.startAt>3000||digibotCore.latched||!digibotCore.armed||!digibotDesktopLocalState(current,st).ready||!digibotDesktopBarrier(current,digibotDesktopMembers(current),now,{armed:true}).ok){digibotDesktopCancel('Gemeinsamer Start abgebrochen: Fenster oder Party nicht mehr bereit.');return;}
+    cfg.autopilot=true;cfg.farm=false;cfg.questMode=false;cfg.dungeon=false;
+    groupPush(true);if(!bot.on)bot.toggle(true);
+    d.started=bot.on;
+    if(!d.started){digibotDesktopCancel('Autopilot konnte nicht in allen Fenstern gestartet werden.');return;}
+    if(!digibotDesktopPublish(p,d,digibotDesktopLocalState(current,st)))return;
+    const completed=digibotDesktopMembers(current);
+    if(completed.length===4&&completed.every(m=>m.started===true)){current.phase='running';digibotDesktopWrite(current);d.committed=true;}
+    groupPush(true);digibotDesktopStatus('Autopilot gemeinsam gestartet.');
+  }
+  function digibotDesktopTick(){
+    const p=digibotDesktopRead(),d=digibotDesktop,now=Date.now();
+    if(!d){if(p?.id===digibotDesktopControl)digibotDesktopStatus(p.reason||'Desktopstart wird vorbereitet');return;}
+    if(!p||p.id!==d.id||p.phase==='cancelled'){
+      if(!d.committed){
+        digibotDesktopJoining=true;try{if(d.armed||d.started)digibotCore.stop(p?.reason||'Desktopstart abgelaufen oder abgebrochen',false);}finally{digibotDesktopJoining=false;}
+      }
+      digibotDesktopStatus(p?.reason||'Desktopstart abgelaufen oder ersetzt.');digibotDesktop=null;return;
+    }
+    if(p.phase==='running'){d.committed=true;digibotDesktopStatus('Vierer-Party bereit – Autopilot in allen Fenstern gestartet.');return;}
+    if(p.phase==='scheduled'&&now>p.startAt+3500){digibotDesktopCancel('Nicht alle Fenster haben rechtzeitig gestartet – gemeinsamen Start erneut auslösen.');return;}
+    reloadAcc();
+    if(accounts.leader!==p.leader||p.slots.some(a=>!accounts.list[a.slot]?.on||accounts.list[a.slot].user.trim().toLowerCase()!==a.user.toLowerCase())){digibotDesktopCancel('Account-Auswahl während des Desktopstarts geändert.');return;}
+    const st=getStore()?.getState?.();let local=digibotDesktopLocalState(p,st);
+    if(local.ready&&p.phase==='arming'&&!d.armed){d.armed=digibotCore.start(false);local=digibotDesktopLocalState(p,st);}
+    if(!digibotDesktopPublish(p,d,local))return;
+    groupPush(true);
+    if(local.ready)digibotCore.runPassive('Gruppe',20,()=>groupParty(st,now));
+    let members=digibotDesktopMembers(p),barrier=digibotDesktopBarrier(p,members,now,{armed:p.phase!=='waiting'});
+    if(d.slot===p.leader){
+      if(p.phase==='waiting'&&barrier.ok){p.phase='arming';digibotDesktopWrite(p);}
+      else if(p.phase==='arming'&&barrier.ok){p.phase='scheduled';p.startAt=now+2000;digibotDesktopWrite(p);}
+      else if(p.phase==='scheduled'&&barrier.ok&&members.every(m=>m.started)){p.phase='running';digibotDesktopWrite(p);d.committed=true;}
+    }
+    digibotDesktopStatus(p.phase==='scheduled'?'Vierer-Party vollständig – gemeinsamer Start in Kürze':barrier.ok?'Vierer-Party bereit – Startfreigaben sammeln':barrier.reason);
+    if(p.phase==='scheduled'&&d.armed&&!d.started&&!d.timer){d.timer=digibotCore.defer(()=>digibotDesktopFinish(p),Math.max(0,p.startAt-now));}
+  }
+  function digibotDesktopResume(){if(digibotManual&&digibotCore.enablePassive(true))digibotDesktopTick();}
+
+  function digibotDesktopSnapshot(){
+    const p=digibotDesktopRead();if(!p)return {phase:'idle'};
+    const members=digibotDesktopMembers(p);
+    return {phase:p.phase,slot:digibotDesktop?.slot??null,leader:p.leader,selected:p.slots.map(a=>a.slot),ready:members.filter(m=>m.ready).map(m=>m.slot),armed:members.filter(m=>m.armed).map(m=>m.slot),started:members.filter(m=>m.started).map(m=>m.slot),startAt:p.startAt||null,reason:p.reason||digibotDesktopMessage};
+  }
+
 
   const POS_KEY = 'digibot.pos';
 
@@ -298,6 +1203,7 @@
     .digibot__qsum:empty{display:none}
     .digibot__btnrow{display:flex;gap:4px;justify-content:flex-end;margin-bottom:4px}
     .digibot__tabs button{font-size:11px}
+    .digibot__accrow input[type=text]{grid-column:3/-1}
     @keyframes digibot-blink{50%{opacity:.55}}
   `;
 
@@ -313,6 +1219,7 @@
   const CFG_KEY = 'digibot.cfg';
   const SKILL_KEYS = [2, 3, 4, 5, 6]; // Tasten, deren Skills automatisch gewirkt werden dürfen
   const cfg = {
+    tamerAuto: true, evoWarp: false, apMapEvo: true, independentGroup: true, width: 320, compact: false, min: false,
     tab: 'data', lvlDiff: 5, radius: 300, hpPot: 40, dsPot: 20, tdsPot: 20,
     skills: { 2: true, 3: true, 4: true, 5: true, 6: true },
     heal: {},       // alt (vor 2.12): Heil-Skills je Taste – wird beim ersten Start in skillSets übernommen
@@ -337,7 +1244,7 @@
     safeCast: true,   // gegen Bosse: Skills nur, wenn danach noch Zeit zum Ausweichen bleibt (und kein Spiegel droht)
     autopilot: false, // Quests annehmen, hinreisen, erledigen, abgeben
     apGrind: true,    // Autopilot: bei Level-Sperren/Level-Zielen grinden statt stoppen
-    apBatch: false,   // Autopilot: erst alle Ziele erledigen, dann alles abgeben, dann alles annehmen (keine Abgabe zwischendurch)
+    apBatch: true,   // Autopilot: erst alle Ziele erledigen, dann alles abgeben, dann alles annehmen (keine Abgabe zwischendurch)
     apNoTurnin: false, // Autopilot: Quests annehmen und erledigen, aber nicht abgeben (fertige bleiben im Log, Abgeben macht man selbst)
     apOrder: 'near',  // 'near' = nächste Aufgabe zuerst, 'sweep' = Map für Map absteigend
     apStartMap: '',   // Start-Map der Runde ('' = höchste bzw. niedrigste erreichbare, je nach Richtung)
@@ -362,17 +1269,18 @@
     routeEnd: '',         // Named-Runde: End-Map (leer = höchste)
     open: {},             // auf-/zugeklappte Gruppen im Panel
   };
-  // Einstellungen je Account: Sobald der Login-Name bekannt ist, lädt das Fenster das Profil dieses Accounts
-  // (digibot.cfg@name) – so überschreiben sich die Fenster der Gruppe nicht mehr gegenseitig. Ein neuer Account
-  // startet mit den bisherigen Einstellungen. Nur die Panel-Ansicht (Reiter, Breite, …) gilt für alle Fenster.
+  // One shared configuration; account identity remains separate for quest progress.
   const CFG_DEFAULTS = JSON.parse(JSON.stringify(cfg));
   const UI_KEYS = ['tab', 'open', 'logFilter', 'width', 'compact', 'min'];
-  let cfgUser = null; // Login-Name, dessen Profil gerade geladen ist
-  const profileKey = (u) => `${CFG_KEY}@${u}`;
+  const CFG_BATCH_KEY = 'digibot.cfg.batch.v1';
+  const CFG_SHARED_KEY = 'digibot.cfg.shared.v1';
+  let cfgUser = null;
   function applyCfg(saved) {
-    Object.assign(cfg, saved, {
-      skills: { ...cfg.skills, ...saved.skills }, heal: { ...saved.heal }, skillSets: { ...saved.skillSets }, mobs: { ...saved.mobs }, questOff: { ...saved.questOff },
-    });
+    const checked = digibotConfig(saved, CFG_DEFAULTS);
+    Object.assign(cfg, checked.value);
+    // Neuer Standard „erst alles erledigen, dann abgeben“ – nur, wenn der Nutzer apBatch nie selbst gesetzt hat
+    try{if(localStorage.getItem(CFG_BATCH_KEY)!=='1'&&!(digibotRecord(saved)&&Object.hasOwn(saved,'apBatch')))cfg.apBatch=true;}catch{}
+    if (checked.issues.length) digibotCore.record('Einstellungen korrigiert', {action: checked.issues.join(', ')});
     const m = modeOf(); // alte Einstellungen mit mehreren Schaltern auf eine Betriebsart bringen
     cfg.questMode = m === 'quest'; cfg.autopilot = m === 'auto'; cfg.farm = m === 'farm'; cfg.dungeon = m === 'dungeon';
     cfg.mirror = true; cfg.safeCast = true; // immer an (siehe ALWAYS_ON)
@@ -380,40 +1288,48 @@
   // Betriebsart (genau eine): Grinden, Quest-Jagd (Quest-Modus), Quest-Autopilot oder Bosse (Rotation/Named-Runde)
   const MODES = { grind: 'Grinden', quest: 'Quest-Jagd', auto: 'Autopilot', farm: 'Bosse', dungeon: 'Dungeon' };
   const modeOf = () => (cfg.dungeon ? 'dungeon' : cfg.farm ? 'farm' : cfg.autopilot ? 'auto' : cfg.questMode ? 'quest' : 'grind');
-  try { applyCfg(JSON.parse(localStorage.getItem(CFG_KEY) || '{}')); } catch {}
+  try { applyCfg(JSON.parse(localStorage.getItem(CFG_KEY) || localStorage.getItem('digibot.cfg') || '{}')); } catch {}
   const ALWAYS_ON = ['mirror', 'safeCast']; // früher Haken – ausgeschaltet schadete man sich nur selbst
   if (cfg.tab === 'care') cfg.tab = 'attack';
   const mobOn = (mapId, key, cat) => cfg.mobs[mapId]?.[key] ?? cat !== 'boss';
   const saveCfg = () => {
+    applyCfg(cfg);
     try {
-      if (cfgUser) {
-        localStorage.setItem(profileKey(cfgUser), JSON.stringify(cfg));
-        // Panel-Ansicht gilt für alle Fenster
-        const shared = JSON.parse(localStorage.getItem(CFG_KEY) || '{}');
-        for (const k of UI_KEYS) shared[k] = cfg[k];
-        localStorage.setItem(CFG_KEY, JSON.stringify(shared));
-      } else localStorage.setItem(CFG_KEY, JSON.stringify(cfg));
-    } catch {}
+      localStorage.setItem(CFG_KEY, JSON.stringify(cfg));
+      localStorage.setItem(CFG_SHARED_KEY, '1');
+      localStorage.setItem(CFG_BATCH_KEY, '1');
+    } catch { digibotCore.record('Gemeinsame Einstellungen konnten nicht gespeichert werden'); }
   };
-  // Profil des eingeloggten Accounts laden (oder mit den jetzigen Einstellungen anlegen)
+  // Import the first signed-in account's former settings once, then never load profiles again.
   function cfgProfile(st) {
     const u = String(st?.session?.username || '').trim().toLowerCase();
     if (!u || u === cfgUser) return;
-    let saved = null;
-    try { saved = JSON.parse(localStorage.getItem(profileKey(u)) || 'null'); } catch {}
-    const first = cfgUser === null;
     cfgUser = u;
-    if (!saved) { saveCfg(); logEvent('bot', `Einstellungen: neues Profil für ${st.session.username} (aus den bisherigen Einstellungen)`); return; }
-    const ui = Object.fromEntries(UI_KEYS.map((k) => [k, cfg[k]]));
-    for (const k of Object.keys(cfg)) delete cfg[k];
-    Object.assign(cfg, JSON.parse(JSON.stringify(CFG_DEFAULTS)));
-    applyCfg(saved);
-    Object.assign(cfg, ui);
-    syncCfgInputs();
-    farm.reset(); autopilot.reset();
-    logEvent('bot', `Einstellungen: Profil von ${st.session.username}${first ? '' : ' geladen (Account gewechselt)'}`);
+    try {
+      if (localStorage.getItem(CFG_SHARED_KEY) !== '1') {
+        const saved = JSON.parse(localStorage.getItem(`${CFG_KEY}@${u}`) || 'null');
+        if (digibotRecord(saved)) {
+          const ui = Object.fromEntries(UI_KEYS.map(k => [k, cfg[k]]));
+          applyCfg(saved);Object.assign(cfg,ui);
+          syncCfgInputs();farm.reset();autopilot.reset();
+        }
+        saveCfg();
+        logEvent('bot', 'Einstellungen: gemeinsames Profil für alle Accounts übernommen');
+      }
+    } catch { digibotCore.record('Bisherige Einstellungen konnten nicht übernommen werden'); }
+    try{if(localStorage.getItem(CFG_BATCH_KEY)!=='1')saveCfg();}catch{}
     schedule();
   }
+  window.addEventListener('storage', (event) => {
+    if(event.key!==CFG_KEY || !event.newValue)return;
+    try {
+      const saved=JSON.parse(event.newValue);if(!digibotRecord(saved))return;
+      const behavior=()=>JSON.stringify(Object.fromEntries(Object.entries(cfg).filter(([key])=>!UI_KEYS.includes(key))));
+      const before=behavior();applyCfg(saved);syncCfgInputs();
+      if(before!==behavior()){farm.reset();autopilot.reset();}
+      schedule();
+    } catch { digibotCore.record('Gemeinsame Einstellungen konnten nicht geladen werden'); }
+  });
   // Panel-Elemente, die ihren Wert nur beim Aufbau aus cfg nehmen, nach einem Profilwechsel nachziehen
   function syncCfgInputs() {
     if (!panel) return;
@@ -434,31 +1350,40 @@
   // sessionStorage des Fensters (Slot) – die Bot-Einstellungen in localStorage teilen sich ja alle Fenster.
   const ACC_KEY = 'digibot.accounts';
   const ACC_MAX = 5;
+  // Per-window volatile credentials; never serialize or broadcast this map.
+  const digibotQueuePasswords = new Map();
   const accounts = { leader: 0, popup: true, mirror: false, mirrorAtk: true, leadBoss: false, dungeon: false, spread: false, serve: false, list: [] };
   function reloadAcc() {
+
     try {
-      const a = JSON.parse(localStorage.getItem(ACC_KEY) || 'null');
-      if (a && Array.isArray(a.list)) {
-        accounts.leader = Number(a.leader) || 0; accounts.popup = a.popup !== false; accounts.mirror = !!a.mirror; accounts.mirrorAtk = a.mirrorAtk !== false; accounts.leadBoss = !!a.leadBoss; accounts.dungeon = !!a.dungeon; accounts.spread = !!a.spread; accounts.serve = !!a.serve;
-        accounts.list = a.list.slice(0, ACC_MAX);
+      const a=JSON.parse(localStorage.getItem(ACC_KEY)||localStorage.getItem('digibot.accounts')||'null');
+      if(digibotRecord(a)&&Array.isArray(a.list)) {
+        accounts.leader=Number.isInteger(a.leader)&&a.leader>=0&&a.leader<ACC_MAX?a.leader:0;
+        for(const k of ['popup','mirror','mirrorAtk','leadBoss','dungeon','spread','serve'])if(typeof a[k]==='boolean')accounts[k]=a[k];
+        accounts.list=Array.from({length:ACC_MAX},(_,i)=>{
+          const row=digibotRecord(a.list[i])?a.list[i]:{};
+          const user=typeof row.user==='string'?row.user.slice(0,64):'';
+          return {on:row.on===true,user,char:typeof row.char==='string'?row.char.slice(0,100):'',at:Number.isFinite(row.at)?row.at:0};
+        });
       }
-    } catch {}
-    while (accounts.list.length < ACC_MAX) accounts.list.push({});
-    accounts.list = accounts.list.map((x) => ({ on: false, user: '', pass: '', char: '', at: 0, ...x }));
+    } catch { digibotCore.record('Account-Einstellungen konnten nicht geladen werden'); }
+    while(accounts.list.length<ACC_MAX)accounts.list.push({on:false,user:'',char:'',at:0});
   }
   reloadAcc();
-  const saveAcc = () => { try { localStorage.setItem(ACC_KEY, JSON.stringify(accounts)); } catch {} };
+  const saveAcc=()=>{try {localStorage.setItem(ACC_KEY,JSON.stringify({...accounts,list:accounts.list.map(({on,user,char,at})=>({on,user,char,at}))}));}catch {digibotSignal('Account-Einstellungen konnten nicht gespeichert werden');}};
   const ss = {
     get(k) { try { return sessionStorage.getItem(k); } catch { return null; } },
     set(k, v) { try { if (v == null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, v); } catch {} },
   };
   { // Neu laden: weder einloggen noch Bot starten. Fenster, die „Alle einloggen“ geöffnet hat, bringen Slot und
-    // Login-Auftrag im Link mit (#dbslot=2&login=1).
+    // Slot-Zuordnung im Link mit (#dbslot=2).
     ss.set('digibot.go', null); ss.set('digibot.login', null);
+    ss.set('digibot.desktop.request',null);
+    const desktopRequest=/[&#]dblaunch=([a-z0-9-]{8,100})(?:&|$)/.exec(location.hash||'');
+    if(desktopRequest)ss.set('digibot.desktop.request',desktopRequest[1]);
     const m = /[#&]dbslot=(\d)((?:&\w+=1)*)/.exec(location.hash || '');
     if (m) {
       ss.set('digibot.slot', m[1]); ss.set('digibot.group', '1');
-      if (/&login=1/.test(m[2])) ss.set('digibot.login', '1');
       if (/&go=1/.test(m[2])) ss.set('digibot.go', '1');
       try { history.replaceState(null, '', location.pathname + location.search); } catch {}
     }
@@ -481,7 +1406,7 @@
     role() { return !this.active() ? null : this.slot() === accounts.leader ? 'leader' : 'follower'; },
   };
   try {
-    group.bus = new BroadcastChannel('digibot-group');
+    group.bus = new BroadcastChannel('digibot-group-v1');
     group.bus.onmessage = (e) => onGroupMsg(e.data);
   } catch { /* kein BroadcastChannel – Gruppe nicht möglich */ }
   window.addEventListener('storage', (e) => { if (e.key === ACC_KEY) { reloadAcc(); schedule(); } });
@@ -513,7 +1438,7 @@
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '2.55.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.0.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -531,6 +1456,9 @@
       <button class="digibot__btn digibot__run" data-act="bot" title="Alt+B">▶ Start</button>
       <button class="digibot__btn digibot__hunt" data-act="hunt" title="Event (Mega-Jagd): Sobald der Weltboss angekündigt ist (6 min vorher), reist der Bot zur Map, Kanal 1, wartet, sucht ihn und kämpft. Danach weiter wie vorher. Gilt in jedem Modus.">🎯 Event</button>
       <button class="digibot__btn digibot__hunt" data-act="wboss" title="Weltboss (z. B. BlackWarGreymon): spawnt auf Kanal 1 und 2 mit eigenem Timer. Lebt er oder spawnt er in den nächsten 6 min, reist der Bot hin, wartet am Spawnpunkt und kämpft – zuerst der Kanal, der zuerst spawnt (gleichzeitig: Kanal 1), danach der andere. Danach weiter wie vorher. Das Event geht vor.">🌍 Weltboss</button>
+      <button class="digibot__btn" data-act="digibot-stop">■ NOT-AUS (Esc)</button>
+      <button class="digibot__btn" data-act="digibot-export">Diagnose exportieren</button>
+      ${check('independentGroup', 'Gruppe: eigene Wege und feste Bossplätze je Fenster')}
       <div class="digibot__status" data-f="status">Bot aus</div>
       <div class="digibot__task" data-f="task"><span class="t"></span><span class="pb"><i></i></span></div>
       <div class="digibot__vitals">${bar('hp mini', 'HP').replace('data-bar="hp mini"', 'data-bar="mhp"')}${bar('ds mini', 'DS').replace('data-bar="ds mini"', 'data-bar="mds"')}${bar('tg mini', 'Ziel').replace('data-bar="tg mini"', 'data-bar="mtg"')}</div>
@@ -578,6 +1506,9 @@
           <div class="digibot__apcfg">
             <label>Quest-Digimon<select data-apsel="apQuestPartner"></select></label>
             <label>Digitation<select data-apsel="apEvo"></select></label>
+            ${check('evoWarp', 'Freigegebene Warp-Digitation verwenden')}
+            ${check('apMapEvo', 'Autopilot: Digitationsregeln der Lernroute übernehmen')}
+            <div class="digibot__hint">Im Autopiloten gelten dann der Lernrouten-Schalter sowie „Form ohne Dark Tower“ und „Form mit Dark Tower“ im Reiter Kampf. Für eine feste Quest-Form den Haken ausschalten.</div>
             <label>Abgabe-Digimon<select data-apsel="apTurninPartner"></select></label>
           </div>`, true, 'Quest-Digimon: mit ihm werden Quests angenommen und erledigt. Digitation: diese Form nimmt es dafür an (gilt auch in der Boss-Rotation und im Dungeon – dort schon an der Tür, vor dem Betreten). Abgabe-Digimon: zum Abgeben wird beim NPC zurück-digitiert und gewechselt.')}
         ${grp('skills', 'Skills (Tasten 2–6) <i class="digibot__for" data-f="skillsfor"></i>', `<div class="digibot__skills">${SKILL_KEYS.map((k) => `
@@ -616,6 +1547,7 @@
           ${check('koh', 'ClavisAngemon: große Raid-Angriffe mit Key of Hope blocken')}`, true,
           'Ausweichen: raus aus Kreisen, Strahlen und Fächern, möglichst nah am Boss. Immer aktiv: kein Angriff, solange das Ziel Schaden zurückwirft (Spiegel), und lange Casts nur, wenn eine mögliche Boss-Attacke noch Zeit zum Ausweichen lässt.')}
 
+        ${grp('tamer-skills', 'Tamer-Fähigkeit', `${check('tamerAuto', 'Tamer-Skill situationsabhängig automatisch einsetzen')}<div class="digibot__hint">Heilung und Schutz nach Bedarf, Angriffsverstärkung in längeren Kämpfen. Gleiche Fähigkeiten werden zwischen DigiBot-Gruppenfenstern abgestimmt. Das Spiel entscheidet über Reichweite und gemeinsame Abklingzeiten.</div>`, true)}
         ${grp('bskills', 'Attacken des Bosses', `<div class="digibot__bskills" data-f="bskills"><div class="digibot__none">Kein Boss im Kampf – Attacken erscheinen hier, sobald du einen Boss anvisierst.</div></div>`, true,
           'Form, Ansage und Cooldown jeder Attacke. Der Countdown läuft ab dem ersten beobachteten Einsatz; „bereit“ heißt „kann jederzeit kommen“.')}
         ${grp('mobs', '<span data-f="mapname">Monster auf dieser Map</span>', `
@@ -678,13 +1610,17 @@
         </div>
         <label class="digibot__skill digibot__chk" title="Jedes Gruppenmitglied greift ein anderes Quest-Monster an (statt alle dasselbe). Ist keins mehr frei, hilft man mit. Bosse greifen alle gemeinsam an. Nicht beim Spiegeln und nicht in der Boss-Rotation."><input type="checkbox" data-accspread ${accounts.spread ? 'checked' : ''}><span>🎯 Ziele verteilen: jeder ein anderes Monster</span><em class="digibot__offnote" data-f="spreadoff"></em></label>
         <label class="digibot__skill digibot__chk" title="Der Leader kümmert sich nur um die Quests der Mitläufer (seine eigenen sind egal) und jagt, was ihnen fehlt. Die Mitläufer bleiben stehen und wehren nur Angreifer ab. Abgeben/Annehmen macht man bei ihnen selbst. Nur im Modus 📜 Quests."><input type="checkbox" data-accserve ${accounts.serve ? 'checked' : ''}><span>🤝 Leader erledigt die Quests der Mitläufer</span></label>
-        <div class="digibot__grpbtns three"><button class="digibot__btn" data-act="grp-login" title="Fehlende Fenster öffnen, alle Accounts einloggen und Charakter wählen">🔑 Einloggen</button><button class="digibot__btn" data-act="grp-start" title="Bots in allen Gruppenfenstern starten">▶ Starten</button><button class="digibot__btn" data-act="grp-stop" title="Bots in allen Gruppenfenstern stoppen">■ Stoppen</button></div>
+        <div class="digibot__grpbtns three"><button class="digibot__btn" data-act="grp-login" title="Fehlende Gruppenfenster öffnen – dort selbst anmelden und Charakter wählen">⧉ Fenster öffnen</button><button class="digibot__btn" data-act="grp-start" title="Bots in allen Gruppenfenstern starten">▶ Starten</button><button class="digibot__btn" data-act="grp-stop" title="Bots in allen Gruppenfenstern stoppen">■ Stoppen</button></div>
         <div class="digibot__grpbtns"><button class="digibot__btn" data-act="grp-invite" title="Der Leader lädt sofort alle Gruppenmitglieder in die Party ein, die noch nicht drin sind (geht aus jedem Gruppenfenster). Die Mitläufer nehmen automatisch an.">👥 Party einladen</button><button class="digibot__btn" data-act="grp-maptalk" title="In allen Gruppenfenstern: alle fertigen Quests auf der aktuellen Map abgeben und alle hier verfügbaren annehmen – jeder für sich. Danach geht es weiter wie vorher (lief der Bot nicht, stoppt er wieder).">📜 Abgeben &amp; Annehmen (diese Map)</button></div>
+        <div class="digibot__grpbtns"><button class="digibot__btn" data-act="grp-desktop" title="Genau vier ausgewählte Accounts im 2×2-Desktoplayout: Leader lädt ein, danach gemeinsamer Autopilot-Start">▦ Vier Fenster + Party + Autopilot</button><button class="digibot__btn" data-act="grp-desktop-stop">Desktopstart abbrechen</button></div>
+        <div class="digibot__hint" data-f="desktop-launch">Vier Accounts auswählen, Leader markieren und Pop-ups erlauben. Falls nötig in jedem Fenster selbst anmelden; Start erfolgt erst mit vollständiger Party. Der Browser muss die Fensterpositionierung zulassen.</div>
+        <button class="digibot__btn" data-act="grp-desktop-resume" title="Manuelle Pause in diesem Fenster für den vorbereiteten Desktopstart aufheben">Desktopstart hier freigeben</button>
         <div class="digibot__gcards" data-f="gcards"></div>
         <label class="digibot__slotsel" title="Welcher Account läuft in diesem Fenster? Bestimmt, ob es Leader oder Mitläufer ist. Gilt nur für dieses Fenster.">Dieses Fenster ist
           <select data-accslot><option value="">– keine Gruppe –</option>${accounts.list.map((a, i) => `<option value="${i}">Account ${i + 1}${a.user ? ` (${escAttr(a.user)})` : ''}</option>`).join('')}</select></label>
         <div class="digibot__grpinfo" data-f="grpinfo">–</div>
-        ${grp('accounts', 'Accounts verwalten', `<div class="digibot__accwarn">Passwörter werden <b>unverschlüsselt</b> in diesem Browser gespeichert. Feld leer lassen = im Fenster selbst einloggen.</div>
+        ${grp('account-queue', 'Accounts nacheinander: Quest-Runde', '<div class="digibot__hint">Ein Fenster, Account 1 → 5 mit Haken und Benutzername. Pro Account läuft der Autopilot bis zum normalen Abschluss. Keine Wiederholungsschleife. Das Fenster darf keiner laufenden Gruppe zugeordnet sein. Automatischer Account-Wechsel mit den unten eingegebenen Passwörtern. Passwörter gelten nur bis zum Neuladen dieses Fensters.</div><div class="digibot__grpbtns"><button class="digibot__btn" data-act="queue-start">▶ Quest-Runde starten</button><button class="digibot__btn" data-act="queue-resume">↪ Runde fortsetzen</button><button class="digibot__btn" data-act="queue-stop">■ Runde stoppen</button></div><div class="digibot__hint" data-f="account-queue">Bereit</div>', true)}
+        ${grp('accounts', 'Accounts verwalten', `<div class="digibot__accwarn">Für die Quest-Runde: Passwörter einmal hier eingeben. Sie bleiben nur im Arbeitsspeicher dieses Fensters und werden beim Neuladen verworfen. <button class="digibot__btn" data-act="digibot-passwords">Alte gespeicherte Passwörter löschen</button></div>
           <div data-f="acclist">${accRows()}</div>
           <label class="digibot__skill digibot__chk"><input type="checkbox" data-accpopup ${accounts.popup ? 'checked' : ''}><span>Als eigene Fenster nebeneinander öffnen (empfohlen)</span></label>`, !accounts.list.some((a) => a.user),
           '☑ = in der Gruppe dabei · ◉ = Leader. Der Leader fährt den Autopilot und sucht die Monster aus. Die anderen folgen ihm, helfen beim Kämpfen und nehmen dieselben Quests an und geben sie mit ab. Der Charaktername wird beim Einloggen gemerkt.')}
@@ -692,6 +1628,7 @@
       </section>
 
       <section data-page="log">
+        ${grp('command-history', 'Befehlsstatus & Fehlerchronik', '<div class="digibot__hint">Anforderung, Bestätigung und beobachtete Wirkung werden getrennt erfasst. Der Diagnoseexport enthält die letzten Abläufe bei Problemen.</div><pre data-f="command-history" style="white-space:pre-wrap;font:11px/1.5 system-ui;margin:8px 0"></pre>', true)}
         <div class="digibot__listhead">
           <span class="digibot__title">Protokoll <i data-f="logcount"></i></span>
           <button class="digibot__btn" data-act="log-copy">Kopieren</button>
@@ -898,6 +1835,7 @@
   };
   let logSig = 0;
   function logEvent(type, text) {
+    if(['kill','warn','bot'].includes(type))digibotCore.record(type,{action:text},true);
     const last = logbook[logbook.length - 1];
     if (last && last.type === type && last.text === text) { last.n = (last.n || 1) + 1; last.t = new Date(); }
     else logbook.push({ t: new Date(), type, text });
@@ -1015,15 +1953,16 @@
   //    Zielpunkt (tx/ty) mit halber Breite r; mit skill.sweep ein Fächer, der um den Boss schwenkt.
   // Steht der Tamer oder das Digimon in einer Zone, läuft der Tamer zum nächsten freien Punkt und ruft das Digimon.
   const DODGE_MARGIN = 28;
-  const MELEE_REACH = 72;        // so nah am Ziel geht der normale Angriff von draußen (Nahkampf 20–40 px + Körper; Rand-Abstand 42 px)
-  const MELEE_STAND = 40;        // so weit vor dem Ziel steht das Digimon beim Zuschlagen
-  const MELEE_EDGE = 12;         // Mindestabstand dieses Punkts zum Rand eines Warnkreises
+  const DODGE_BASIC_PAD = 4;    // Reserve inside the real basic-attack range.
+  const DODGE_LATE_ABORT_MS = 3000; // begonnene Flucht abbrechen, wenn danach noch so viel Zeit bliebe
+  const DODGE_BASIC_RANGE = 32;     // Grundangriff-Reichweite, falls die Spieldaten keine nennen
+  const DODGE_EDGE_MARGIN = 8;      // Abstand der Angriffsposition zum Kreisrand (etwa Körperbreite des Digimons)
   const DODGE_WALK_PX_S = 130;   // vorsichtig geschätzte Laufgeschwindigkeit beim Ausweichen
   const DODGE_HOLD_RANGE = 220; // so nah an einer noch aktiven Zone wird nach dem Ausweichen gewartet
   // Kurz vor dem Einschlag nicht wieder angreifen, wenn das Ziel neben einer Zone steht: Bosse laufen weiter, das
   // Digimon folgt ihnen in den Kreis (Probelauf Hard: Volley 0,3 s vor dem Einschlag – 3 Clavis auf einmal)
   const DODGE_SOON_MS = 1200, DODGE_SOON_PAD = 70;
-  const dodgeState = { active: false, lastTap: 0, lastFollow: 0, goal: null, late: false };
+  const dodgeState = { active: false, lastTap: 0, lastFollow: 0, goal: null, late: false, basicTarget: null, lastStop: 0, approachTarget:null, approachStopped:false, approachGoal:null };
   const DODGE_GOAL_MS = 3000;      // Fluchtpunkt höchstens so lange festhalten
   const DODGE_GOAL_REACHED = 12;   // so nah = angekommen
   const DODGE_RETAP_MS = 1000;     // Klick auf denselben Fluchtpunkt so oft wiederholen
@@ -1045,7 +1984,7 @@
   function tankable(sk, p, srcId) {
     const dmg = cfg.tank ? skillDamage(sk, srcId) : null;
     // nie tanken, was mehr als Schaden macht: packen (Tentacle Bug), zurück-digitieren, markieren, teilen, Debuffs
-    if (!dmg || sk.grab || sk.devolve || sk.share || sk.mark || sk.reflect || (sk.effects || []).length || !p?.maxHp) return false;
+    if (!dmg || sk.innerRadius || sk.islands || sk.trap || sk.scatter || sk.chargeRing || sk.grab || sk.devolve || sk.share || sk.mark || sk.reflect || (sk.effects || []).length || !p?.maxHp) return false;
     return dmg <= p.maxHp * TANK_MAX_PCT / 100 && (p.hp - dmg) >= p.maxHp * TANK_KEEP_PCT / 100;
   }
   function tankNow(now) {
@@ -1076,6 +2015,18 @@
   const mealOn = (id) => { try { return (worldScene()?.mechB?.view?.meals || []).some((m) => m.boss === id && (m.dmg ?? 0) < 1); } catch { return false; } };
   const ZONE_HUGE_R = 320;
   const LINE_AFTER_MS = 800, lineMemo = new Map();
+  function digibotCircleZone(c,scene) {
+    const raw=(scene?.telegraphs?.circles||[]).find(o=>Math.abs(o.x-c.x)<2 && Math.abs(o.y-c.y)<2 && (!c.skill || o.skill?.id===c.skill));
+    const skill=raw?.skill||content()?.skills?.[c.skill]||{};
+    const holes=skill.islands?(scene?.telegraphs?.islands||[]).filter(i=>i.skill===skill.id && raw?.src!=null && i.src===raw.src && (!i.end||i.end>=performance.now())).map(i=>({x:i.x,y:i.y,r:i.r})):[];
+    return {kind:'circle',x:c.x,y:c.y,r:c.r,skillId:skill.id||c.skill,src:raw?.src,end:raw?.end||0,innerRadius:skill.innerRadius||0,holes};
+  }
+  function digibotDodgeReset(){Object.assign(dodgeState,{active:false,lastTap:0,lastFollow:0,goal:null,late:false,basicTarget:null,lastStop:0,approachTarget:null,approachStopped:false,approachGoal:null});lineMemo.clear();}
+  function digibotDodgeSpeed(st) {
+    const entities=window.dmo?.net?.state?.entities;
+    const speeds=[controlled(st)?.speed,entities?.get?.(st?.me?.partner?.entityId)?.speed].filter(v=>Number.isFinite(v)&&v>0);
+    return Math.min(DODGE_WALK_PX_S,...speeds);
+  }
   function dangerZones() {
     const sc = worldScene(), zones = [];
     const tank = tankNow(Date.now());
@@ -1101,7 +2052,7 @@
       for (const c of sc?.telegraphs?.active || []) {
         // Raumweite Kreise (z. B. Apocalymons „Total Annihilation“, 640 px) kann man nicht verlassen – nur den Boss vorher
         // erledigen: nicht ausweichen, weiter angreifen (live: 20 s stillgestanden, Boss heilte sich von 5 auf 8 %)
-        if (c && c.r > 0 && c.r < ZONE_HUGE_R && isFinite(c.x) && isFinite(c.y)) zones.push({ kind: 'circle', x: c.x, y: c.y, r: c.r });
+        if (c && c.r > 0 && c.r < ZONE_HUGE_R && isFinite(c.x) && isFinite(c.y)) zones.push(digibotCircleZone(c,sc));
       }
     } catch { /* ignore */ }
     if (!tank) try {
@@ -1122,6 +2073,18 @@
         }
       }
     } catch { /* ignore */ }
+    try {
+      for(const trap of sc?.mechB?.view?.traps||[])if(Number.isFinite(trap.x)&&Number.isFinite(trap.y)&&trap.r>0)zones.push({kind:'circle',x:trap.x,y:trap.y,r:trap.r,persistent:true});
+      const pn=performance.now(),elapsed=Math.max(0,pn-(sc?.mechB?.viewAt??pn));
+      const drifts=typeof sc?.mechB?.drifts?.values==='function'?[...sc.mechB.drifts.values()]:(sc?.mechB?.view?.drifters||[]);
+      for(const d of drifts){
+        if(![d.x,d.y,d.tx,d.ty,d.v,d.r].every(Number.isFinite)||d.r<=0)continue;
+        const horizon=Math.max(2,Math.min(6,180/digibotDodgeSpeed(getStore()?.getState?.())));
+        const len=Math.hypot(d.tx-d.x,d.ty-d.y),at=Math.min(len,Math.max(0,d.v)*elapsed/1000),to=Math.min(len,at+Math.max(0,d.v)*horizon);
+        const dx=len?(d.tx-d.x)/len:0,dy=len?(d.ty-d.y)/len:0;
+        zones.push({kind:'line',x:d.x+dx*at,y:d.y+dy*at,tx:d.x+dx*to,ty:d.y+dy*to,r:d.r,persistent:true});
+      }
+    } catch {}
     return zones;
   }
   // Raumweite Kreise (ab ZONE_HUGE_R) stehen nicht in dangerZones: meist kommt man nicht heraus, dann weiterkämpfen.
@@ -1131,19 +2094,19 @@
     if (tankNow(Date.now())) return [];
     try {
       return (worldScene()?.telegraphs?.active || []).filter((c) => c && c.r >= ZONE_HUGE_R && isFinite(c.x) && isFinite(c.y))
-        .map((c) => ({ kind: 'circle', x: c.x, y: c.y, r: c.r, huge: true }));
+        .map((c) => ({...digibotCircleZone(c,worldScene()),huge:true}));
     } catch { return []; }
   }
   const DODGE_SEARCH_R = 328;     // so weit sucht das Ausweichen nach einem freien Punkt
   const DODGE_HUGE_MAX_R = 900;   // bei raumweiten Kreisen höchstens so weit (wenn die Restzeit reicht)
   const DODGE_LATE_K = 1.5, DODGE_LATE_PAD_MS = 1500; // lange Ansagen: loslaufen bei Laufzeit × K + Puffer vor dem Einschlag
   // Wie weit kommt das Digimon vor dem Einschlag eines raumweiten Kreises? (mindestens die normale Suchweite)
-  const hugeReach = (left) => Math.min(DODGE_HUGE_MAX_R, Math.max(DODGE_SEARCH_R, left != null ? (left - 300) / 1000 * DODGE_WALK_PX_S : 0));
-  function hugeCounts(h, p) {
-    const out = Math.hypot(p.x - h.x, p.y - h.y) - h.r;
+  const hugeReach = (left,speed=DODGE_WALK_PX_S) => Math.min(DODGE_HUGE_MAX_R, Math.max(DODGE_SEARCH_R, left != null ? (left - 300) / 1000 * speed : 0));
+  function hugeCounts(h,p,speed=DODGE_WALK_PX_S) {
+    const out=zoneDist(h,p).d;
     if (out >= DODGE_MARGIN) return true; // draußen
     const need = DODGE_MARGIN * 1.5 - out, left = zoneLeftMs(h);
-    return left != null && need <= Math.min(hugeReach(left), (left - 300) / 1000 * DODGE_WALK_PX_S);
+    return left != null && need <= Math.min(hugeReach(left,speed),(left-300)/1000*speed);
   }
   // Deckung (z. B. Ultimate Flare: „hinter eine zerbrochene Platte“): skill.cover = { points: [Spawn-Punkte], radius }.
   // Geschützt ist, wer höchstens radius vom Punkt entfernt auf der vom Boss abgewandten Seite steht (live bestätigt).
@@ -1162,7 +2125,15 @@
   }
   // Abstand eines Punkts zur Zone (≤ 0 = drinnen) und der nächste Punkt der Zone (zum Weglaufen).
   function zoneDist(z, p) {
-    if (z.kind === 'circle') return { d: Math.hypot(p.x - z.x, p.y - z.y) - z.r, nx: z.x, ny: z.y };
+    if(z.kind==='circle'){
+      const radius=Math.hypot(p.x-z.x,p.y-z.y);let d=radius-z.r,nx=z.x,ny=z.y;
+      if(z.innerRadius){
+        const inner=z.innerRadius-radius;
+        if(inner>d){d=inner;const k=radius?(z.r+1)/radius:0;nx=z.x+(p.x-z.x)*k;ny=z.y+(p.y-z.y)*k;}
+      }
+      for(const h of z.holes||[]){const safe=h.r-Math.hypot(p.x-h.x,p.y-h.y);if(safe>d){d=safe;nx=2*p.x-h.x;ny=2*p.y-h.y;}}
+      return {d,nx,ny};
+    }
     if (z.kind === 'line') {
       const dx = z.tx - z.x, dy = z.ty - z.y, L2 = dx * dx + dy * dy || 1;
       const k = Math.max(0, Math.min(1, ((p.x - z.x) * dx + (p.y - z.y) * dy) / L2));
@@ -1176,6 +2147,38 @@
     if (diff <= z.half) return { d: dist - z.len, nx: z.x, ny: z.y };
     const side = dist * Math.sin(Math.min(Math.PI / 2, diff - z.half));
     return { d: Math.max(side, dist - z.len), nx: z.x, ny: z.y };
+  }
+  function digibotDodgeZoneSafe(z,p,margin=DODGE_MARGIN){
+    // Small protected islands need an interior reserve, not a 28px border that leaves only a 2px target.
+    let required=margin;
+    if(z.innerRadius && Math.hypot(p.x-z.x,p.y-z.y)<z.innerRadius)required=Math.min(required,Math.max(10,z.innerRadius/3));
+    for(const h of z.holes||[])if(Math.hypot(p.x-h.x,p.y-h.y)<h.r)required=Math.min(required,Math.max(10,h.r/3));
+    return zoneDist(z,p).d>=required;
+  }
+  // Exact expanded circle edges supplement the coarse escape rings. Include the
+  // nearest point, the boss-facing point and intersections of overlapping edges.
+  // These are candidates only: terrain, other hazards and timing are checked below.
+  function digibotDodgeCirclePoints(zones,from,target,maxDistance){
+    const points=[],pad=DODGE_MARGIN*1.5+0.05;
+    const circles=zones.filter(z=>z.kind==='circle'&&Number.isFinite(z.r)&&z.r>=0
+      && Math.abs(Math.hypot(from.x-z.x,from.y-z.y)-(z.r+pad))<=maxDistance);
+    const add=(x,y)=>{if(Math.hypot(x-from.x,y-from.y)<=maxDistance)points.push({x,y});};
+    for(const z of circles){
+      const r=z.r+pad,angle=Math.atan2(from.y-z.y,from.x-z.x);
+      const angles=[angle];
+      if(target)angles.push(Math.atan2(target.y-z.y,target.x-z.x));
+      for(let i=0;i<64;i++)angles.push(angle+i*Math.PI/32);
+      for(const a of angles)add(z.x+Math.cos(a)*r,z.y+Math.sin(a)*r);
+    }
+    for(let i=0;i<circles.length;i++)for(let j=i+1;j<circles.length;j++){
+      const a=circles[i],b=circles[j],dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy);
+      const ar=a.r+pad,br=b.r+pad;
+      if(!d||d>ar+br||d<Math.abs(ar-br))continue;
+      const along=(ar*ar-br*br+d*d)/(2*d),side=Math.sqrt(Math.max(0,ar*ar-along*along));
+      const x=a.x+dx*along/d,y=a.y+dy*along/d;
+      add(x-dy*side/d,y+dx*side/d);add(x+dy*side/d,y-dx*side/d);
+    }
+    return points;
   }
   // Ist die gerade Strecke a -> b frei von Warnzonen? (Taste 1 schickt das Digimon auf direktem Weg zum Ziel)
   function lineClear(a, b, zones) {
@@ -1207,14 +2210,16 @@
   // bevor sie einschlägt, nicht feuern (Probelauf Hard: Clavis liefen 0,6–1,2 s vor der Ultimate Flare in den Fächer).
   // Restzeit unbekannt: wie bisher erlaubt (im Spiel haben Kreise, Strahlen und Fächer eine Endzeit).
   function rangedSafe(from, target, zones) {
-    const d = Math.hypot(target.x - from.x, target.y - from.y), n = Math.max(1, Math.ceil(d / 12)), pn = performance.now();
+    const d = Math.hypot(target.x-from.x,target.y-from.y),n=Math.max(1,Math.ceil(d/12)),pn=performance.now(),walkSpeed=digibotDodgeSpeed(getStore()?.getState?.());
     for (const z of zones) {
       const left = z.kind === 'circle' ? zoneLeftMs(z) : z.end ? z.end - pn : null;
+      // Restzeit unbekannt: Fernangriff erlaubt – das Digimon bleibt draußen (nach dem Cast hält dodge() es an,
+      // statt es zum Nahkampf in die Zone laufen zu lassen)
       if (left == null) continue;
       for (let i = 0; i <= n; i++) {
         const k = i / n;
         if (zoneDist(z, { x: from.x + (target.x - from.x) * k, y: from.y + (target.y - from.y) * k }).d >= DODGE_MARGIN * 0.5) continue;
-        if (left + 300 >= d * k / DODGE_WALK_PX_S * 1000) return false; // schneller da als die Zone weg ist
+        if (left + 300 >= d*k/walkSpeed*1000) return false; // schneller da als die Zone weg ist
         break;
       }
     }
@@ -1222,7 +2227,7 @@
   }
   function rangedFromOutside(st, target, partner, now) {
     const p = st?.me?.partner;
-    if (!p || p.evolving || p.fainted || st.target?.id !== target.id) return null;
+    if (!p || p.evolving || p.fainted || st.target?.id !== target.id || (bot.engage?.id===target.id && bot.engage.noDmg) || noFightEarly(st,now)) return null;
     if (!bot.can('skill', SKILL_GAP_MS, now) || farmShielded(target, now) || (cfg.mirror && mirrorActive(target.id))) return null;
     const d = Math.hypot(target.x - partner.x, target.y - partner.y), C = content();
     for (const k of SKILL_KEYS) {
@@ -1230,65 +2235,152 @@
       const s = skillOnKey(st, k);
       if (!s || isKoh(s.skill) || s.cdLeft > 0 || s.skill.unlocked === false || p.ds < (s.skill.dsCost || 0)) continue;
       const def = (s.skill.id && C?.skills?.[s.skill.id]) || {};
+      if(digibotSkillAggroReason(st,target,s.skill)||digibotBossPeace(st))continue;
       const range = s.skill.range ?? def.range ?? 0, tgt = s.skill.target ?? def.target;
       if (range < RANGED_MIN || d > range || (tgt && tgt !== 'enemy') || s.skill.dash || def.dash) continue;
       if (!bot.can('Digit' + k, SKILL_GAP_MS * 2, now)) continue;
       bot.lastPress.skill = now;
       bot.hit('Digit' + k, now);
+      dodgeState.rangedUntil = now + (s.skill.castMs ?? def.castMs ?? 600) + 300; // Cast nicht durch partnerStop abbrechen
       return s.skill.name || `Skill ${k}`;
     }
     return null;
   }
+  function digibotDodgeGridClear(a,b,grid,radius=0) {
+    if(!grid?.blocked||!grid.w||!grid.h)return false;
+    const count=Math.max(1,Math.ceil(Math.hypot(b.x-a.x,b.y-a.y)/4)),tile=grid.tile||16,pad=radius?radius+2:0;
+    for(let i=0;i<=count;i++){
+      const x=a.x+(b.x-a.x)*i/count,y=a.y+(b.y-a.y)*i/count;
+      for(let gy=Math.floor((y-pad)/tile);gy<=Math.floor((y+pad)/tile);gy++)for(let gx=Math.floor((x-pad)/tile);gx<=Math.floor((x+pad)/tile);gx++)if(gx<0||gy<0||gx>=grid.w||gy>=grid.h||grid.blocked[gy*grid.w+gx]===1)return false;
+    }
+    return true;
+  }
+  function digibotDodgeZonePath(a,b,zones,margin=DODGE_MARGIN) {
+    const count=Math.max(1,Math.ceil(Math.hypot(b.x-a.x,b.y-a.y)/4));
+    for(let i=0;i<=count;i++)if(zones.some(z=>!digibotDodgeZoneSafe(z,{x:a.x+(b.x-a.x)*i/count,y:a.y+(b.y-a.y)*i/count},margin)))return false;
+    return true;
+  }
+  function digibotOutsideBasicPlan(st,target,partner,tamer,zones,soon) {
+    if(soon||!target||!partner||!tamer||target.kind!==KIND.Mob||target.hp<=0||st.target?.id!==target.id)return null;
+    const p=st.me?.partner,scene=worldScene(),C=content(),following=dodgeState.basicTarget===target.id;
+    if(!p||p.fainted||p.evolving||(partner.flags&(FLAG.Dead|FLAG.Casting|FLAG.Evolving|FLAG.Held))||(!following&&(partner.flags&FLAG.Moving))||(target.flags&(FLAG.Dead|FLAG.Hidden|FLAG.Untargetable|FLAG.Moving)))return null;
+    const def=C?.digimon?.[partner.defId||p.species],range=def?.basic?.range??DODGE_BASIC_RANGE,radius=Math.max(1,Math.min(C?.digimon?.[target.defId]?.radius??7,7)),grid=scene?.map?.grid;
+    if(!Number.isFinite(range)||range<=0||(!following&&(tamer.flags&FLAG.Moving))||(!following&&scene?.approach?.phase==='walking'))return null;
+    const tamerDist=Math.hypot(tamer.x-target.x,tamer.y-target.y);
+    const tamerWalking=tamer.id!==partner.id && (tamerDist>180 || scene?.approach?.phase==='walking');
+    // Current client approaches from beyond 192px and stops at 112px; check a slightly longer corridor.
+    const tamerPoint=tamerWalking?{x:target.x+(tamer.x-target.x)*Math.min(1,108/(tamerDist||1)),y:target.y+(tamer.y-target.y)*Math.min(1,108/(tamerDist||1))}:tamer;
+    if(!digibotDodgeZonePath(tamer,tamerPoint,zones)||!digibotDodgeGridClear(tamer,tamerPoint,grid,tamerWalking?5:0))return null;
+    const positions=[partner],predicted=scene?.ownPartner;
+    if(predicted?.moving&&!following)return null;
+    if(predicted&&Number.isFinite(predicted.x)&&Number.isFinite(predicted.y))positions.push(predicted);
+    let plan=null;
+    for(const from of positions){
+      const dist=Math.hypot(from.x-target.x,from.y-target.y),stand=Math.max(1,range+radius-DODGE_BASIC_PAD),fraction=dist>stand?stand/dist:1;
+      const point={x:target.x+(from.x-target.x)*fraction,y:target.y+(from.y-target.y)*fraction};
+      // Angriffsposition knapp vor dem Kreisrand (Körperbreite statt 28 px Reserve): ein Boss knapp im Kreis bleibt erreichbar
+      if(!digibotDodgeZonePath(from,point,zones,DODGE_EDGE_MARGIN)||!digibotDodgeGridClear(from,point,grid,Math.max(1,Math.min(def?.radius??7,7)))||!digibotDodgeGridClear(from,target,grid))return null;
+      plan={point,walking:dist>stand||tamerWalking};
+    }
+    return plan;
+  }
+  function digibotOutsideBasicReady(st,target,partner,tamer,zones,soon){const plan=digibotOutsideBasicPlan(st,target,partner,tamer,zones,soon);return !!plan&&!plan.walking;}
+  function digibotOutsideStop(partner,now) {
+    if((dodgeState.basicTarget || partner?.targetId) && now-dodgeState.lastStop>=500){
+      dodgeState.lastStop=now;commands()?.partnerStop?.();bot.attackedId=null;
+    }
+    dodgeState.basicTarget=null;
+  }
   // Restzeit eines Warnkreises (ms) aus den Daten des Spiels – null, wenn unbekannt (Strahlen, Markierungen)
   function zoneLeftMs(z) {
-    if (z?.kind !== 'circle') return null;
+    if(z?.end)return Math.max(0,z.end-performance.now());
+    if (z?.kind !== 'circle' || z.persistent) return null;
     try {
-      const c = (worldScene()?.telegraphs?.circles || []).find((o) => Math.abs(o.x - z.x) < 2 && Math.abs(o.y - z.y) < 2 && o.end);
+      const c = (worldScene()?.telegraphs?.circles || []).find((o) => Math.abs(o.x-z.x)<2 && Math.abs(o.y-z.y)<2 && (!z.skillId||o.skill?.id===z.skillId) && o.end);
       return c ? Math.max(0, c.end - performance.now()) : null;
     } catch { return null; }
   }
   const zoneName = (z) => (z.kind === 'circle' ? `Warnkreis (Radius ${Math.round(z.r)})` : z.kind === 'fan' ? 'Warnfächer' : 'Warnstrahl');
+  function digibotDodgeApproach(st,target,tamer,partner,zones,now){
+    if(!bot.on||!target||target.kind!==KIND.Mob||!tamer||!partner||noFightEarly(st,now)||digibotBossPeace(st))return null;
+    const distance=Math.hypot(tamer.x-target.x,tamer.y-target.y);
+    if(distance<=DODGE_HOLD_RANGE&&dodgeState.approachTarget!==target.id)return null;
+    const starting=dodgeState.approachTarget!==target.id;
+    dodgeState.approachTarget=target.id;dodgeState.active=true;
+    digibotOutsideStop(partner,now);
+    // Stop short of the boss, letting nearestSafe choose the closest reachable
+    // point if a warning covers this position. No attack order is used here.
+    const stand=96,ratio=Math.min(1,stand/(distance||1));
+    let goal=dodgeState.approachGoal;
+    if(starting||!goal||Math.hypot(goal.tx-target.x,goal.ty-target.y)>24)goal=dodgeState.approachGoal={x:target.x+(tamer.x-target.x)*ratio,y:target.y+(tamer.y-target.y)*ratio,tx:target.x,ty:target.y};
+    const companion=tamer.id!==partner.id?partner:null;
+    const result=walkTo(st,goal.x,goal.y,now,{zones,nearestSafe:true,companion});
+    if(result==='stuck'){
+      // Cancel an old native chase when its replacement cannot be proven safe.
+      if(!dodgeState.approachStopped){worldScene()?.tapGround?.(tamer.x,tamer.y);autopilot.nav=null;autopilot.route=null;}
+      dodgeState.approachStopped=true;
+      return 'Warte außerhalb – derzeit kein sicherer Annäherungsweg';
+    }
+    dodgeState.approachStopped=false;
+    const wp=autopilot.nav?.wp;
+    if(companion&&wp&&(starting||now-dodgeState.lastFollow>1500)&&digibotDodgeZonePath(partner,wp,zones)&&digibotDodgeGridClear(partner,wp,worldScene()?.map?.grid)){
+      dodgeState.lastFollow=now;commands()?.partnerFollow?.();
+    }
+    if(wp&&Math.hypot(tamer.x-wp.x,tamer.y-wp.y)<12)return 'Warte außerhalb – sicherer Platz nahe am Boss erreicht';
+    return 'Nähere mich über sicheren Weg – halte Abstand zu Warnflächen';
+  }
   function dodge(st, now) {
+    const walkSpeed=digibotDodgeSpeed(st);
     if (!cfg.dodge) return null;
     const zones = dangerZones();
     const ents = window.dmo?.net?.state?.entities;
     const tamer = controlled(st), partner = ents?.get?.(st?.me?.partner?.entityId);
     const me0 = tamer || partner;
-    if (me0) for (const h of hugeZones()) if (hugeCounts(h, me0)) zones.push(h);
+    if (me0) for (const h of hugeZones()) if ([tamer,partner].some(p=>p && hugeCounts(h,p,walkSpeed))) zones.push(h);
     // Hinter einer Deckung (Platte bei der Ultimate Flare) gilt man in deren Zone als sicher
     const cmap = st?.world?.mapId;
-    const inZone = (p) => p && zones.find((z) => zoneDist(z, p).d < DODGE_MARGIN && !covered(z, p, cmap));
+    const inZone = (p) => p && zones.find((z) => !digibotDodgeZoneSafe(z,p) && !covered(z,p,cmap));
+    const approaching=!!dodgeState.approachTarget;
     const z = inZone(tamer) || inZone(partner);
     const tEnt = st?.target?.id ? ents?.get?.(st.target.id) : null;
     const target = tEnt && tEnt.hp > 0 ? tEnt : null;
     if (!z) {
+      // A selected old enemy must not hold up a safe NPC route or boss-channel
+      // transition. Their actual movement is checked by walkTo against hazards.
+      if(noFightEarly(st,now)||(digibotBossPeace(st)&&!digibotChannelBasicAllowed(st,now))){
+        digibotOutsideStop(partner,now);
+        if(dodgeState.approachTarget){autopilot.nav=null;autopilot.route=null;}
+        dodgeState.approachTarget=null;dodgeState.approachGoal=null;dodgeState.active=false;
+        return null;
+      }
       dodgeState.goal = null; dodgeState.late = false;
       // Draußen, aber der Angriff läuft noch: nicht wieder hineinlaufen (Taste 1 würde das Digimon zum Ziel in der
       // Zone schicken). Mit Ziel: weiterkämpfen, sobald das Ziel frei steht und der direkte Weg dorthin frei ist.
       // Ohne Ziel: warten, bis alle Zonen in der Nähe verschwunden sind. Das Digimon bleibt so lange beim Tamer.
-      const near = tamer && zones.some((c) => zoneDist(c, tamer).d < DODGE_HOLD_RANGE);
-      const from = partner && tamer && Math.hypot(partner.x - tamer.x, partner.y - tamer.y) < 60 ? partner : tamer;
-      // Digimon steht draußen direkt am Ziel (Boss halb im Kreis): Nahkampf geht ohne in den Kreis zu laufen
-      // – aber nur, wenn auch der Punkt, an dem das Digimon zum Zuschlagen steht (MELEE_STAND vor dem Ziel), draußen liegt
-      const reach = (() => {
-        if (!target || !partner || inZone(partner)) return false;
-        const d = Math.hypot(partner.x - target.x, partner.y - target.y);
-        if (d > MELEE_REACH) return false;
-        const k = d > MELEE_STAND ? MELEE_STAND / d : 1;
-        const at = { x: target.x + (partner.x - target.x) * k, y: target.y + (partner.y - target.y) * k };
-        return !zones.some((c) => zoneDist(c, at).d < MELEE_EDGE);
-      })();
+      const near=zones.some(c=>[tamer,partner,target].some(p=>p&&zoneDist(c,p).d<DODGE_HOLD_RANGE)) || !!(target&&partner&&!lineClear(partner,target,zones));
+      if(!zones.length&&dodgeState.approachTarget){dodgeState.approachTarget=null;dodgeState.approachGoal=null;dodgeState.approachStopped=false;autopilot.nav=null;autopilot.route=null;}
+      const from = partner || tamer;
       const soonNear = !!target && zones.some((c) => {
         const left = c.end ? c.end - performance.now() : zoneLeftMs(c);
         return left != null && left < DODGE_SOON_MS && zoneDist(c, target).d < DODGE_SOON_PAD;
       });
-      const blocked = soonNear || (target && !reach ? !!inZone(target) || (from && !lineClear(from, target, zones)) : target ? false : dodgeState.active);
+      const plan=digibotOutsideBasicPlan(st,target,partner,tamer,zones,soonNear);
+      // Ziel knapp im Warnkreis, Angriffsposition draußen frei: mit der 1 angreifen – auch ohne vorherigen Kampf
+      if(near && plan && st.target?.id===target.id && !noFightEarly(st,now) && !farmShielded(target,now) && !mirrorActive(target.id)){
+        if(dodgeState.approachTarget){autopilot.nav=null;autopilot.route=null;dodgeState.approachTarget=null;dodgeState.approachGoal=null;}
+        dodgeState.active=true;dodgeState.basicTarget=target.id;
+        if(bot.can('Digit1',ATTACK_REPEAT_MS,now))bot.hit('Digit1',now);
+        return plan.walking?'Sicherer Weg zur Angriffsposition · normaler Angriff':'Außerhalb der Warnzone · normaler Angriff ohne Annäherung';
+      }
+      if(dodgeState.basicTarget)digibotOutsideStop(partner,now);
+      const approach=zones.length?digibotDodgeApproach(st,target,tamer,partner,zones,now):null;
+      if(approach)return approach;
+      const blocked=!!target || dodgeState.active;
       if (near && blocked) {
+        if (!(dodgeState.rangedUntil > now)) digibotOutsideStop(partner,now); // nach dem Fern-Cast: Digimon anhalten, draußen bleiben
         if (!dodgeState.active) { dodgeState.active = true; logEvent('warn', 'Ziel steht in einer Warnzone – warte draußen'); }
         const close = partner && tamer && Math.hypot(partner.x - tamer.x, partner.y - tamer.y) <= 40;
-        if (partner && tamer && !close && now - dodgeState.lastFollow > 1500) {
-          dodgeState.lastFollow = now; commands()?.partnerFollow?.();
-        }
+
         // Fernkampf-Skills reichen oft bis zum Boss, ohne dass das Digimon in den Kreis muss
         const ra = target && close && !soonNear && rangedSafe(partner, target, zones) ? rangedFromOutside(st, target, partner, now) : null; // kurz vor dem Einschlag nicht: danach läuft das Digimon zum Nahkampf hinein
         return ra ? `Warte außerhalb · Fernangriff: ${ra}` : 'Warte außerhalb, bis der Flächenangriff vorbei ist…';
@@ -1296,12 +2388,17 @@
       if (dodgeState.active) { dodgeState.active = false; logEvent('auto', 'Ausweichen beendet – weiter'); }
       return null;
     }
-    // Fluchtpunkt: nächster begehbarer Punkt rund um den Tamer, der in keiner Zone liegt. Gesucht wird in Ringen
-    // (40–328 px), zuerst in der Richtung weg von der Zone – so geht es bei Strahlen seitlich heraus und auch aus
-    // mehreren überlappenden Zonen.
+    dodgeState.approachTarget=null;dodgeState.approachGoal=null;dodgeState.approachStopped=false;
+    if(dodgeState.basicTarget)digibotOutsideStop(partner,now);
+    // Circle-edge candidates avoid unnecessary overshoot. Coarse rings remain
+    // available for lines, cones and blocked edges. Every candidate must pass
+    // the same terrain, warning-zone and time-budget checks.
     const me = tamer || partner;
     const g = worldScene()?.map?.grid, T = g?.tile || 16;
-    const walkable = (x, y) => !g?.blocked || g.blocked[Math.floor(y / T) * g.w + Math.floor(x / T)] !== 1;
+    const walkable = (x,y) => {
+      if(!g?.blocked)return true;const gx=Math.floor(x/T),gy=Math.floor(y/T);
+      return gx>=0&&gy>=0&&gx<g.w&&gy<g.h&&g.blocked[gy*g.w+gx]!==1;
+    };
     const nz = zoneDist(z, me);
     let base = Math.atan2(me.y - nz.ny, me.x - nz.nx);
     if (!isFinite(base) || (me.x === nz.nx && me.y === nz.ny)) base = z.kind === 'line' ? Math.atan2(z.ty - z.y, z.tx - z.x) + Math.PI / 2 : 0;
@@ -1309,7 +2406,7 @@
     // kann das Digimon von dort weiter angreifen (oft sogar mit der 1). Erreichbar = Laufweg passt in die Restzeit
     // des Warnkreises (unbekannt: höchstens 72 px weiter als zum nächsten freien Punkt).
     // Mehrere Kreise übereinander: es zählt der früheste Einschlag unter allen, in denen ich stehe
-    const inside = zones.filter((c) => [tamer, partner].some((e) => e && zoneDist(c, e).d < DODGE_MARGIN && !covered(c, e, cmap)));
+    const inside = zones.filter((c) => [tamer, partner].some((e) => e && !digibotDodgeZoneSafe(c,e) && !covered(c,e,cmap)));
     const lefts = inside.map(zoneLeftMs).filter((v) => v != null);
     const left = lefts.length ? Math.min(...lefts) : zoneLeftMs(z);
     // Laufweg: darf nicht durch einen ANDEREN Kreis/Strahl führen (aus denen, in denen ich stehe, muss ich ohnehin
@@ -1317,7 +2414,7 @@
     const others = zones.filter((c) => !inside.includes(c));
     const zoneLeft = (c) => (c.kind === 'circle' ? zoneLeftMs(c) : c.end ? Math.max(0, c.end - performance.now()) : null);
     const pathClear = (p) => {
-      const ms = Math.hypot(p.x - me.x, p.y - me.y) / DODGE_WALK_PX_S * 1000 + 500;
+      const ms = Math.hypot(p.x - me.x, p.y - me.y) / walkSpeed * 1000 + 500;
       return lineClear(me, p, others.filter((c) => { const l = zoneLeft(c); return l == null || l < ms; }));
     };
     // Golemon & Co.: nur Fluchtpunkte nahe am Startplatz des Monsters (Verfolgungsreichweite minus Sicherheitsabstand)
@@ -1331,33 +2428,50 @@
     // Fluchtpunkt festhalten, solange er frei bleibt und noch nicht erreicht ist – neu gesucht aus der jeweils
     // aktuellen Position sprang der beste Punkt beim Laufen zwischen Nachbarrichtungen hin und her (Eiern)
     const g0 = dodgeState.goal;
-    const keep = g0 && now - g0.at < DODGE_GOAL_MS && Math.hypot(me.x - g0.x, me.y - g0.y) > DODGE_GOAL_REACHED
-      && !zones.some((c) => zoneDist(c, g0).d < DODGE_MARGIN * 1.5 && !covered(c, g0, mapId)) && pathClear(g0);
+    let keep = g0 && now - g0.at < DODGE_GOAL_MS && Math.hypot(me.x - g0.x, me.y - g0.y) > DODGE_GOAL_REACHED
+      && !zones.some((c) => !digibotDodgeZoneSafe(c,g0,DODGE_MARGIN*1.5) && !covered(c,g0,mapId)) && pathClear(g0);
     // Raumweiter Kreis (z. B. Marsmons Corona Sanctions, 400 px): so weit suchen, wie das Digimon in der Restzeit
     // kommt – dann aber nur Punkte mit geradem, begehbarem Weg (keine Wand dazwischen)
-    const maxR = inside.some((c) => c.huge) ? hugeReach(left) : DODGE_SEARCH_R;
-    const walkLine = (p) => {
-      const n = Math.ceil(Math.hypot(p.x - me.x, p.y - me.y) / T);
-      for (let k = 1; k <= n; k++) if (!walkable(me.x + (p.x - me.x) * k / n, me.y + (p.y - me.y) * k / n)) return false;
-      return true;
-    };
+    const maxR = inside.some((c) => c.huge) ? hugeReach(left,walkSpeed) : DODGE_SEARCH_R;
+    // Match safe approach checks: fine sampling and body clearance prevent
+    // an otherwise valid edge point from cutting through a blocked tile corner.
+    const walkLine = (p) => !g?.blocked || digibotDodgeGridClear(me,p,g,5);
+    if(keep && !walkLine(g0))keep=false;
     if (keep) best = g0;
-    else for (let rad = 40; rad <= maxR; rad += 24) {
-      const budget = left != null ? Math.max(firstRad, (left - 300) / 1000 * DODGE_WALK_PX_S) : firstRad + 72;
-      if (first && rad > budget) break;
-      for (let i = 0; i < 16; i++) {
-        const ang = base + (i % 2 ? 1 : -1) * Math.ceil(i / 2) * (Math.PI / 8);
-        const p = { x: me.x + Math.cos(ang) * rad, y: me.y + Math.sin(ang) * rad };
-        if (!walkable(p.x, p.y) || zones.some((c) => zoneDist(c, p).d < DODGE_MARGIN * 1.5)) continue;
-        if (rad > DODGE_SEARCH_R && !walkLine(p)) continue;
-        const clear = pathClear(p);
-        if (safeRectAt(mapId, p)) { if (clear) safeOnly ||= p; else crossOnly ||= p; continue; }
-        if (!clear) { crossOnly ||= p; continue; } // Weg quer durch einen anderen Kreis: nur als Notlösung
-        if (!first) { first = p; firstRad = rad; if (!target) break; }
-        const score = !target ? rad : Math.hypot(p.x - target.x, p.y - target.y) + (lineClear(p, target, zones) || inZone(target) ? 0 : 200) + (inLeash(p) ? 0 : 1000);
-        if (score < bestScore) { bestScore = score; best = p; }
+    else {
+      const candidates=digibotDodgeCirclePoints(zones,me,target,maxR);
+      for(let rad=40;rad<=maxR;rad+=24)for(let i=0;i<16;i++){
+        const ang=base+(i%2?1:-1)*Math.ceil(i/2)*(Math.PI/8);
+        candidates.push({x:me.x+Math.cos(ang)*rad,y:me.y+Math.sin(ang)*rad});
       }
-      if (first && !target) break;
+      // Nearest valid escape establishes the time budget before comparing
+      // boss-facing alternatives. Small moves need not round up to 40/64px.
+      candidates.sort((a,b)=>Math.hypot(a.x-me.x,a.y-me.y)-Math.hypot(b.x-me.x,b.y-me.y));
+      for(const p of candidates){
+        const rad=Math.hypot(p.x-me.x,p.y-me.y);
+        const budget=left!=null?Math.max(firstRad,(left-300)/1000*walkSpeed):firstRad+72;
+        if(first&&rad>budget+0.001)break;
+        if(!walkable(p.x,p.y)||zones.some(c=>!digibotDodgeZoneSafe(c,p,DODGE_MARGIN*1.5))||!walkLine(p))continue;
+        const clear=pathClear(p);
+        if(safeRectAt(mapId,p)){if(clear)safeOnly||=p;else crossOnly||=p;continue;}
+        if(!clear){crossOnly||=p;continue;}
+        if(!first){first=p;firstRad=rad;}
+        const score=!target?rad:Math.hypot(p.x-target.x,p.y-target.y)
+          +(lineClear(p,target,zones)||inZone(target)?0:200)+(inLeash(p)?0:1000);
+        if(score<bestScore-0.001||(Math.abs(score-bestScore)<=0.001&&(!best||rad<Math.hypot(best.x-me.x,best.y-me.y)))){bestScore=score;best=p;}
+        if(!target)break;
+      }
+    }
+    if(!keep)for(const area of zones){
+      const safePoints=[...(area.holes||[]),...(area.innerRadius?[{x:area.x,y:area.y}]:[])];
+      for(const point of safePoints){
+        if(!walkable(point.x,point.y)||!walkLine(point)||!pathClear(point)||zones.some(c=>!digibotDodgeZoneSafe(c,point)))continue;
+        const distance=Math.hypot(point.x-me.x,point.y-me.y);
+        if(left!=null && distance/walkSpeed*1000>left-300)continue;
+        if(left==null && first && distance>firstRad+72)continue;
+        const score=target?Math.hypot(point.x-target.x,point.y-target.y)+(inLeash(point)?0:1000):distance;
+        if(!best||score<bestScore){best={x:point.x,y:point.y};bestScore=score;}
+      }
     }
     best ||= first || safeOnly || crossOnly;
     // Deckung als Fluchtpunkt: hinter einer Platte, wenn der Weg dorthin kürzer ist als hinaus (Fächer der Ultimate Flare
@@ -1367,8 +2481,8 @@
       let cov = null, covD = Infinity;
       for (const z0 of inside) for (const { aim } of coverSpots(z0, mapId)) {
         const d = Math.hypot(aim.x - me.x, aim.y - me.y);
-        if (d >= covD || !walkable(aim.x, aim.y) || !pathClear(aim)) continue;
-        if (covLeft != null && d / DODGE_WALK_PX_S * 1000 > covLeft - 300) continue; // nicht rechtzeitig dort
+        if (d >= covD || !walkable(aim.x, aim.y) || !walkLine(aim) || !pathClear(aim)) continue;
+        if (covLeft != null && d / walkSpeed * 1000 > covLeft - 300) continue; // nicht rechtzeitig dort
         if (zones.some((c) => zoneDist(c, aim).d < DODGE_MARGIN * 1.5 && !covered(c, aim, mapId))) continue; // andere Zone
         cov = aim; covD = d;
       }
@@ -1380,10 +2494,13 @@
     // Nur, wenn die Restzeit jeder Zone bekannt ist, in der es steht; ein schon begonnener Lauf wird nicht abgebrochen.
     // Nicht, während ein Boss einen Key-of-Hope-Treffer ansagt: dann sammelt sich die Gruppe – wer erst spät losläuft,
     // steht beim Sammeln noch verstreut (Probelauf Raum 4: mehr Stürze)
-    if (!keep && inside.length && lefts.length === inside.length && !kohBlockPending(now)) {
-      const runMs = Math.hypot(best.x - me.x, best.y - me.y) / DODGE_WALK_PX_S * 1000;
+    // Auch ohne Ziel (Add getötet, Zielwechsel, Formwechsel) – sonst rannte der Bot sofort Hunderte Pixel weg und stand
+    // dann bis zum Kreisende untätig herum (2.32.1). Ein schon begonnener Lauf wird abgebrochen, wenn noch viel Zeit bleibt.
+    if (!approaching && (!target || !partner || Math.hypot(partner.x-target.x,partner.y-target.y)<=DODGE_HOLD_RANGE) && inside.length && lefts.length === inside.length && !kohBlockPending(now)) {
+      const runMs = Math.hypot(best.x - me.x, best.y - me.y) / walkSpeed * 1000;
       const spare = left - (runMs * DODGE_LATE_K + DODGE_LATE_PAD_MS);
-      if (spare > 0) {
+      if (spare > 0 && (!keep || spare > DODGE_LATE_ABORT_MS)) {
+        if (keep && me) { worldScene()?.tapGround?.(me.x, me.y); autopilot.nav = null; autopilot.route = null; } // begonnenen Lauf stoppen
         if (!dodgeState.late) { dodgeState.late = true; logEvent('auto', `${zoneName(z)} – kämpfe weiter, laufe ${(spare / 1000).toFixed(1)} s später heraus`); }
         dodgeState.goal = null; dodgeState.active = false;
         return null;
@@ -1393,7 +2510,7 @@
     if (!dodgeState.active) { dodgeState.active = true; logEvent('warn', `${zoneName(z)} – weiche aus`); }
     if (best !== g0) dodgeState.goal = { x: best.x, y: best.y, at: now };
     // Klick nur bei neuem Punkt sofort, sonst selten wiederholen (falls er verloren ging)
-    if (best !== g0 || now - dodgeState.lastTap > DODGE_RETAP_MS) { dodgeState.lastTap = now; worldScene()?.tapGround?.(best.x, best.y); }
+    if (best !== g0 || now - dodgeState.lastTap > DODGE_RETAP_MS) { dodgeState.lastTap = now;autopilot.nav=null;autopilot.route=null; worldScene()?.tapGround?.(best.x, best.y); }
     // Digimon-Steuerung: der Klick bewegt das Digimon selbst – „Folgen“ würde es zum Tamer zurückziehen (Zickzack)
     const ownMove = partner && tamer && tamer.id === partner.id;
     if (!ownMove && inZone(partner) && now - dodgeState.lastFollow > 1500) { dodgeState.lastFollow = now; commands()?.partnerFollow?.(); }
@@ -1505,14 +2622,16 @@
   //   eigener Cast + Reaktionszeit + Laufzeit aus der Zone  >=  Ansage der Boss-Attacke
   // Geprüft werden Attacken, die der Boss während unseres Casts starten könnte (bereit, noch nicht gesehen oder
   // Cooldown läuft vorher ab). Spiegel: der Treffer muss vor Beginn der Reflexion landen.
-  const CAST_LATENCY_MS = 400;   // Reaktion + Ping
+  // Reaktion + gemessener Ping werden pro Prüfung über digibotLatency berechnet.
   const DEFAULT_MOVE = 90;       // px/s, falls die Laufgeschwindigkeit unbekannt ist
   function skillUnsafe(st, t, skill, now, slot) {
+    const aggro=digibotSkillAggroReason(st,t,skill);if(aggro)return aggro;
     if (!cfg.safeCast || !t || mealOn(t.id)) return null;
     const boss = currentBoss(st);
     if (!boss || boss.id !== t.id) return null;
     // Skills für die nächste Mahlzeit des Bosses (Infermon „NOT HERE“) aufheben: wäre der Skill dann noch im Cooldown,
     // jetzt nicht wirken – beim Fressen zählt jeder Schaden (Abbruch nur mit 2 % der Max-HP in 5 s)
+    const latency=digibotLatency(window.dmo?.net?.rttMs);
     const ownCd = skill.cooldownMs ?? content()?.skills?.[skill.id]?.cooldownMs ?? 0;
     for (const r of ownCd > 0 ? bossSkillRows(boss, now) : []) {
       if (r.sk.blink?.meal && r.state === 'cd' && r.left + r.castMs < ownCd) return `aufgehoben für „${r.name}“ (in ${Math.ceil(r.left / 1000)} s)`;
@@ -1525,12 +2644,12 @@
     const speed = Math.max(40, st.me?.partner?.stats?.ms || content()?.digimon?.[pSpecies]?.base?.ms || DEFAULT_MOVE);
     for (const r of bossSkillRows(boss, now)) {
       const sk = r.sk;
-      const canStart = r.state === 'cast' || r.state === 'ready' || r.state === 'unk' || (r.state === 'cd' && r.left < ownCast + CAST_LATENCY_MS);
+      const canStart = r.state === 'cast' || r.state === 'ready' || r.state === 'unk' || (r.state === 'cd' && r.left < ownCast + latency);
       if (!canStart) continue;
       const tell = r.state === 'cast' ? r.left : r.castMs;
       if (sk.reflect) {
         // Treffer landet nach Cast + Reaktion; die Reflexion beginnt mit dem Ende der Ansage
-        if (ownCast + CAST_LATENCY_MS + MIRROR_LEAD_MS >= tell) return `${r.name} (Spiegel) möglich`;
+        if (ownCast + latency + MIRROR_LEAD_MS >= tell) return `${r.name} (Spiegel) möglich`;
         continue;
       }
       const zone = (sk.shape === 'circle' || sk.shape === 'line') && r.castMs > 0 && !sk.islands && !sk.protectionMs
@@ -1542,7 +2661,7 @@
       else dist = (sk.radius || 40) + DODGE_MARGIN; // Kreis auf einem Spieler: schlimmster Fall mittendrin
       const escape = dist / speed * 1000;
       // Nur zurückhalten, wenn erst unser Cast das Ausweichen unmöglich macht
-      if (CAST_LATENCY_MS + escape < tell && ownCast + CAST_LATENCY_MS + escape >= tell) {
+      if (latency + escape < tell && ownCast + latency + escape >= tell) {
         return `${r.name} (${skillShape(sk)}) möglich – sonst keine Zeit zum Ausweichen`;
       }
     }
@@ -1722,11 +2841,202 @@
 
   // ---------- Bot ----------
   // Simuliert Tastendrücke genau wie die echte Tastatur (das Spiel wertet e.code aus).
+  let digibotLastInputBlock=null;
+  let digibotChannelPeace=null,digibotChannelCleanup=null,digibotAttackTravel=null,digibotBossWalk=null;
+  // Am Spawnpunkt des gewählten Bosses (Lern-Route, Boss-Quest, Rotation), solange er nicht da ist: hier dürfen echte
+  // Angreifer abgewehrt werden (sonst schlug der Bot beim Warten nicht zurück – live 2.30.5/2.48.2). Ist der Boss da, hat er
+  // über den Fokus Vorrang.
+  const BOSS_SPAWN_DEFEND_R = 300;
+  function digibotAtBossSpawn(st){
+    const me=controlled(st);if(!me)return false;
+    const ch=st.world?.channel??1,map=st.world?.mapId;
+    const near=(p)=>!p||Math.hypot(me.x-p.x,me.y-p.y)<=BOSS_SPAWN_DEFEND_R;
+    if(lrOn()&&cfg.levelBoss&&lr.boss){const b=lr.boss;return map===b.b.map&&ch===b.ch&&!lrBossEnt(b.b)&&near(lrBossPos(b.b));}
+    const t=autopilot.task;
+    if(cfg.autopilot&&!cfg.farm&&!cfg.dungeon&&t?.loc?.boss&&map===t.loc.mapId){
+      let alive=false;window.dmo?.net?.state?.entities?.forEach?.(e=>{if(e.kind===KIND.Mob&&e.hp>0&&!(e.flags&FLAG.Dead)&&t.species?.has(e.defId))alive=true;});
+      return !alive&&near(Number.isFinite(t.loc.x)?t.loc:null);
+    }
+    if(cfg.farm&&farm.goal&&map===farm.goal.map&&ch===farm.goal.ch){
+      const b=farmSelected().find(x=>x.map===farm.goal.map&&x.index===farm.goal.index);
+      let up=false;if(b)window.dmo?.net?.state?.entities?.forEach?.(e=>{if(!up&&e.kind===KIND.Mob&&e.hp>0&&!(e.flags&FLAG.Dead)&&bossEntityMatch(b,e))up=true;});
+      return !!b&&!up&&near(farmSpot(b));
+    }
+    return false;
+  }
+  // Ziel greift mich (Tamer/Digimon) gerade an
+  function digibotTargetAttacksMe(st){
+    const e=window.dmo?.net?.state?.entities?.get?.(st.target?.id);
+    return !!e&&e.kind===KIND.Mob&&e.hp>0&&!!e.targetId&&(e.targetId===st.me?.partner?.entityId||e.targetId===st.me?.tamerEntityId);
+  }
+  function digibotBossPeace(st,now=Date.now()){
+    if(!bot.on)return false;
+    // Ziel liegt doch auf dem aktuellen Kanal (Boss erschien hier, Wechsel kam nicht durch): Kanal-Frieden aufheben
+    if(digibotChannelPeace){
+      const map=st.world?.mapId,ch=st.world?.channel??1;
+      if((cfg.farm&&farm.goal&&farm.goal.map===map&&farm.goal.ch===ch)||(lr.boss&&lr.boss.b.map===map&&lr.boss.ch===ch)){digibotChannelPeace=null;digibotChannelCleanup=null;}
+    }
+    if(digibotChannelPeace && now-digibotChannelPeace.at<30000 && st.world?.mapId===digibotChannelPeace.map && (st.world?.channel??1)!==digibotChannelPeace.to)return true;
+    if(lrOn() && cfg.levelBoss){
+      if(lr.boss){const b=lr.boss;return st.world?.mapId!==b.b.map || (st.world?.channel??1)!==b.ch || !lrBossEnt(b.b);}
+      if(lr.scanPeace)return true;
+    }
+    const t=autopilot.task;
+    if(cfg.autopilot && !cfg.farm && !cfg.dungeon && t?.loc?.boss){
+      let alive=false;window.dmo?.net?.state?.entities?.forEach?.(e=>{if(e.kind===KIND.Mob&&e.hp>0&&!(e.flags&FLAG.Dead)&&t.species?.has(e.defId))alive=true;});
+      return st.world?.mapId!==t.loc.mapId || !alive;
+    }
+    return false;
+  }
+  function digibotOffensiveSkill(sk){return !!sk && sk.kind!=='heal' && sk.kind!=='buff' && !isKoh(sk);}
+  function digibotSkillAggroReason(st,target,skill){
+    if(!bot.on || !skill)return null;
+    const def=content()?.skills?.[skill.id]||{},sk={...def,...skill};
+    if(!digibotOffensiveSkill(sk))return null;
+    const multi=sk.shape==='circle'||sk.shape==='line'||sk.sweep||sk.scatter||sk.chain||sk.chainCount>1||sk.bounces>0;
+    if(!multi)return null;
+    const ents=window.dmo?.net?.state?.entities,own=ents?.get?.(st.me?.partner?.entityId),dst=ents?.get?.(target?.id)||target;
+    if(!own||!dst)return 'Flächenskill: Positionen zum Prüfen zusätzlicher Gegner fehlen';
+    const range=Math.max(0,Number(sk.range)||0),radius=Math.max(16,Number(sk.radius)||0)+24;
+    let hit=false;
+    ents?.forEach?.(e=>{
+      if(hit||e.kind!==KIND.Mob||e.id===dst.id||e.hp<=0||(e.flags&(FLAG.Dead|FLAG.Boss)))return;
+      if(e.targetId && (e.targetId===st.me?.partner?.entityId||e.targetId===st.me?.tamerEntityId))return; // already engaged
+      const d=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+      if(sk.shape==='circle'&&!sk.scatter&&!sk.chain){
+        const center=sk.origin==='caster'?own:dst;
+        // Caster-origin attacks may first approach their target. Protect both possible centers.
+        hit=d(e,center)<=radius || sk.origin==='caster'&&d(e,dst)<=radius;
+      }else{
+        // Lines, fans, scatter and chains can cover more than a single target circle.
+        // Use a conservative envelope rather than risking a fresh pack.
+        hit=d(e,own)<=range+radius || d(e,dst)<=range+radius;
+      }
+    });
+    return hit?'Flächenskill würde möglicherweise weitere Gegner anlocken':null;
+  }
+  function digibotChannelBasicAllowed(st,now=Date.now()){
+    const c=digibotChannelCleanup,e=window.dmo?.net?.state?.entities?.get?.(st.target?.id);
+    return !!(c && c.id===st.target?.id && c.map===st.world?.mapId && c.channel===(st.world?.channel??1) && now-c.at>=0 && now-c.at<1000 && e?.kind===KIND.Mob && e.hp>0 && !(e.flags&FLAG.Dead));
+  }
+  function digibotCombatPolicy(st,code){
+    if(!bot.on)return null;
+    const k=Number(code.slice(5)),s=k>1?skillOnKey(st,k):null;
+    if(digibotBossWalk&&digibotBossWalk.id===st.target?.id&&digibotBossWalk.map===st.world?.mapId&&digibotBossWalk.channel===(st.world?.channel??1)&&Date.now()-digibotBossWalk.at<1000&&(k===1||!s||digibotOffensiveSkill({...content()?.skills?.[s.skill.id],...s.skill})))return 'Boss-Anmarsch: zuerst den Laufweg beenden';
+    const defend=digibotTargetAttacksMe(st)&&digibotAtBossSpawn(st); // am Boss-Spawn: Angreifer abwehren
+    if(!defend && digibotBossPeace(st) && (k===1?!digibotChannelBasicAllowed(st):!s || digibotOffensiveSkill({...content()?.skills?.[s.skill.id],...s.skill})))return 'Bosswechsel: keine Angriffe zwischen Bossen';
+    if(k===1&&digibotBossPeace(st)&&digibotChannelBasicAllowed(st)&&cfg.dodge){
+      const zones=dangerZones(),ents=window.dmo?.net?.state?.entities;
+      if(zones.length&&!digibotOutsideBasicPlan(st,ents?.get?.(st.target?.id),ents?.get?.(st.me?.partner?.entityId),controlled(st),zones,false))return 'Bosswechsel: Angriffsweg durch Warnfläche gesperrt';
+    }
+    return s?digibotSkillAggroReason(st,st.target,s.skill):null;
+  }
+  function digibotChannelDisengage(st,sc,now){
+    const ents=window.dmo?.net?.state?.entities,pe=ents?.get?.(st.me?.partner?.entityId),te=ents?.get?.(st.me?.tamerEntityId);
+    const candidates=(sc?.attackers||[]).filter(m=>{
+      const e=ents?.get?.(m.id);
+      return e?.kind===KIND.Mob&&e.hp>0&&!(e.flags&FLAG.Dead)&&!m.banned&&m.reach!==false;
+    });
+    const current=candidates.find(m=>m.id===digibotChannelCleanup?.id) || candidates.find(m=>m.id===st.target?.id);
+    const target=current||[...candidates].sort((a,b)=>(a.hp??Infinity)-(b.hp??Infinity)||(a.d??Infinity)-(b.d??Infinity))[0];
+    if(!target){
+      digibotChannelCleanup=null;lrBossIgnoreMobs(st,now);
+      if(!((pe?.flags|te?.flags)&FLAG.InCombat))return null;
+      return 'Bosswechsel: warte auf Kampfende – keine neuen Gegner';
+    }
+    const sent=digibotChannelCleanup?.id===target.id&&digibotChannelCleanup?.sent;
+    if(digibotChannelCleanup?.id!==target.id)lrBossIgnoreMobs(st,now);
+    digibotChannelCleanup={id:target.id,map:st.world?.mapId,channel:st.world?.channel??1,at:now,sent};
+    if(st.target?.id!==target.id){
+      if(bot.can('select',SELECT_GAP_MS,now)){bot.lastPress.select=now;worldScene()?.select?.(target.id);}
+      return 'Bosswechsel: beende bestehenden Kampf nur mit Taste 1';
+    }
+    let blocked=null;
+    if(!digibotChannelCleanup.sent || bot.can('Digit1',ATTACK_REPEAT_MS,now)){
+      if(bot.hit('Digit1',now)!==false){bot.attackedId=target.id;digibotChannelCleanup.sent=true;}
+      else blocked=digibotLastInputBlock?.reason;
+    }
+    return `Bosswechsel: Angreifer mit Taste 1 besiegen${blocked?` · ${blocked}`:''}`;
+  }
+  function digibotBossWalkIn(st,target,now){
+    const scene=worldScene(),ents=window.dmo?.net?.state?.entities,raw=ents?.get?.(target.id),partner=ents?.get?.(st.me?.partner?.entityId),me=controlled(st),grid=scene?.map?.grid;
+    if(!raw||raw.hp<=0||!partner||!me){digibotBossWalk=null;return null;}
+    const key=`${st.world?.mapId}|${st.world?.channel??1}|${target.id}`;
+    const range=content()?.digimon?.[st.me?.partner?.species]?.basic?.range;
+    // A distant selected boss is not an attackable boss. Keep walking until
+    // native attack approach only needs a short, unobstructed final stretch.
+    const distance=Math.hypot(partner.x-raw.x,partner.y-raw.y),limit=Math.max(160,Number(range)||0);
+    const ready=distance<=limit&&Math.hypot(me.x-raw.x,me.y-raw.y)<=180&&digibotDodgeGridClear(partner,raw,grid,5);
+    if(ready){
+      if(digibotBossWalk?.key===key){scene?.tapGround?.(me.x,me.y);autopilot.nav=null;autopilot.route=null;digibotAttackTravel=null;}
+      digibotBossWalk=null;return null;
+    }
+    const starting=digibotBossWalk?.key!==key;
+    digibotBossWalk={key,id:target.id,map:st.world?.mapId,channel:st.world?.channel??1,at:now,distance};
+    if(starting){
+      autopilot.nav=null;autopilot.route=null;
+      if(me.id===partner.id)commands()?.partnerStop?.();else commands()?.partnerFollow?.();
+    }
+    bot.attackedId=null;bot.engage=null;
+    const result=walkTo(st,raw.x,raw.y,now);
+    if(result==='stuck'){
+      blacklist.set(target.id,now+15000);autopilot.nav=null;autopilot.route=null;digibotBossWalk=null;
+      logEvent('warn',`${target.name||raw.defId}: Laufweg blockiert – kurz neu planen, kein erfolgloser Kampf`);
+      return 'Boss-Anmarsch: Laufweg blockiert – plane neu';
+    }
+    return `Laufe über Spiel-Wegfindung zum Boss (${Math.round(distance)} px) – Angriff erst bei freiem Zugang`;
+  }
+  function digibotNativeAttackTravel(st,target,now){
+    const ents=window.dmo?.net?.state?.entities,partner=ents?.get?.(st.me?.partner?.entityId),tamer=controlled(st);
+    if(!partner||!target||target.hp<=0){digibotAttackTravel=null;return false;}
+    const key=`${st.world?.mapId}|${st.world?.channel??1}|${st.me?.partner?.entityId}|${target.id}`;
+    let p=digibotAttackTravel;
+    if(!p||p.key!==key)p=digibotAttackTravel={key,px:partner.x,py:partner.y,tx:tamer?.x,ty:tamer?.y,movedAt:-Infinity};
+    if(Math.hypot(partner.x-p.px,partner.y-p.py)>=4 || tamer&&Math.hypot(tamer.x-p.tx,tamer.y-p.ty)>=4){
+      p.px=partner.x;p.py=partner.y;p.tx=tamer?.x;p.ty=tamer?.y;p.movedAt=now;
+    }
+    const range=content()?.digimon?.[st.me?.partner?.species]?.basic?.range;
+    const stand=Number.isFinite(range)?range+7:192;
+    return Math.hypot(partner.x-target.x,partner.y-target.y)>stand+4 && now-p.movedAt<1000;
+  }
+  function digibotCombatInputReason(st,now=performance.now()){
+    const own=window.dmo?.net?.state?.entities?.get?.(st?.me?.partner?.entityId),queue=window.dmo?.client?.skillQueue;
+    const locked=!!(own?.flags&(FLAG.Casting|FLAG.Evolving|FLAG.Held))||(digibotRawScene()?.ownPartner?.lockLeft?.(now)||0)>0;
+    // The client's getter does not expire flight. Use its own timeout-aware API before inspecting it.
+    if(typeof queue?.busy==='function')queue.busy(now,locked);
+    if(own?.flags&FLAG.Held)return 'Partner festgehalten';
+    if(own?.flags&FLAG.Evolving)return 'Digitation läuft';
+    if(own?.flags&FLAG.Casting)return 'Skill wird ausgeführt';
+    if(locked)return 'Aktionssperre des Spielclients';
+    if(queue?.inFlight)return 'Skill-Antwort wird abgewartet';
+    return null;
+  }
+  function digibotInputSnapshot(){
+    const st=getStore()?.getState?.(),own=window.dmo?.net?.state?.entities?.get?.(st?.me?.partner?.entityId),queue=window.dmo?.client?.skillQueue,pn=performance.now();
+    return {at:Date.now(),bossApproach:digibotBossWalk,lastBlocked:digibotLastInputBlock,partnerHp:st?.me?.partner?.hp,partnerMaxHp:st?.me?.partner?.maxHp,tankEnabled:!!cfg.tank,partnerFlags:own?.flags,
+      lockLeftMs:Math.max(0,digibotRawScene()?.ownPartner?.lockLeft?.(pn)||0),inFlight:typeof queue?.inFlight==='string'?queue.inFlight:!!queue?.inFlight,
+      flightLeftMs:Number.isFinite(queue?.flight?.until)?Math.max(0,queue.flight.until-pn):null,queued:!!queue?.queued};
+  }
   function press(code) {
-    const key = code.startsWith('Digit') ? code.slice(5) : code;
-    const opts = { code, key, bubbles: true, cancelable: true };
-    window.dispatchEvent(new KeyboardEvent('keydown', opts));
-    setTimeout(() => window.dispatchEvent(new KeyboardEvent('keyup', opts)), 60);
+    if (!digibotCore.allowed()) return false;
+    const st=getStore()?.getState?.(),net=window.dmo?.net,id=st?.target?.id;
+    const combat=/^Digit[1-6]$/.test(code);
+    if(combat){
+      const reason=digibotCombatPolicy(st,code) || digibotCombatInputReason(st) || (/^Digit[2-6]$/.test(code)&&window.dmo?.client?.skillQueue?.queued?'Skill wartet in der Warteschlange':null)
+        || (code==='Digit1'&&id&&digibotCombat.waiting(id)?'Angriffsantwort wird abgewartet':null);
+      if(reason){
+        if(digibotLastInputBlock?.reason!==reason)digibotCore.record('Kampfeingabe zurückgehalten',{action:reason,target:id});
+        digibotLastInputBlock={reason,code,at:Date.now()};return false;
+      }
+      digibotLastInputBlock=null;
+    }
+    if(code==='Digit1'&&id)digibotCombat.sent(id,net?.rttMs);
+    const key=code.startsWith('Digit')?code.slice(5):code,opts={code,key,bubbles:true,cancelable:true};
+    digibotKeys.set(code,opts);const requestId=digibotTrackKey(code);
+    try{window.dispatchEvent(new KeyboardEvent('keydown',opts));}
+    catch(e){if(requestId)digibotHistory.reject(requestId,e?.name||'Error');throw e;}
+    setTimeout(()=>{digibotKeys.delete(code);window.dispatchEvent(new KeyboardEvent('keyup',opts));},60);
+    return true;
   }
 
   // Was liegt auf Taste k (1–8)? Liefert den Skill samt Rest-Cooldown oder null, wenn dort kein Skill liegt.
@@ -1874,7 +3184,7 @@
     const me = window.dmo?.net?.state?.entities?.get?.(st.me.partner.entityId) || controlled(st);
     if (!me) return;
     kohState.sentAt = now;
-    try { group.bus?.postMessage({ type: 'kohplan', slot: group.slot(), x: me.x, y: me.y, mapId: st.world?.mapId, end: hit.castEnd + 500 }); } catch { /* ignore */ }
+    try { digibotSend({ type: 'kohplan', slot: group.slot(), x: me.x, y: me.y, mapId: st.world?.mapId, end: hit.castEnd + 500 }); } catch { /* ignore */ }
   }
   // Ein anderer Clavis zündet gleich: hinlaufen (Tamer, das Digimon folgt) – Vorrang vor Ausweichen und Kampf.
   // Der Clavis, der zündet, bleibt stehen.
@@ -1925,7 +3235,7 @@
     if (now - kohState.dueAt < kohRank(st, now) * KOH_STEP_MS) return null;
     if (!bot.can('Digit' + own.k, 300, now)) return null;
     kohState.claims.set(hit.src, now);
-    try { group.bus?.postMessage({ type: 'koh', slot: group.slot(), src: hit.src, skill: hit.sid }); } catch { /* ignore */ }
+    try { digibotSend({ type: 'koh', slot: group.slot(), src: hit.src, skill: hit.sid }); } catch { /* ignore */ }
     bot.lastPress.skill = now;
     bot.hit('Digit' + own.k, now);
     const name = (content()?.skills?.[hit.sid]?.name || hit.sid) + (hit.also ? ` (+ ${content()?.skills?.[hit.also]?.name || hit.also})` : '');
@@ -1935,7 +3245,7 @@
   // Eigener schneller Takt: der Bot-Takt (250 ms) ist für die Staffelung zwischen den Clavis zu grob
   setInterval(() => {
     if (!bot.on || !cfg.koh || !bossSkillLog.size) return;
-    try { const st = getStore()?.getState?.(); if (st) { kohAnchor(st, Date.now()); keyOfHope(st, Date.now()); } } catch { /* ignore */ }
+    digibotCore.run('Notfall-Skill', 100, () => { const st = getStore()?.getState?.(); if (st) { kohAnchor(st, Date.now()); keyOfHope(st, Date.now()); } });
   }, 50);
 
   function potionCount(me, fKey) {
@@ -1947,7 +3257,7 @@
 
   // ---------- Umgebung scannen ----------
   const KIND = { Tamer: 0, Partner: 1, Mob: 2, Npc: 3 };
-  const FLAG = { Dead: 2, InCombat: 8, Boss: 16, Aggressive: 32, Hidden: 64, Untargetable: 256, Elite: 1024 };
+  const FLAG = { Moving:1, Evolving: 4, Casting: 128, Held: 8192, Dead: 2, InCombat: 8, Boss: 16, Aggressive: 32, Hidden: 64, Untargetable: 256, Elite: 1024 };
   const mobHome = new Map();         // Monster-Entity -> zuerst gesehene Position (Startplatz für die Verfolgungsreichweite)
   // Monster mit Flächenangriff um sich herum: beim Ausweichen in ihrer Verfolgungsreichweite bleiben (sonst kitet man sie
   // Stück für Stück weg, bis sie zurücklaufen). Art -> Map (leer = überall)
@@ -2121,7 +3431,7 @@
       const s = seenHere.get(key);
       if (!s) seenHere.set(key, { aggressive }); else if (aggressive) s.aggressive = true;
       mobs.push({
-        id: e.id, species: e.defId, cat, key, x: e.x, y: e.y, level: e.level, hp: e.hp, maxHp: e.maxHp,
+        id: e.id, species: e.defId, cat, key, mapBoss:cat==='boss'||isFarmMob(farmSp,e)||isFarmMob(qbSp,e), x: e.x, y: e.y, level: e.level, hp: e.hp, maxHp: e.maxHp,
         d: Math.hypot(e.x - self.x, e.y - self.y),
         attacker,
         // Bosse sind Gruppenkämpfe: ein Farm-Boss gilt nie als „von anderen belegt“
@@ -2153,8 +3463,9 @@
     return { mapId, self, tamer, mobs, quest, pf, attackers: mobs.filter((m) => m.attacker && m.reach !== false && !((refusal.ban.get(m.id) || 0) > now)) };
   }
 
-  // Suchradius gilt für die Weglänge (See/Schlucht dazwischen = weit); ohne Weg (Insel, andere Klippenseite) nie
-  const usable = (m) => m.enabled && m.inLvl && !m.taken && !m.banned && m.reach !== false && (m.pd ?? m.d) <= cfg.radius;
+  // Known bosses are eligible across the current map. A capped path distance
+  // (Infinity) is not an unreachable component; normal mobs still use the radius.
+  const usable = (m) => m.enabled && m.inLvl && !m.taken && !m.banned && m.reach !== false && (m.mapBoss || m.cat==='boss' || (m.pd ?? m.d) <= cfg.radius);
 
   // ---------- Quests ----------
   // Quest-Zustände im Spiel: 1 = aktiv, 2 = fertig (abgeben), 3 = abgeschlossen
@@ -2234,26 +3545,34 @@
 
   // ---------- Weltkarte (alle Maps: Portale, NPCs, Spawn-Zonen) ----------
   // Wird einmal aus den Map-Dateien des Spiels geladen (/assets/maps/<map>.tmj).
-  const world = { state: 'idle', loaded: 0, total: 0, maps: {}, npcAt: new Map(), error: '' };
+  const world = { state: 'idle', loaded: 0, total: 0, maps: {}, npcAt: new Map(), error: '', retryAt: 0 };
 
   async function loadWorld() {
-    if (world.state === 'loading' || world.state === 'ready') return;
+    if (world.state === 'loading' || world.state === 'ready' || Date.now() < world.retryAt) return;
     const sc = worldScene();
     const list = sc?.deps?.manifest?.maps;
     if (!list) return;
     world.state = 'loading';
+    world.error = '';
     const base = sc.deps.assetsBase || '/assets/';
     const ids = Object.keys(list);
-    world.total = ids.length; world.loaded = 0;
+    world.total = ids.length; world.loaded = ids.filter((id) => Object.hasOwn(world.maps, id)).length;
+    let failures = 0;
     const prop = (o, n) => (o.properties || []).find((p) => p.name === n)?.value;
-    await Promise.all(ids.map(async (mapId) => {
+    const pending = ids.filter((id) => !Object.hasOwn(world.maps, id));
+    async function loadMap(mapId) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
       try {
-        const tmj = await fetch(base + list[mapId].tmj).then((r) => r.json());
+        const response = await fetch(base + list[mapId].tmj, { signal: controller.signal });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const tmj = await response.json();
+        if (!tmj || !Array.isArray(tmj.layers)) throw new Error('Ungültige Kartendaten');
         const m = { id: mapId, portals: [], npcs: [], zones: {}, spawns: {}, safe: [] };
         for (const layer of tmj.layers || []) {
           if (layer.type !== 'objectgroup') continue;
           for (const o of layer.objects || []) {
-            const type = o.type ?? o.class;
+            const type = o.type || o.class;
             const rect = { x: o.x, y: o.y, w: o.width || 0, h: o.height || 0 };
             if (type === 'portal' && prop(o, 'toMap')) m.portals.push({ toMap: prop(o, 'toMap'), name: o.name || '', toSpawn: prop(o, 'toSpawn') || '', ...rect });
             else if (type === 'npc') m.npcs.push({ npcId: prop(o, 'npcId') || o.name, x: o.x, y: o.y });
@@ -2267,11 +3586,22 @@
           if (!world.npcAt.has(n.npcId)) world.npcAt.set(n.npcId, []);
           world.npcAt.get(n.npcId).push({ mapId, x: n.x, y: n.y });
         }
-      } catch (e) { world.error = `${mapId}: ${e.message}`; }
-      world.loaded++;
-      schedule();
+        world.loaded++;
+      } catch (e) {
+        failures++;
+        world.error = `${mapId}: ${e.message}`;
+      } finally {
+        clearTimeout(timeout);
+        schedule();
+      }
+    }
+    // Höchstens vier Abrufe gleichzeitig; erfolgreiche Karten beim Retry behalten.
+    let next = 0;
+    await Promise.all(Array.from({ length: Math.min(4, pending.length) }, async () => {
+      while (next < pending.length) await loadMap(pending[next++]);
     }));
-    world.state = 'ready';
+    world.state = failures ? 'error' : 'ready';
+    world.retryAt = failures ? Date.now() + 10000 : 0;
     schedule();
   }
 
@@ -2311,13 +3641,14 @@
 
   const autopilot = {
     task: null, nav: null, failed: new Map(), huntSpecies: new Set(),
-    sweepAt: null, tp: null, tpBlock: new Map(), route: null, lastSwitch: 0, switchTries: 0, switchGiveUp: null, switchFollowAt: 0, lastEvolve: 0, evoTries: 0, evoGiveUp: null,
-    dailyVisited: new Set(), dailyAccepted: new Set(), dailyAt: 0, boardOnly: new Set(),
+    bountyReturn:false, sweepAt: null, tp: null, tpBlock: new Map(), route: null, lastSwitch: 0, switchTries: 0, switchGiveUp: null, switchFollowAt: 0, lastEvolve: 0, evoTries: 0, evoGiveUp: null,
+    dailyVisited: new Set(), dailyAccepted: new Set(),dailyAttempts:new Map(), dailyAt: 0, boardOnly: new Set(),
     avoidSpots: new Map(), // Jagdgebiet-Schlüssel -> bis wann gemieden (war leer)
     phase: 0, // aktuelle Phase der Map-für-Map-Runde (nur fürs Log)
     newRun() { // beim Start des Bots: Wechsel/Digitation/Dailies neu versuchen
+      this.bountyReturn=false;this.turninPartnerHeld=false;this.questHome=null;this.questHomeUser=null;this.evoPartner=null;
       this.switchGiveUp = null; this.evoGiveUp = null; this.switchTries = 0; this.evoTries = 0;
-      this.dailyVisited = new Set(); this.dailyAccepted = new Set(); this.failed = new Map(); this.tpBlock = new Map(); this.tp = null; this.phase = 0;
+      this.dailyVisited = new Set(); this.dailyAccepted = new Set();this.dailyAttempts=new Map(); this.failed = new Map(); this.tpBlock = new Map(); this.tp = null; this.phase = 0;
     },
     lastTap: 0, lastTalk: 0, talkTries: 0, dialogAt: 0, arrivedAt: 0, idleSince: 0,
     reset() {
@@ -2326,7 +3657,7 @@
     },
   };
 
-  const commands = () => worldScene()?.deps?.commands;
+  const commands = () => digibotCommands(digibotRawScene()?.deps?.commands);
   const activeAvoid = () => {
     const now = Date.now(), set = new Set();
     for (const [k, until] of autopilot.avoidSpots) if (until > now) set.add(k); else autopilot.avoidSpots.delete(k);
@@ -2334,7 +3665,11 @@
   };
   // ---------- Gruppe: Meldungen zwischen den Fenstern ----------
   function onGroupMsg(m) {
-    if (!m || typeof m !== 'object') return;
+    if (!digibotCore.accept(m, group.slot(), accounts.leader, i => accounts.list[i]?.on === true)) return;
+    if (m.type === 'state') {
+      if (m.objective && (!digibotRecord(m.objective) || typeof m.objective.mapId !== 'string' || typeof m.objective.boss !== 'string' || !Number.isInteger(m.objective.channel))) return;
+      m = digibotClean(m);
+    }
     if (m.type === 'state' && Number.isInteger(m.slot) && m.slot !== group.slot()) {
       const prev = group.peers.get(m.slot);
       group.peers.set(m.slot, { ...m, seen: Date.now() });
@@ -2346,14 +3681,14 @@
     if (m.type === 'kohplan' && Number.isInteger(m.slot) && m.slot !== group.slot()) kohState.plans.set(m.slot, { ...m, seen: Date.now() });
     if (!group.active()) return;
     if (m.type === 'start' && !bot.on) groupStartBot('Gruppe: Start aus dem Leader-Fenster');
-    if (m.type === 'login') { ss.set('digibot.login', '1'); group.login = { at: 0, tries: 0, outAt: 0, enterAt: 0, msg: '' }; }
-    if (m.type === 'stop') groupStopBot('Gruppe: Stopp aus dem Leader-Fenster');
-    if (m.type === 'invite' && group.role() === 'leader') partyInviteNow();
+    // normales Stoppen (Bot/Gruppe) sperrt nicht – danach startet „Start“ wieder alle; nur der Not-Aus verlangt einen Neustart von Hand
+    if (m.type === 'stop') groupStopBot('Gruppe: Stopp aus dem Leader-Fenster',m.scope!=='bot'&&m.scope!=='group');
+    if (m.type === 'invite' && group.role() === 'leader') digibotCore.runPassive('Gruppe',20,()=>partyInviteNow()); // auch bei ausgeschaltetem Bot (Knopf im Mitläufer-Fenster)
     if (m.type === 'maptalk') startMapTalk('Gruppe: Abgeben & Annehmen auf dieser Map (aus einem anderen Fenster)');
   }
   // Was ein anderes Fenster sofort wissen muss (Ziel, Aufgabe, Gespräche, Kampf, Map, Quests) – Position nicht
   const groupSig = (m) => JSON.stringify([m.targetId, m.task?.key, m.talks?.[m.talks.length - 1]?.key, m.busy, m.done?.[m.done.length - 1],
-    m.fight, m.mapId, m.channel, m.bot, m.noFight, m.inWorld, m.quests]);
+    m.fight, m.mapId, m.channel, m.bot, m.noFight, m.inWorld, m.quests, m.objective, m.reservation,m.tamer,m.partyId]);
   function groupPush(force = false) {
     if (!group.active() || !group.bus) return;
     const st = getStore()?.getState?.(), now = Date.now();
@@ -2361,13 +3696,13 @@
     const msg = groupState(st, now), sig = groupSig(msg);
     if (!force && sig === group.sig && now - group.sentAt < 1000) return;
     group.sig = sig; group.sentAt = now;
-    try { group.bus.postMessage(msg); } catch { /* ignore */ }
+    try { digibotSend(msg); } catch { /* ignore */ }
   }
   function kickTick() {
     const now = Date.now();
     if (now - (group.kickAt || 0) < 120) return;
     group.kickAt = now;
-    setTimeout(() => { if (bot.on) try { bot.tick(); } catch { /* ignore */ } }, 0);
+    digibotCore.defer(() => { if (bot.on) bot.tick(); }, 0);
   }
   const charName = (st) => st?.session?.characters?.find?.((c) => c.id === window.dmo?.net?.charId)?.name || null;
   function groupState(st, now) {
@@ -2389,6 +3724,8 @@
       talks: group.role() === 'leader' ? group.talks : [], done: group.done.slice(-30), busy: group.cur, login: group.login.msg, fin,
       deferred: group.seen.slice(-30),
       fight: inCombat(st), farm: !!cfg.farm,
+      partyId:st.party?.id||null,tamer:{skill:digibotTamer.skill,want:digibotTamer.want,last:digibotTamer.last,cooldown:digibotTamer.cooldown},
+      objective: digibotObjective(st), reservation: digibotFormation.reservation,
       kohAt: kohReadyAt(st, now),
       serve: serveOn(),
     };
@@ -2706,6 +4043,7 @@
   }
   // Party im Spiel: Leader lädt ein, Mitläufer nehmen Einladungen vom Leader an
   function groupParty(st, now) {
+    if(!digibotDesktopPartyAllowed(st,now))return;
     const cmd = commands();
     if (!cmd?.partyInvite || st.screen !== 'world') return;
     if (group.role() === 'follower') {
@@ -2727,40 +4065,6 @@
       logEvent('bot', `Gruppe: lade ${m.name} in die Party ein`);
     }
   }
-  // Login im Gruppen-Fenster: richtiger Account (sonst abmelden), einloggen, Charakter wählen
-  function autoLogin(st, now) {
-    const acc = accounts.list[group.slot()], cl = window.dmo?.client, L = group.login;
-    if (!acc?.user || !cl || st.session?.busy) return;
-    const user = String(st.session?.username || '').toLowerCase();
-    const same = user === acc.user.trim().toLowerCase();
-    if (st.screen === 'login') {
-      if (!acc.pass) { L.msg = `bitte als ${acc.user} einloggen`; return; }
-      if (L.tries >= 3) { L.msg = 'Login klappt nicht – bitte selbst einloggen'; return; }
-      if (now - L.at < 15000) return;
-      L.at = now; L.tries++; L.msg = `logge ${acc.user} ein…`;
-      Promise.resolve(cl.login?.(acc.user.trim(), acc.pass)).catch(() => {});
-      logEvent('bot', `Gruppe: logge ${acc.user} ein`);
-    } else if (st.screen === 'charSelect') {
-      if (user && !same) {
-        if (now - L.outAt > 10000) {
-          L.outAt = now; L.msg = 'anderer Account – melde ab…';
-          logEvent('bot', `Gruppe: hier ist ${st.session.username} eingeloggt, Slot ${group.slot() + 1} gehört ${acc.user} – melde ab`);
-          cl.logout?.();
-        }
-        return;
-      }
-      const chars = st.session?.characters || [];
-      const c = chars.find((x) => acc.char && String(x.name).toLowerCase() === acc.char.toLowerCase()) || (chars.length === 1 ? chars[0] : null);
-      if (!c) { L.msg = 'bitte Charakter wählen'; return; }
-      if (now - L.enterAt < 20000) return;
-      L.enterAt = now; L.msg = `betrete die Welt mit ${c.name}…`;
-      Promise.resolve(cl.enterWorld?.(c.id)).catch(() => {});
-    } else if (st.screen === 'world') {
-      L.tries = 0;
-      if (same) ss.set('digibot.login', null); // Login-Auftrag erledigt
-      L.msg = user && !same ? `Achtung: hier ist ${st.session.username} eingeloggt, nicht ${acc.user}` : '';
-    }
-  }
   // Charaktername pro Account merken (in jedem Fenster, auch ohne Gruppe)
   function noteCharacter(st, now) {
     if (st.screen !== 'world' || !st.me) return;
@@ -2773,6 +4077,7 @@
     saveAcc();
   }
   function groupTick() {
+    if(digibotAccountQueue.active)return;
     const st = getStore()?.getState?.();
     if (!st) return;
     const now = Date.now();
@@ -2780,7 +4085,6 @@
     noteCharacter(st, now);
     if (!group.active()) return;
     groupPush(true);
-    if (ss.get('digibot.login') === '1') autoLogin(st, now);
     groupParty(st, now);
     // Fenster aus „Gruppe starten“: Bot im Autopilot starten, sobald der Charakter in der Welt ist
     if (ss.get('digibot.go') === '1' && st.screen === 'world' && st.me?.partner) {
@@ -2810,6 +4114,7 @@
   // ---------- Bewegungen spiegeln: Leader meldet seine Position, Mitläufer (Bot aus) laufen mit ----------
   const MIRROR_OFFSETS = [[-26, 18], [26, 18], [-26, -18], [26, -18]]; // kleine Formation um den Leader
   function mirrorTick() {
+    if(digibotAccountQueue.active)return;
     if (!accounts.mirror || !group.active()) { if (group.mirroring) mirrorEnd(); return; }
     const st = getStore()?.getState?.(), now = Date.now();
     if (!st || st.screen !== 'world' || !st.me) return;
@@ -2824,7 +4129,7 @@
       const moved = !lp || lp.mapId !== st.world?.mapId || lp.atk !== atk || Math.hypot(lp.x - me.x, lp.y - me.y) >= 2;
       if (!moved && now - lp.at < 1000) return;
       group.lastPos = { mapId: st.world?.mapId, x: me.x, y: me.y, atk, at: now };
-      try { group.bus.postMessage({ type: 'pos', slot: group.slot(), mapId: st.world?.mapId, channel: st.world?.channel ?? 1, x: me.x, y: me.y, atk }); } catch { /* ignore */ }
+      try { digibotSend({ type: 'pos', slot: group.slot(), mapId: st.world?.mapId, channel: st.world?.channel ?? 1, x: me.x, y: me.y, atk }); } catch { /* ignore */ }
       return;
     }
     if (bot.on) { if (group.mirroring) mirrorEnd(); return; } // läuft der Bot, folgt er selbst
@@ -2884,11 +4189,11 @@
     if (!p || p.fainted) return null;
     mirrorCare(st, now);
     noteBosses(now);
-    const kh = keyOfHope(st, now);
+    const kh = digibotCore.priority(100,()=>keyOfHope(st, now));
     if (kh) return { text: kh, hold: true };
-    const kg = kohGather(st, now);
+    const kg = digibotCore.priority(100,()=>kohGather(st, now));
     if (kg) { group.mirrorTap = null; return { text: kg, hold: true }; }
-    const dg = dodge(st, now);
+    const dg = digibotCore.priority(100,()=>dodge(st, now));
     if (dg) { group.mirrorTap = null; return { text: dg, hold: true }; }
     const ents = window.dmo?.net?.state?.entities;
     const id = leaderTargetId(now) || P.atk;
@@ -2931,38 +4236,24 @@
     const st = getStore()?.getState?.();
     if (!claimSlot(st)) return;
     group.msg = 'Bots gestartet.';
-    groupSend('start');
+    if (!digibotCore.start(digibotManual)) return;
     groupStartBot('Gruppe: Bots gestartet');
+    groupPush(true);groupSend('start');
     groupTick();
     schedule();
   }
   // 🔑 Alle einloggen: fehlende Fenster öffnen, überall den richtigen Account einloggen und den Charakter wählen
-  function loginGroup() {
-    const st = getStore()?.getState?.(), now = Date.now();
-    const c = claimSlot(st);
-    if (!c) return;
-    const { on, mine } = c;
-    ss.set('digibot.login', '1');
-    group.login = { at: 0, tries: 0, outAt: 0, enterAt: 0, msg: '' };
-    const order = [on.find((a) => a.i === mine), ...on.filter((a) => a.i !== mine)];
-    const cols = Math.ceil(Math.sqrt(order.length)), rows = Math.ceil(order.length / cols);
-    const sw = screen.availWidth || 1280, sh = screen.availHeight || 800, cw = Math.floor(sw / cols), chh = Math.floor(sh / rows);
-    let opened = 0, blocked = 0;
-    order.forEach((a, cell) => {
-      if (cell === 0 || fresh(group.peers.get(a.i), now)) return; // Fenster ist schon offen
-      const feat = accounts.popup ? `popup,width=${cw},height=${chh},left=${(screen.availLeft || 0) + (cell % cols) * cw},top=${(screen.availTop || 0) + Math.floor(cell / cols) * chh}` : '';
-      const w = window.open(`${location.origin}${location.pathname}#dbslot=${a.i}&login=1`, `digibot-slot-${a.i}`, feat);
-      if (w) opened++; else blocked++;
-    });
-    group.msg = blocked ? `${blocked} Fenster blockiert – bitte Pop-ups für diese Seite erlauben und nochmal klicken.`
-      : `Einloggen: ${order.length} Account(s), ${opened} Fenster geöffnet.`;
-    logEvent('bot', group.msg);
-    groupSend('login'); // schon offene Gruppenfenster loggen ebenfalls ein
-    groupTick();
-    schedule();
+  function openGroupWindows() { // compatibility name: opens windows, never authenticates
+    const st=getStore()?.getState?.(), now=Date.now(),c=claimSlot(st);if(!c)return;
+    let opened=0;
+    for(const a of c.on){if(a.i===c.mine||fresh(group.peers.get(a.i),now))continue;
+      const w=window.open(`${location.origin}${location.pathname}#dbslot=${a.i}`,`digibot-slot-${a.i}`,accounts.popup?'popup,width=640,height=720':'');if(w)opened++;
+    }
+    group.msg=`${opened} Fenster geöffnet – in jedem Fenster selbst anmelden und Charakter wählen.`;schedule();
   }
   // Bot in diesem Gruppenfenster starten (Autopilot). Noch nicht in der Welt -> startet nach dem Einloggen.
   function groupStartBot(why) {
+    if (digibotCore.latched && !digibotManual) return;
     const st = getStore()?.getState?.();
     if (st?.screen !== 'world' || !st.me?.partner) { ss.set('digibot.go', '1'); group.worldAt = 0; return; }
     reloadAcc();
@@ -2972,7 +4263,7 @@
     if (dgOn) dg.reset();
     if (boss) cfg.farmMode = 'boss';
     loadWorld();
-    if (!bot.on) bot.toggle();
+    if (!bot.on) bot.toggle(true);
     logEvent('bot', why);
     schedule();
   }
@@ -2999,16 +4290,16 @@
     schedule();
   }
   // Bot stoppen; das Fenster bleibt in der Gruppe (nächster Start geht wieder an alle)
-  function groupStopBot(why) {
+  function groupStopBot(why,hard=true) {
     ss.set('digibot.go', null);
     group.msg = '';
-    if (bot.on) { bot.toggle(); logEvent('bot', why); }
+    digibotCore.stop(why, hard); logEvent('bot', why);
     schedule();
   }
-  const groupSend = (type) => { try { group.bus?.postMessage({ type }); } catch { /* ignore */ } };
+  const groupSend = (type,scope) => digibotSend({type,...scope?{scope}:{}});
   function stopGroup() {
-    groupSend('stop');
-    groupStopBot('Gruppe gestoppt');
+    groupSend('stop','group');
+    groupStopBot('Gruppe gestoppt',false);
     group.msg = 'Bots gestoppt.';
   }
 
@@ -3178,18 +4469,28 @@
   }
 
   // „Höchstmögliche Digitation“: die tiefste freigeschaltete Form auf dem Ast des aktuellen Digimons (Kette über „from“).
-  // Bei mehreren gleich tiefen Formen die erste. null = es gibt keine höhere Form.
+  // DNA-Linie zuerst (wenn ein DNA-Partner da ist), sonst die tiefste; bei gleicher Tiefe Entwicklungsstufe (Armor unter
+  // Champion) und Freischaltlevel. null = keine höhere Form.
   const EVO_MAX = '__max';
   function maxEvolution(p) {
     const evos = p?.evolutions || [];
     const by = new Map(evos.map((e) => [e.species, e]));
     const chain = (e) => { const out = []; for (let i = 0, x = e; x && i < 12; i++, x = by.get(x.from)) out.push(x); return out; };
-    let best = null, bestD = -1;
+    // Armor unter Champion: bei gleicher Tiefe nie die Armor-Form statt der normalen Linie
+    const stageRank={rookie:1,'in-training':0,champion:2,armor:1.5,ultimate:3,mega:4,super:5,ultra:5};
+    // DNA hat Vorrang, sofern möglich: jeder DNA-Schritt, der noch vor dem aktuellen Digimon liegt, braucht einen
+    // verfügbaren DNA-Partner (vom Spiel in jogress.partner gemeldet)
+    const isDna = (x) => x.stage === 'jogress' || !!x.jogress;
+    const dnaOk = (c) => { const i = c.findIndex((x) => x.species === p.species); return c.slice(0, i < 0 ? c.length : i).every((x) => !isDna(x) || !!x.jogress?.partner?.partnerId); };
+    let best = null, bestD = -1, bestDna = false;
     for (const e of evos) {
       const c = chain(e);
-      if (!c.some((x) => x.species === p.species) || c.some((x) => x.unlocked === false)) continue; // anderer Ast / gesperrt
+      if (!c.some((x) => x.species === p.species) || c.some((x) => x.unlocked === false || x.selected === false)) continue; // anderer Ast / gesperrt
       if (e.level && (p.level ?? 0) < e.level) continue;
-      if (c.length > bestD) { best = e; bestD = c.length; }
+      if (!dnaOk(c)) continue; // DNA-Partner fehlt
+      const dna = c.some(isDna);
+      const better = dna !== bestDna ? dna : c.length > bestD || c.length===bestD && ((stageRank[e.stage]||0)>(stageRank[best?.stage]||0) || (stageRank[e.stage]||0)===(stageRank[best?.stage]||0) && (e.level||0)>(best?.level||0));
+      if (!best || better) { best = e; bestD = c.length; bestDna = dna; }
     }
     return best && best.species !== p.species ? best.species : null;
   }
@@ -3199,6 +4500,7 @@
   function ensureEvolution(st, species, now) {
     // Mitläufer: gleiche Zielform wie der Leader – nur wenn ihr eigenes Digimon sie hat (sonst passiert unten nichts)
     const p = st?.me?.partner;
+    digibotEvolutionContext(st);
     if (species === EVO_MAX) species = maxEvolution(p); // „höchstmögliche Digitation“
     // Schritt gelungen (andere Form als beim letzten Befehl): Fehlversuche neu zählen – sonst galt nach fünf gelungenen
     // Schritten (z. B. Patamon -> … -> Seraphimon, zurück, Angemon) der nächste als „klappt nicht“
@@ -3206,23 +4508,32 @@
     if (!species || !p || p.species === species || p.evolving || autopilot.evoGiveUp === species) return true;
     const evos = p.evolutions || [];
     const target = evos.find((e) => e.species === species);
-    if (!target || target.unlocked === false) return true;
+    const note=(reason)=>{const key=species+':'+reason;if(autopilot.evoNote!==key){autopilot.evoNote=key;logEvent('warn',`Digitation ${speciesName(species)}: ${reason}`);}return true;};
+    if (!target) return note('Form im aktuellen Spielzustand nicht verfügbar');
+    if(target.unlocked===false)return note(`gesperrt (${target.lock||'Voraussetzungen fehlen'})`);
+    const warp=!!(cfg.evoWarp && target.warp && !target.warp.blocker && !lrDarkMap(st));
+    if(target.blocked && !warp)return note(target.blockReason==='dark_tower'?'durch Dark Tower blockiert':target.blockReason==='reaper'?'durch Reaper blockiert':'vom Spiel blockiert');
     let step = target;
-    for (let i = 0; i < 8 && step && step.from !== p.species; i++) step = evos.find((e) => e.species === step.from);
+    for (let i = 0; !warp && i < 8 && step && step.from !== p.species; i++) step = evos.find((e) => e.species === step.from);
     if (!step || step.unlocked === false) return true; // Ziel liegt auf einem anderen Ast
+    // Match the game client: only the actual next step supplies a fusion partner.
+    // An existing fusion can evolve further even while its partner is locked/absent.
+    const withPartner = warp ? undefined : step.jogress?.partner?.partnerId;
     if (evoCooldownLeft(st) > 0) return true;            // Abklingzeit: erst mal in aktueller Form weiter
-    if (!step.canEvolveNow) {
-      if ((st.me.tamerDs ?? 0) < (step.dsCost ?? 0) && potionCount(st.me, 3) > 0 && bot.can('F3', POT_COOLDOWN_MS, now)) {
+    const cost=warp?target.warp.dsCost:step.dsCost;
+    const ready=warp?!target.warp.blocker && (st.me.tamerDs??0)>=cost:step.canEvolveNow;
+    if (!ready) {
+      if ((st.me.tamerDs ?? 0) < (cost ?? 0) && potionCount(st.me, 3) > 0 && bot.can('F3', POT_COOLDOWN_MS, now)) {
         bot.hit('F3', now);
         logEvent('potion', 'F3: Tamer-DS für die Digitation aufgefüllt');
         return 'Fülle Tamer-DS für die Digitation auf…';
       }
-      return true; // zu wenig DS ohne Trank oder Abklingzeit -> in aktueller Form weiter
+      return note(target.warp?.blocker && cfg.evoWarp ? `Warp: ${target.warp.blocker}` : (st.me.tamerDs??0)<(cost??0)?'zu wenig Tamer-DS':'momentan nicht bereit');
     }
     if (now - autopilot.lastEvolve > 4000) {
       if (++autopilot.evoTries > 5) { autopilot.evoGiveUp = species; logEvent('warn', `Digitation zu ${speciesName(species)} klappt nicht`); return true; }
       autopilot.lastEvolve = now; autopilot.evoFrom = p.species;
-      commands()?.evolve?.(step.species);
+      commands()?.evolve?.(step.species, withPartner, warp||undefined);
       logEvent('auto', `Digitiere: ${speciesName(p.species)} → ${speciesName(step.species)}`);
     }
     return `Digitiere zu ${speciesName(step.species)}…`;
@@ -3235,19 +4546,39 @@
     for (const e of p?.evolutions || []) if (e.stage === 'armor' && e.unlocked !== false && (p.level ?? 0) >= (e.level || 0) && (!best || (e.level || 0) > (best.level || 0))) best = e;
     return best?.species || null;
   }
-  const lrDarkMap = (st) => !!content()?.maps?.[st?.world?.mapId]?.darkTower;
+  function digibotEvoReason(st,reason) {
+    const p=st?.me?.partner;
+    const key=`${st?.world?.mapId}|${p?.species}|${reason}`;
+    if(autopilot.evoReasonKey!==key){autopilot.evoReasonKey=key;logEvent('warn',`Digitationsautomatik: ${reason}`);}
+    return true;
+  }
+  function digibotEvolutionSnapshot() {
+    const st=window.dmo?.store?.getState?.(),p=st?.me?.partner;
+    return {mode:cfg.autopilot?'autopilot':cfg.farm?'farm':cfg.dungeon?'dungeon':'other',
+      apMapEvo:!!cfg.apMapEvo,levelEvo:!!cfg.levelEvo,normalForm:cfg.levelEvoForm,darkForm:cfg.levelEvoDark,fixedForm:cfg.apEvo,
+      questPartner:digibotConfiguredPartner(st,'apQuestPartner')||autopilot.questHome,turninPartner:digibotConfiguredPartner(st,'apTurninPartner'),activePartner:activePartner(st)?.partnerId,apBatch:!!cfg.apBatch,batchPhase:autopilot.batchPhase,turninPartnerHeld:!!autopilot.turninPartnerHeld,
+      species:p?.species,darkTower:lrDarkMap(st),tamerDs:st?.me?.tamerDs,tamerMaxDs:st?.me?.tamerMaxDs,
+      options:(p?.evolutions||[]).slice(0,60).map(e=>({species:e.species,stage:e.stage,from:e.from,level:e.level,unlocked:e.unlocked,selected:e.selected,blocked:e.blocked,blockReason:e.blockReason,canEvolveNow:e.canEvolveNow,dsCost:e.dsCost,lock:e.lock}))};
+  }
+  const lrDarkMap = (st) => digibotTowerState(st,content());
   function lrEvolve(st, now) {
     const p = st?.me?.partner; if (!p) return true;
     let sp = lrDarkMap(st) ? cfg.levelEvoDark : cfg.levelEvoForm;
-    if (sp === EVO_ARMOR) sp = maxArmor(p);
+    if (sp === EVO_ARMOR) {sp = maxArmor(p);if(!sp)return digibotEvoReason(st,'keine freigeschaltete Armor-Form für das aktuelle Level gefunden');}
     else if (sp === EVO_MAX) { // aus einer Armor-Form (z. B. nach einer Dark-Tower-Map) von der Grundform aus suchen
       const root = (p.evolutions || []).find((e) => !e.from)?.species;
-      sp = maxEvolution(p) || (p.stage === 'armor' && root ? maxEvolution({ ...p, species: root }) : null) || p.species;
+      sp = maxEvolution(p) || (root ? maxEvolution({ ...p, species: root }) : null) || p.species;
     }
-    if (!sp || sp === p.species || p.evolving) return true;
+    if(sp && !(p.evolutions||[]).some(e=>e.species===sp) && sp!==p.species){
+      digibotEvoReason(st,`Zielform ${speciesName(sp)} gehört nicht zu diesem Partner – verwende dessen höchste Form`);
+      sp=lrDarkMap(st)?maxArmor(p):(maxEvolution(p)||p.species);
+    }
+    if (!sp) return digibotEvoReason(st,'für diese Map ist keine Zielform eingestellt');
+    if (sp === p.species || p.evolving) return true;
     // Ziel auf einem anderen Ast (z. B. Mega -> Armor): erst zurück in die Grundform
     const evos = p.evolutions || [], tgt = evos.find((e) => e.species === sp);
     if (!tgt || tgt.unlocked === false || (p.level ?? 0) < (tgt.level || 0)) return true;
+    if(cfg.evoWarp && tgt.warp && !tgt.warp.blocker && !lrDarkMap(st))return ensureEvolution(st,sp,now);
     let x = tgt; for (let i = 0; i < 8 && x && x.species !== p.species; i++) x = evos.find((e) => e.species === x.from);
     if (!x && p.stage && p.stage !== 'rookie' && p.stage !== 'in-training') {
       if (evoCooldownLeft(st) > 0) return true;
@@ -3260,6 +4591,71 @@
     return ensureEvolution(st, sp, now);
   }
 
+
+  // Autopilot uses precisely the same map-aware evolution resolver as the learning route.
+  function autopilotEvolution(st, now) {
+    if (cfg.autopilot && !cfg.farm && !cfg.dungeon && cfg.apMapEvo) {
+      return cfg.levelEvo ? lrEvolve(st, now) : digibotEvoReason(st,'Digitationsregeln übernommen, aber Lernrouten-Digitation ist ausgeschaltet');
+    }
+    const p=st?.me?.partner;let sp=cfg.apEvo;
+    if(sp && sp!==EVO_MAX && sp!==p?.species && !(p?.evolutions||[]).some(e=>e.species===sp)){
+      digibotEvoReason(st,`Zielform ${speciesName(sp)} gehört nicht zu diesem Partner – verwende dessen höchste Form`);
+      sp=EVO_MAX;
+    }
+    return ensureEvolution(st, sp, now);
+  }
+
+  // IDs belong to one account. A missing saved partner means keep this account's active partner.
+  function digibotConfiguredPartner(st,key) {
+    const id=cfg[key];return id&&teamOf(st).some(p=>p.partnerId===id)?id:'';
+  }
+
+  function digibotEvolutionContext(st) {
+    const key=activePartner(st)?.partnerId||st?.me?.partner?.entityId;
+    if(key && autopilot.evoPartner!==key){
+      autopilot.evoPartner=key;autopilot.evoGiveUp=null;autopilot.evoTries=0;autopilot.evoFrom=null;autopilot.evoNote=null;
+    }
+  }
+  function digibotQuestPartner(st) {
+    const explicit=digibotConfiguredPartner(st,'apQuestPartner');
+    const user=String(st?.session?.username||'').trim().toLowerCase();
+    if(autopilot.questHomeUser!==user){autopilot.questHome=null;autopilot.questHomeUser=user;}
+    if(explicit){autopilot.questHome=explicit;return explicit;}
+    if(autopilot.questHome && teamOf(st).some(p=>p.partnerId===autopilot.questHome))return autopilot.questHome;
+    // Capture before a temporary turn-in switch, not after it.
+    autopilot.questHome=activePartner(st)?.partnerId||null;
+    return autopilot.questHome||'';
+  }
+  function digibotTurninPartner(st) {
+    const home=digibotQuestPartner(st);
+    autopilot.turninPartnerHeld=true;
+    return digibotConfiguredPartner(st,'apTurninPartner')||home;
+  }
+  function digibotAutopilotEvolveTick(st,now) {
+    if(!cfg.autopilot||cfg.farm||cfg.dungeon||group.role()==='follower')return true;
+    digibotEvolutionContext(st);
+    const home=digibotQuestPartner(st),task=autopilot.task;
+    // A completed turn-in task must not keep the reward partner active during combat.
+    const eventUp=cfg.hunt && (hunt.goal?.up || huntGoal(now)?.up);
+    if(!eventUp){
+      if(task?.purpose==='turnin' && (!task.questId || st.me?.quests?.[task.questId]?.state===2))return true;
+      // Complete the hand-in sequence before restoring/evolving the quest partner.
+      // The current task can already be done (or reset) while the planner has yet to select the next reward.
+      if((autopilot.turninPartnerHeld || task?.purpose==='turnin') && (!task || task.purpose==='turnin')){
+        if(world.state!=='ready')return true;
+        const next=autopilot.mapTalk
+          ?questTasks(st).find(t=>t.kind==='talk' && ['turnin','accept','objective'].includes(t.purpose) && t.loc?.mapId===autopilot.mapTalk.mapId)
+          :questTasks(st)[0];
+        if(next?.purpose==='turnin')return true;
+      }
+      autopilot.turninPartnerHeld=false;
+    }
+
+    const sw=ensurePartner(st,home,now);
+    if(sw!==true)return sw;
+    if(home&&activePartner(st)?.partnerId!==home)return true;
+    return autopilotEvolution(st,now);
+  }
   // ---------- Map-für-Map-Runde ----------
   // Alle normalen Maps (keine Raids/Sandbox), absteigend nach Level – von „Dream Ruins“ bis „Native Forest“ –
   // oder aufsteigend (Richtung „von unten nach oben“).
@@ -3318,33 +4714,81 @@
 
   // ---------- Dailies ----------
   // Nimmt alle offenen Dailies vom Daily-Board an (Board kommt nach dem Gespräch mit einem Daily-NPC).
-  function acceptFromBoard(st, t, now) {
-    const board = st.dailies?.board;
-    if (!board) return null;
-    const C = content();
-    const ids = new Set();
-    const walk = (x, depth) => {
-      if (x == null || depth > 6) return;
-      if (typeof x === 'string') { if (C?.dailyById?.[x]) ids.add(x); return; }
-      if (typeof x === 'object') for (const v of Object.values(x)) walk(v, depth + 1);
-    };
-    walk(board, 0);
-    const open = [...ids].filter((id) => !autopilot.dailyAccepted.has(id) && ![1, 2].includes(st.me?.quests?.[id]?.state));
-    if (open.length) {
-      if (now - autopilot.dailyAt > 900) {
-        autopilot.dailyAt = now;
-        autopilot.dailyAccepted.add(open[0]);
-        commands()?.acceptDaily?.(open[0]);
-        logEvent('auto', `Daily angenommen: ${C.dailyById[open[0]].name}`);
-      }
-      return `Nehme Dailies an (${open.length} offen)…`;
+  function digibotDailyOwned(st,id){
+    if([1,2].includes(st?.me?.quests?.[id]?.state))return true;
+    return !id.includes('#') && Object.entries(st?.me?.quests||{}).some(([key,q])=>[1,2].includes(q.state)&&questDef(content(),key)?.id===id);
+  }
+  function digibotDailyOffers(st,pool=null){
+    const pending=Array.isArray(st?.dailies?.pending)?st.dailies.pending:Array.isArray(st?.dailies?.board)?st.dailies.board:null;
+    if(!pending)return null;
+    const C=content();
+    return [...new Set(pending.filter(id=>typeof id==='string'))].filter(id=>{
+      const def=questDef(C,id);
+      return !!def && (!pool||def.pool===pool) && !autopilot.dailyAccepted.has(id) && !digibotDailyOwned(st,id);
+    });
+  }
+  function digibotDailiesSnapshot(){
+    const st=getStore()?.getState?.(),pending=Array.isArray(st?.dailies?.pending)?st.dailies.pending.filter(id=>typeof id==='string').slice(0,30):[];
+    return {enabled:!!cfg.apDailies,boardNpc:typeof st?.dailies?.board==='string'?st.dailies.board:null,pending,
+      pendingStates:Object.fromEntries(pending.map(id=>[id,st?.me?.quests?.[id]?.state??0])),
+      attempts:[...(autopilot.dailyAttempts||[])].slice(-30).map(([id,a])=>({id,tries:a.tries,at:a.at})),confirmedCount:autopilot.dailyAccepted.size};
+  }
+  function acceptFromBoard(st,t,now){
+    if(!t.remote && !st.dailies?.board && !st.windows?.dailies)return null;
+    const C=content(),attempts=autopilot.dailyAttempts||=new Map();
+    for(const [id,attempt]of attempts){
+      const current=st.me?.quests?.[id]?.state;
+      if(![1,2].includes(current) && !(current===3 && attempt.stateBefore!==3))continue;
+      if(!autopilot.dailyAccepted.has(id)){autopilot.dailyAccepted.add(id);logEvent('auto',`Daily-Annahme bestätigt: ${questDef(C,id)?.name||id}`);}
+      attempts.delete(id);
     }
+    const offered=digibotDailyOffers(st)||[];
+    // An offer may disappear without a matching quest update. Expire that pending
+    // request instead of returning the finished-board status forever on every tick.
+    const failed=[...attempts].filter(([id,a])=>!offered.includes(id)&&now-a.at>=2500).map(([id])=>id);
+    for(const id of offered){
+      const attempt=attempts.get(id);
+      if(attempt && now-attempt.at<2500)return 'Daily-Annahme angefordert – warte auf Bestätigung…';
+      if(attempt?.tries>=3){failed.push(id);continue;}
+      if(now-autopilot.dailyAt<900)return `Nehme Dailies an (${offered.length} offen)…`;
+      if(typeof commands()?.acceptDaily!=='function')return 'Daily-Annahme: Spielbefehl noch nicht verfügbar';
+      autopilot.dailyAt=now;attempts.set(id,{at:now,tries:(attempt?.tries||0)+1,stateBefore:attempt?.stateBefore??st.me?.quests?.[id]?.state??0});
+      commands().acceptDaily(id);
+      logEvent('auto',`Daily-Annahme angefordert: ${questDef(C,id)?.name||id}`);
+      return `Nehme Dailies an (${offered.length} offen)…`;
+    }
+    // pending can update before the owned quest list. Never report that as a confirmed acceptance.
+    const awaiting=[...attempts].some(([id,a])=>now-a.at<2500 && ![1,2].includes(st.me?.quests?.[id]?.state));
+    if(awaiting)return 'Daily-Board aktualisiert – warte auf Questzustand…';
     commands()?.closeDailyBoard?.();
+    if(failed.length){
+      for(const id of failed)attempts.delete(id);
+      autopilot.failed.set(t.key||`daily:${t.visitKey}`,now+TASK_BAN_MS);if(!t.remote)autopilot.reset();
+      logEvent('warn',`${failed.length} Daily-Annahme(n) unbestätigt – später erneut prüfen`);
+      return 'Daily-Annahme unbestätigt – Aufgabe vorübergehend pausiert';
+    }
     autopilot.dailyVisited.add(t.visitKey);
-    if (!ids.size) logEvent('auto', 'Daily-Board: nichts zum Annehmen');
-    return 'Dailies angenommen';
+    return 'Daily-Board: keine weiteren angebotenen Quests';
   }
 
+  function digibotDailyStep(st,now){
+    if(!cfg.autopilot || !cfg.apDailies || cfg.farm || cfg.dungeon || autopilot.mapTalk || world.state!=='ready')return null;
+    const key='daily:remote';
+    if((autopilot.failed.get(key)||0)>now)return null;
+    const offered=digibotDailyOffers(st);
+    if(!offered?.length && !autopilot.dailyAttempts.size)return null;
+    bot.questIdle=false;
+    return acceptFromBoard(st,{key,visitKey:'remote',remote:true},now);
+  }
+
+  function digibotDailyAvailable(st,id,quests=st?.me?.quests||{}){
+    const C=content(),def=C?.dailyById?.[id];
+    const matches=Object.entries(quests).filter(([key])=>key===id || (def&&questDef(C,key)?.id===id)).map(([,q])=>q);
+    if(matches.some(q=>q.state===1||q.state===2))return false;
+    const completed=matches.filter(q=>q.state===3);
+    if(completed.length)return !!cfg.apRepeat && completed.every(q=>repeatAvailable(def||{id},q));
+    return true;
+  }
   // Alle Aufgaben, die der Autopilot gerade erledigen könnte – sortiert nach Weg (Map-Wechsel) und Priorität.
   // Manche NPCs (z. B. Leomon) stehen je nach Quest-Stand woanders. Die Spieldaten nennen dafür „stations“:
   // { mapId, point (Spawn-Punkt der Map), when: { quest, state: available|active|ready|done } }. Die erste passende
@@ -3419,8 +4863,10 @@
           tasks.push({ ...base, key: `reach:${id}:${i}`, kind: 'reach', loc, prio: 1,
             label: `${def.name}: nach ${C.maps?.[o.mapId]?.name || o.mapId}${z ? ` (${o.zone.replace(/_/g, ' ')})` : ''} reisen` });
         } else if (o.kind === 'kill' || o.kind === 'collect') {
-          const spot = huntSpot(C, [].concat(o.species || []), lvl, mapId, o.kind === 'collect' ? o.itemId : null, activeAvoid());
-          if (spot) tasks.push({ ...base, key: `hunt:${id}:${i}`, kind: 'hunt', species: new Set(spot.species), names: spot.names, loc: spot, prio: 3,
+          const bountyMap=digibotIsYoungBounty(def)&&def.id!=='a2b_blackwargreymon'?digibotYoungBountyMap(st):null;
+          const source=bountyMap?{...C,spawns:C.spawns?.[bountyMap]?{[bountyMap]:C.spawns[bountyMap]}:{}}:C;
+          const spot = huntSpot(source, [].concat(o.species || []), lvl, mapId, o.kind === 'collect' ? o.itemId : null, activeAvoid());
+          if (spot && !activeAvoid().has(spot.key)) tasks.push({ ...base, key: `hunt:${id}:${i}`, kind: 'hunt', species: new Set(spot.species), names: spot.names, loc: spot, prio: 3,
             label: `${def.name}: ${o.kind === 'kill' ? 'besiege' : 'sammle von'} ${spot.names}` });
         }
       });
@@ -3441,31 +4887,20 @@
       if (loc) tasks.push({ key: `accept:${def.id}`, kind: 'talk', purpose: 'accept', questId: def.id, npcId: def.giver, loc, prio: 2, def,
         label: `„${def.name}“ ${fresh ? '' : '(täglich) '}annehmen bei ${npcName(def.giver)}` });
     }
-    if (cfg.apDailies) { // Dailies: jeden Pool-NPC einmal pro Partner und Lauf ansprechen
-      const act = activePartner(st)?.partnerId || 'p';
-      for (const pool of Object.values(C.dailies || {})) {
-        // Pools sind Level-Bereiche (z. B. forest 11–12, spiral_low 41–48): nur der passende – sonst lief der Bot mit Lv 45 für
-        // jeden niedrigeren Pool erneut zu Elecmon („keine Dailies angeboten“)
-        if (lvl < (pool.levels?.[0] ?? 1) || lvl > (pool.levels?.[1] ?? 999)) continue;
-        if (pool.series && pool.series !== worldSeries(st)) continue;
-        const visitKey = `${pool.id}|${act}`;
-        if (autopilot.dailyVisited.has(visitKey)) continue;
-        if (!(pool.quests || []).some((d) => (quests[d.id]?.state ?? 0) === 0)) continue;
-        for (const npc of pool.npcs || []) {
-          const loc = npcLoc(npc, cfg.apOrder === 'sweep' ? autopilot.sweepAt : null);
-          if (!loc) continue;
-          tasks.push({ key: `daily:${visitKey}`, kind: 'talk', purpose: 'daily', visitKey, npcId: npc, loc, prio: 2,
-            def: { pool: pool.id }, label: `Dailies bei ${npcName(npc)} abholen` });
-          break;
-        }
-      }
-    }
+    // Daily offers are accepted remotely by digibotDailyStep; no NPC journey is required.
     if (grindTo < Infinity && cfg.apGrind && cfg.apOrder !== 'sweep') {
       const spot = grindSpot(C, lvl, mapId, activeAvoid());
       if (spot) tasks.push({ key: `grind:${grindTo}`, kind: 'hunt', grind: true, targetLevel: grindTo, species: new Set(spot.species),
         names: spot.names, loc: spot, prio: 50, label: `Grinde bis Lv ${grindTo} (${spot.names})` });
     }
     const now = Date.now();
+    tasks=tasks.filter(t=>digibotYoungBountyAllowed(st,t,now));
+    if(autopilot.bountyReturn)tasks=tasks.filter(t=>digibotIsYoungBounty(t.def)&&t.purpose==='turnin');
+    // Board dailies stay active and collect incidental progress, but must not
+    // trigger travel or postpone ordinary quest rewards while other work is feasible.
+    if(!autopilot.mapTalk && tasks.some(t=>!t.def?.pool && (autopilot.failed.get(t.key)||0)<now && hops(mapId,t.loc.mapId)<Infinity)){
+      tasks=tasks.filter(t=>!t.def?.pool);
+    }
     // Runde: nur Quests, deren Geber auf der aktuellen Runden-Map steht (Ziele dürfen woanders liegen)
     const M = cfg.apOrder === 'sweep' && !serveOn() ? autopilot.sweepAt : null;
     if (serveOn()) tasks = tasks.filter((t) => t.kind === 'hunt' && !t.grind); // nur jagen, was den Mitläufern fehlt
@@ -3474,11 +4909,27 @@
     const ln = autopilot.lastNpc;
     const sameNpc = (t) => !!ln && now - ln.at < SAME_NPC_MS && t.kind === 'talk' && (t.purpose === 'accept' || t.purpose === 'turnin')
       && t.npcId === ln.npcId && t.loc?.mapId === ln.mapId;
-    return tasks
-      .filter((t) => !M || t.grind ? !M : t.purpose === 'daily' ? t.loc.mapId === M : questOnMap(t.def, M))
-      .filter((t) => (autopilot.failed.get(t.key) || 0) < now && hops(mapId, t.loc.mapId) < Infinity)
-      .map((t) => { const same = sameNpc(t); return { ...t, sameNpc: same, cost: hops(mapId, t.loc.mapId) * 10 + t.prio, phase: same ? -1 : M ? taskPhase(t) : cfg.apBatch ? batchRank(t, mapId) : 0 }; })
-      .sort((a, b) => a.phase - b.phase || a.cost - b.cost);
+    let available=tasks
+      .filter((t) => {
+        if(digibotIsYoungBounty(t.def)&&(t.kind==='hunt'||t.purpose==='turnin'))return true; // already checked against the route
+        if(cfg.apBatch && !t.grind && taskPhase(t)===2)return true;
+        if(cfg.apBatch && autopilot.batchPhase==='turnin' && t.purpose==='turnin')return true;
+        if(!M)return true;if(t.grind)return false;
+        return t.purpose==='daily'?t.loc.mapId===M:questOnMap(t.def,M);
+      })
+      .filter((t) => (autopilot.failed.get(t.key) || 0) < now && hops(mapId, t.loc.mapId) < Infinity);
+    // Cache ETA once per planning pass; all boss objectives use confirmed timers,
+    // independent of quest-log order or how far away the NPC list places them.
+    available=available.map(t=>({...t,bossEta:digibotQuestBossETA(st,t,now)}));
+    // A nearby reward NPC never outranks another feasible objective, including on another map.
+    // (nicht mitten in der Abgabe-Phase: begonnene Abgaben werden alle erledigt, auch wenn eine neue Quest schon offen ist)
+    if(cfg.apBatch && autopilot.batchPhase!=='turnin' && available.some(t=>!t.grind && taskPhase(t)===2))available=available.filter(t=>t.purpose!=='turnin');
+    return available
+      .map((t) => { const same=sameNpc(t);return {...t,sameNpc:same,cost:hops(mapId,t.loc.mapId)*10+t.prio,
+        // Gespräche beim selben NPC zuerst (Abgeben/Annehmen in einem Besuch), auch im Batch-Modus
+        phase:same?-1:M && !(cfg.apBatch && autopilot.batchPhase==='turnin')?taskPhase(t):cfg.apBatch?batchRank(t,mapId):0}; })
+      .sort((a,b)=>a.phase-b.phase || Number(b.sameNpc)-Number(a.sameNpc) || Number(!a.loc?.boss)-Number(!b.loc?.boss) || (a.loc?.boss&&b.loc?.boss&&a.bossEta!==b.bossEta?a.bossEta-b.bossEta:0) || a.cost-b.cost);
+
   }
   // Phasen der Map-für-Map-Runde: 1 = Quests annehmen, 2 = Ziele erledigen, 3 = abgeben.
   // So wird pro Map erst alles angenommen, dann alles erledigt und ganz zum Schluss abgegeben –
@@ -3494,94 +4945,333 @@
     const p = taskPhase(t);
     if (p === 1 && t.loc?.mapId !== mapId) return 3;
     // Phase bleibt, bis es darin nichts mehr gibt: erledigen -> abgeben -> annehmen -> erledigen …
+    // nach dem Abgeben gleich annehmen (dann erst wieder erledigen) – sonst nahm der Bot pro NPC-Besuch nur eine Quest an
     return ({ accept: { 1: 0, 2: 1, 3: 2 }, turnin: { 3: 0, 1: 1, 2: 2 } }[autopilot.batchPhase] || { 2: 0, 3: 1, 1: 2 })[p];
+  }
+
+  function digibotQuestBossETA(st,t,now){
+    if(t.kind!=='hunt'||!t.loc?.boss)return Infinity;
+    let best=Infinity;
+    for(const b of questBossSel(t))for(const ch of (cfg.farmChannels?.length?cfg.farmChannels:[1,2])){
+      if((farm.chBan.get(`${b.map}#${ch}`)||0)>now)continue;
+      const state=farmState(b,ch,now),trip=lrBossTripMs(st,b,ch);
+      const eta=state.state==='up'?trip:state.state==='down'?Math.max(0,state.readyAt-now,trip):Infinity;
+      best=Math.min(best,eta);
+    }
+    return best;
+  }
+  function digibotQuestBossReplan(st,sc,now){
+    const t=autopilot.task;
+    if(!t?.loc?.boss||t.kind!=='hunt'||group.role()==='follower'||autopilot.mapTalk)return;
+    if(!digibotYoungBountyAllowed(st,t,now)){autopilot.reset();autopilot.route=null;autopilot.tp=null;return;}
+    if(sc?.mobs?.some(m=>t.species.has(m.species)&&!m.banned))return; // finish the living boss
+    if(now-(autopilot.bossRankAt||0)<5000)return;
+    autopilot.bossRankAt=now;
+    const best=questTasks(st).find(o=>o.kind==='hunt'&&o.loc?.boss);
+    if(best && best.key!==t.key && best.bossEta+15000<digibotQuestBossETA(st,t,now)){
+      logEvent('auto',`Boss-Reihenfolge: ${best.names} ist früher verfügbar – plane Questziel neu`);
+      autopilot.reset();autopilot.route=null;autopilot.tp=null;
+    }
+  }
+
+  function digibotIsYoungBounty(def){
+    return ['a2b_blackwargreymon','a2b_daemon','a2b_ladydevimon','a2b_marinedevimon','a2b_skullsatamon'].includes(def?.id);
+  }
+  function digibotYoungBountyMap(st){
+    if(cfg.apOrder!=='sweep'||autopilot.mapTalk||autopilot.bountyReturn||serveOn())return null;
+    return autopilot.sweepAt||cfg.apSweepMap||sweepMap(st);
+  }
+  function digibotBlackBountyAvailable(st,now){
+    let alive=false;
+    window.dmo?.net?.state?.entities?.forEach?.(e=>{if(e.kind===KIND.Mob&&e.defId==='blackwargreymon'&&e.hp>0&&!(e.flags&(FLAG.Dead|FLAG.Hidden|FLAG.Untargetable)))alive=true;});
+    if(alive)return true;
+    return farmBossList().some(b=>b.species==='blackwargreymon'&&[1,2].some(ch=>farmState(b,ch,now).state==='up'));
+  }
+  function digibotYoungBountyAllowed(st,t,now=Date.now()){
+    if(!digibotIsYoungBounty(t.def)||autopilot.mapTalk||t.mirror)return true;
+    if(t.purpose==='accept')return true;
+    if(t.kind==='hunt'&&t.def.id==='a2b_blackwargreymon')return digibotBlackBountyAvailable(st,now);
+    const map=digibotYoungBountyMap(st);
+    if(autopilot.bountyReturn)return t.purpose==='turnin';
+    return !map||t.loc?.mapId===map;
+  }
+  function digibotYoungBountyFinalTasks(st){
+    autopilot.bountyReturn=true;autopilot.sweepAt=null;
+    return questTasks(st);
   }
 
   function taskDone(st, t) {
     if (t.grind) return (st?.me?.partner?.level ?? 0) >= t.targetLevel;
-    if (t.purpose === 'daily') return autopilot.dailyVisited.has(t.visitKey);
+    if(t.purpose==='daily'){
+      if(st.dailies?.board)return autopilot.dailyVisited.has(t.visitKey);
+      const pool=content()?.dailies?.[t.def?.pool],offered=digibotDailyOffers(st,t.def?.pool);
+      return autopilot.dailyVisited.has(t.visitKey) || (offered!==null ? !offered.length : !!pool && !(pool.quests||[]).some(d=>digibotDailyAvailable(st,d.id)));
+    }
     const q = planQuests(st)[t.questId];
     if (t.purpose === 'turnin') return q?.state !== 2;
     if (t.purpose === 'accept') return q?.state === 1 || q?.state === 2;
     return !q || q.state !== 1 || (q.counters?.[t.objIndex] ?? 0) >= t.need;
   }
 
-  // Die Wegfindung des Spiels gibt nach 4.000 Knoten auf – für Ziele am anderen Ende großer Maps zu wenig.
-  // Deshalb: eigene Route übers Kollisionsraster der Map (Breitensuche, ohne Grenze) und Etappen von ~12 Feldern
-  // an die Spiel-Wegfindung geben.
-  const LONG_WALK = 260;
-  function gridRoute(fromX, fromY, toX, toY) {
-    const g = worldScene()?.map?.grid;
-    if (!g?.blocked || !g.w || !g.h) return null;
-    const T = g.tile || 16, W = g.w, H = g.h;
-    const free = (cx, cy) => cx >= 0 && cy >= 0 && cx < W && cy < H && g.blocked[cy * W + cx] !== 1;
-    const nearFree = (cx, cy) => {
-      if (free(cx, cy)) return [cx, cy];
-      for (let r = 1; r <= 6; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (free(cx + dx, cy + dy)) return [cx + dx, cy + dy];
-      return null;
-    };
-    const a = nearFree(Math.floor(fromX / T), Math.floor(fromY / T)), b = nearFree(Math.floor(toX / T), Math.floor(toY / T));
-    if (!a || !b) return null;
-    const start = a[1] * W + a[0], goal = b[1] * W + b[0];
-    const prev = new Int32Array(W * H).fill(-1);
-    prev[start] = start;
-    const q = new Int32Array(W * H);
-    let head = 0, tail = 0;
-    q[tail++] = start;
-    while (head < tail) {
-      const c = q[head++];
-      if (c === goal) break;
-      const cx = c % W, cy = (c - cx) / W;
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        const nx = cx + dx, ny = cy + dy;
-        if (!free(nx, ny)) continue;
-        const n = ny * W + nx;
-        if (prev[n] !== -1) continue;
-        prev[n] = c;
-        q[tail++] = n;
+  // Prefer one native movement order. Portals, hazards or a stalled native
+  // route require short segments checked against the current collision grid.
+  const digibotNavigationTrail=[];
+  function digibotNavigationContext(st){
+    const task=autopilot.task,user=String(st?.session?.username||''),map=st?.world?.mapId,now=Date.now();
+    if(!cfg.autopilot||cfg.farm||cfg.dungeon||group.role()==='follower'||hunt.goal||wb.goal||!task?.key||!map){digibotNavigationTrail.length=0;return;}
+    const last=digibotNavigationTrail.at(-1);
+    if(last && (last.user!==user||last.key!==task.key||last.goal!==task.loc?.mapId))digibotNavigationTrail.length=0;
+    if(digibotNavigationTrail.at(-1)?.map===map)return;
+    digibotNavigationTrail.push({user,key:task.key,goal:task.loc?.mapId,map,at:now});
+    if(digibotNavigationTrail.length>8)digibotNavigationTrail.shift();
+    const tail=digibotNavigationTrail.slice(-4);
+    if(tail.length===4 && now-tail[0].at<90000 && tail[0].map===tail[2].map && tail[1].map===tail[3].map && tail[0].map!==tail[1].map){
+      autopilot.failed.set(task.key,now+TASK_BAN_MS);autopilot.reset();
+      logEvent('warn','Portal-Pendeln erkannt – unterbreche diese Aufgabe und plane neu');
+      digibotNavigationTrail.length=0;
+    }
+  }
+  function digibotNavigationSnapshot(){const t=autopilot.task,n=autopilot.nav;return {movement:n?{target:{x:n.tx,y:n.ty},waypoint:n.wp,nextWaypoint:n.nextWp,native:!!n.native,waitingForHazard:!!n.hazardWaitKey,fallback:!!n.fallback,nearestSafe:!!n.nearestSafe,idleMs:Math.max(0,Date.now()-n.progressAt),clicks:n.tries}:null,task:t?{key:t.key,kind:t.kind,purpose:t.purpose,questId:t.questId,npcId:t.npcId,mapId:t.loc?.mapId,x:t.loc?.x,y:t.loc?.y}:null,
+    transitions:digibotNavigationTrail.map(({map,at,key,goal})=>({map,at,key,goal}))};}
+  function digibotPortalRects(st){
+    const scene=worldScene(),raw=world.maps[st?.world?.mapId]?.portals||scene?.map?.portals||[];
+    return raw.map(p=>({...p,x:p.rect?.x??p.x,y:p.rect?.y??p.y,w:p.rect?.w??p.w,h:p.rect?.h??p.h})).filter(p=>[p.x,p.y,p.w,p.h].every(Number.isFinite)&&p.w>0&&p.h>0);
+  }
+  function digibotPortalKey(p){return p?`${p.toMap||''}/${p.x}/${p.y}/${p.w}/${p.h}`:'';}
+  const PORTAL_CLEAR = 8; // Wegabstand der Laufprüfung (5 px + 2) plus 1 px Reserve
+  function digibotPortalGrid(st,allowed=null){
+    const grid=worldScene()?.map?.grid;if(!grid?.blocked)return grid;
+    const portals=digibotPortalRects(st),permit=digibotPortalKey(allowed);
+    if(!portals.length)return grid;
+    const blocked=Uint8Array.from(grid.blocked),tile=grid.tile||16,pad=12;
+    const me=controlled(st);
+    for(const p of portals){
+      if(permit && digibotPortalKey(p)===permit)continue;
+      // Carve only a short outward corridor when arriving inside a trigger or its safety border.
+      // Gesperrt werden ganze Kacheln (Portal + Rand, aufgerundet); der Ausweg gilt für genau diesen Bereich plus den
+      // Wegabstand der Laufprüfung – sonst saß fest, wer 12–23 px neben einem Portal ankam (kein Ausweg, kein freier Schritt)
+      const bx0=Math.floor((p.x-pad)/tile)*tile,bx1=(Math.floor((p.x+p.w+pad)/tile)+1)*tile,by0=Math.floor((p.y-pad)/tile)*tile,by1=(Math.floor((p.y+p.h+pad)/tile)+1)*tile,clr=PORTAL_CLEAR;
+      const near=me&&me.x>=bx0-clr&&me.x<=bx1+clr&&me.y>=by0-clr&&me.y<=by1+clr;
+      const exits=near?[{x:bx0-clr-tile/2,y:me.y},{x:bx1+clr+tile/2,y:me.y},{x:me.x,y:by0-clr-tile/2},{x:me.x,y:by1+clr+tile/2}].filter(q=>q.x>=0&&q.y>=0&&q.x<grid.w*tile&&q.y<grid.h*tile&&grid.blocked[Math.floor(q.y/tile)*grid.w+Math.floor(q.x/tile)]!==1):[];
+      const escape=exits.sort((a,b)=>Math.hypot(a.x-me.x,a.y-me.y)-Math.hypot(b.x-me.x,b.y-me.y))[0];
+      for(let y=Math.max(0,Math.floor((p.y-pad)/tile));y<=Math.min(grid.h-1,Math.floor((p.y+p.h+pad)/tile));y++)for(let x=Math.max(0,Math.floor((p.x-pad)/tile));x<=Math.min(grid.w-1,Math.floor((p.x+p.w+pad)/tile));x++){
+        if(escape){const dx=escape.x-me.x,dy=escape.y-me.y,len=dx*dx+dy*dy||1,cx=(x+.5)*tile,cy=(y+.5)*tile,k=Math.max(0,Math.min(1,((cx-me.x)*dx+(cy-me.y)*dy)/len));const ownCell=x===Math.floor(me.x/tile)&&y===Math.floor(me.y/tile),outward=(cx-me.x)*dx+(cy-me.y)*dy>=0;if((ownCell||outward)&&Math.hypot(cx-me.x-dx*k,cy-me.y-dy*k)<tile*1.25)continue;
+          // Felder, die der Wegabstand des ersten Schritts berührt, ebenfalls frei (sonst scheiterte schon der Start)
+          if(Math.abs(cx-me.x)<=tile/2+clr&&Math.abs(cy-me.y)<=tile/2+clr)continue;}
+        blocked[y*grid.w+x]=1;
       }
     }
-    if (prev[goal] === -1) return null;
-    const path = [];
-    for (let c = goal; c !== start; c = prev[c]) path.push(c);
-    path.reverse();
-    return path.map((c) => ({ x: (c % W) * T + T / 2, y: Math.floor(c / W) * T + T / 2 }));
+    return {...grid,blocked};
   }
-  // Nächster Zwischenpunkt auf der eigenen Route (oder das Ziel selbst, wenn es nah ist / keine Route existiert)
-  function waypoint(me, x, y, now) {
-    if (Math.hypot(me.x - x, me.y - y) <= LONG_WALK) return { x, y };
-    let r = autopilot.route;
-    if (!r || Math.hypot(r.tx - x, r.ty - y) > 24 || now - r.at > 10000) {
-      r = autopilot.route = { tx: x, ty: y, at: now, path: gridRoute(me.x, me.y, x, y) };
+  function digibotNavigationZones(){return cfg.dodge?dangerZones():[];}
+  function digibotNavigationZoneKey(zones){
+    return zones.map(z=>[z.kind,z.x,z.y,z.r,z.tx,z.ty,z.len,z.dir,z.half,z.innerRadius,(z.holes||[]).map(h=>`${h.x},${h.y},${h.r}`).join(';')].join(',')).sort().join('|');
+  }
+  function digibotNavigationGrid(st,allowed,zones){
+    const grid=digibotPortalGrid(st,allowed);
+    if(!grid?.blocked||!zones.length)return grid;
+    const blocked=Uint8Array.from(grid.blocked),tile=grid.tile||16;
+    for(let y=0;y<grid.h;y++)for(let x=0;x<grid.w;x++){
+      const i=y*grid.w+x;if(blocked[i]===1)continue;
+      const p={x:(x+.5)*tile,y:(y+.5)*tile};
+      if(zones.some(z=>!digibotDodgeZoneSafe(z,p)))blocked[i]=1;
     }
-    if (!r.path?.length) return { x, y };
-    let best = 0, bestD = Infinity;
-    r.path.forEach((p, i) => { const d = Math.hypot(p.x - me.x, p.y - me.y); if (d < bestD) { bestD = d; best = i; } });
-    return r.path[Math.min(best + 12, r.path.length - 1)];
+    // A safe current position can share a cell with a hazard boundary. Only
+    // reopen that cell; segment checks still forbid crossing the actual danger.
+    const me=controlled(st);
+    if(me&&zones.every(z=>digibotDodgeZoneSafe(z,me))){
+      const x=Math.floor(me.x/tile),y=Math.floor(me.y/tile);
+      if(x>=0&&y>=0&&x<grid.w&&y<grid.h&&grid.blocked[y*grid.w+x]!==1)blocked[y*grid.w+x]=0;
+    }
+    return {...grid,blocked};
+  }
+  function digibotNavigationSegment(a,b,grid,zones){
+    const actual=worldScene()?.map?.grid;
+    return digibotDodgeGridClear(a,b,grid,5)&&(!actual?.blocked||actual.blocked===grid.blocked||digibotDodgeGridClear(a,b,actual,5))&&digibotDodgeZonePath(a,b,zones);
+  }
+  function gridRoute(fromX,fromY,toX,toY,grid=null,nearest=false) {
+    const g=grid||worldScene()?.map?.grid;
+    if(!g?.blocked||!g.w||!g.h)return null;
+    const T=g.tile||16,W=g.w,H=g.h;
+    const free=(x,y)=>x>=0&&y>=0&&x<W&&y<H&&g.blocked[y*W+x]!==1;
+    const nearFree=(x,y)=>{
+      if(free(x,y))return [x,y];
+      for(let r=1;r<=6;r++)for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++)if(free(x+dx,y+dy))return [x+dx,y+dy];
+      return null;
+    };
+    const gx=Math.floor(toX/T),gy=Math.floor(toY/T),blockedGoal=!free(gx,gy);
+    const searchNearest=nearest||blockedGoal;
+    const a=nearFree(Math.floor(fromX/T),Math.floor(fromY/T)),b=searchNearest?null:[gx,gy];
+    if(!a)return null;
+    const start=a[1]*W+a[0],goal=b?b[1]*W+b[0]:-1;
+    const prev=new Int32Array(W*H).fill(-1),q=new Int32Array(W*H);
+    prev[start]=start;q[0]=start;
+    let head=0,tail=1,best=start,bestD=Infinity;
+    while(head<tail){
+      const c=q[head++],cx=c%W,cy=Math.floor(c/W);
+      if(searchNearest){const d=((cx+.5)*T-toX)**2+((cy+.5)*T-toY)**2;if(d<bestD){bestD=d;best=c;}}
+      else if(c===goal)break;
+      for(const [dx,dy]of [[1,0],[-1,0],[0,1],[0,-1]]){
+        const x=cx+dx,y=cy+dy;if(!free(x,y))continue;
+        const n=y*W+x;if(prev[n]!==-1)continue;prev[n]=c;q[tail++]=n;
+      }
+    }
+    const end=searchNearest?best:goal;if(prev[end]===-1||blockedGoal&&!nearest&&bestD>(6*T)**2)return null;
+    const path=[];for(let c=end;c!==start;c=prev[c])path.push({x:(c%W+.5)*T,y:(Math.floor(c/W)+.5)*T});
+    return path.reverse();
+  }
+  function digibotSamePoint(a,b){return !!a&&!!b&&Math.hypot(a.x-b.x,a.y-b.y)<1;}
+  function digibotRouteCorners(path){
+    const out=[];
+    for(let i=0;i<path.length;i++){
+      const a=path[i-1],b=path[i],c=path[i+1];
+      if(!a||!c||(b.x-a.x)*(c.y-b.y)!==(b.y-a.y)*(c.x-b.x))out.push({point:b,index:i});
+    }
+    return out;
+  }
+  function digibotRouteLeg(r,from,after=-1,companion=null){
+    const candidates=[...r.corners,{point:r.destination,index:r.path?.length||0}];
+    for(let i=candidates.length-1;i>=0;i--){
+      const leg=candidates[i];
+      if(leg.index<=after||digibotSamePoint(from,leg.point))continue;
+      if(digibotNavigationSegment(from,leg.point,r.grid,r.zones)&&(!companion||digibotNavigationSegment(companion,leg.point,r.grid,r.zones)))return leg;
+    }
+    // An off-center starting position may need the first raster step before
+    // any corner is visible. This is a verified segment, never a random click.
+    let step=null;
+    for(let i=after+1;i<(r.path?.length||0);i++){
+      const point=r.path[i];
+      if(digibotSamePoint(from,point))continue;
+      if(digibotNavigationSegment(from,point,r.grid,r.zones)&&(!companion||digibotNavigationSegment(companion,point,r.grid,r.zones)))step={point,index:i};
+      else break;
+    }
+    return step;
+  }
+  function digibotRoutePlan(r,me,options){
+    const current=digibotRouteLeg(r,me,-1,options.companion);
+    if(!current){
+      if(Math.hypot(me.x-r.destination.x,me.y-r.destination.y)<12&&digibotNavigationSegment(me,r.destination,r.grid,r.zones))return {current:{point:r.destination,index:r.path?.length||0},next:null};
+      return null;
+    }
+    const next=digibotRouteLeg(r,current.point,current.index);
+    return {current,next,blockedAhead:!next&&Math.hypot(current.point.x-r.destination.x,current.point.y-r.destination.y)>=12};
+  }
+  function digibotRouteDestination(r,x,y,nearest){
+    const grid=r.grid,tile=grid.tile||16,gx=Math.floor(x/tile),gy=Math.floor(y/tile);
+    const free=gx>=0&&gy>=0&&gx<grid.w&&gy<grid.h&&grid.blocked[gy*grid.w+gx]!==1;
+    return !nearest&&free?{x,y}:r.path?.at(-1)||r.start;
+  }
+  function waypoint(me,x,y,now,st,allowedPortal=null,options={}){
+    const zones=options.zones||digibotNavigationZones(),zoneKey=digibotNavigationZoneKey(zones);
+    const base=worldScene()?.map?.grid,key=`${st?.world?.mapId||''}/${st?.world?.channel??1}/${digibotPortalKey(allowedPortal)}/${!!options.nearestSafe}`;
+    const native=!digibotPortalRects(st).length&&!zones.length&&!options.fallback;
+    let r=autopilot.route;
+    const compatible=r&&r.key===key&&r.blocked===base?.blocked&&Math.hypot(r.tx-x,r.ty-y)<=24;
+    const upcomingBlocked=compatible&&!r.native&&r.plan?.next&&!digibotNavigationSegment(r.plan.current.point,r.plan.next.point,r.grid,zones);
+    const retryAhead=compatible&&r.plan?.blockedAhead&&now-r.at>=1000;
+    if(!compatible||r.zoneKey!==zoneKey||r.native!==native||upcomingBlocked||retryAhead){
+      const old=compatible?r:null,grid=digibotNavigationGrid(st,allowedPortal,zones);
+      r={key,tx:x,ty:y,at:now,start:{x:me.x,y:me.y},blocked:base?.blocked,zoneKey,grid,zones,native,nearest:!!options.nearestSafe,path:null,corners:[],plan:null};
+      autopilot.route=r;
+      if(!grid?.blocked){
+        if(native)r.plan={current:{point:{x,y},index:0},next:null};
+        return r.plan?.current.point||null;
+      }
+      // On a change confined to the upcoming segment, keep the current move
+      // intact and rebuild the continuation from its endpoint, not from me.
+      const oldCurrent=old&&!old.native&&!native&&old.plan?.current;
+      const issued=oldCurrent&&digibotSamePoint(autopilot.nav?.wp,oldCurrent.point);
+      const keep=issued&&digibotNavigationSegment(me,oldCurrent.point,grid,zones)&&(!options.companion||digibotNavigationSegment(options.companion,oldCurrent.point,grid,zones));
+      if(keep){
+        const oldNext=old.plan.next,tile=grid.tile||16,gx=Math.floor(x/tile),gy=Math.floor(y/tile);
+        const exactGoalFree=gx>=0&&gy>=0&&gx<grid.w&&gy<grid.h&&grid.blocked[gy*grid.w+gx]!==1;
+        const betterGoal=exactGoalFree&&Math.hypot(old.destination.x-x,old.destination.y-y)>=12;
+        r.path=old.path;r.corners=old.corners;r.destination=old.destination;
+        if(!betterGoal&&!old.plan.blockedAhead&&(!oldNext||digibotNavigationSegment(oldCurrent.point,oldNext.point,grid,zones))){
+          r.plan=old.plan;
+        }else{
+          const continuation=gridRoute(oldCurrent.point.x,oldCurrent.point.y,x,y,grid,!!options.nearestSafe);
+          r.path=continuation?[oldCurrent.point,...continuation]:null;
+          r.corners=digibotRouteCorners(r.path||[]);r.destination=digibotRouteDestination(r,x,y,!!options.nearestSafe);
+          const current={point:oldCurrent.point,index:0};
+          r.plan={current,next:continuation?digibotRouteLeg(r,current.point,0):null,blockedAhead:!continuation};
+        }
+      }else{
+        r.path=gridRoute(me.x,me.y,x,y,grid,!!options.nearestSafe);
+        r.corners=digibotRouteCorners(r.path||[]);r.destination=digibotRouteDestination(r,x,y,!!options.nearestSafe);
+        if(native&&r.path)r.plan={current:{point:r.destination,index:r.path.length},next:null};
+        else if(r.path)r.plan=digibotRoutePlan(r,me,options);
+        else if(digibotNavigationSegment(me,{x,y},grid,zones))r.plan={current:{point:{x,y},index:0},next:null};
+      }
+    }
+    if(!r.plan)return null;
+    if(!r.native&&!digibotNavigationSegment(me,r.plan.current.point,r.grid,zones))return null;
+    if(options.companion&&!digibotNavigationSegment(options.companion,r.plan.current.point,r.grid,zones))return null;
+    if(r.plan.blockedAhead&&Math.hypot(me.x-r.plan.current.point.x,me.y-r.plan.current.point.y)<12)return null;
+    return r.plan.current.point;
+  }
+  function digibotNavigationHandoff(me,r,companion){
+    const plan=r?.plan;if(!plan?.next||r.native)return false;
+    const distance=Math.hypot(me.x-plan.current.point.x,me.y-plan.current.point.y);
+    const lead=Math.max(24,Math.min(64,(Number(me.speed)||130)*.35));
+    if(distance>lead||!digibotNavigationSegment(me,plan.next.point,r.grid,r.zones)||companion&&!digibotNavigationSegment(companion,plan.next.point,r.grid,r.zones))return false;
+    // The new click may skip the old endpoint only when the whole shortcut is
+    // clear. A tight stair or corner therefore keeps its necessary turn.
+    plan.current=plan.next;
+    plan.next=digibotRouteLeg(r,plan.current.point,plan.current.index);
+    if(!plan.next&&Math.hypot(plan.current.point.x-r.destination.x,plan.current.point.y-r.destination.y)>=12){
+      const point=plan.current.point,rest=gridRoute(point.x,point.y,r.tx,r.ty,r.grid,r.nearest);
+      r.path=rest?[point,...rest]:null;r.corners=digibotRouteCorners(r.path||[]);
+      r.destination=digibotRouteDestination(r,r.tx,r.ty,r.nearest);
+      plan.current={point,index:0};plan.next=rest?digibotRouteLeg(r,point,0):null;
+      plan.blockedAhead=!rest||!plan.next&&Math.hypot(point.x-r.destination.x,point.y-r.destination.y)>=12;
+    }else plan.blockedAhead=false;
+    return true;
   }
 
-  // Läuft zur Stelle (x, y) über die Wegfindung des Spiels. Liefert die Entfernung oder 'stuck'.
-  function walkTo(st, x, y, now) {
-    const me = controlled(st);
-    if (!me) return Infinity;
-    const d = Math.hypot(me.x - x, me.y - y);
-    let nav = autopilot.nav;
-    if (!nav || Math.hypot(nav.tx - x, nav.ty - y) > 24) nav = autopilot.nav = { tx: x, ty: y, best: d, progressAt: now, tries: 0 };
-    // Pause dazwischen (bewusstlos, Laden, Chat, Kampf …): kein „steckt fest“ – Fortschritt ab jetzt neu messen
-    if (nav.lastCall && now - nav.lastCall > 3000) { nav.progressAt = now; nav.best = d; }
-    nav.lastCall = now;
-    if (d < nav.best - 6) { nav.best = d; nav.progressAt = now; }
-    if (now - nav.progressAt > NAV_STUCK_MS) return 'stuck';
-    const idle = now - nav.progressAt > 1200;
-    const wp = waypoint(me, x, y, now);
-    const nearWp = nav.wp && Math.hypot(me.x - nav.wp.x, me.y - nav.wp.y) < 40; // Etappe erreicht -> gleich weiter
-    if ((nav.tries === 0 || idle || (nearWp && (wp.x !== nav.wp.x || wp.y !== nav.wp.y)))
-      && now - autopilot.lastTap > (nearWp ? 300 : WALK_RETRY_MS / (nav.tries === 0 ? 4 : 1))) {
-      // ab dem dritten Versuch leicht versetzt laufen, um an Kanten nicht hängen zu bleiben
-      const j = nav.tries >= 2 && !nearWp ? 24 : 0;
-      worldScene()?.tapGround?.(wp.x + (Math.random() - 0.5) * j, wp.y + (Math.random() - 0.5) * j);
-      autopilot.lastTap = now; nav.tries++; nav.wp = wp;
+  // Keep a successful native movement order intact. Guarded routes keep two
+  // verified segments ready and hand off early only across a safe shortcut.
+  const LONG_WALK = 260; // weiter als das: über die Wegfindung laufen (Spiegeln zum Leader) – fehlte in CDigi, Spiegeln brach ab
+  function walkTo(st,x,y,now,options={}) {
+    const me=controlled(st);if(!me)return Infinity;
+    const d=Math.hypot(me.x-x,me.y-y),context=`${st.world?.mapId}|${st.world?.channel??1}|${worldScene()?.controlledId?.()||''}`;
+    let nav=autopilot.nav;
+    if(!nav||nav.context!==context||Math.hypot(nav.tx-x,nav.ty-y)>24||nav.nearestSafe!==!!options.nearestSafe){
+      nav=autopilot.nav={context,tx:x,ty:y,nearestSafe:!!options.nearestSafe,progressAt:now,lastPos:{x:me.x,y:me.y},tries:0};
+      autopilot.route=null;
     }
+    if(nav.lastCall&&now-nav.lastCall>3000){nav.progressAt=now;nav.lastPos={x:me.x,y:me.y};}
+    nav.lastCall=now;
+    if(Math.hypot(me.x-nav.lastPos.x,me.y-nav.lastPos.y)>=4){nav.lastPos={x:me.x,y:me.y};nav.progressAt=now;}
+    const arrived=nav.wp&&!autopilot.route?.plan?.next&&!autopilot.route?.plan?.blockedAhead&&Math.hypot(me.x-nav.wp.x,me.y-nav.wp.y)<12;
+    if(!arrived&&now-nav.progressAt>NAV_STUCK_MS)return 'stuck';
+    const idle=!arrived&&now-nav.progressAt>=WALK_RETRY_MS;
+    if(idle&&now-(nav.replannedAt||0)>=WALK_RETRY_MS){nav.fallback=true;nav.replannedAt=now;autopilot.route=null;}
+    const zones=options.zones||digibotNavigationZones(),zoneKey=digibotNavigationZoneKey(zones);
+    if(nav.hazardWaitKey===zoneKey&&nav.held&&now-nav.waitCheckAt<1000){nav.progressAt=now;return d;}
+    nav.hazardWaitKey=null;
+    let wp=waypoint(me,x,y,now,st,options.portal,{...options,zones,fallback:nav.fallback});
+    if(!wp){autopilot.route=null;wp=waypoint(me,x,y,now,st,options.portal,{...options,zones,fallback:nav.fallback});}
+    if(!wp){
+      if(nav.wp&&!nav.held){worldScene()?.tapGround?.(me.x,me.y);if(st.me?.partner?.entityId)commands()?.partnerStop?.();nav.held=true;}
+      // A temporary warning may close the only corridor. Keep the quest and
+      // hold safely instead of counting that as an unreachable map location.
+      if(zones.length&&zones.every(z=>digibotDodgeZoneSafe(z,me))&&gridRoute(me.x,me.y,x,y,digibotPortalGrid(st,options.portal),!!options.nearestSafe)){
+        if(!nav.held){worldScene()?.tapGround?.(me.x,me.y);if(st.me?.partner?.entityId)commands()?.partnerStop?.();}
+        nav.held=true;nav.wp={x:me.x,y:me.y};nav.progressAt=now;nav.hazardWaitKey=zoneKey;nav.waitCheckAt=now;nav.nextWp=null;
+        return d;
+      }
+      return 'stuck';
+    }
+    const r=autopilot.route;
+    if(digibotSamePoint(nav.wp,wp)&&digibotNavigationHandoff(me,r,options.companion))wp=r.plan.current.point;
+    const replaced=nav.wp&&!digibotSamePoint(nav.wp,wp);
+    const urgent=!!nav.wp&&!r.native&&!digibotNavigationSegment(me,nav.wp,r.grid,zones);
+    if((!nav.wp||replaced||idle||nav.held)&&(urgent||now-autopilot.lastTap>=(idle?WALK_RETRY_MS:250))){
+      worldScene()?.tapGround?.(wp.x,wp.y);
+      autopilot.lastTap=now;nav.tries++;nav.wp=wp;nav.held=false;
+    }
+    nav.nextWp=digibotSamePoint(nav.wp,r.plan.current.point)?r.plan.next?.point||null:r.plan.current.point;nav.native=!!r.native;
     return d;
   }
 
@@ -3589,6 +5279,24 @@
   // entfernt ist. Ruft an („Make a call“), holt die Liste freigeschalteter Maps und reist zum Ziel – oder zur
   // freigeschalteten Map, die ihm am nächsten liegt. Liefert Statustext, oder null = zu Fuß weiter.
   const TELEPORT_MIN_HOPS = 2;
+  const DIGIPHONE_CD_MS=10000,DIGIPHONE_CD_PAD_MS=300;
+  const digibotPhoneCooldowns=new Map();
+  const digibotPhoneAccount=st=>String(st?.session?.username||'__session').trim().toLowerCase();
+  function digibotPhoneCooldownLeft(st,now){return Math.max(0,(digibotPhoneCooldowns.get(digibotPhoneAccount(st))||0)-now);}
+  function digibotPhoneUsed(st,now){
+    digibotPhoneCooldowns.set(digibotPhoneAccount(st),now+DIGIPHONE_CD_MS+DIGIPHONE_CD_PAD_MS);
+    if(digibotPhoneCooldowns.size>20)for(const [key,until]of digibotPhoneCooldowns)if(until<=now)digibotPhoneCooldowns.delete(key);
+  }
+  function digibotPhoneServerEvent(st,event,now=Date.now()){
+    if(event?.t!=='toast'||event.code!=='teleport_cooldown')return;
+    digibotPhoneUsed(st,now);
+    const tp=autopilot.tp;
+    if(tp){
+      tp.teleportTries=0;tp.asked=0;tp.at=0;tp.talkTries=0;
+    }
+    logEvent('auto','Digi-Phone: Server meldet Cooldown – warte, keine Fehlersperre');
+  }
+
   function teleportTargets(st) {
     const tp = st.teleport;
     if (!tp || tp.mapId !== st.world?.mapId || performance.now() - (tp.at || 0) > 60000) return null;
@@ -3607,6 +5315,8 @@
     if (h < TELEPORT_MIN_HOPS || (autopilot.tpBlock.get(mapId) || 0) > now) return null;
     const phone = (world.maps[cur]?.npcs || []).find((n) => n.npcId === 'digiphone');
     if (!phone) return null;
+    const left=digibotPhoneCooldownLeft(st,now);
+    if(left>0)return `Digi-Phone: Abklingzeit – warte ${Math.ceil(left/1000)} s`;
     const mapName = (id) => content()?.maps?.[id]?.name || id;
     const block = (why) => {
       autopilot.tpBlock.set(mapId, now + TASK_BAN_MS);
@@ -3621,9 +5331,10 @@
         : list.filter((m) => m !== cur && hops(m, mapId) <= h - TELEPORT_MIN_HOPS).sort((a, b) => hops(a, mapId) - hops(b, mapId))[0];
       if (!best) return block(`${mapName(mapId)} (noch) nicht freigeschaltet`);
       autopilot.tp ||= { tries: 0, at: 0 };
-      if (now - autopilot.tp.at > 4000) {
-        if (++autopilot.tp.tries > 3) return block('Reise klappt nicht (zu wenig Bits?)');
+      if (!autopilot.tp.at || now-autopilot.tp.at>=DIGIPHONE_CD_MS+DIGIPHONE_CD_PAD_MS) {
+        if ((autopilot.tp.teleportTries=(autopilot.tp.teleportTries||0)+1) > 3) return block('Reise klappt nicht (zu wenig Bits?)');
         autopilot.tp.at = now;
+        autopilot.tp.teleportAt=now;digibotPhoneUsed(st,now);
         commands()?.teleport?.(best);
         logEvent('map', `Digi-Phone: Schnellreise nach ${mapName(best)}`);
       }
@@ -3651,7 +5362,7 @@
       return `Laufe zum Digi-Phone (Ziel ${mapName(mapId)}, ${h} Maps entfernt)`;
     }
     if (now - autopilot.lastTalk > 3000) {
-      if (++autopilot.tp.tries > 4) return block('Digi-Phone antwortet nicht');
+      if ((autopilot.tp.talkTries=(autopilot.tp.talkTries||0)+1) > 4) return block('Digi-Phone antwortet nicht');
       autopilot.lastTalk = now;
       commands()?.talk?.('digiphone');
     }
@@ -3669,7 +5380,7 @@
     const r = route(cur, mapId);
     const portal = r && world.maps[cur]?.portals.find((p) => p.toMap === r[1]);
     if (!portal) return 'Keine Route';
-    const res = walkTo(st, portal.x + portal.w / 2, portal.y + portal.h / 2, now);
+    const res = walkTo(st,portal.x+portal.w/2,portal.y+portal.h/2,now,{portal});
     if (res === 'stuck') return 'Portal nicht erreichbar';
     const C = content();
     const nm = (id) => C?.maps?.[id]?.name || id;
@@ -3756,6 +5467,35 @@
     return null; // klappt nicht -> Aufgabe wird übersprungen
   }
 
+  // Recover a needed, visible boss even if an old navigation failure deferred its quest.
+  function digibotQuestBossFocus(st,sc){
+    if(!cfg.autopilot || cfg.farm || cfg.dungeon || autopilot.mapTalk || autopilot.turninPartnerHeld || group.role()==='follower')return null;
+    const C=content(),map=st.world?.mapId,entities=window.dmo?.net?.state?.entities;
+    for(const [id,q]of Object.entries(planQuests(st))){
+      const def=questDef(C,id);
+      if(q.state!==1 || !def || def.pool || cfg.questOff[id])continue;
+      for(const [i,o]of (def.objectives||[]).entries()){
+        if(o.kind!=='kill' || (q.counters?.[i]??0)>=(o.count||1))continue;
+        const species=[].concat(o.species||[]);
+        const mob=sc?.mobs?.find(m=>species.includes(m.species)&&!m.banned&&m.reach!==false&&((entities?.get?.(m.id)?.flags&FLAG.Boss)||farmBossList().some(b=>b.map===map&&b.species===m.species)));
+        if(!mob)continue;
+        const b=farmBossList().find(b=>b.map===map&&b.species===mob.species);
+        const task={key:`hunt:${id}:${i}`,kind:'hunt',questId:id,objIndex:i,need:o.count||1,def,species:new Set([mob.species]),names:C?.digimon?.[mob.species]?.name||mob.species,loc:{mapId:map,x:mob.x,y:mob.y,boss:true,key:b?`${map}|boss|${b.at}`:null},prio:3,label:`${def.name}: sichtbaren Boss bekämpfen`};
+        if(!digibotYoungBountyAllowed(st,task))continue;
+        return {mob,task};
+      }
+    }
+    return null;
+  }
+  function digibotHuntPathFailure(t,now){
+    if(t.loc?.key)autopilot.avoidSpots.set(t.loc.key,now+TASK_BAN_MS);
+    // Only this location is blocked; quest objectives, other locations and bosses remain eligible.
+    if(!t.loc?.key)autopilot.failed.set(t.key,now+15000);
+    autopilot.reset();
+    logEvent('warn',`${t.label}: Jagdweg blockiert – nur diesen Laufpunkt meiden, neu planen`);
+    return `${t.label}: Jagdweg blockiert – plane neu`;
+  }
+
   // Läuft in jedem Bot-Takt:
   // - zusammengefasste Jagd: erledigte Teilziele fliegen raus (sonst jagt der Bot z. B. weiter Hagurumon, obwohl nur
   //   noch Guardromon das gesuchte Item fallen lässt)
@@ -3764,11 +5504,12 @@
   function apRefresh(st, now) {
     const t = autopilot.task;
     if (!t || t.kind !== 'hunt' || t.grind || group.role() === 'follower') return;
+    if(!digibotYoungBountyAllowed(st,t,now)){autopilot.reset();autopilot.route=null;autopilot.tp=null;return;}
     if (t.parts) {
       const pq = planQuests(st);
-      const open = t.parts.filter((p) => pq[p.questId]?.state === 1 && (pq[p.questId].counters?.[p.objIndex] ?? 0) < p.need);
+      const open = t.parts.filter((p) => pq[p.questId]?.state === 1 && (pq[p.questId].counters?.[p.objIndex] ?? 0) < p.need && digibotYoungBountyAllowed(st,{...t,questId:p.questId,def:questDef(content(),p.questId)},now));
       const sp = new Set(open.flatMap((p) => [...p.species]));
-      if (open.length && sp.size !== t.species.size) {
+      if (open.length && (sp.size !== t.species.size||[...sp].some(id=>!t.species.has(id)))) {
         t.species = sp; t.names = [...new Set(open.map((p) => p.names))].join(', ');
         if (st.world?.mapId === t.loc.mapId) autopilot.huntSpecies = sp;
         logEvent('auto', `Teilziel erledigt – jage nur noch ${t.names}`);
@@ -3803,6 +5544,7 @@
     if (st.screen !== 'world') return 'Warte auf Map-Wechsel…';
     const mt = autopilot.mapTalk;
     if (mt && st.world?.mapId !== mt.mapId) { endMapTalk(); return 'Abgeben & Annehmen: Map gewechselt – beendet'; }
+    digibotQuestBossReplan(st,sc,now);
     const follower = group.role() === 'follower' && !mt; // Abgeben & Annehmen: jeder für sich
     let t = null;
     if (follower) {
@@ -3811,16 +5553,21 @@
       if (typeof fp === 'string') return fp;
       t = fp;
     } else if (cfg.apOrder === 'sweep' && !mt) {
-      autopilot.sweepAt = sweepMap(st);
-      if (!autopilot.sweepAt) { cfg.apSweepMap = ''; saveCfg(); return null; }
+      if(!autopilot.bountyReturn)autopilot.sweepAt = sweepMap(st);
+      if (!autopilot.sweepAt&&!autopilot.bountyReturn) { cfg.apSweepMap = ''; saveCfg(); return null; }
     } else autopilot.sweepAt = null;
     if (!follower) {
       t = autopilot.task;
+      if(t&&!digibotYoungBountyAllowed(st,t,now)){t=null;autopilot.reset();autopilot.route=null;autopilot.tp=null;}
       if (t && taskDone(st, t)) {
         if (t.kind === 'talk' && (t.purpose === 'accept' || t.purpose === 'turnin')) autopilot.lastNpc = { npcId: t.npcId, mapId: t.loc?.mapId, at: Date.now() };
         t = null; autopilot.reset(); if (mt) mt.n++;
       }
     }
+    if(!mt && t?.def?.pool && questTasks(st).some(o=>!o.def?.pool)){
+      autopilot.reset();t=null;
+    }
+    if(cfg.apBatch && !mt && t?.purpose==='turnin' && questTasks(st).some(o=>!o.grind && taskPhase(o)===2)){autopilot.reset();t=null;}
     if (!t && mt) { // Abgeben & Annehmen: nur Gespräche auf dieser Map
       t = autopilot.task = questTasks(st).find((o) => o.kind === 'talk' && (o.purpose === 'turnin' || o.purpose === 'accept' || o.purpose === 'objective') && o.loc?.mapId === mt.mapId) || null;
       if (!t) { endMapTalk(); return 'Abgeben & Annehmen fertig'; }
@@ -3832,13 +5579,13 @@
       if (gw) return gw;
       let all = questTasks(st);
       // Runde: auf dieser Map nichts mehr zu tun -> nächste Map (absteigend)
-      for (let guard = 0; cfg.apOrder === 'sweep' && !all.length && guard < 40; guard++) {
+      for (let guard = 0; cfg.apOrder === 'sweep' && !autopilot.bountyReturn && !all.length && guard < 40; guard++) {
         const done = autopilot.sweepAt;
         const why = sweepSkipReasons(st, done);
         const next = sweepAdvance(st);
         logEvent('map', next ? `Runde: ${content()?.maps?.[done]?.name || done} erledigt${why} → weiter mit ${content()?.maps?.[next]?.name || next}`
           : `Runde: ${content()?.maps?.[done]?.name || done} erledigt${why} – Runde beendet`);
-        if (!next) return null;
+        if (!next){all=digibotYoungBountyFinalTasks(st);if(!all.length)return null;break;}
         autopilot.sweepAt = next;
         autopilot.phase = 0;
         all = questTasks(st);
@@ -3846,7 +5593,7 @@
       t = autopilot.task = all[0] || null;
       if (cfg.apBatch && !t?.sameNpc) autopilot.batchPhase = !t ? 'do' : t.purpose === 'accept' || t.purpose === 'daily' ? 'accept' : t.purpose === 'turnin' ? 'turnin' : 'do';
       if (t?.kind === 'hunt' && !t.grind) {
-        const same = all.filter((o) => o.kind === 'hunt' && !o.grind && o.loc.mapId === t.loc.mapId && o !== t);
+        const same = all.filter((o) => o.kind === 'hunt' && !o.grind && o.loc.mapId === t.loc.mapId && o !== t && !!o.loc.boss===!!t.loc.boss && (!t.loc.boss || o.loc.key===t.loc.key));
         if (same.length) {
           // Teilziele merken: ist eines erledigt, fliegt seine Beute aus der Liste (apRefresh)
           t.parts = [t, ...same].map((o) => ({ questId: o.questId, objIndex: o.objIndex, need: o.need, species: o.species, names: o.names }));
@@ -3908,10 +5655,10 @@
     // vor dem ersten Annehmen digitiert. Das Abgabe-Digimon kommt erst beim Quest-Geber dran (zurück-digitieren,
     // wechseln, abgeben) – unterwegs scheitert der Wechsel an Kämpfen, und man läuft in der Grundform herum.
     if (t.purpose !== 'turnin') {
-      const sw = ensurePartner(st, cfg.apQuestPartner, now);
+      const sw = ensurePartner(st, digibotQuestPartner(st), now);
       if (sw !== true) return `${t.label} · ${sw}`;
-      if (cfg.apOrder === 'sweep' && (!cfg.apQuestPartner || activePartner(st)?.partnerId === cfg.apQuestPartner)) {
-        const ev = ensureEvolution(st, cfg.apEvo, now);
+      if (cfg.apOrder === 'sweep' && (!digibotQuestPartner(st) || activePartner(st)?.partnerId === digibotQuestPartner(st))) {
+        const ev = autopilotEvolution(st, now);
         if (ev !== true) return `${t.label} · ${ev}`;
       }
     }
@@ -3936,6 +5683,7 @@
       const name = C?.npcs?.[t.npcId]?.name || t.npcId;
       if (t.purpose === 'daily' && st.dailies?.board) return acceptFromBoard(st, t, now);
       if (t.purpose === 'turnin' && st.dailies?.board) {
+        const sw=ensurePartner(st,digibotTurninPartner(st),now);if(sw!==true)return `${t.label} · ${sw}`;
         // Dieser NPC öffnet nur das Daily-Board: direkte Abgabe versuchen, sonst einen anderen NPC des Pools nehmen
         commands()?.closeDailyBoard?.();
         autopilot.boardOnly.add(t.npcId);
@@ -3945,7 +5693,7 @@
         return `${t.label} · versuche direkte Abgabe…`;
       }
       if (t.purpose === 'turnin' && st.dialog?.npc === t.npcId) { // Abgabe-Digimon auch bei schon offenem Dialog
-        const sw = ensurePartner(st, cfg.apTurninPartner || cfg.apQuestPartner, now);
+        const sw = ensurePartner(st, digibotTurninPartner(st), now);
         if (sw !== true) return `${t.label} · ${sw}`;
       }
       if (st.dialog?.npc === t.npcId) return handleDialog(st, t, now) ?? fail('keine passende Auswahl im Dialog');
@@ -3961,7 +5709,7 @@
       }
       if (!npc) { autopilot.arrivedAt ||= now; return now - autopilot.arrivedAt > 6000 ? fail(`${name} ist nicht da`) : `Suche ${name}…`; }
       if (t.purpose === 'turnin') { // Abgabe mit dem gewählten Abgabe-Digimon
-        const sw = ensurePartner(st, cfg.apTurninPartner || cfg.apQuestPartner, now);
+        const sw = ensurePartner(st, digibotTurninPartner(st), now);
         if (sw !== true) return `${t.label} · ${sw}`;
       }
       if (now - autopilot.lastTalk > 3000) {
@@ -3973,8 +5721,8 @@
     }
 
     // Jagen mit der gewählten Digitation (nur wenn das Quest-Digimon aktiv ist)
-    if (!cfg.apQuestPartner || activePartner(st)?.partnerId === cfg.apQuestPartner) {
-      const ev = ensureEvolution(st, cfg.apEvo, now);
+    if (!digibotQuestPartner(st) || activePartner(st)?.partnerId === digibotQuestPartner(st)) {
+      const ev = autopilotEvolution(st, now);
       if (ev !== true) return `${t.label} · ${ev}`;
     }
     // Jagen: zum nächsten sichtbaren passenden Monster laufen, sonst ins Jagdgebiet, sonst warten
@@ -3988,7 +5736,7 @@
     const dz = me ? Math.hypot(me.x - t.loc.x, me.y - t.loc.y) : Infinity;
     if (dz > 48) {
       const r = walkTo(st, t.loc.x, t.loc.y, now);
-      return r === 'stuck' ? fail('Jagdgebiet nicht erreichbar') : `${t.label} · laufe ins Jagdgebiet (${Math.round(dz)} px)`;
+      return r === 'stuck' ? digibotHuntPathFailure(t,now) : `${t.label} · laufe ins Jagdgebiet (${Math.round(dz)} px)`;
     }
     autopilot.idleSince ||= now;
     // Boss nicht da: warten – nichts angreifen außer Angreifern (2.30.5; vorher wurden normale Monster am Spawn mitgenommen)
@@ -4020,7 +5768,7 @@
     if (!h.tried.has(cur)) h.tried.set(cur, now);
     if (h.switchTo != null) {
       if (cur === h.switchTo) { h.switchTo = null; h.tried.set(cur, now); autopilot.idleSince = now; farm.switchTries = 0; farm.opening = null; return null; }
-      const r = farmSwitch(st, sc, mapId, name, h.switchTo, now);
+      const r = farmSwitch(st, sc, mapId, name, h.switchTo, now,true);
       if (r.done) { h.switchTo = null; h.tried.set(cur, now); autopilot.idleSince = now; return null; }
       if (r.failed) { h.tried.set(h.switchTo, now); h.switchTo = null; return null; }
       return r.status;
@@ -4040,6 +5788,14 @@
     logEvent('map', `${name}: ${t.names} ist auf Ch ${cur} nicht da – ${next.open ? 'öffne' : 'prüfe'} Ch ${next.channel}`);
     return `${next.open ? 'öffne' : 'prüfe'} Ch ${next.channel}…`;
   }
+  function digibotQuestBossPool(st){
+    const species=new Set(),C=content();
+    for(const [id,q]of Object.entries(planQuests(st))){
+      const def=questDef(C,id);if(q.state!==1||!def||def.pool||cfg.questOff[id])continue;
+      for(const [i,o]of (def.objectives||[]).entries())if(o.kind==='kill'&&(q.counters?.[i]??0)<(o.count||1))for(const sp of [].concat(o.species||[]))species.add(sp);
+    }
+    return farmBossList().filter(b=>species.has(b.species));
+  }
   // Feldboss(e) der aktuellen Boss-Jagd im Format der Boss-Rotation (für Timer und Kampf-Erkennung)
   function questBossSel(t) {
     if (!t?.loc?.boss || t.kind !== 'hunt') return [];
@@ -4058,7 +5814,7 @@
     if (h.switchTo != null) { // Wechsel läuft
       if (cur === h.switchTo) { h.switchTo = null; h.arrived = now; autopilot.idleSince = now; farm.switchTries = 0; farm.opening = null; }
       else {
-        const r = farmSwitch(st, sc, mapId, name, h.switchTo, now);
+        const r = farmSwitch(st, sc, mapId, name, h.switchTo, now,true);
         if (r.done) { h.switchTo = null; h.arrived = now; farm.switchTries = 0; }
         else if (r.failed) { h.checked.set(h.switchTo, now); h.switchTo = null; }
         else return r.status;
@@ -4302,7 +6058,7 @@
   // Vermisster Boss: erst zur letzten bekannten Position laufen (dann weiter zum Spawnpunkt – das macht der Aufrufer)
   function farmMissWalk(st, now, key) {
     const f = farm.fight;
-    if (!f?.missAt || f.key !== key || f.x == null || f.posDone) return null;
+    if (!f?.missingAt || f.key !== key || f.x == null || f.posDone) return null;
     const me = controlled(st);
     if (!me || Math.hypot(me.x - f.x, me.y - f.y) <= 60) { f.posDone = true; return null; }
     if (walkTo(st, f.x, f.y, now) === 'stuck') { f.posDone = true; autopilot.nav = null; }
@@ -4315,7 +6071,7 @@
     const o = farmPlan(st, now);
     if (!o) return false;
     if (o.map !== st.world?.mapId || o.ch !== (st.world?.channel ?? 1)) return true;
-    if (sc?.mobs?.some((m) => m.enabled && m.cat !== 'normal' && m.d <= cfg.radius * 1.5)) return false; // Boss in Sicht: kämpfen
+    if (sc?.mobs?.some((m) => m.enabled && (m.mapBoss||m.cat!=='normal') && !m.banned && m.reach!==false)) return false; // Boss in Sicht: kämpfen
     const spot = farmSpot(o.b), me = controlled(st);
     if (!spot || !me) return false;
     const d = Math.hypot(me.x - spot.x, me.y - spot.y), key = `${o.map}#${o.ch}#${spot.x},${spot.y}`;
@@ -4324,36 +6080,53 @@
     if (farm.arrived === key) farm.arrived = null;
     return true;
   }
-  // Boss-Rotation: steht ein gewählter Boss in Reichweite, geht er vor jedem Angreifer (erst der Boss, dann der Rest)
-  const farmBossNear = (sc) => (cfg.farm && sc ? sc.mobs.find((m) => m.enabled && m.cat !== 'normal' && !m.banned && m.d <= cfg.radius * 1.5) || null : null);
+  // Rotation: a selected reachable boss anywhere on this map has priority.
+  const farmBossNear = (sc) => (cfg.farm && sc ? sc.mobs.find((m) => m.enabled && (m.mapBoss||m.cat!=='normal') && !m.banned && m.reach!==false) || null : null);
 
   // ---------- Event: Mega-Jagd ----------
   // Alle 2 h erscheint ein Mega-Weltboss (…_hunt) an einer zufälligen Stelle einer Feld-Map, nur auf Kanal 1; er greift
   // nie zuerst an. Das Event-Fenster des Spiels (Befehl requestEvents) nennt Boss, Map, Zustand und die nächste Jagd,
   // der Chat warnt 5 min vorher (hunt_warning). Den genauen Ort verrät das Spiel nicht: der Bot reist hin, wartet bis
   // zum Erscheinen und läuft dann die Jagdgebiete der Map ab, bis er ihn sieht – dann Kampf (Fokus wie bei Bossen).
-  const HUNT_LEAD_MS = 6 * 60000;   // so lange vor dem Erscheinen losreisen
-  const HUNT_POLL_MS = 60000, HUNT_POLL_ACTIVE_MS = 10000; // Event-Fenster so oft abfragen (während einer Jagd öfter)
+  const HUNT_POLL_MS = 10000, HUNT_POLL_ACTIVE_MS = 5000; // Event-Fenster so oft abfragen (während einer Jagd öfter)
+  const HUNT_QUEST_PREP_MS = 30000; // During quest autopilot, keep working through the early warning.
   const HUNT_WP_NEAR = 60;          // so nah = Suchpunkt abgehakt
-  const HUNT_OVERTIME_MS = 10 * 60000; // Event-Fenster vorbei, Boss lebt aber noch: so lange weiterkämpfen
   const hunt = { info: null, skew: 0, polledAt: 0, busy: false, goal: null, visited: new Set(), wp: null, wpAt: 0, warnTs: 0 };
+  const HUNT_REQUEST_TIMEOUT_MS=15000;
   function huntPoll(now) {
-    const c = commands();
-    if (hunt.busy || typeof c?.requestEvents !== 'function') return;
-    hunt.busy = true; hunt.polledAt = now;
-    Promise.resolve(c.requestEvents()).then((list) => {
-      const e = (Array.isArray(list) ? list : []).find((x) => x?.id === 'mega_hunt' || /_hunt$/.test(x?.boss || ''));
-      hunt.info = e || null;
-      if (e?.now) hunt.skew = e.now - Date.now(); // Serverzeit
-    }).catch(() => { /* nächster Versuch beim nächsten Abfragen */ }).finally(() => { hunt.busy = false; });
+    if(hunt.busy && now-(hunt.requestAt||0)<HUNT_REQUEST_TIMEOUT_MS)return;
+    const c=commands();if(typeof c?.requestEvents!=='function')return;
+    if(hunt.busy)logEvent('warn','Event-Abfrage ohne Antwort – frage erneut ab');
+    const token=hunt.pollToken=(hunt.pollToken||0)+1;
+    hunt.busy=true;hunt.requestAt=now;hunt.polledAt=now;
+    let pending;try{pending=c.requestEvents();}catch{hunt.busy=false;return;}
+    Promise.resolve(pending).then(list=>{
+      if(token!==hunt.pollToken || !Array.isArray(list))return;
+      const event=list.find(x=>x?.id==='mega_hunt'||/_hunt$/.test(x?.boss||''));
+      hunt.info=event||null;
+      if(event?.now)hunt.skew=event.now-Date.now();
+    }).catch(()=>{}).finally(()=>{if(token===hunt.pollToken)hunt.busy=false;});
   }
-  // Aktuelle Jagd: läuft gerade (state up) oder beginnt in den nächsten HUNT_LEAD_MS
+  function digibotEventSnapshot(){
+    const info=hunt.info,next=info?.next;
+    return {enabled:!!cfg.hunt,worldBossEnabled:!!cfg.wboss,questStandby:!!bot.questIdle,polling:hunt.busy,lastPollAt:hunt.polledAt,
+      questBosses:cfg.autopilot?questTasks(getStore()?.getState?.()).filter(t=>t.loc?.boss).slice(0,20).map(t=>({questId:t.questId,name:t.names,mapId:t.loc.mapId,etaMs:Number.isFinite(t.bossEta)?t.bossEta:null})):[],
+      bossPeace:digibotBossPeace(getStore()?.getState?.()),
+      grindBoss:{enabled:!!cfg.levelBoss,routeEnabled:lrOn(),mapId:lr.goal?.mapId??null,
+        goal:lr.boss?{boss:lr.boss.b.species,mapId:lr.boss.b.map,channel:lr.boss.ch}:null,
+        timers:lr.goal?lrBossSel(lr.goal.mapId,getStore()?.getState?.()?.me?.partner?.level).flatMap(b=>(cfg.farmChannels?.length?cfg.farmChannels:[1]).map(ch=>({boss:b.species,mapId:b.map,channel:ch,...farmState(b,ch,Date.now())}))):[]},
+      current:info?{state:info.state,boss:info.boss,mapId:info.mapId,endMs:info.slot?.endMs}:null,
+      next:next?{boss:next.boss,mapId:next.mapId,startMs:next.startMs}:null,
+      goal:hunt.goal?{boss:hunt.goal.boss,mapId:hunt.goal.mapId,up:hunt.goal.up,at:hunt.goal.at}:null};
+  }
+  // Aktuelle Jagd: läuft gerade (state up) oder beginnt in der Vorlaufzeit der Event-Konfiguration
   function huntGoal(now) {
     const e = hunt.info, sn = now + hunt.skew;
+    const policy=digibotHuntPolicy(content(),e);
     if (!e) return null;
-    if (e.state === 'up' && e.boss && e.mapId && (!e.slot?.endMs || sn < e.slot.endMs)) return { boss: e.boss, mapId: e.mapId, ch: e.channel || 1, key: `${e.slot?.key || ''}|${e.boss}`, up: true };
+    if (e.state === 'up' && e.boss && e.mapId && (!e.slot?.endMs || sn < e.slot.endMs)) return { boss: e.boss, mapId: e.mapId, ch: policy.channel, key: `${e.slot?.key || ''}|${e.boss}`, up: true };
     const n = e.next;
-    if (n?.boss && n.mapId && n.startMs && n.startMs - sn <= HUNT_LEAD_MS && n.startMs - sn > -120000) return { boss: n.boss, mapId: n.mapId, ch: 1, key: `next@${n.startMs}|${n.boss}`, up: false, at: n.startMs - hunt.skew };
+    if (n?.boss && n.mapId && n.startMs && n.startMs - sn <= policy.leadMs && n.startMs - sn > -120000) return { boss: n.boss, mapId: n.mapId, ch: policy.channel, key: `next@${n.startMs}|${n.boss}`, up: false, at: n.startMs - hunt.skew };
     return null;
   }
   // Suchpunkte: Mitten der Jagdgebiete (Zonen) der Map, sonst ihre Spawn-Punkte
@@ -4392,29 +6165,41 @@
   // (keine Jagd, Boss in Sicht – dann kämpft der normale Ablauf – oder erst Angreifer abwehren)
   function huntStep(st, sc, now) {
     if (!cfg.hunt) return null;
-    const warn = (st.chat || []).filter((m) => m?.code === 'hunt_warning' || m?.code === 'worldboss_warning').pop();
+    const warn=(st.chat||[]).filter(m=>['hunt_warning','hunt_appeared','hunt_defeated','hunt_left','worldboss_warning'].includes(m?.code)).pop();
     if (warn?.ts && warn.ts > hunt.warnTs) { hunt.warnTs = warn.ts; hunt.polledAt = 0; } // Warnung im Chat: gleich nachfragen
-    if (now - hunt.polledAt > (hunt.goal ? HUNT_POLL_ACTIVE_MS : HUNT_POLL_MS)) huntPoll(now);
+    if (now-hunt.polledAt>(hunt.goal?HUNT_POLL_ACTIVE_MS:HUNT_POLL_MS) || hunt.busy&&now-(hunt.requestAt||0)>=HUNT_REQUEST_TIMEOUT_MS)huntPoll(now);
     const g = huntGoal(now), C = content();
     // Fenster vorbei / kein aktiver Boss mehr gemeldet / schon das nächste Event angesagt: lebt der bisherige Boss hier
     // noch, den Kampf zu Ende bringen (sonst übernahm mitten im Kampf Route/Rotation/Abgabe oder die Reise zum nächsten)
     if (hunt.goal && hunt.goal.up && (!g || g.key !== hunt.goal.key)) {
       const hg = hunt.goal;
       const still = st.world?.mapId === hg.mapId ? huntBossEnt(hg.boss, controlled(st)) : null;
-      if (still && now - (hg.overAt ||= now) < HUNT_OVERTIME_MS) {
+      if (still) {
+        hunt.seenAt=now; hg.overAt ||= now;
         if (hg.overAt === now) logEvent('auto', `Event-Fenster vorbei, ${C?.digimon?.[hg.boss]?.name || hg.boss} lebt noch – kämpfe weiter`);
         if (st.target?.id !== still.id && bot.can('select', SELECT_GAP_MS, now)) { bot.lastPress.select = now; hunt.selAt = now; worldScene()?.select?.(still.id); }
         return null;
       }
+      if (!still && !digibotDeaths.has(st.target?.id) && st.world?.mapId===hg.mapId && now-(hunt.seenAt||0)<HUNT_HOLD_MS) return 'Boss kurz nicht sichtbar – warte';
       if (!g) { logEvent('auto', `Event vorbei: ${C?.digimon?.[hg.boss]?.name || hg.boss} – weiter wie vorher`); hunt.goal = null; autopilot.nav = null; }
     }
     if (!g) {
       if (hunt.goal) { logEvent('auto', `Event vorbei: ${C?.digimon?.[hunt.goal.boss]?.name || hunt.goal.boss} – weiter wie vorher`); hunt.goal = null; autopilot.nav = null; }
       return null;
     }
+    if(cfg.autopilot && !cfg.farm && !g.up){
+      const visible=st.world?.mapId===g.mapId && huntBossEnt(g.boss,controlled(st));
+      const turningIn=!!autopilot.turninPartnerHeld || autopilot.task?.purpose==='turnin' && st.me?.quests?.[autopilot.task.questId]?.state===2;
+      if(!visible && (g.at-now>HUNT_QUEST_PREP_MS || turningIn)){
+        if(hunt.goal){hunt.goal=null;hunt.wp=null;autopilot.nav=null;logEvent('auto','Event erst angekündigt – erledige bis zum Aufbruch weiter Quests');}
+        return null;
+      }
+    }
     const name = C?.digimon?.[g.boss]?.name || g.boss, where = C?.maps?.[g.mapId]?.name || g.mapId;
     if (hunt.goal?.key !== g.key) {
-      hunt.goal = g; hunt.visited = new Set(); hunt.wp = null;
+      hunt.seenAt=0; hunt.goal = g; hunt.visited = new Set(); hunt.wp = null;
+      autopilot.nav=null;autopilot.route=null;autopilot.tp=null;
+      if(st.dialog?.npc==='digiphone')commands()?.closeDialog?.();
       logEvent('auto', `Event: ${name} – ${where} (Kanal ${g.ch})${g.up ? ' – ist da, suche ihn' : ` – erscheint in ${Math.max(0, Math.round((g.at - now) / 60000))} min`}`);
     }
     hunt.goal.up = g.up; hunt.goal.overAt = 0;
@@ -4428,7 +6213,7 @@
     // unterwegs (Reise, Kanalwechsel, Suche) nicht kämpfen; beim Warten auf das Erscheinen Angreifer nur abwehren
     const busy = !!sc?.attackers?.length;
     if (!here) { wayRecall(st, sc, now); const tr = travel(st, g.mapId, now); return tr === true ? `${name}: angekommen in ${where}` : `${name} – reise nach ${where} · ${tr}`; }
-    if ((st.world?.channel ?? 1) !== g.ch) { wayRecall(st, sc, now); const r = farmSwitch(st, sc, g.mapId, where, g.ch, now, true); if (!r.done) return `${name} – Kanal ${g.ch} · ${r.status}`; }
+    if ((st.world?.channel ?? 1) !== g.ch) { wayRecall(st, sc, now); const r = farmSwitch(st, sc, g.mapId, where, g.ch, now, true, false); if (!r.done) return `${name} – Kanal ${g.ch} · ${r.status}`; }
     if (!g.up) {
       if (busy) { bot.defendOnly = now; return null; } // wehre ab, fange nichts Neues an
       const s = Math.max(0, Math.round((g.at - now) / 1000)); return `${name} erscheint in ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} in ${where} – warte`;
@@ -4455,10 +6240,9 @@
   // Chat. Knopf 🌍 Weltboss: fällig ist ein Kanal, auf dem er lebt oder in den nächsten WB_LEAD_MS spawnt – dann hinreisen,
   // Kanal wechseln, am Spawnpunkt warten und kämpfen; danach der nächste Kanal. Reihenfolge nach Spawnzeit, gleichzeitig =
   // Kanal 1 zuerst. Timer, Kanalwechsel und Sieg-Erkennung wie in der Boss-Rotation.
-  const WB_LEAD_MS = 6 * 60000, WB_CHANNELS = [1, 2], WB_TIE_MS = 30000, WB_MISS_MS = 8000;
-  const WB_WARN_MS = 25 * 60000;   // nach der Chat-Warnung gelten Kanäle ohne Timer so lange als fällig
+  const WB_LEAD_MS = 6 * 60000, WB_CHANNELS = [1, 2], WB_MISS_MS = 8000;
   const WB_UP_KEEP_MS = 20 * 60000; // einmal lebend gesehen: so lange als „lebt“ merken (Timer-Info läuft nach 60 s ab)
-  const wb = { goal: null, warnTs: 0, warnAt: 0, upSince: new Map(), skip: new Map(), arrAt: 0, seenAt: 0 };
+  const wb = { goal: null, warnTs: 0, warnings: new Map(), upSince: new Map(), skip: new Map(), arrAt: 0, seenAt: 0 };
   const wbSel = () => farmBossList().filter((b) => b.kind === 'world');
   // Unterwegs zum Event/Weltboss angegriffen: nicht kämpfen – Digimon zurückrufen und weiterlaufen (wie die Rotation)
   function wayRecall(st, sc, now) {
@@ -4471,14 +6255,17 @@
   // Liste, denn jede Timer-Antwort wird nur einmal ausgewertet
   function timerSel() {
     let fsel = cfg.farm ? farmSelected() : cfg.autopilot ? questBossSel(autopilot.task) : [];
+    if(cfg.autopilot&&!cfg.farm){const ids=new Set(fsel.map(b=>b.id));fsel=[...fsel,...digibotQuestBossPool(getStore()?.getState?.()).filter(b=>!ids.has(b.id))];}
+    if(lrOn() && cfg.levelBoss && lr.goal){const ids=new Set(fsel.map(b=>b.id));fsel=[...fsel,...lrBossSel(lr.goal.mapId,getStore()?.getState?.()?.me?.partner?.level).filter(b=>!ids.has(b.id))];}
     if (cfg.wboss) { const ids = new Set(fsel.map((b) => b.id)); fsel = [...fsel, ...wbSel().filter((b) => !ids.has(b.id))]; }
     return fsel;
   }
+  const WB_WARN_MS = 25 * 60000; // nach der Chat-Warnung gelten Kanäle ohne Timer so lange als fällig
+  const warned = (b, now) => { const w = wb.warnings.get(b.id || `${b.map}#${b.index}`); return w && now - w.at < WB_WARN_MS ? w : null; };
   function wbPlan(st, now) {
-    const C = content(), opts = [];
+    const opts = [], C = content();
     for (const b of wbSel()) {
       if (hops(st.world?.mapId, b.map) === Infinity) continue;
-      const warnMs = C?.spawns?.[b.map]?.bosses?.[b.index]?.worldBoss?.warnMs || 300000;
       for (const ch of WB_CHANNELS) {
         const key = farmKey(b.map, b.index, ch), s = farmState(b, ch, now);
         if ((wb.skip.get(key) || 0) > now) continue;
@@ -4486,32 +6273,40 @@
         if (s.state === 'up') { if (!wb.upSince.has(key)) wb.upSince.set(key, now); at = wb.upSince.get(key); }
         else if (s.state === 'down') { wb.upSince.delete(key); if (s.readyAt - now > WB_LEAD_MS) continue; at = s.readyAt; }
         else if (wb.upSince.has(key) && now - wb.upSince.get(key) < WB_UP_KEEP_MS) at = wb.upSince.get(key);
-        else if (wb.warnAt && now - wb.warnAt < WB_WARN_MS) at = wb.warnAt + warnMs; // angekündigt, Kanal-Timer unbekannt
+        // Angekündigt (Chat-Warnung genau dieses Bosses), Kanal-Timer noch unbekannt: fällig zum angesagten Spawn
+        else if (warned(b, now)) at = warned(b, now).at + (C?.spawns?.[b.map]?.bosses?.[b.index]?.worldBoss?.warnMs || 300000);
         else continue;
         opts.push({ b, ch, at, s, key });
       }
     }
-    // Boss hier in Sicht, Kampf läuft oder er wird gerade gesucht: dieser Kanal bleibt das Ziel (sonst forderte die
-    // Neuplanung mitten im Kampf den Wechsel auf Kanal 1 an)
-    const curCh = st.world?.channel ?? 1, fk = farm.fight?.key;
-    const hold = opts.find((o) => o.b.map === st.world?.mapId && o.ch === curCh && (o.key === fk || lrBossEnt(o.b)));
-    if (hold) return hold;
-    opts.sort((x, y) => (Math.abs(x.at - y.at) <= WB_TIE_MS ? x.ch - y.ch : x.at - y.at));
+    opts.sort((x, y) => (x.at === y.at ? x.ch - y.ch : x.at - y.at));
     return opts[0] || null;
   }
   function wbStep(st, sc, now) {
     if (!cfg.wboss || world.state !== 'ready') { wb.goal = null; return null; }
-    const warn = (st.chat || []).filter((m) => m?.code === 'worldboss_warning').pop();
-    if (warn?.ts && warn.ts > wb.warnTs) { wb.warnTs = warn.ts; wb.warnAt = now; farm.lastPins = 0; logEvent('auto', 'Weltboss angekündigt – schaue nach den Kanälen'); }
+    for(const warn of (st.chat||[]).filter(m=>m?.code==='worldboss_warning' && m.ts>wb.warnTs)) {
+      wb.warnTs=Math.max(wb.warnTs,warn.ts);
+      const species=warn.params?.boss, all=wbSel();
+      // Boss aus der Meldung; nennt sie keinen und es gibt nur einen Weltboss, ist er gemeint
+      const boss=all.find(b=>b.species===species||b.name===species)||(!species&&all.length===1?all[0]:null);
+      if(!boss)continue;
+      wb.warnings.set(boss.id||`${boss.map}#${boss.index}`,{at:now,ts:warn.ts,boss:boss.species}); // Empfangszeit (eigene Uhr)
+      farm.lastPins=0;
+      logEvent('auto',`Weltboss angekündigt: ${boss.name} – bestätigte Kanaltimer abfragen`);
+    }
     farmUpdate(st, now, timerSel()); // Timer auch während Reise/Warten (der Tick kehrt danach vor seiner Abfrage zurück)
-    const o = wbPlan(st, now);
+    const previous=wb.goal;
+    const keep=previous && st.world?.mapId===previous.b.map && (st.world?.channel??1)===previous.ch && wbPresent(st,sc,now);
+    const o = keep ? {b:previous.b,ch:previous.ch,key:previous.key,at:now,s:farmState(previous.b,previous.ch,now)} : wbPlan(st, now);
     if (!o) {
-      if (wb.goal) { logEvent('auto', `Weltboss: ${wb.goal.b.name} – nichts mehr fällig, weiter wie vorher`); wb.goal = null; autopilot.nav = null; }
+      if (wb.goal) { logEvent('auto', `Weltboss: ${wb.goal.b.name} – nichts mehr fällig, weiter wie vorher`); wb.goal = null; autopilot.nav = null;autopilot.route=null;autopilot.tp=null; }
       return null;
     }
     const b = o.b, label = `${b.name} (${b.mapName} Ch ${o.ch})`;
     if (wb.goal?.key !== o.key) {
-      wb.goal = { key: o.key, b, ch: o.ch }; wb.arrAt = 0;
+      autopilot.nav=null;autopilot.route=null;autopilot.tp=null;
+      if(st.dialog?.npc==='digiphone')commands()?.closeDialog?.();
+      wb.goal = { key: o.key, b, ch: o.ch }; wb.arrAt = 0; wb.seenAt=0;
       logEvent('auto', `Weltboss: ${label} – ${o.at <= now ? 'lebt / ist fällig' : `spawnt in ${fmtClock(o.at - now)}`}`);
     }
     if (group.role() === 'follower' && groupLeader(now)) return null; // in der Gruppe führt der Leader
@@ -4523,11 +6318,11 @@
       return null;
     }
     if (here && wbPresent(st, sc, now)) return null; // da, aber gerade nicht wählbar: der Tick wartet beim Boss
-    // unterwegs (Reise, Kanalwechsel, zum Spawnpunkt, Suche) nicht kämpfen; am Spawnpunkt Angreifer nur abwehren
+    // unterwegs (Reise, Kanalwechsel, zum Spawnpunkt) nicht kämpfen; am Spawnpunkt Angreifer nur abwehren
     const busy = !!sc?.attackers?.length;
     const tr = travel(st, b.map, now);
     if (tr !== true) { wayRecall(st, sc, now); return `${label} · ${tr}`; }
-    const sw = farmSwitch(st, sc, b.map, b.mapName, o.ch, now, true);
+    const sw = farmSwitch(st, sc, b.map, b.mapName, o.ch, now, true, false);
     if (!sw.done) { wayRecall(st, sc, now); if (sw.failed) wb.skip.set(o.key, now + 120000); return `${label} · ${sw.status}`; }
     const mw = farmMissWalk(st, now, o.key);
     if (mw) { wayRecall(st, sc, now); return `${label} · ${mw}`; }
@@ -4540,13 +6335,12 @@
     }
     if (busy) { bot.defendOnly = now; return null; } // am Spawnpunkt: abwehren, nichts Neues anfangen
     wb.arrAt ||= now;
-    if (farm.fight?.missAt && farm.fight.key === o.key) return `${label} · vermisst – suche am Spawnpunkt`; // farmUpdate entscheidet
+    if (farm.fight?.missingAt && farm.fight.key === o.key) return `${label} · vermisst – suche am Spawnpunkt`; // farmUpdate entscheidet
     if (now >= o.at) {
       // müsste da sein, ist es aber nicht: schon besiegt (lebte) bzw. auf diesem Kanal nicht gespawnt -> nächster Kanal
       if (now - Math.max(wb.arrAt, o.at) > WB_MISS_MS) {
-        if (o.s.state === 'up' || wb.upSince.has(o.key)) { farmSet(b.map, b.index, o.ch, { up: false, readyAt: now + (b.respawnMs || 3600000) }); wb.upSince.delete(o.key); }
-        else wb.skip.set(o.key, now + WB_WARN_MS);
-        logEvent('auto', `Weltboss: ${label} nicht da – nächster Kanal`);
+        wb.skip.set(o.key, now + 30000);
+        logEvent('auto', `Weltboss: ${label} nicht sichtbar – später erneut prüfen, kein Tod bestätigt`);
         wb.arrAt = 0;
         return `${label} · nicht da`;
       }
@@ -4558,7 +6352,7 @@
   const wbFocus = (sc) => (cfg.wboss && wb.goal && sc && sc.mapId === wb.goal.b.map ? farmBossMob(sc, wb.goal.b) : null);
   // Weltboss lebt hier (auch versteckt/unangreifbar/gesperrt) oder war es vor Kurzem: Vorrang wie beim Event
   function wbPresent(st, sc, now) {
-    if (!cfg.wboss || !wb.goal || st.world?.mapId !== wb.goal.b.map) return false;
+    if (!cfg.wboss || !wb.goal || st.world?.mapId !== wb.goal.b.map || (st.world?.channel??1)!==wb.goal.ch) return false;
     let alive = !!wbFocus(sc);
     if (!alive) window.dmo?.net?.state?.entities?.forEach?.((en) => { if (!alive && en.kind === KIND.Mob && en.hp > 0 && !(en.flags & FLAG.Dead) && bossEntityMatch(wb.goal.b, en)) alive = true; });
     if (alive) { wb.seenAt = now; return true; }
@@ -4673,24 +6467,25 @@
   }
   function farmUpdate(st, now, selArg) {
     const sel = selArg || farmSelected();
+    const knownBosses=farmBossList();
     // Jede Antwort nur einmal auswerten – sie bleibt im Spielzustand liegen und wäre sonst nach unserem Sieg veraltet
     const bp = st.bossPins;
     if (bp?.bosses && bp.at !== farm.pinsAt) {
       farm.pinsAt = bp.at;
       for (const e of bp.bosses) {
-        if (sel.some((b) => b.map === e.map && b.index === e.index)) farmLearn(e.map, e.index, e.channel ?? 1, e, bp.at);
+        if (knownBosses.some((b) => b.map === e.map && b.index === e.index)) farmLearn(e.map, e.index, e.channel ?? 1, e, bp.at);
       }
     }
     const mi = st.mapInfo, ch = st.world?.channel;
     if (mi?.bosses && mi.at !== farm.infoAt && mi.mapId === st.world?.mapId && (!mi.roomId || !st.world?.roomId || mi.roomId === st.world.roomId)) {
       farm.infoAt = mi.at;
       for (const e of mi.bosses) {
-        if (sel.some((b) => b.map === mi.mapId && b.index === e.index)) farmLearn(mi.mapId, e.index, ch, e, mi.at);
+        if (knownBosses.some((b) => b.map === mi.mapId && b.index === e.index)) farmLearn(mi.mapId, e.index, ch, e, mi.at);
       }
     }
     // Sichtbare Bosse auf dieser Map/diesem Kanal: leben gerade
     const ents = window.dmo?.net?.state?.entities;
-    const here = sel.filter((b) => b.map === st.world?.mapId);
+    const here = knownBosses.filter((b) => b.map === st.world?.mapId);
     const alive = new Set();
     ents?.forEach?.((en) => {
       if (en.kind !== KIND.Mob || en.hp <= 0 || (en.flags & FLAG.Dead)) return;
@@ -4702,7 +6497,7 @@
       farmSet(b.map, b.index, ch, { up: true, hp });
       // Kampf gegen einen Farm-Boss merken – egal ob der Bot ihn selbst gewählt hat oder er uns angreift
       if (st.target?.id === en.id && farm.fight?.id !== en.id) farm.fight = { key: farmKey(b.map, b.index, ch), id: en.id, ch, map: b.map, pct: hp };
-      if (farm.fight?.id === en.id) { farm.fight.pct = hp; farm.fight.x = en.x; farm.fight.y = en.y; if (farm.fight.missAt) { farm.fight.missAt = 0; farm.fight.posDone = false; logEvent('auto', `${b.name} wieder in Sicht – weiter`); } }
+      if (farm.fight?.id === en.id) {farm.fight.pct = hp;farm.fight.x = en.x;farm.fight.y = en.y;if(farm.fight.missingAt){farm.fight.missingAt=0;farm.fight.posDone=false;logEvent('auto',`${b.name} wieder in Sicht – weiter`);}}
     });
     for (const id of farm.firstSeen.keys()) if (!alive.has(id)) farm.firstSeen.delete(id);
     // Unser Kampf ist vorbei und der Boss verschwunden -> besiegt, Respawn-Timer selbst setzen
@@ -4710,24 +6505,26 @@
     if (f && !alive.has(f.id) && !(st.target?.id === f.id && st.target.hp > 0)) {
       // Sieg, wenn er zuletzt fast tot war, als Ziel 0 HP hat oder auf derselben Map/demselben Kanal verschwunden ist
       // (mit Hilfe anderer Spieler fällt ein Boss oft zwischen zwei Blicken). Kanal-/Mapwechsel zählen nicht.
-      // Ein Boss, der mit viel HP aus der Sicht verschwindet (Sichtweite, Verfolgung), ist nicht besiegt: erst „vermisst“ –
-      // suchen (letzte Position, dann Spawnpunkt). Erst nach FARM_MISS_MS ohne ihn gilt er als besiegt, mit kurzem Timer.
+      // Sieg nur mit Beleg: Tod gemeldet, 0 HP, als tot markiert oder zuletzt fast tot (≤15 %). Verschwindet er mit mehr HP
+      // (Sichtweite, Verfolgung), ist er „vermisst“: suchen (letzte Position, dann Spawnpunkt); erst nach FARM_MISS_MS als
+      // besiegt mit kurzem Timer – der nächste Boss-Timer korrigiert. Kanal-/Mapwechsel zählen nicht.
+      const entity=ents?.get?.(f.id);
+      const confirmed=digibotDeaths.has(f.id)||(entity && (entity.hp<=0 || (entity.flags & FLAG.Dead)))||(st.target?.id===f.id&&st.target.hp<=0)||(f.pct??100)<=15;
       const sameRoom = f.map === st.world?.mapId && f.ch === ch && st.screen === 'world';
-      const en0 = ents?.get?.(f.id);
-      const dead = (!!en0 && (en0.hp <= 0 || !!(en0.flags & FLAG.Dead))) || (f.pct ?? 100) <= 15 || (st.target?.id === f.id && st.target.hp <= 0);
-      const b = sel.find((x) => farmKey(x.map, x.index, f.ch) === f.key);
-      if (b && dead) {
+      const b = knownBosses.find(x=>farmKey(x.map,x.index,f.ch)===f.key);
+      if (b && confirmed) {
         farm.known.set(f.key, { up: false, readyAt: now + b.respawnMs, at: now, killed: true });
         logEvent('kill', `Boss besiegt: ${b.name} (Ch ${f.ch}) – Respawn in ${Math.round(b.respawnMs / 60000)} min`);
         farm.fight = null; farm.goal = null;
       } else if (b && sameRoom) {
-        if (!f.missAt) { f.missAt = now; logEvent('warn', `${b.name} (Ch ${f.ch}) bei ${f.pct ?? '?'} % aus der Sicht verloren – suche ihn`); }
-        else if (now - f.missAt > FARM_MISS_MS) {
+        if (!f.missingAt) { f.missingAt = now; logEvent('warn', `${b.name} (Ch ${f.ch}) bei ${f.pct ?? '?'} % aus der Sicht verloren – suche ihn`); }
+        else if (now - f.missingAt > FARM_MISS_MS) {
           farm.known.set(f.key, { up: false, readyAt: now + FARM_MISS_READY_MS, at: now, killed: true });
+          digibotCore.record('Boss verschwunden; Tod unbestätigt',{target:f.id,hp:f.pct,map:f.map,channel:f.ch});
           logEvent('kill', `${b.name} (Ch ${f.ch}) nicht wiedergefunden – vermutlich besiegt (Timer ${Math.round(FARM_MISS_READY_MS / 60000)} min)`);
           farm.fight = null; farm.goal = null;
         }
-      } else { farm.fight = null; farm.goal = null; } // Kanal-/Mapwechsel: kein Sieg
+      } else { farm.fight = null; farm.goal = null; }
     }
     // Boss-Timer und Map-Info regelmäßig nachfragen
     const cmd = commands();
@@ -4816,9 +6613,23 @@
   // Wechselt auf Kanal ch der aktuellen Map. Liefert { done: true } (schon dort), { status } (läuft) oder
   // { status, failed: true } (Kanal voll/fehlt/Wechsel klappt nicht – dann 5 min gemieden).
   // leave: auch unter Angriff wechseln (Boss-Rotation auf dem Weg, Lern-Route zum nächsten Boss)
-  function farmSwitch(st, sc, mapId, mapName, ch, now, leave = farm.leave) {
+  // Vor dem Kanalwechsel aufräumen (Angreifer nur mit Taste 1 besiegen): nur bei höchstens CHANNEL_CLEANUP_MAX Angreifern
+  // und höchstens CHANNEL_CLEANUP_MS lang – sonst gleich wechseln (in dichten Zonen kamen ständig neue nach, der Bot wechselte nie)
+  const CHANNEL_CLEANUP_MAX = 2, CHANNEL_CLEANUP_MS = 10000;
+  function farmSwitch(st, sc, mapId, mapName, ch, now, leave = farm.leave, cleanup = true) {
     const curCh = st.world?.channel ?? 1;
-    if (curCh === ch) { farm.switchTries = 0; farm.opening = null; return { done: true }; }
+    if (curCh === ch) {digibotChannelPeace=null;digibotChannelCleanup=null;farm.cleanAt=null; farm.switchTries = 0; farm.opening = null; return { done: true }; }
+    const peaceful=leave||lrOn()&&lr.scanPeace||!!questBossSel(autopilot.task).length;
+    if(peaceful){
+      digibotChannelPeace={map:mapId,to:ch,at:now};
+      const cleanKey=`${mapId}#${ch}`;
+      if(farm.cleanAt?.key!==cleanKey)farm.cleanAt={key:cleanKey,at:now};
+      const n=(sc?.attackers||[]).filter(m=>!m.banned&&m.reach!==false).length;
+      if(cleanup&&n<=CHANNEL_CLEANUP_MAX&&now-farm.cleanAt.at<CHANNEL_CLEANUP_MS){
+        const disengage=digibotChannelDisengage(st,sc,now);
+        if(disengage)return {status:disengage};
+      } else digibotChannelCleanup=null; // zu viele Angreifer / zu lange: trotz Angriff wechseln
+    }
     // neues Ziel: Fehlversuche neu zählen – sonst zählen gelungene Wechsel mit, wenn danach niemand mehr mit dem
     // erreichten Kanal nachfragt (live Lern-Route: nach drei Wechseln galt der vierte als „klappt nicht“, Ch 2 5 min gemieden)
     const swKey = `${mapId}#${ch}#${curCh}`;
@@ -4829,6 +6640,7 @@
     if (!list) return { status: 'lade Kanalliste…' };
     const room = list.find((r) => r.channel === ch && (!r.mapId || r.mapId === mapId));
     const fail = (why, ms = TASK_BAN_MS) => {
+      digibotChannelPeace=null;digibotChannelCleanup=null;
       farm.chBan.set(`${mapId}#${ch}`, now + ms);
       logEvent('warn', `${mapName}: Ch ${ch} ${why} – ${Math.round(ms / 60000)} min gemieden`);
       farm.switchTries = 0;
@@ -4930,7 +6742,7 @@
     if (boss) {
       if (farm.fight?.id !== boss.id) farm.fight = { key: farmKey(b.map, b.index, ch), id: boss.id, ch, map: b.map, pct: Math.round(boss.hp / (boss.maxHp || boss.hp || 1) * 100) };
       R.zoneAt = 0;
-      if (boss.d > cfg.radius) {
+      if (boss.d > 180) {
         if (walkTo(st, boss.x, boss.y, now) === 'stuck') blacklist.set(boss.id, now + BAN_MS);
         return `${tag} · laufe hin (${Math.round(boss.d)} px)`;
       }
@@ -5002,10 +6814,11 @@
     // 4) Vermisst: erst an der letzten Position suchen; dann zum Spawnpunkt und dort warten
     const mw = farmMissWalk(st, now, farmKey(b.map, b.index, o.ch));
     if (mw) return `${label} · ${mw}`;
-    const spot = farmSpot(b);
+    const baseSpot = farmSpot(b);
+    const spot = cfg.independentGroup && baseSpot ? digibotPoint(st, `farm/${b.map}/${b.index}/${o.ch}`, baseSpot) || baseSpot : baseSpot;
     const me = controlled(st);
     const d = spot && me ? Math.hypot(me.x - spot.x, me.y - spot.y) : 0;
-    if (spot && d > FARM_NEAR) {
+    if (spot && d > (cfg.independentGroup && group.active() ? 20 : FARM_NEAR)) {
       if (walkTo(st, spot.x, spot.y, now) === 'stuck') {
         farm.chBan.set(`${b.map}#${o.ch}`, now + TASK_BAN_MS);
         logEvent('warn', `${b.name}: Spawnpunkt nicht erreichbar – 5 min übersprungen`);
@@ -5015,7 +6828,7 @@
     }
     const s = o.s;
     // Kein Timer zu bekommen und kein Boss zu sehen: als „gerade nicht da“ werten und in 2 min wieder prüfen
-    if (farm.fight?.missAt && farm.fight.key === farmKey(b.map, b.index, o.ch)) return `${label} · vermisst – suche am Spawnpunkt`;
+    if (farm.fight?.missingAt && farm.fight.key === farmKey(b.map, b.index, o.ch)) return `${label} · vermisst – suche am Spawnpunkt`;
     if (s.state !== 'down') {
       farm.waitAt ||= now;
       if (now - farm.waitAt > 20000) {
@@ -5175,15 +6988,15 @@
     if (!dg.inside) { dg.inside = true; dg.doorAt = 0; logEvent('bot', `Dungeon betreten: ${content()?.maps?.[mapId]?.name || mapId}`); }
     const R = dgRoom(st, raid);
     if (!R.m || !R.me) return 'Lade Kartendaten…';
-    const go = (x, y, what) => (walkTo(st, x, y, now) === 'stuck' ? `${what} – Weg blockiert` : what);
+    const go = (x,y,what,portal=null) => (walkTo(st,x,y,now,{portal}) === 'stuck' ? `${what} – Weg blockiert` : what);
     if (R.cur >= R.rooms.length) { // alles frei -> Ausgang (Portal zur Tür-Map, das mir am nächsten ist)
       const exit = R.m.portals.filter((p) => p.toMap === raid.gate.mapId)
         .sort((a, b) => Math.hypot(a.x - R.me.x, a.y - R.me.y) - Math.hypot(b.x - R.me.x, b.y - R.me.y))[0];
-      return exit ? go(exit.x + exit.w / 2, exit.y + exit.h / 2, 'Alle Räume frei – gehe zum Ausgang') : 'Alle Räume frei – Ausgang nicht gefunden';
+      return exit ? go(exit.x + exit.w / 2, exit.y + exit.h / 2, 'Alle Räume frei – gehe zum Ausgang',exit) : 'Alle Räume frei – Ausgang nicht gefunden';
     }
     if (R.here >= 0 && R.here < R.cur) { // mein Raum ist schon frei -> durch sein Tor
       const gate = R.m.portals.find((p) => p.name === R.rooms[R.here].gate);
-      if (gate) return go(gate.x + gate.w / 2, gate.y + gate.h / 2, `Raum ${R.here + 1} frei – gehe durchs Tor`);
+      if (gate) return go(gate.x + gate.w / 2, gate.y + gate.h / 2, `Raum ${R.here + 1} frei – gehe durchs Tor`,gate);
     }
     const z = R.zone(R.cur);
     if (!z) return 'Raum unbekannt';
@@ -5203,11 +7016,11 @@
     const name = content()?.maps?.[mapId]?.name || mapId;
     if (!dg.inside) { dg.inside = true; dg.doorAt = 0; logEvent('bot', `Raid betreten: ${name}`); }
     if (!m || !me) return 'Lade Kartendaten…';
-    const go = (x, y, what) => (walkTo(st, x, y, now) === 'stuck' ? `${what} – Weg blockiert` : what);
+    const go = (x,y,what,portal=null) => (walkTo(st,x,y,now,{portal}) === 'stuck' ? `${what} – Weg blockiert` : what);
     if (st.raid?.cleared) { // geschafft -> hinaus (Portal zur Tür-Map, das mir am nächsten ist)
       if (!dg.cleared) { dg.cleared = true; logEvent('bot', `Raid geschafft: ${name}`); }
       const exit = m.portals.filter((p) => p.toMap === raid.gate.mapId).sort((a, b) => Math.hypot(a.x - me.x, a.y - me.y) - Math.hypot(b.x - me.x, b.y - me.y))[0];
-      return exit ? go(exit.x + exit.w / 2, exit.y + exit.h / 2, 'Raid geschafft – gehe hinaus') : 'Raid geschafft – Ausgang nicht gefunden';
+      return exit ? go(exit.x + exit.w / 2, exit.y + exit.h / 2, 'Raid geschafft – gehe hinaus',exit) : 'Raid geschafft – Ausgang nicht gefunden';
     }
     if (safeRectAt(mapId, me)) {
       const evo = dgEvoPending(st), hp = pct(st.me?.partner?.hp, st.me?.partner?.maxHp);
@@ -5265,7 +7078,7 @@
     }
     const evo = dgEvoPending(st);
     if (dgEvoWait(evo, now)) return `An der Tür: warte auf die Digitation zu ${evo}…`; // digitiert wird im Bot-Takt (ensureEvolution)
-    walkTo(st, door.x, portal.y + portal.h / 2, now);
+    walkTo(st,door.x,portal.y+portal.h/2,now,{portal});
     return 'Gehe durch die Dungeon-Tür';
   }
   // Eingestellte Digitation noch nicht erreicht (z. B. Abklingzeit)? Liefert den Namen der Zielform, sonst null.
@@ -5296,7 +7109,7 @@
   function pickTarget(sc, resting) {
     if (!sc) return null;
     if (cfg.dungeon) { const att = sc.attackers.filter((m) => !safeHeld(m.id)); return (resting ? null : dungeonFocus(sc)) || att[0] || null; }
-    const hf = resting ? null : huntFocus(sc) || wbFocus(sc); // Event-/Weltboss vor allem anderen
+    const hf = resting ? null : huntFocus(sc) || wbFocus(sc) || digibotSharedFocus(sc); // Event-/Weltboss vor allem anderen
     if (hf && !safeHeld(hf.id)) return hf;
     const focus = resting ? null : focusAssist(sc);
     if (focus && !safeHeld(focus.id)) return focus;
@@ -5506,12 +7319,32 @@
     return sp ? { x: sp.x, y: sp.y } : z?.w ? { x: z.x + z.w / 2, y: z.y + z.h / 2 } : null;
   }
   function lrBossEnt(b) { let e0 = null; window.dmo?.net?.state?.entities?.forEach?.((en) => { if (en.kind === KIND.Mob && en.hp > 0 && !(en.flags & FLAG.Dead) && bossEntityMatch(b, en)) e0 = en; }); return e0; }
+  // Leave early enough for travel, channel change and the walk to the spawn,
+  // with a ten-second arrival reserve. Walking is estimated conservatively.
+  function lrBossTripMs(st,b,ch){
+    const here=st.world?.mapId,h=here===b.map?0:hops(here,b.map);
+    if(h===Infinity)return Infinity;
+    const pos=lrBossPos(b),me=controlled(st);
+    const entities=window.dmo?.net?.state?.entities;
+    const speeds=[me?.speed,entities?.get?.(st.me?.partner?.entityId)?.speed].filter(v=>Number.isFinite(v)&&v>0);
+    const speed=Math.min(130,...speeds);
+    const walk=here===b.map && pos && me?Math.max(0,Math.hypot(me.x-pos.x,me.y-pos.y)-LR_BOSS_NEAR)/speed*1350:LR_BOSS_WALK_S*1000;
+    return h*lrHop.ms+(here===b.map && (st.world?.channel??1)===ch?0:LR_CH_S*1000)+walk;
+  }
+  function lrBossIgnoreMobs(st,now){
+    if(digibotChannelBasicAllowed(st,now))return;
+    const pe=window.dmo?.net?.state?.entities?.get?.(st.me?.partner?.entityId);
+    if((pe?.targetId || bot.attackedId || window.dmo?.client?.skillQueue?.queued) && bot.can('follow',1500,now)){
+      bot.lastPress.follow=now;commands()?.partnerFollow?.();
+    }
+    bot.attackedId=null;bot.engage=null;
+  }
   const lrBossFocus = (sc) => { const lb = lrOn() && lr.boss; if (!lb || !sc) return null; const e = lrBossEnt(lb.b); return e ? sc.mobs.find((m) => m.id === e.id && !m.banned) || null : null; };
-  // busy: Angreifer da – erst abwehren; nur direkt nach einem Boss-Sieg (LR_CHAIN_MS) gleich weiter zum nächsten Boss
+  // Bossziele haben auch unter Angriff Vorrang; unbekannte Kanäle werden außerhalb von Kämpfen geprüft.
   const LR_CHAIN_MS = 30000;
   function lrBossStep(st, sc, now, g, busy = false) {
     const p = st.me.partner, sel = lrBossSel(g.mapId, p.level);
-    if (!sel.length) { lr.boss = null; return null; }
+    if (!sel.length) { lr.boss = null;lr.scanPeace=false;return null; }
     farmUpdate(st, now, sel);
     const here = st.world?.mapId, cur = st.world?.channel ?? 1, mapName = (id) => content()?.maps?.[id]?.name || id, where = mapName(here);
     const list = farmChannelList(st, now);
@@ -5526,21 +7359,10 @@
     let sn = sel.some((b) => b.map === here) ? lr.scans[here] : null;
     if (sel.some((b) => b.map === here) && (!sn || (here === g.mapId && sn.since !== lr.since))) sn = lr.scans[here] = { since: lr.since, done: new Set(), ch: null, at: 0 };
     // besiegt (Respawn-Timer gesetzt): gleich den nächsten wählen – wie die Boss-Rotation, ohne erst Angreifer abzuarbeiten
-    if (lr.boss) { const s0 = farmState(lr.boss.b, lr.boss.ch, now); if (s0.state === 'down' && s0.readyAt - now > 60000) { lr.boss = null; lr.chainAt = now; } }
-    if (busy && !lr.boss && !(lr.chainAt && now - lr.chainAt < LR_CHAIN_MS)) return null;
+    if (lr.boss) { const s0 = farmState(lr.boss.b, lr.boss.ch, now); if (s0.state === 'down' && s0.readyAt - now > 60000 && (lr.boss.expectedReadyAt==null || s0.readyAt>lr.boss.expectedReadyAt+1000)) { lr.boss = null; lr.chainAt = now; } }
     // Kanäle, deren Boss-Zustand schon bekannt ist (gerade besiegt, Boss-Timer der Spielkarte), nicht eigens ansehen
     const hereB = sel.filter((b) => b.map === here), known = (c) => hereB.length && hereB.every((b) => farmState(b, c, now).state !== 'unknown');
     const todo = sn ? allowed.filter((c) => !sn.done.has(c) && !known(c)) : [];
-    if (todo.length && !lr.boss && !busy) {
-      if (todo.includes(cur)) {
-        if (sn.ch !== cur) { sn.ch = cur; sn.at = now; farm.lastInfo = 0; } // gleich nachfragen
-        if (now - sn.at >= LR_SCAN_WAIT_MS) { sn.done.add(cur); logEvent('map', `Leveln: Boss-Timer ${where} Ch ${cur} gelesen`); }
-        return here === g.mapId ? null : `Boss-Timer ${where} Ch ${cur} lesen…`; // auf der Lern-Map derweil weiter grinden
-      }
-      const r = farmSwitch(st, sc, here, where, todo[0], now);
-      if (r.failed) { sn.done.add(todo[0]); return null; }
-      return r.done ? null : `Boss-Timer: wechsle zu Ch ${todo[0]} · ${r.status}`;
-    }
     // 2) Ziel wählen: lebt oder spawnt bald (Kanalwechsel ~8 s eingerechnet)
     if (!lr.boss) {
       let best = null;
@@ -5548,17 +7370,34 @@
         if ((farm.chBan.get(`${b.map}#${ch}`) || 0) > now) continue;
         // andere Map: Reisezeit dazu (FARM_HOP_MS je Map-Wechsel)
         const h = b.map === here ? 0 : hops(here, b.map); if (h === Infinity) continue;
-        const s = farmState(b, ch, now), sw = h * lrHop.ms + (b.map === here && ch === cur ? 0 : 8000);
+        const s = farmState(b, ch, now), sw = lrBossTripMs(st,b,ch);
         const eta = s.state === 'up' ? sw : s.state === 'down' ? Math.max(s.readyAt - now, sw) : Infinity;
         if (eta <= LR_BOSS_SOON_MS + sw && (!best || eta < best.eta)) best = { b, ch, eta, s };
       }
-      if (!best) return null;
-      lr.boss = { b: best.b, ch: best.ch, at: now, near: 0 };
+      if (!best) {
+        if (todo.length && !lr.boss && (!busy || lr.scanPeace || lr.chainAt && now-lr.chainAt<LR_CHAIN_MS)) {
+          lr.scanPeace=true;lrBossIgnoreMobs(st,now);
+          if (todo.includes(cur)) {
+            if (sn.ch !== cur) { sn.ch = cur; sn.at = now; farm.lastInfo = 0; } // gleich nachfragen
+            if (now - sn.at >= LR_SCAN_WAIT_MS) { sn.done.add(cur); logEvent('map', `Leveln: Boss-Timer ${where} Ch ${cur} gelesen`); }
+            return `Boss-Timer ${where} Ch ${cur} lesen – keine Zwischenkämpfe…`; // auf der Lern-Map derweil weiter grinden
+          }
+          const r = farmSwitch(st, sc, here, where, todo[0], now,true);
+          if (r.failed) { sn.done.add(todo[0]); return null; }
+          return r.done ? null : `Boss-Timer: wechsle zu Ch ${todo[0]} · ${r.status}`;
+        }
+        lr.scanPeace=false;lr.chainAt=0;
+        return null;
+      }
+      lr.scanPeace=false;
+      lr.boss = { b: best.b, ch: best.ch, at: now, near: 0, expectedReadyAt:best.s.state==='down'?best.s.readyAt:null };
       logEvent('auto', `Leveln: ${best.b.name} (Ch ${best.ch}) ${best.s.state === 'up' ? 'lebt' : `spawnt in ${Math.round((best.s.readyAt - now) / 1000)} s`} – nehme ihn mit`);
     }
     // 3) hin und kämpfen
     const lb = lr.boss, st1 = farmState(lb.b, lb.ch, now);
-    if (st1.state === 'down' && st1.readyAt - now > 60000) { lr.boss = null; return null; } // besiegt (Respawn-Timer gesetzt)
+    if (st1.state === 'down' && st1.readyAt - now > 60000 && (lb.expectedReadyAt==null || st1.readyAt>lb.expectedReadyAt+1000)) { lr.boss = null; return null; } // besiegt (Respawn-Timer gesetzt)
+    const localBoss=here===lb.b.map && cur===lb.ch?lrBossEnt(lb.b):null;
+    if(!localBoss)lrBossIgnoreMobs(st,now);
     if (here !== lb.b.map) {
       if (!lb.trav) { const h = hops(here, lb.b.map); if (h !== Infinity && h > 0) lb.trav = { at: now, h }; }
       const tr = travel(st, lb.b.map, now); return `${lb.b.name}: reise nach ${mapName(lb.b.map)} · ${tr === true ? 'angekommen' : tr}`;
@@ -5591,6 +7430,7 @@
       return `${lb.b.name}: laufe zum Spawnpunkt (${Math.round(Math.hypot(me.x - pos.x, me.y - pos.y))} px)`;
     }
     lb.near ||= now;
+    if (busy) return null; // beim Warten am Spawnpunkt Angreifer abwehren (live: HP 99 -> 55 %, ohne zurückzuschlagen)
     const soon = st1.state === 'down' && st1.readyAt > now;
     // Suchzeit erst ab dem Respawn zählen – sonst gab der Bot nach frühem Ankommen genau zum Respawn auf
     if (soon) lb.lookAt = 0; else lb.lookAt ||= now;
@@ -5599,7 +7439,6 @@
       logEvent('warn', `Leveln: ${lb.b.name} (Ch ${lb.ch}) nicht da – zurück in die Zone`);
       return null;
     }
-    if (busy) return null; // beim Warten am Spawnpunkt Angreifer abwehren (live: HP 99 -> 55 %, ohne zurückzuschlagen)
     return `warte auf ${lb.b.name} (Ch ${lb.ch}${soon ? `, Respawn in ${Math.max(0, Math.round((st1.readyAt - now) / 1000))} s` : ''})`;
   }
   // Welches Digimon ist aktiv? Partner-ID aus dem Archiv, sonst die Grundform (Digitationen ändern sie nicht)
@@ -5666,8 +7505,6 @@
     if (cfg.levelBoss && (st.world?.mapId === g.mapId || lr.boss || lrBossSel(g.mapId, p.level).some((b) => b.map === st.world?.mapId))) {
       const bs = lrBossStep(st, sc, now, g, attackers.length > 0);
       if (bs) {
-        const pe = window.dmo?.net?.state?.entities?.get?.(st.me.partner?.entityId);
-        if (attackers.length && (pe?.targetId || bot.attackedId) && bot.can('follow', 1500, now)) { bot.lastPress.follow = now; commands()?.partnerFollow?.(); }
         return bs;
       }
       if (lr.boss) return null; // Boss in Sicht: Kampf über den Fokus
@@ -5749,7 +7586,7 @@
   function worldScene() {
     try {
       const sc = window.dmo?.game?.scene?.getScene?.('world');
-      return typeof sc?.select === 'function' ? sc : null;
+      return typeof sc?.select === 'function' ? digibotScene(sc) : null;
     } catch { return null; }
   }
 
@@ -5822,12 +7659,24 @@
     resting: false, // HP unter Trank-Schwelle und keine Tränke mehr: keine neuen Kämpfe bis 100 % HP
     mirrorHold: false, // Ziel spiegelt gerade Schaden zurück
     status: 'Bot aus',
+    questIdle:false,
+    waitForEvents(reason){
+      if(!(cfg.hunt||cfg.wboss)||!this.on||!digibotCore.armed||digibotCore.latched)return false;
+      this.questIdle=true;autopilot.reset();this.engage=null;this.attackedId=null;
+      commands()?.partnerStop?.();this.status=`${reason} – Event-Bereitschaft`;logEvent('auto',this.status);return true;
+    },
 
     can(code, ms, now) { return now - (this.lastPress[code] || 0) >= ms; },
-    hit(code, now) { this.lastPress[code] = now; press(code); },
+    hit(code,now){if(press(code)===false)return false;this.lastPress[code]=now;return true;},
 
     toggle(quiet = false) { // quiet: Start/Stopp nicht an die ganze Gruppe melden
-      this.on = !this.on;
+      if(digibotAccountQueue.active&&!digibotQueueLaunching){digibotCore.stop('Quest-Runde manuell gestoppt',true);return;}
+      const starting = !this.on;
+      this.questIdle=false;
+      if (starting && !digibotCore.start(digibotManual)) return;
+      if (!starting) digibotCore.stop('Bot gestoppt', false);
+      this.on = starting;
+      if (starting) { digibotNotice?.remove(); digibotNotice=null; }
       clearInterval(this.timer);
       this.attackedId = null;
       this.engage = null;
@@ -5843,13 +7692,16 @@
       if (this.on) this.timer = setInterval(() => this.tick(), TICK_MS);
       this.status = this.on ? 'Bot läuft' : 'Bot aus';
       logEvent('bot', this.on ? `Bot gestartet${cfg.farm ? ' (Boss-Rotation)' : cfg.autopilot ? ' (Quest-Autopilot)' : cfg.questMode ? ' (Quest-Modus)' : ''}` : 'Bot gestoppt');
-      if (group.role() === 'leader' && !quiet) groupSend(this.on ? 'start' : 'stop');
+      if (group.role() === 'leader' && !quiet) {if(this.on)groupPush(true);groupSend(this.on ? 'start' : 'stop',this.on?undefined:'bot');}
       schedule();
     },
 
-    tick() {
+    tick() { if (!this.on) return; return digibotCore.run('Bot', 50, () => { const before=this.status;try{return this.tickBody();}finally{if(this.status!==before){const st=getStore()?.getState?.();digibotCore.record('Statuswechsel',{action:this.status,map:st?.world?.mapId,channel:st?.world?.channel,target:st?.target?.id,hp:st?.target?.hp});}} }); },
+    tickBody() {
       const st = getStore()?.getState?.();
       const now = Date.now();
+      digibotResetContext(st);
+      if(!cfg.autopilot)this.questIdle=false;
       const me = st?.me, p = me?.partner, t = st?.target;
       if (!p || st.screen !== 'world') { this.status = 'Warte auf Spielwelt…'; return; }
       // Das Spiel meldet „ui“-Fokus schon, wenn nur ein Dialog-Knopf fokussiert ist. Pausiert wird nur beim Tippen
@@ -5897,6 +7749,7 @@
       potion(2, (cfg.dsPot > 0 && pct(p.ds, p.maxDs) < cfg.dsPot) || (prep && pct(p.ds, p.maxDs) < LR_BOSS_PREP_DS));
       potion(3, tamerFoodNeeded(me, now));
 
+      digibotTamerTick(st,now);
       // 1b) Flächenangriffen ausweichen hat Vorrang vor allem anderen
       const kh = keyOfHope(st, now);
       if (kh) { this.status = kh; return; }
@@ -5904,6 +7757,8 @@
       if (kg) { this.status = kg; return; }
       const dg = dodge(st, now);
       if (dg) { this.status = dg; this.attackedId = null; return; }
+      const apEvolution=digibotAutopilotEvolveTick(st,now);
+      if(apEvolution!==true){this.status=`Autopilot: ${apEvolution}`;return;}
       healSkill(st, now); // Heil-Skill bei niedrigen HP (auch außerhalb des Kampfes)
       noteBosses(now);
 
@@ -5915,6 +7770,8 @@
         autopilot.huntSpecies = L && L.mapId === st.world?.mapId ? new Set(L.hunt || []) : new Set();
       }
       const sc = scan(st);
+      const sharedMove=digibotSharedStep(st,sc,now);
+      if(sharedMove){this.status=sharedMove;return;}
       let attackers = sc ? sc.attackers.map((m) => m.id) : [];
       // 1c) Event (Mega-Jagd): hinreisen, warten, suchen – geht jedem Modus vor (nicht im Dungeon)
       if (!cfg.dungeon && world.state === 'ready') {
@@ -5931,6 +7788,18 @@
         if (hunt.selAt === now) { this.status = 'Event: Jagd-Boss anvisiert'; this.attackedId = null; kickTick(); return; }
         // Jagd (Boss in Sicht oder Angreifer): die Lern-Route nicht dazwischen funken lassen – live zog sie den Bot bei
         // Regalecusmon im Wechsel zurück in seine Zone, während der Boss neben ihm kämpfte
+        const qb=!huntOn && !wbOn?digibotQuestBossFocus(st,sc):null;
+        if(qb && (autopilot.task?.key!==qb.task.key || autopilot.task?.loc?.boss!==true || st.target?.id!==qb.mob.id)){
+          autopilot.failed.delete(qb.task.key);
+          if(qb.task.loc.key)autopilot.avoidSpots.delete(qb.task.loc.key);
+          autopilot.reset();autopilot.task=qb.task;autopilot.huntSpecies=qb.task.species;
+          autopilot.route=null;autopilot.tp=null;
+          this.questIdle=false;this.attackedId=null;this.engage=null;
+          if(this.can('select',SELECT_GAP_MS,now)){this.lastPress.select=now;worldScene()?.select?.(qb.mob.id);}
+          this.status=`Autopilot: ${qb.task.label}`;kickTick();return;
+        }
+        const daily = !huntOn && !wbOn ? digibotDailyStep(st,now) : null;
+        if(daily){this.status=`Autopilot: ${daily}`;return;}
         const lv = huntOn || wbOn ? null : levelRouteStep(st, sc, now, attackers);
         if (lv) { this.status = `Leveln: ${lv}`; this.attackedId = null; return; }
         attackers = sc ? sc.attackers.map((m) => m.id) : []; // die Lern-Route nimmt aussichtslose Angreifer heraus
@@ -5954,7 +7823,13 @@
         if (now - autopilot.dlgIdleAt > 1500) { commands()?.closeDialog?.(); autopilot.dlgIdleAt = 0; }
       } else autopilot.dlgIdleAt = 0;
       // Event-Boss in Sicht: kämpfen – auch wenn der Autopilot gerade zur Abgabe will oder die Rotation woanders hin
-      const huntNow = huntPresent(st, sc, now) || wbPresent(st, sc, now);
+      const huntNow = huntPresent(st, sc, now) || wbPresent(st, sc, now) || !!digibotSharedFocus(sc);
+      if(this.questIdle&&cfg.autopilot&&autopilot.bountyReturn&&questTasks(st).some(t=>t.purpose==='turnin'))this.questIdle=false;
+      if(this.questIdle && !huntNow){
+        if(!(cfg.hunt||cfg.wboss)){this.toggle();this.status='Quests fertig – Event-Funktionen ausgeschaltet';return;}
+        if(this.attackedId || this.engage){commands()?.partnerStop?.();this.attackedId=null;this.engage=null;}
+        this.status='Quests fertig – warte auf aktivierte Events';return;
+      }
       farm.leave = cfg.farm && !this.resting && !huntNow && farmGoalElsewhere(st, p, now, sc);
       const noFight = !huntNow && ((cfg.autopilot && !cfg.farm && nextIsTurnin(st, now)) || farm.leave);
       if (group.role() === 'leader') group.noFight = noFight; // Mitläufer kämpfen dann auch nicht
@@ -6005,7 +7880,7 @@
       // Sonst wählt der Bot ein Ziel aus und verwirft es gleich wieder – endlos.
       const lvlOk = info ? info.inLvl : diff <= cfg.lvlDiff;
       const addTarget = !!add && alive && t.id === add.id; // Add des Bosses: immer bekämpfen, auch außerhalb der Level-/Monster-Auswahl
-      const focus = this.resting ? null : huntFocus(sc) || wbFocus(sc) || lrBossFocus(sc) || dungeonFocus(sc) || focusAssist(sc) || farmBossNear(sc); // Leader-Ziel bzw. Boss der Rotation zuerst
+      const focus = this.resting ? null : huntFocus(sc) || wbFocus(sc) || digibotSharedFocus(sc) || digibotQuestBossFocus(st,sc)?.mob || lrBossFocus(sc) || dungeonFocus(sc) || focusAssist(sc) || farmBossNear(sc); // Leader-Ziel bzw. Boss der Rotation zuerst
       const onFocus = !!focus && alive && t.id === focus.id, offFocus = !!focus && !onFocus && !addTarget; // anderes Ziel -> wechseln
       // ohne Weg zum Ziel (Insel, andere Klippenseite) nicht weiter draufhalten – außer Fokus (Boss/Leader-Ziel) und Adds
       const noPath = !!info && info.reach === false && !onFocus && !addTarget;
@@ -6022,11 +7897,11 @@
           // (sonst digitieren in der Gruppe nur die Mitläufer, der Leader in der Rotation nicht).
           const at = autopilot.task;
           const folIdle = group.role() === 'follower' && !at; // Mitläufer zwischen den Kämpfen
-          const questMon = !cfg.apQuestPartner || activePartner(st)?.partnerId === cfg.apQuestPartner;
+          const questMon = !digibotQuestPartner(st) || activePartner(st)?.partnerId === digibotQuestPartner(st);
           const farmEvo = cfg.farm && questMon;
           // Dungeon: vor dem Betreten (an der Tür) und zwischen den Kämpfen – z. B. nach einem Zurück-Digitieren durch Infermon
           if (!attackers.length && (farmEvo || (cfg.dungeon && questMon) || (!cfg.farm && cfg.autopilot && (folIdle || (at?.kind === 'hunt' && st.world?.mapId === at.loc.mapId && questMon))))) {
-            const ev = ensureEvolution(st, cfg.apEvo, now);
+            const ev = autopilotEvolution(st, now);
             if (ev !== true) { this.status = `${cfg.farm ? 'Bosse' : cfg.dungeon ? 'Dungeon' : 'Autopilot'}: ${ev}`; return; }
           }
           // Direkt das beste Ziel anvisieren
@@ -6045,9 +7920,11 @@
           } else if (cfg.autopilot && (!this.resting || noFight)) {
             const s = autopilotStep(st, sc, now);
             if (s === null) {
+              if(digibotQueueComplete(st))return;
               // „nur erledigen, nicht abgeben“: sagen, wie viele fertig auf das Abgeben warten
               const ready = cfg.apNoTurnin ? Object.values(st.me?.quests || {}).filter((q) => q.state === 2).length : 0;
               const why = ready ? `alles erledigt – ${ready} Quest${ready > 1 ? 's' : ''} fertig zum Abgeben (machst du selbst)` : 'keine machbaren Quests mehr';
+              if(this.waitForEvents(why))return;
               this.toggle();
               this.status = `Autopilot: ${why} – Bot gestoppt`;
               logEvent('auto', `${why[0].toUpperCase()}${why.slice(1)} – Bot gestoppt`);
@@ -6096,10 +7973,16 @@
       }
       if (this.mirrorHold) { this.mirrorHold = false; logEvent('auto', 'Spiegel vorbei – greife wieder an'); }
 
+      if(onFocus||info?.cat==='boss'){
+        const walking=digibotBossWalkIn(st,t,now);
+        if(walking){this.status=walking;return;}
+      }
+      const nativeTravel=digibotNativeAttackTravel(st,t,now);
+      if(nativeTravel&&this.engage?.id===t.id)this.engage.since=now;
       // 4) Hängen-Erkennung: verliert das Ziel lange keine HP (unerreichbar?), aufgeben und 1 min sperren.
       //    Angreifer sind ausgenommen – die kommen ja zu uns.
-      if (!this.engage || this.engage.id !== t.id || t.hp < this.engage.hp) {
-        this.engage = { id: t.id, hp: t.hp, since: now };
+      if (!this.engage || this.engage.id !== t.id || t.hp < this.engage.hp || t.maxHp !== this.engage.maxHp || digibotCombat.lastDamage(t.id) > this.engage.since) {
+        this.engage = { id: t.id, hp: t.hp, maxHp:t.maxHp, since: now };
       } else if (!isAttacker && now - this.engage.since > STUCK_MS && onFocus && (huntFocus(sc)?.id === t.id || wbFocus(sc)?.id === t.id)) {
         // Event-/Weltboss (Schutzphase, Formwechsel): nicht sperren – weiter mit Taste 1, Skills erst, wenn er wieder HP verliert
         if (!this.engage.noDmg) { this.engage.noDmg = true; logEvent('warn', `${t.name}: nimmt gerade keinen Schaden – nur Taste 1, Skills warten`); }
@@ -6147,13 +8030,20 @@
       }
       safeState.inZone = false;
 
+      const formationStatus=digibotPositionBoss(st,t,now);
+      if(formationStatus){this.status=formationStatus;this.engage=null;return;}
+
       // 5) Angreifen
-      if (this.attackedId !== t.id || this.can('Digit1', ATTACK_REPEAT_MS, now)) {
-        this.attackedId = t.id;
-        this.hit('Digit1', now);
+      let inputBlocked=null;
+      if ((this.attackedId !== t.id || this.can('Digit1', ATTACK_REPEAT_MS, now)) && !(nativeTravel&&(this.attackedId===t.id||ents?.get?.(p.entityId)?.targetId===t.id))) {
+        if(this.hit('Digit1',now)===false)inputBlocked=digibotLastInputBlock?.reason||'Kampfeingabe zurückgehalten';
+        else this.attackedId=t.id;
       }
       this.status = `${this.resting ? 'Ruhe – beende Kampf' : isAttacker ? 'Wehre ab' : 'Greife an'}: ` +
         `${t.name} Lv ${t.level} (${diff > 0 ? '+' : ''}${diff})`;
+      if(inputBlocked)this.status+=` · ${inputBlocked}`;
+
+      if(nativeTravel){this.status+=' · Annäherung über Spiel-Wegfindung';return;}
 
       // 6) Skills auf 2–6: den ersten aktivierten, bereiten Skill wirken (einer pro Durchgang)
       if (p.evolving || !this.can('skill', SKILL_GAP_MS, now)) return;
@@ -6169,13 +8059,13 @@
         if (!this.can('Digit' + k, SKILL_GAP_MS * 2, now)) continue; // Server-Cooldown noch nicht angekommen
         const why = skillUnsafe(st, t, s.skill, now, Number(String(s.ref).slice(6))); // zu langer Cast vor einer möglichen Boss-Attacke -> nächster Skill
         if (why) { held ||= `${s.skill.name} zurückgehalten: ${why}`; continue; }
-        this.lastPress.skill = now;
-        this.hit('Digit' + k, now);
+        if(this.hit('Digit'+k,now)===false){held=digibotLastInputBlock?.reason||'Kampfeingabe zurückgehalten';break;}
+        this.lastPress.skill=now;
         this.status += ` · Skill ${k}: ${s.skill.name}`;
         held = null;
         break;
       }
-      if (held) this.status += ` · ${held}`;
+      if(held && held!==inputBlocked)this.status+=` · ${held}`;
     },
   };
 
@@ -6239,6 +8129,7 @@
   let panel, getStore;
 
   function render() {
+    digibotQueueRender();
     if (!panel) return;
     const st = getStore()?.getState?.();
     const me = st?.me;
@@ -6317,6 +8208,7 @@
     run.classList.toggle('on', bot.on);
     const mode = modeOf();
     run.textContent = `${bot.on ? '■ Stopp' : '▶ Start'} · ${mode === 'farm' ? (cfg.farmMode === 'named' ? 'Named-Elite-Runde' : 'Boss-Rotation') : MODES[mode]}`;
+    if(digibotAccountQueue.active)run.textContent='■ Quest-Runde stoppen';
     panel.querySelectorAll('[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
     panel.querySelector('[data-act="hunt"]')?.classList.toggle('on', !!cfg.hunt);
     panel.querySelector('[data-act="wboss"]')?.classList.toggle('on', !!cfg.wboss);
@@ -6406,6 +8298,7 @@
   let logShown = -1;
   const hhmmss = (d) => d.toLocaleTimeString('de-DE');
   function renderLog() {
+    digibotRenderHistory();
     if (!panel.querySelector('[data-page="log"]').classList.contains('on') || logShown === logSig) return;
     logShown = logSig;
     const esc = (x) => String(x).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
@@ -6461,7 +8354,7 @@
     fillSelect('apQuestPartner', [['', 'aktuelles behalten'], ...teamOpts]);
     fillSelect('apTurninPartner', [['', 'wie Quest-Digimon'], ...teamOpts]);
     const act = activePartner(st);
-    const evoFor = !cfg.apQuestPartner || act?.partnerId === cfg.apQuestPartner;
+    const evoFor = !digibotQuestPartner(st) || act?.partnerId === digibotQuestPartner(st);
     const evos = evoFor ? (st?.me?.partner?.evolutions || []).filter((e) => !e.isCurrent || e.species !== st.me.partner.species) : [];
     fillSelect('apEvo', [['', 'keine Digitation'], [EVO_MAX, '⬆ höchstmögliche Digitation'], ...evos.map((e) => [e.species,
       `${speciesName(e.species)} (${e.stage}, ab Lv ${e.level}${e.unlocked === false ? ', gesperrt' : ''})`])]);
@@ -6507,7 +8400,7 @@
       const note = `· gilt nur im Modus ${modes.map((x) => MODE_NAMES[x] || x).join(' / ')}`;
       if (el.dataset.offnote !== note) el.dataset.offnote = note;
     });
-    const prof = panel.querySelector('[data-f="prof"]'), txt = cfgUser ? `👤 ${cfgUser}` : '';
+    const prof = panel.querySelector('[data-f="prof"]'), txt = '🌐 Einstellungen für alle Accounts';
     if (prof && prof.textContent !== txt) prof.textContent = txt;
   }
   let farmPickSig = '';
@@ -6624,7 +8517,7 @@
         <input type="checkbox" data-acc="${i}" data-k="on" ${a.on ? 'checked' : ''} title="Beim Gruppenstart dabei">
         <input type="radio" name="digibot-leader" data-accleader="${i}" ${accounts.leader === i ? 'checked' : ''} title="Leader">
         <input type="text" data-acc="${i}" data-k="user" placeholder="Account ${i + 1}: Benutzername" value="${escAttr(a.user)}" autocomplete="off" spellcheck="false">
-        <input type="password" data-acc="${i}" data-k="pass" placeholder="Passwort (optional)" value="${escAttr(a.pass)}" autocomplete="new-password">
+        <input type="password" data-queue-password="${i}" placeholder="Quest-Runde: Passwort bis zum Neuladen" autocomplete="new-password">
         <div class="digibot__accinfo" data-accinfo="${i}">–</div>
       </div>`).join('');
   }
@@ -6632,7 +8525,7 @@
     if (!panel.querySelector('[data-page="acc"]').classList.contains('on')) return;
     const now = Date.now(), C = content();
     accounts.list.forEach((a, i) => {
-      for (const k of ['user', 'pass']) { // von einem anderen Fenster gespeichert -> übernehmen (nicht das Feld, in dem getippt wird)
+      for (const k of ['user']) { // von einem anderen Fenster gespeichert -> übernehmen (nicht das Feld, in dem getippt wird)
         const el = panel.querySelector(`[data-acc="${i}"][data-k="${k}"]`);
         if (el && el !== document.activeElement && el.value !== a[k]) el.value = a[k];
       }
@@ -6893,8 +8786,9 @@
       const k = e.target?.dataset?.grp;
       if (k) { cfg.open = { ...cfg.open, [k]: e.target.open }; saveCfg(); }
     }, true);
-    panel.addEventListener('click', (e) => {
+    panel.addEventListener('click', digibotUserIntent((e) => {
       const act = e.target.closest('[data-act]')?.dataset.act;
+      if(digibotAccountQueue.active && ((act||'').startsWith('grp-')||e.target.closest('[data-gmode]')))return;
       if (act === 'min') { cfg.min = panel.classList.toggle('is-min'); saveCfg(); panel.querySelector('[data-act="min"]').textContent = cfg.min ? '+' : '–'; }
       if (act === 'pip') popOut();
       if (act === 'reset') {
@@ -6917,17 +8811,27 @@
       }
       const gm = e.target.closest('[data-gmode]')?.dataset.gmode;
       if (gm) {
+        digibotCore.enablePassive(digibotManual);
         reloadAcc(); accounts.mirror = gm === 'move' || gm === 'both'; accounts.mirrorAtk = gm === 'both'; accounts.leadBoss = gm === 'boss'; accounts.dungeon = gm === 'dungeon'; saveAcc();
         logEvent('bot', `Gruppe: Modus ${{ bots: 'Quests (Autopilot)', boss: 'Bosse (Rotation)', dungeon: 'Dungeon', move: 'Bewegungen spiegeln', both: 'Bewegungen + Angriffe spiegeln' }[gm]}`);
         schedule();
       }
       const lf = e.target.closest('[data-logf]')?.dataset.logf;
       if (lf) { cfg.logFilter = lf; saveCfg(); logShown = -1; schedule(); }
+      if (act === 'queue-start'){digibotQueueStart(false);return;}
+      if (act === 'queue-resume'){digibotQueueStart(true);return;}
+      if (act === 'queue-stop'){digibotCore.stop('Quest-Runde manuell gestoppt',true);return;}
+      if (act === 'digibot-stop') { groupSend('stop');digibotCore.stop('Not-Aus',true);return; }
+      if (act === 'digibot-export') {digibotExport();return;}
+      if (act === 'digibot-passwords') {digibotClearLegacyPasswords();return;}
       if (act === 'bot') bot.toggle();
+      if (act === 'grp-desktop'){digibotDesktopStart();return;}
+      if (act === 'grp-desktop-stop'){digibotDesktopCancel('Desktopstart manuell abgebrochen',true);digibotDesktopTick();return;}
+      if (act === 'grp-desktop-resume'){digibotDesktopResume();return;}
       if (act === 'grp-start') startGroup();
-      if (act === 'grp-invite' && claimSlot(getStore()?.getState?.())) { if (group.role() === 'leader') partyInviteNow(); else groupSend('invite'); }
+      if (act === 'grp-invite' && claimSlot(getStore()?.getState?.())) {digibotCore.enablePassive(digibotManual);digibotCore.runPassive('Gruppe',20,()=>{if(group.role()==='leader')partyInviteNow();else groupSend('invite');});}
       if (act === 'grp-maptalk' && claimSlot(getStore()?.getState?.())) { groupSend('maptalk'); startMapTalk('Gruppe: Abgeben & Annehmen auf dieser Map'); }
-      if (act === 'grp-login') loginGroup();
+      if (act === 'grp-login') openGroupWindows();
       if (act === 'grp-stop') stopGroup();
       if (act === 'mobs-all') setAllMobs(true);
       if (act === 'log-copy') copyLog(e.target);
@@ -6947,12 +8851,19 @@
         e.target.blur();
         schedule();
       }
-    });
+    }));
     panel.addEventListener('input', (e) => {
+      if(e.target.dataset.queuePassword !== undefined){
+        const row=accounts.list[Number(e.target.dataset.queuePassword)];
+        const user=String(row?.user||'').trim().toLowerCase();
+        if(user){if(e.target.value)digibotQueuePasswords.set(user,e.target.value);else digibotQueuePasswords.delete(user);}
+        return;
+      }
       const ai = e.target.dataset.acc;
       if (ai !== undefined) {
         reloadAcc();
         const k = e.target.dataset.k;
+        if(!['user','on'].includes(k))return;
         accounts.list[Number(ai)][k] = k === 'on' ? e.target.checked : e.target.value;
         saveAcc();
         if (k === 'on') e.target.blur();
@@ -6966,6 +8877,7 @@
         return;
       }
       if (e.target.matches('[data-accslot]')) {
+        if(digibotAccountQueue.active){e.target.value='';return;}
         const v = e.target.value;
         if (v === '') { ss.set('digibot.group', null); group.msg = ''; logEvent('bot', 'Gruppe: dieses Fenster ist in keiner Gruppe mehr'); }
         else {
@@ -6973,14 +8885,7 @@
           group.talks = []; group.handled = new Set(); group.done = []; group.cur = null; group.leaderPos = null; group.msg = '';
           autopilot.reset();
           logEvent('bot', `Gruppe: dieses Fenster ist jetzt Account ${Number(v) + 1}${accounts.list[v]?.user ? ` (${accounts.list[v].user})` : ''} – ${group.role() === 'leader' ? 'Leader' : 'Mitläufer'}`);
-          // Noch nicht in der Welt (Login oder Charakterauswahl, z. B. neuer Tab mit dem Account des anderen Tabs):
-          // falschen Account abmelden, diesen einloggen und den Charakter betreten. In der Welt passiert nichts.
-          const acc = accounts.list[v], cst = getStore()?.getState?.();
-          if (acc?.user?.trim() && cst && cst.screen !== 'world') {
-            ss.set('digibot.login', '1');
-            group.login = { at: 0, tries: 0, outAt: 0, enterAt: 0, msg: '' };
-            logEvent('bot', `Gruppe: melde dieses Fenster als ${acc.user.trim()} an`);
-          }
+
         }
         e.target.blur();
         groupPush(true);
@@ -7110,14 +9015,14 @@
     });
     // Tastenkürzel: Alt+D oder Alt+H blendet das Panel ein/aus, Alt+B startet/stoppt den Bot. Alt+D springt in Chrome
     // sonst zusätzlich in die Adresszeile – das wird hier unterbunden.
-    window.addEventListener('keydown', (e) => {
+    window.addEventListener('keydown', digibotUserIntent((e) => {
       if (!e.isTrusted || !e.altKey) return;
       if (e.code === 'KeyD' || e.code === 'KeyH') {
         e.preventDefault(); e.stopPropagation();
         panel.style.display = panel.style.display === 'none' ? '' : 'none';
       }
       if (e.code === 'KeyB') { e.preventDefault(); bot.toggle(); }
-    }, true);
+    }), true);
   }
 
   // ---------- Start: warten bis das Spiel seinen Store bereitstellt ----------
@@ -7127,12 +9032,18 @@
     if (!store?.subscribe) return;
     clearInterval(boot);
     mount();
+    digibotDesktopBootstrap();
+    digibotObserve();
+    setInterval(digibotObserve, 500);
+    setInterval(digibotDesktopTick,500);
+    setInterval(digibotQueueTick, 1000);
+    window.addEventListener('keydown',e=>{if(e.isTrusted&&e.code==='Escape'){groupSend('stop');digibotCore.stop('Not-Aus',true);}},true);
     store.subscribe(schedule);
     if (cfg.autopilot || cfg.farm) setTimeout(loadWorld, 2000);
     setInterval(schedule, 250); // Fallback, falls ein Update am Store vorbeiläuft
-    setInterval(groupTick, 1000); // Gruppe: Meldungen, Login, Party, Autostart
-    setInterval(() => groupPush(), 150); // Gruppe: Änderungen sofort melden
-    setInterval(mirrorTick, 100);   // Gruppe: Bewegungen des Leaders spiegeln
+    setInterval(() => {const st=getStore()?.getState?.();if(st?.screen==='world'&&st.me)digibotCore.runPassive('Gruppe',20,groupTick);}, 1000); // Gruppe: Meldungen, Login, Party, Autostart
+    setInterval(() => groupPush(), 500); // Gruppe: Änderungen sofort melden
+    setInterval(() => {const st=getStore()?.getState?.();if(st?.screen==='world'&&st.me&&group.active()&&accounts.mirror)digibotCore.runPassive('Spiegeln',10,mirrorTick);}, 100);   // Gruppe: Bewegungen des Leaders spiegeln
     render();
   }, 300);
 })();

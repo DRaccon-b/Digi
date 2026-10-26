@@ -14,6 +14,9 @@ function setup(cfg) {
   const F = w.__fake, scene = w.dmo.game.scene.getScene('world');
   const taps = [], follows = [], keys = [];
   scene.tapGround = (x, y) => taps.push({ x, y });
+  // 3.0.0: Grundangriff-Reichweite wie in den Spieldaten (für die Angriffsposition draußen)
+  scene.deps.content.digimon.gabumon = { ...(scene.deps.content.digimon.gabumon || {}), name: 'Gabumon', radius: 7, basic: { range: 30 } }; F.ents.get('p:me').defId = 'gabumon';
+  { const me = F.store.getState().me; F.store.setState({ me: { ...me, partner: { ...me.partner, species: 'gabumon' } } }); }
   scene.telegraphs = { active: [], mirrors: [] };
   scene.mechB = { lines: [] };
   scene.deps.commands = { partnerFollow: () => follows.push(Date.now()) };
@@ -57,7 +60,7 @@ function setup(cfg) {
     const m1 = E.F.ents.get('m:1'); m1.x = 700; m1.y = 512;
     E.F.store.setState({ target: E.F.toTarget('m:1') });
     // Kreis um den Tamer + senkrechter Strahl bei x=600 (zwischen Tamer und Ziel)
-    E.scene.telegraphs.active = [{ x: 515, y: 512, r: 40 }];
+    E.scene.telegraphs.active = [{ x: 515, y: 512, r: 40 }]; E.scene.telegraphs.circles = [{ x: 515, y: 512, r: 40, end: E.w.performance.now() + 4000 }]; // mit Endzeit wie im Spiel
     E.scene.mechB.lines = [{ fx: 600, fy: 380, tx: 600, ty: 640, r: 10, end: E.w.performance.now() + 60000, skill: {} }];
     E.start();
     await wait(700);
@@ -68,7 +71,7 @@ function setup(cfg) {
     E.scene.telegraphs.active = [{ x: 515, y: 400, r: 40 }];
     await wait(700);
     const k1 = E.keys.filter((k) => k.code === 'Digit1').length;
-    check('Linie blockiert: wartet', /Warte außerhalb/.test(E.status()), E.status());
+    check('Linie blockiert: wartet', /Warte außerhalb|Nähere mich über sicheren Weg/.test(E.status()), E.status()); // 3.0.0: oder sicher heranlaufen, ohne Angriff
     E.scene.mechB.lines = [];
     await wait(1200);
     const k2 = E.keys.filter((k) => k.code === 'Digit1').length;

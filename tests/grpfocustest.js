@@ -14,7 +14,7 @@ async function run({ lowHp = false, strong = false } = {}) {
   F.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: true, apGrind: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'acc', lvlDiff: 5 }));
   if (lowHp) { const s = F.store.getState(); F.store.setState({ me: { ...s.me, partner: { ...s.me.partner, hp: 900 } } }); }
   F.w.eval(script);
-  const bus = new BroadcastChannel('digibot-group');
+  const bus = require('./groupbus')('digibot-group');
   const tick = setInterval(() => bus.postMessage({ type: 'state', slot: 0, role: 'leader', name: 'Lead', inWorld: true, mapId: 'native_forest', channel: 1, x: 440, y: 330,
     bot: true, status: 'x', quests: {}, fin: ['q00_meet_gennai', 'q02_first_steps'], ents: [], talks: [], done: [], busy: null, noFight: false, task: null, hunt: [], targetId: 'm:1' }), 300);
   await wait(1200);

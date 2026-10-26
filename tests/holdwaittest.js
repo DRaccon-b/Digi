@@ -18,7 +18,7 @@ const L = makeWorld({ slot: 0, tag: 'L', accounts, mobs: [],
   } });
 L.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: true, apGrind: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'acc' }));
 L.w.eval(script);
-const bus = new BroadcastChannel('digibot-group');
+const bus = require('./groupbus')('digibot-group');
 const tick = setInterval(() => bus.postMessage({ type: 'state', slot: 1, role: 'follower', name: 'Foll', inWorld: true, mapId: 'native_forest', channel: 1, x: 420, y: 330,
   bot: true, status: 'x', quests: { q_s: { state: 1, counters: [0] } }, ents: ['t:f'], talks: [], done: [], busy: null, task: null, hunt: [], targetId: null, fight: false }), 300);
 (async () => {

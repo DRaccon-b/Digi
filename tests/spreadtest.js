@@ -14,7 +14,7 @@ async function run(spread, mobs = [[410, 330], [470, 300], [500, 360]]) {
   setInterval(() => { for (const m of F.ents.values()) if (m.kind === 2) { m.hp = 300; m.targetId = ''; } }, 50);
   F.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: true, apGrind: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'acc' }));
   F.w.eval(script);
-  const bus = new BroadcastChannel('digibot-group');
+  const bus = require('./groupbus')('digibot-group');
   const tick = setInterval(() => bus.postMessage({ type: 'state', slot: 0, role: 'leader', name: 'Lead', inWorld: true, mapId: 'native_forest', channel: 1, x: 400, y: 330,
     bot: true, status: 'x', quests: { q_k: { state: 1, counters: [0] } }, fin: ['q00_meet_gennai', 'q02_first_steps'], ents: [], talks: [], done: [], busy: null, noFight: false, task: null, hunt: ['kunemon'], targetId: 'm:1' }), 300);
   await wait(1200);

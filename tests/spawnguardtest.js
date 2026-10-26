@@ -42,7 +42,7 @@ function world(slot, accounts, cfgExtra) {
   {
     const acc = { leader: 0, popup: true, mirror: true, mirrorAtk: true, list: [{ on: true, user: 'l', char: 'Lead' }, { on: true, user: 'f', char: 'Foll' }] };
     const F = world(1, acc, {});
-    const bus = new BroadcastChannel('digibot-group');
+    const bus = require('./groupbus')('digibot-group');
     await wait(1200);
     for (const id of [...F.ents.keys()]) if (id.startsWith('m:')) F.ents.delete(id);
     const t0 = Date.now();

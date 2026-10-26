@@ -15,7 +15,7 @@ scene.deps.commands = { partnerFollow() {} };
 scene.deps.assetsBase = '/assets/';
 scene.deps.manifest = { maps: { native_forest: { tmj: 'maps/native_forest.tmj' } } };
 // Schutzzone um den Tamer (480..560 x 470..540), Ziel m:1 bei 560,470 liegt am Rand -> wird verschoben
-w.fetch = async () => ({ json: async () => ({ layers: [{ type: 'objectgroup', objects: [{ type: 'safe', name: 'gate', x: 470, y: 480, width: 80, height: 60 }] }] }) });
+w.fetch = async () => ({ ok: true, status: 200, json: async () => ({ layers: [{ type: 'objectgroup', objects: [{ type: 'safe', name: 'gate', x: 470, y: 480, width: 80, height: 60 }] }] }) });
 for (const id of ['m:2', 'm:3', 'm:4', 'm:5', 'm:6']) F.ents.delete(id);
 const m1 = F.ents.get('m:1'); m1.x = 640; m1.y = 510;
 const keys = [];
