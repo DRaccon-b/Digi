@@ -2,6 +2,13 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.0.3 – Map für Map: pro Map abgeben, längeres Log
+- **Abgeben pro Map:** In der Map-für-Map-Runde mit „erst alles erledigen, dann abgeben“ halten nur noch offene Ziele
+  von Quests der aktuellen Runden-Map die Abgaben auf. Vorher blockierte jede offene Quest irgendwo (z. B. eine
+  liegengebliebene von drei Maps vorher oder eine Bounty) alle Abgaben – fertige Quests sammelten sich über mehrere
+  Maps an. Jetzt: annehmen → Ziele dieser Map → hier abgeben → Reste anderer Maps → nächste Map.
+- **Längeres Log:** Das Protokoll hält jetzt 2 000 statt 300 Einträge (300 reichten keine 10 Minuten).
+
 ## 3.0.2 – Kein Stopp mehr an der Wand, Test-Boss
 - **„Alles nicht erreichbar“ behoben:** Stand der Tamer nach einem Kampf dicht an einer Wand (unter 7 px), fiel jede
   Laufprüfung schon am Startpunkt durch – der Bot übersprang im Sekundentakt jede Aufgabe als „nicht erreichbar“ und

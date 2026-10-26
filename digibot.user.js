@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.0.2
+// @version      3.0.3
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1476,7 +1476,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.0.2'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.0.3'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1861,7 +1861,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
 
   // ---------- Protokoll ----------
-  const LOG_MAX = 300;
+  const LOG_MAX = 2000; // 3.0.3: länger aufheben (300 reichten keine 10 min – Ursachen waren schon überschrieben)
   const LOG_COLORS = { bot: '#4dabf7', kill: '#2ecc71', potion: '#f783ac', auto: '#ffd43b', quest: '#fab005',
     map: '#3bc9db', level: '#69db7c', warn: '#ff6b6b' };
   const logbook = [];
@@ -4985,15 +4985,20 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const bossRank=(t)=>!t.loc?.boss?(t.grind?3:1):t.bossIdle>BOSS_IDLE_DEFER_MS?2:0;
     // A nearby reward NPC never outranks another feasible objective, including on another map.
     // (nicht mitten in der Abgabe-Phase: begonnene Abgaben werden alle erledigt, auch wenn eine neue Quest schon offen ist)
-    if(cfg.apBatch && autopilot.batchPhase!=='turnin' && available.some(t=>!t.grind && taskPhase(t)===2))available=available.filter(t=>t.purpose!=='turnin');
+    // Map-für-Map-Runde (3.0.3): abgegeben wird pro Map – nur offene Ziele von Quests DIESER Map halten die Abgaben auf;
+    // Reste anderer Maps (z. B. Bounties, liegengebliebene Quests) kommen erst nach den Abgaben hier (Phase 4)
+    const localDo=(t)=>!t.grind&&taskPhase(t)===2&&(!M||digibotQuestOfMap(t,M));
+    if(cfg.apBatch && autopilot.batchPhase!=='turnin' && available.some(localDo))available=available.filter(t=>t.purpose!=='turnin');
     return available
       .map((t) => { const same=sameNpc(t);return {...t,sameNpc:same,cost:hops(mapId,t.loc.mapId)*10+t.prio,
         // Gespräche beim selben NPC zuerst (Abgeben/Annehmen in einem Besuch), auch im Batch-Modus
-        phase:same?-1:M && !(cfg.apBatch && autopilot.batchPhase==='turnin')?taskPhase(t):cfg.apBatch?batchRank(t,mapId):0}; })
+        phase:same?-1:M && !(cfg.apBatch && autopilot.batchPhase==='turnin')?(taskPhase(t)===2&&!t.grind&&!digibotQuestOfMap(t,M)?4:taskPhase(t)):cfg.apBatch?batchRank(t,mapId):0}; })
       .sort((a,b)=>a.phase-b.phase || Number(b.sameNpc)-Number(a.sameNpc) || bossRank(a)-bossRank(b) || (a.loc?.boss&&b.loc?.boss&&a.bossEta!==b.bossEta?a.bossEta-b.bossEta:0) || a.cost-b.cost);
 
   }
-  // Phasen der Map-für-Map-Runde: 1 = Quests annehmen, 2 = Ziele erledigen, 3 = abgeben.
+  // Gehört die Aufgabe zu einer Quest der Runden-Map M? (Geber steht dort)
+  const digibotQuestOfMap = (t, M) => !!t.def && questOnMap(t.def, M);
+  // Phasen der Map-für-Map-Runde: 1 = Quests annehmen, 2 = Ziele erledigen, 3 = abgeben, 4 = Reste anderer Maps.
   // So wird pro Map erst alles angenommen, dann alles erledigt und ganz zum Schluss abgegeben –
   // Digimon-Wechsel und Zurück-Digitation passieren nur einmal, beim Übergang zum Abgeben.
   const taskPhase = (t) => (t.purpose === 'accept' || t.purpose === 'daily' ? 1 : t.purpose === 'turnin' ? 3 : 2);
@@ -5673,7 +5678,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if(!mt && t?.def?.pool && questTasks(st).some(o=>!o.def?.pool)){
       autopilot.reset();t=null;
     }
-    if(cfg.apBatch && !mt && t?.purpose==='turnin' && questTasks(st).some(o=>!o.grind && taskPhase(o)===2)){autopilot.reset();t=null;}
+    const sweepM=cfg.apOrder==='sweep'?autopilot.sweepAt:null;
+    if(cfg.apBatch && !mt && t?.purpose==='turnin' && questTasks(st).some(o=>!o.grind && taskPhase(o)===2 && (!sweepM||digibotQuestOfMap(o,sweepM)))){autopilot.reset();t=null;}
     if (!t && mt) { // Abgeben & Annehmen: nur Gespräche auf dieser Map
       t = autopilot.task = questTasks(st).find((o) => o.kind === 'talk' && (o.purpose === 'turnin' || o.purpose === 'accept' || o.purpose === 'objective') && o.loc?.mapId === mt.mapId) || null;
       if (!t) { endMapTalk(); return 'Abgeben & Annehmen fertig'; }
