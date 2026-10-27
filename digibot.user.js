@@ -2567,6 +2567,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // dann bis zum Kreisende untätig herum (2.32.1). Ein schon begonnener Lauf wird abgebrochen, wenn noch viel Zeit bleibt.
     if (!approaching && (!target || !partner || Math.hypot(partner.x-target.x,partner.y-target.y)<=DODGE_HOLD_RANGE) && inside.length && lefts.length === inside.length && !kohBlockPending(now)) {
       const runMs = Math.hypot(best.x - me.x, best.y - me.y) / walkSpeed * 1000;
+      // Puffer bewusst fest 1,5 s: ein kürzerer (Latenz + 250 ms, min. 0,7 bzw. 1,2 s) brachte beim Dark Roar (3 s, 40 px)
+      // zwar ~20 % mehr Schaden, aber in Gruppe/Raid erste Treffer durch Black Rain/Demon Flame (Test-Boss, 2026-10-27)
       const spare = left - (runMs * DODGE_LATE_K + DODGE_LATE_PAD_MS);
       if (spare > 0 && (!keep || spare > DODGE_LATE_ABORT_MS)) {
         if (keep && me) { worldScene()?.tapGround?.(me.x, me.y); autopilot.nav = null; autopilot.route = null; } // begonnenen Lauf stoppen
