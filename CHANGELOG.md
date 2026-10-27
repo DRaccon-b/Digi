@@ -2,6 +2,13 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.0.9 – Warteplatz für Event und Weltboss
+- **Warteplatz** (Reiter Bosse → „Event & Weltboss“): Wohin der Bot geht, solange kein Event und kein Weltboss fällig ist –
+  im Modus „Nur Event/WB“ und wenn der Autopilot mit allen Quests fertig ist und auf Events wartet. Zum Beispiel
+  **The Network**: dort wird kein Tamer-DS abgezogen. „stehen bleiben“ = dort warten, wo er gerade ist. Ist ein
+  Event/Weltboss fällig, reist er von dort hin und kehrt danach zurück. Ist der Warteplatz nicht erreichbar, wartet er
+  5 min lang dort, wo er ist. Die Einstellung wandert mit in Presets.
+
 ## 3.0.8 – Kleine Warnkreise: am Kreisrand weiterkämpfen
 - Steht das Digimon absichtlich an der Angriffsposition knapp vor dem Kreisrand (8 px Reserve), jagt das Ausweichen es
   nicht mehr mit der vollen 28-px-Reserve gleich wieder weg (vorher: zweite Flucht 0,3 s vor dem Einschlag). Und „Ziel

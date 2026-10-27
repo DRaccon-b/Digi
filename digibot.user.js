@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.0.8
+// @version      3.0.9
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1306,6 +1306,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     hunt: false,          // Event (Mega-Jagd): zum angesagten Weltboss reisen, ihn suchen und bekämpfen – in jedem Modus
     wboss: false,         // Weltboss (z. B. BlackWarGreymon): beide Kanäle nach Spawnzeit abarbeiten – in jedem Modus
     eventsOnly: false,    // Modus „Nur Event/Weltboss“: nichts anderes tun, nur auf Event und Weltbosse warten (3.0.4)
+    eventsIdleMap: '',    // Warteplatz beim Warten auf Event/Weltboss ('' = stehen bleiben; z. B. 'network' – dort kein Tamer-DS-Verlust) (3.0.9)
     routeStart: '',       // Named-Runde: Start-Map (leer = niedrigste)
     routeEnd: '',         // Named-Runde: End-Map (leer = höchste)
     open: {},             // auf-/zugeklappte Gruppen im Panel
@@ -1479,7 +1480,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.0.8'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.0.9'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1641,6 +1642,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
             <label>Modus<select data-apsel="dgMode"><option value="easy">Easy – War Game</option><option value="hard">Hard – Revenge (Gruppe)</option><option value="apocalymon">Apocalymon-Raid</option><option value="malomyotismon">MaloMyotismon-Raid</option></select></label>
           </div>`, true,
           'Gilt für den Modus Dungeon: zur Tür auf der Map Network, betreten (in der Gruppe nur der Leader, die anderen kommen mit), Raum 1: Terminals schützen – Tsumemon, die zu einem Terminal laufen, zuerst; dann durchs Tor, Boss Keramon (Chrysalimon, Infermon) und zum Ausgang. Ausweichen, Spiegel und Skill-Timing wie bei Bossen. Hard (Revenge): Diaboromon mit Uhr, dann Armageddemon mit Kuramon-Herde – der geteilte Treffer (240 % der HP) ist allein tödlich, also nur in der Gruppe sinnvoll. Apocalymon-Raid: über Spiral Summit zur Tür, digitieren, betreten, Megadramon-Adds zuerst, dann Apocalymon; nach dem Sieg wieder hinaus. MaloMyotismon-Raid genauso über Myotismon Castle: Phantomon und Illusionstürme zuerst, dann MaloMyotismon.', 'data-modes="dungeon"')}
+        ${grp('events', 'Event &amp; Weltboss', `
+          <div class="digibot__apcfg">
+            <label>Warteplatz<select data-apsel="eventsIdleMap"></select></label>
+          </div>`, true,
+          'Wohin der Bot geht, solange kein Event und kein Weltboss fällig ist – im Modus „Nur Event/WB“ und wenn der Autopilot mit allen Quests fertig ist und auf Events wartet. Zum Beispiel The Network: dort wird kein Tamer-DS abgezogen. „stehen bleiben“ = dort warten, wo er gerade ist. Ist ein Event/Weltboss fällig, reist er von dort hin und kehrt danach zurück.')}
         ${grp('timers', 'Timer', `<div class="digibot__timers" data-f="timers"><div class="digibot__none">Keine Bosse ausgewählt.</div></div>`, true,
           'Aus dem Boss-Fenster des Spiels, der Map-Info deines Kanals und eigenen Siegen. ★ = aktuelles Ziel, „hier“ = dein Standort.', 'data-modes="farm"')}
         ${grp('bosspick', 'Bosse auswählen', `<input class="digibot__search" type="text" data-bosssearch placeholder="🔍 Boss oder Map suchen…" autocomplete="off" spellcheck="false">
@@ -8073,12 +8079,15 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if(this.questIdle && !huntNow){
         if(!(cfg.hunt||cfg.wboss)){this.toggle();this.status='Quests fertig – Event-Funktionen ausgeschaltet';return;}
         if(this.attackedId || this.engage){commands()?.partnerStop?.();this.attackedId=null;this.engage=null;}
+        { const it = digibotIdleTravel(st, now); if (it) { this.status = `Quests fertig – ${it}`; return; } }
         this.status='Quests fertig – warte auf aktivierte Events';return;
       }
       // Modus „Nur Event/Weltboss“: außer Event und Weltboss nichts tun (keine Monster suchen, nicht grinden)
       if(cfg.eventsOnly && !huntNow){
         if(this.attackedId || this.engage){commands()?.partnerStop?.();this.attackedId=null;this.engage=null;}
-        this.status=!(cfg.hunt||cfg.wboss)?'Nur Event/Weltboss: 🎯 Event und 🌍 Weltboss sind aus – nichts zu tun':`Nur Event/Weltboss: warte auf ${[cfg.hunt&&'Event',cfg.wboss&&'Weltboss'].filter(Boolean).join(' und ')}…`;
+        { const it = digibotIdleTravel(st, now); if (it) { this.status = `Nur Event/Weltboss: ${it}`; return; } }
+        const where = cfg.eventsIdleMap && st.world?.mapId === cfg.eventsIdleMap ? ` am Warteplatz ${content()?.maps?.[cfg.eventsIdleMap]?.name || cfg.eventsIdleMap}` : '';
+        this.status=!(cfg.hunt||cfg.wboss)?'Nur Event/Weltboss: 🎯 Event und 🌍 Weltboss sind aus – nichts zu tun':`Nur Event/Weltboss: warte${where} auf ${[cfg.hunt&&'Event',cfg.wboss&&'Weltboss'].filter(Boolean).join(' und ')}…`;
         return;
       }
       farm.leave = cfg.farm && !this.resting && !huntNow && farmGoalElsewhere(st, p, now, sc);
@@ -8620,6 +8629,26 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       ? [['', cfg.apSweepDir === 'up' ? 'niedrigste erreichbare' : 'höchste erreichbare'], ...sweepList().map((m) => [m.id,
         `${seriesTag(m.series)} · ${m.name} (${m.levelRange?.join('–')})${hops(st?.world?.mapId, m.id) === Infinity ? ' – nicht erreichbar' : ''}`])]
       : [['', 'Weltkarte lädt…']]);
+    fillSelect('eventsIdleMap', world.state === 'ready'
+      ? [['', 'stehen bleiben'], ...Object.values(content()?.maps || {}).filter((m) => world.maps[m.id] && !isRaidMap(m.id) && !/^sandbox/.test(m.id) && mapOpen(st, m.id))
+        .sort((a, b) => a.name.localeCompare(b.name)).map((m) => [m.id, `${m.name}${hops(st?.world?.mapId, m.id) === Infinity ? ' – nicht erreichbar' : ''}`])]
+      : [['', 'Weltkarte lädt…']]);
+  }
+  // Warteplatz (3.0.9): solange kein Event/Weltboss fällig ist, zur eingestellten Map reisen (z. B. The Network – kein
+  // Tamer-DS-Verlust). Liefert den Reise-Status, null = schon dort oder keiner eingestellt.
+  function digibotIdleTravel(st, now) {
+    const mapId = cfg.eventsIdleMap;
+    if (!mapId || !content()?.maps?.[mapId] || world.state !== 'ready' || st.world?.mapId === mapId) return null;
+    if ((autopilot.failed.get(`idle:${mapId}`) || 0) > now) return null;
+    const name = content()?.maps?.[mapId]?.name || mapId;
+    const tr = travel(st, mapId, now);
+    if (tr === true) return null;
+    if (tr === 'Keine Route' || tr === 'Portal nicht erreichbar') {
+      autopilot.failed.set(`idle:${mapId}`, now + TASK_BAN_MS);
+      logEvent('warn', `Warteplatz ${name}: ${tr} – warte hier (5 min)`);
+      return null;
+    }
+    return `zum Warteplatz ${name} · ${tr}`;
   }
 
   // Reiter "Quests": aktive Quests mit Zielen und Fortschritt
