@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.0.6
+// @version      3.0.7
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1479,7 +1479,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.0.6'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.0.7'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2029,7 +2029,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function tankable(sk, p, srcId) {
     const dmg = cfg.tank ? skillDamage(sk, srcId) : null;
     // nie tanken, was mehr als Schaden macht: packen (Tentacle Bug), zurück-digitieren, markieren, teilen, Debuffs
-    if (!dmg || sk.innerRadius || sk.islands || sk.trap || sk.scatter || sk.chargeRing || sk.grab || sk.devolve || sk.share || sk.mark || sk.reflect || (sk.effects || []).length || !p?.maxHp) return false;
+    // dazu Tamers-/Event-Mechaniken (3.0.7): Hinrichtung (execute), Heranziehen (pull), Stolpern (trip), Explosion nach Stapeln (detonate), Aussaugen (drain)
+    if (!dmg || sk.innerRadius || sk.islands || sk.trap || sk.scatter || sk.chargeRing || sk.grab || sk.devolve || sk.share || sk.mark || sk.reflect || sk.execute || sk.pull || sk.trip || sk.detonate || sk.drain || (sk.effects || []).length || !p?.maxHp) return false;
     return dmg <= p.maxHp * TANK_MAX_PCT / 100 && (p.hp - dmg) >= p.maxHp * TANK_KEEP_PCT / 100;
   }
   function tankNow(now) {
@@ -4513,8 +4514,19 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     try { localStorage.setItem(doneKey(), JSON.stringify(d)); } catch {}
   }
   // Serie (Adventure / Adventure 02): Quests a2…_ gibt es nur in Welten der Serie 2 (wie im Spiel)
-  const questSeries = (id) => (/^a2[a-z]?_/.test(id) ? 2 : 1);
+  const questSeries = (id) => (/^a3[a-z]?_/.test(id) ? 3 : /^a2[a-z]?_/.test(id) ? 2 : 1);
   const worldSeries = (st) => st?.world?.series ?? content()?.maps?.[st?.world?.mapId]?.series ?? 1;
+  const SERIES_NAMES = { 1: 'Adventure', 2: 'Adventure 02', 3: 'Tamers' };
+  const seriesTag = (n) => ({ 1: 'A1', 2: 'A02', 3: 'A3' }[n ?? 1] || `S${n}`);
+  // Map freigeschaltet? Jede Map mit entryQuest (alle A02-/Tamers-Maps) ist erst betretbar, wenn diese Quest angenommen
+  // oder erledigt ist (3.0.7). Sonst zogen Weltboss-Knopf, Named-Runde, Lern-Route und Map-Runde die Tamers-Maps
+  // (Megidramon Lv 120, Jeri Agent Lv 128) heran, obwohl das Tor noch zu ist.
+  function mapOpen(st, mapId) {
+    const q = content()?.maps?.[mapId]?.entryQuest;
+    if (!q) return true;
+    const s = st || getStore()?.getState?.();
+    return (s?.me?.quests?.[q]?.state ?? 0) >= 1;
+  }
   // Für wiederholte Quests zählt im Spiel das höchste Level im Team
   const teamLevel = (st) => (st?.archive?.partners || []).reduce((m, p) => (p.carried ? Math.max(m, p.level || 0) : m), st?.me?.partner?.level ?? 1);
   function repeatAvailable(def, q) {
@@ -4594,7 +4606,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     let best = null, bestD = -1, bestDna = false;
     for (const e of evos) {
       const c = chain(e);
-      if (!c.some((x) => x.species === p.species) || c.some((x) => x.unlocked === false || x.selected === false)) continue; // anderer Ast / gesperrt
+      // anderer Ast / gesperrt / vom Spiel blockiert (Reaper auf Tamers-Maps, Dark Tower): nicht erreichbar (3.0.7)
+      if (!c.some((x) => x.species === p.species) || c.some((x) => x.unlocked === false || x.selected === false || x.blocked)) continue;
       if (e.level && (p.level ?? 0) < e.level) continue;
       if (!dnaOk(c)) continue; // DNA-Partner fehlt
       const dna = c.some(isDna);
@@ -4621,7 +4634,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (!target) return note('Form im aktuellen Spielzustand nicht verfügbar');
     if(target.unlocked===false)return note(`gesperrt (${target.lock||'Voraussetzungen fehlen'})`);
     const warp=!!(cfg.evoWarp && target.warp && !target.warp.blocker && !lrDarkMap(st));
-    if(target.blocked && !warp)return note(target.blockReason==='dark_tower'?'durch Dark Tower blockiert':target.blockReason==='reaper'?'durch Reaper blockiert':'vom Spiel blockiert');
+    if(target.blocked && !warp){
+      // Reaper (Tamers-Maps): DNA-/Super-Ultimate-Formen anderer Welten gehen dort nicht, Mega schon – statt in der
+      // Grundform zu bleiben, die höchste freie Form nehmen (3.0.7)
+      if(target.blockReason==='reaper'){const alt=maxEvolution(p);if(alt&&alt!==species){note(`durch Reaper blockiert – digitiere stattdessen zu ${speciesName(alt)}`);return ensureEvolution(st,alt,now);}}
+      return note(target.blockReason==='dark_tower'?'durch Dark Tower blockiert':target.blockReason==='reaper'?'durch Reaper blockiert':'vom Spiel blockiert');
+    }
     let step = target;
     for (let i = 0; !warp && i < 8 && step && step.from !== p.species; i++) step = evos.find((e) => e.species === step.from);
     if (!step || step.unlocked === false) return true; // Ziel liegt auf einem anderen Ast
@@ -4784,7 +4802,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // wie das Digi-Phone: zuerst nach Serie (Feld series, fehlt = Adventure), dann nach Level – sonst landet z. B.
     // Spiral Mountain (Adventure, Lv 53–56) mitten zwischen den Adventure-02-Maps
     const list = Object.values(content()?.maps || {})
-      .filter((m) => world.maps[m.id] && !isRaidMap(m.id) && !/^sandbox/.test(m.id))
+      .filter((m) => world.maps[m.id] && !isRaidMap(m.id) && !/^sandbox/.test(m.id) && mapOpen(null, m.id))
       .sort((a, b) => (b.series ?? 1) - (a.series ?? 1) || (b.levelRange?.[0] ?? 0) - (a.levelRange?.[0] ?? 0) || (b.levelRange?.[1] ?? 0) - (a.levelRange?.[1] ?? 0)
         || a.name.localeCompare(b.name));
     return cfg.apSweepDir === 'up' ? list.reverse() : list;
@@ -5038,7 +5056,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         if(!M)return true;if(t.grind)return false;
         return t.purpose==='daily'?t.loc.mapId===M:questOnMap(t.def,M);
       })
-      .filter((t) => (autopilot.failed.get(t.key) || 0) < now && hops(mapId, t.loc.mapId) < Infinity);
+      .filter((t) => (autopilot.failed.get(t.key) || 0) < now && hops(mapId, t.loc.mapId) < Infinity && mapOpen(st, t.loc.mapId));
     // Cache ETA once per planning pass; all boss objectives use confirmed timers,
     // independent of quest-log order or how far away the NPC list places them.
     available=available.map(t=>({...t,bossEta:digibotQuestBossETA(st,t,now),bossIdle:digibotQuestBossIdle(st,t,now)}));
@@ -5544,6 +5562,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function travel(st, mapId, now, viaPhone = false) {
     const cur = st.world?.mapId;
     if (cur === mapId) { autopilot.tp = null; return true; }
+    if (!mapOpen(st, mapId)) { // Tor noch zu (Einstiegsquest nicht angenommen): wie „keine Route“ behandeln
+      if (travel.lockedNote !== mapId) { travel.lockedNote = mapId; logEvent('warn', `${content()?.maps?.[mapId]?.name || mapId}: noch nicht freigeschaltet (Einstiegsquest fehlt) – keine Reise`); }
+      return 'Keine Route';
+    }
     if (cfg.apTeleport || viaPhone) {
       const tp = tryTeleport(st, mapId, now);
       if (tp) return tp;
@@ -6448,7 +6470,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const WB_LEAD_MS = 6 * 60000, WB_CHANNELS = [1, 2], WB_MISS_MS = 8000;
   const WB_UP_KEEP_MS = 20 * 60000; // einmal lebend gesehen: so lange als „lebt“ merken (Timer-Info läuft nach 60 s ab)
   const wb = { goal: null, warnTs: 0, warnings: new Map(), upSince: new Map(), skip: new Map(), arrAt: 0, seenAt: 0 };
-  const wbSel = () => farmBossList().filter((b) => b.kind === 'world');
+  // Weltbosse: nur auf freigeschalteten Maps und höchstens WB_LEVEL_ABOVE über dem Digimon (3.0.7) – sonst zog der Knopf
+  // nach einer BlackWarGreymon-Warnung Megidramon (Tamers, Lv 120) heran
+  const WB_LEVEL_ABOVE = 15;
+  const wbSel = () => { const st = getStore()?.getState?.(), pl = st?.me?.partner?.level; return farmBossList().filter((b) => b.kind === 'world' && mapOpen(st, b.map) && (pl == null || b.level <= pl + Math.max(WB_LEVEL_ABOVE, cfg.lvlDiff || 0))); };
   // Unterwegs zum Event/Weltboss angegriffen: nicht kämpfen – Digimon zurückrufen und weiterlaufen (wie die Rotation)
   function wayRecall(st, sc, now) {
     if (!sc?.attackers?.length) return;
@@ -6609,7 +6634,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function routeMaps() {
     const C = content();
     const named = new Map();
-    for (const b of farmBossList()) if (b.kind === 'named' && !named.has(b.map)) named.set(b.map, b);
+    for (const b of farmBossList()) if (b.kind === 'named' && !named.has(b.map) && mapOpen(null, b.map)) named.set(b.map, b);
     return [...named.values()].map((b) => ({ id: b.map, name: b.mapName, range: C?.maps?.[b.map]?.levelRange || [b.level, b.level], boss: b }))
       .filter((r) => !C?.maps?.[r.id]?.safe)
       .sort((a, b) => (a.range[0] ?? 0) - (b.range[0] ?? 0) || (a.range[1] ?? 0) - (b.range[1] ?? 0) || a.name.localeCompare(b.name));
@@ -7480,7 +7505,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const C = content(), p = st?.me?.partner; if (!C || !p) return null;
     const dps = lrDps(p); let best = null;
     for (const [mapId, sp] of Object.entries(C.spawns || {})) {
-      if (sp.raid || !sp.zones) continue;
+      if (sp.raid || !sp.zones || !mapOpen(st, mapId)) continue;
       if (cfg.levelA2 && (C.maps?.[mapId]?.series || 1) !== 2) continue;
       const bt = lrBossTerms(mapId, p.level, dps);
       for (const [zn, z] of Object.entries(sp.zones)) {
@@ -7511,7 +7536,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const C = content(), lo0 = lrMapLow(mapId); if (!C?.spawns || !isFinite(lo0)) return null;
     const ser = C.maps?.[mapId]?.series || 1; let best = null, bl = -Infinity;
     for (const [id, sp] of Object.entries(C.spawns)) {
-      if (sp.raid || id === mapId || (C.maps?.[id]?.series || 1) !== ser) continue;
+      if (sp.raid || id === mapId || (C.maps?.[id]?.series || 1) !== ser || !mapOpen(null, id)) continue;
       const lo = lrMapLow(id); if (isFinite(lo) && lo < lo0 && lo > bl) { bl = lo; best = id; }
     }
     return best;
@@ -8582,7 +8607,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     fillSelect('levelEvoDark', [['', 'keine Digitation'], [EVO_ARMOR, '🛡 höchste Armor-Form'], [EVO_MAX, '⬆ höchstmögliche Digitation'], ...allEvos]);
     fillSelect('apStartMap', world.state === 'ready'
       ? [['', cfg.apSweepDir === 'up' ? 'niedrigste erreichbare' : 'höchste erreichbare'], ...sweepList().map((m) => [m.id,
-        `${(m.series ?? 1) === 2 ? 'A02' : 'A1'} · ${m.name} (${m.levelRange?.join('–')})${hops(st?.world?.mapId, m.id) === Infinity ? ' – nicht erreichbar' : ''}`])]
+        `${seriesTag(m.series)} · ${m.name} (${m.levelRange?.join('–')})${hops(st?.world?.mapId, m.id) === Infinity ? ' – nicht erreichbar' : ''}`])]
       : [['', 'Weltkarte lädt…']]);
   }
 
@@ -8703,8 +8728,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (!list.length) { box.innerHTML = '<div class="digibot__none">Keine aktiven Quests.</div>'; return; }
     const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     // nach Serie getrennt: Adventure und Adventure 02 – die Serie der aktuellen Map zuerst
-    const cur = worldSeries(st), SERIES = { 1: 'Adventure', 2: 'Adventure 02' };
-    const groups = [cur, ...[1, 2].filter((n) => n !== cur)].map((n) => [n, list.filter((q) => questSeries(q.id) === n)]).filter(([, qs]) => qs.length);
+    const cur = worldSeries(st), SERIES = SERIES_NAMES;
+    const groups = [cur, ...[1, 2, 3].filter((n) => n !== cur)].map((n) => [n, list.filter((q) => questSeries(q.id) === n)]).filter(([, qs]) => qs.length);
     const card = (q) => {
       const color = q.state === 2 ? '#ffd43b' : q.daily ? '#4dabf7' : '#2ecc71';
       const badge = q.state === 2 ? 'abgeben' : q.daily ? 'daily' : isStory(q.id) ? 'aktiv' : 'täglich';

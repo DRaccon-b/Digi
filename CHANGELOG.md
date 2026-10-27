@@ -2,6 +2,25 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.0.7 – Vorbereitung auf Adventure 3 (Tamers)
+Die Tamers-Daten (21 Maps Lv 99–130, 6 Raids, 109 Quests, Megidramon als Weltboss) sind schon im Spiel, aber noch
+nicht freigeschaltet. Damit der Bot beim Freischalten nicht ins Leere läuft:
+- **Map-Zugriff:** Eine Map mit Einstiegsquest (alle A02-/Tamers-Maps) zählt erst, wenn diese Quest angenommen oder
+  erledigt ist – für 🌍 Weltboss, Named-Runde, Lern-Route, Map-für-Map-Runde und die Quest-Planung. Reisen dorthin
+  gibt „Keine Route“ mit Hinweis statt zu scheitern. Der Weltboss-Knopf nimmt zusätzlich nur Bosse bis 15 Level
+  (bzw. Level-Unterschied) über dem Digimon – kein Megidramon Lv 120 für ein Lv-94-Team.
+- **Serie 3:** Tamers-Quests (`a3_…`) gelten als eigene Serie (werden nur auf Tamers-Maps angeboten), die Map-Liste zeigt
+  „A3“, der Quest-Reiter gruppiert nach Adventure / Adventure 02 / Tamers.
+- **Reaper:** Ist die eingestellte Zielform auf einer Map blockiert (Reaper – DNA/Super-Ultimate), digitiert der Bot
+  zur höchsten freien Form statt in der Grundform zu bleiben; „höchstmögliche Digitation“ überspringt blockierte Äste.
+- Geprüft, keine Änderung nötig: Level bis 130 (keine 99-Grenzen im Code), Quest-Ziel „reach“ wird gefahren;
+  „evolve“ und „hatch“ bleiben „nicht automatisch“ (2 bzw. 1 Quest in Tamers).
+- **Tanken:** Hinrichtung (execute), Heranziehen (pull), Stolpern (trip), Explosion (detonate) und Aussaugen (drain)
+  werden nie getankt.
+- **Test-Boss Stufe 3** (`NUR=stufe3`): Ocean Wave (Ring + Heranziehen), Dark Recital (Strahl + Stolpern), Dark Roar und
+  Gigastick Lance (Hinrichtung), Cherry Field (saugt HP). Ergebnis: alles ausgewichen, 0 Stürze, 0 Hinrichtungen; Dark
+  Roar (3 s Ansage, 40 px) kostet aber ~60 % Schaden – der Bot verlässt den kleinen Kreis zu früh.
+
 ## 3.0.6 – Kill-Quest: normale Monster vor dem Boss, kein Stehenbleiben neben der Beute
 - **Behoben (live, Destiny Lake):** Bei „besiege Tortomon“ lief der Autopilot zum named Tortomon („sichtbaren Boss
   bekämpfen“, 550 px, Weg blockiert) und stand danach 77 s neben einem normalen Tortomon, ohne anzugreifen – die

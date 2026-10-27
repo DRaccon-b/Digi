@@ -8,7 +8,7 @@
 //   node sim/testboss.js                 allein, 3 Runden
 //   GRUPPE=3 …                           Gruppe aus 3 Bots
 //   RUNDEN=5 …                           jede Attacke so oft
-//   NUR=donut,dash …                     nur diese Attacken (Schlüssel siehe ATTACKS; auch NUR=stufe1 / NUR=stufe2)
+//   NUR=donut,dash …                     nur diese Attacken (Schlüssel siehe ATTACKS; auch NUR=stufe1 / stufe2 / stufe3)
 //   TEMPO=4 …                            Zeitraffer (wie im Kera-Probelauf; über 4 wird es zu ungenau)
 //   V=1 …                                jeder Statuswechsel der Bots
 //   SKRIPT=pfad/zu/digibot.user.js …     andere Bot-Version testen
@@ -41,6 +41,16 @@
 //    des normalen Schadens über die 10 s), sonst trifft er alle im Kreis mit hpDamagePct % der Max-HP.
 //  - Greifarm (grab): packt GRAB_AFTER_MS nach der Ansage das erste Digimon auf der Linie (vom Boss aus gesehen); der Arm
 //    hat GRAB_HP HP, zieht reel px/s zum Boss, saugt alle everyMs hpPct % der Max-HP und lässt nach GRAB_MAX_MS los.
+//
+// Annahmen Stufe 3 (Tamers-/Event-Mechaniken):
+//  - Heranziehen (pull): Ring um den Boss wie ein Kreis mit sicherem Innenkreis; wer beim Einschlag drinsteht, nimmt
+//    Schaden und wird auf pull.gapPx vor den Boss gezogen (Zeitpunkt des Ziehens aus den Daten nicht ersichtlich).
+//  - Stolpern (trip): Strahl auf den Tank; Treffer = Schaden + trip.ms bewegungs- und angriffsunfähig (wie Banana Slip).
+//  - Hinrichtung (execute): Treffer tötet, wenn die HP höchstens execute.maxPct % sind (Dark Roar 100 = immer),
+//    sonst nur der normale Schaden – das Ausweichen ist Pflicht.
+//  - Aussaugen (drain): Kreis um den Boss; drain % des angerichteten Schadens heilen den Boss.
+//  - Nicht nachgebildet: detonate (Corona Sanctions, Schaden je Stapel – Stapelquelle unklar), bloom (Serpent Cure, Boss
+//    heilt sich 8 s lang – kein Ausweichen möglich), cleanse, tell (nur Ansage-Text).
 const path = require('path');
 const fs = require('fs');
 const { JSDOM, VirtualConsole } = require('jsdom');
@@ -97,6 +107,12 @@ const ATTACKS = [
   { key: 'mark', stufe: 2, label: 'Markierung folgt dem Tank', from: 'Gankoomon', sk: SK('gankoomon_hunt.tekken_seisai', { name: 'Tekken Seisai', element: 'fire', shape: 'circle', radius: 40, power: 415, cooldownMs: 18000, castMs: 3000, range: 96, telegraph: false, mark: { othersPct: 60 }, knockback: { px: 64 } }) },
   { key: 'chargeRing', stufe: 2, label: 'Lade-Ring (brechen)', from: 'Marsmon', sk: SK('marsmon_hunt.sun_charge', { name: 'Corona Sanctions', element: 'fire', shape: 'circle', origin: 'caster', radius: 400, hpDamagePct: 60, cooldownMs: 1000000, castMs: 10000, range: 400, chargeRing: true }) },
   { key: 'grab', stufe: 2, label: 'Greifarm (packt + saugt)', from: 'D-Reaper', sk: SK('d_reaper.creep_hands', { name: 'Creep Hands', shape: 'line', radius: 12, range: 260, aim: 'random', fixedDamage: 10000, castMs: 1600, cooldownMs: 24000, grab: { arm: 'reaper_creep_hand', level: 130, statMult: 1, reel: 80, everyMs: 1000, hpPct: 4, selfPct: 50 } }) },
+  // ---------- Stufe 3: Tamers-/Event-Mechaniken (Spieldaten Okt. 2026) ----------
+  { key: 'pull', stufe: 3, label: 'Ring + Heranziehen', from: 'Regalecusmon', sk: SK('regalecusmon_hunt.ocean_wave', { name: 'Ocean Wave', element: 'water', shape: 'circle', origin: 'caster', radius: 72, innerRadius: 32, fixedDamage: 43500, cooldownMs: 20000, castMs: 2500, range: 72, pull: { gapPx: 8 } }) },
+  { key: 'trip', stufe: 3, label: 'Strahl + Stolpern (2,5 s)', from: 'MetalEtemon', sk: SK('metaletemon_hunt.dark_recital', { name: 'Dark Recital', shape: 'line', radius: 12, range: 96, fixedDamage: 36000, cooldownMs: 16000, castMs: 2500, sweep: { arc: 64, ms: 250 }, trip: { ms: 2500 } }) },
+  { key: 'execute', stufe: 3, label: 'Kreis, Hinrichtung (immer)', from: 'Darkdramon', sk: SK('darkdramon_hunt.dark_roar', { name: 'Dark Roar', shape: 'circle', radius: 40, power: 0, cooldownMs: 26000, castMs: 3000, range: 160, execute: { maxPct: 100 } }) },
+  { key: 'executeLine', stufe: 3, label: 'Strahl, Hinrichtung unter 60 %', from: 'Darkdramon', sk: SK('darkdramon_hunt.gigastick_lance', { name: 'Gigastick Lance', shape: 'line', radius: 11, range: 200, fixedDamage: 30000, cooldownMs: 18000, castMs: 2500, execute: { maxPct: 60 } }) },
+  { key: 'drain', stufe: 3, label: 'Kreis um Boss, saugt HP (heilt ihn)', from: 'Cherrymon (Tamers)', sk: SK('tamers_cherrymon.field', { name: 'Cherry Field', element: 'wood', shape: 'circle', origin: 'caster', radius: 48, power: 220, cooldownMs: 12000, castMs: 1700, range: 48, drain: 20 }) },
 ];
 const NUR = (process.env.NUR || '').split(',').map((s) => s.trim()).filter(Boolean);
 const LIST = NUR.length ? ATTACKS.filter((a) => NUR.includes(a.key) || NUR.includes(`stufe${a.stufe || 1}`)) : ATTACKS;
@@ -320,6 +336,12 @@ const inZone = (p, z) => z.circles.some((c) => inCircle(p, c)) || z.lines.some((
 const evAll = (src, skill, phase, extra = {}) => { for (const pl of players) pl.handlers.evs?.([{ t: 'skill', src, skill, phase, ...extra }]); };
 const randomPlayer = () => { const a = alivePlayers(); return a[Math.floor(Math.random() * a.length)]; };
 const skDamage = (sk) => sk.fixedDamage || (sk.hpDamagePct ? Math.round(M.hp * sk.hpDamagePct / 100) : Math.round(BOSS_AT * (sk.power || 0) / 100));
+// Hinrichtung (execute): tötet, wenn die HP des Getroffenen höchstens maxPct % sind – sonst normaler Schaden
+function executeHit(a, sk, pl) {
+  const p = pl.store.getState().me.partner, pct = p.hp / p.maxHp * 100;
+  if (pct <= sk.execute.maxPct) { bump(a.key, 'executed'); say(`☠ Char${pl.i + 1} hingerichtet (${sk.name}, HP ${pct.toFixed(0)} %)`); damagePlayer(pl, p.hp, sk.name); }
+  else if (sk.fixedDamage) damagePlayer(pl, sk.fixedDamage, sk.name);
+}
 // Ansage: Fläche zeigen, beim Einschlag auswerten. Liefert ein Promise, das nach dem Einschlag erfüllt ist.
 // o.after: Treffer erst so lange nach dem Ende der Ansage (Greifarm) · o.first: nur das erste Digimon vom Boss aus ·
 // o.onHit(pl): danach (packen, ausrutschen) · o.onRelease(z): beim Einschlag vor der Auswertung · o.breakAt: Schaden,
@@ -422,6 +444,33 @@ const SPECIAL = {
       },
       onHit: (pl) => trip(pl, 'Einschlag'),
     });
+  },
+  // Stufe 3
+  async pull(a, sk) { // Ring um den Boss; wer getroffen wird, wird auf gapPx an den Boss gezogen (Annahme: beim Einschlag)
+    const b = run.boss;
+    await cast(a, sk, { circles: [{ x: b.x, y: b.y, r: sk.radius, inner: sk.innerRadius || 0 }] }, { onHit: (pl) => {
+      const p = partnerOf(pl), t = ents.get(`t:${pl.i}`), d = dist(p, b) || 1, g = sk.pull.gapPx;
+      p.x = b.x + (p.x - b.x) / d * g; p.y = b.y + (p.y - b.y) / d * g; t.x = p.x - 10; t.y = p.y; pl.goal = null;
+      bump(a.key, 'pulled'); say(`🪝 Char${pl.i + 1} herangezogen (${g} px vor dem Boss)`);
+    } });
+  },
+  async trip(a, sk) { // schmaler Strahl auf den Tank; Treffer = Schaden + Stolpern (trip.ms bewegungs- und angriffsunfähig)
+    const b = run.boss, t = partnerOf(alivePlayers()[0]), ang = Math.atan2(t.y - b.y, t.x - b.x);
+    const l = { fx: b.x, fy: b.y, tx: b.x + Math.cos(ang) * sk.range, ty: b.y + Math.sin(ang) * sk.range, r: sk.radius };
+    await cast(a, sk, { lines: [l] }, { onHit: (pl) => { trip(pl, sk.name); bump(a.key, 'tripped'); } });
+  },
+  async execute(a, sk) { // Hinrichtung: Treffer tötet, wenn die HP höchstens maxPct % sind (100 = immer)
+    const t = partnerOf(alivePlayers()[0]);
+    await cast(a, sk, { circles: [{ x: t.x, y: t.y, r: sk.radius }] }, { dmg: 0, onHit: (pl) => executeHit(a, sk, pl) });
+  },
+  async executeLine(a, sk) {
+    const b = run.boss, t = partnerOf(alivePlayers()[0]), ang = Math.atan2(t.y - b.y, t.x - b.x);
+    const l = { fx: b.x, fy: b.y, tx: b.x + Math.cos(ang) * sk.range, ty: b.y + Math.sin(ang) * sk.range, r: sk.radius };
+    await cast(a, sk, { lines: [l] }, { onHit: (pl) => executeHit(a, sk, pl) });
+  },
+  async drain(a, sk) { // Kreis um den Boss; drain % des Schadens heilen den Boss
+    const b = run.boss;
+    await cast(a, sk, { circles: [{ x: b.x, y: b.y, r: sk.radius }] }, { onHit: () => { const heal = Math.round(skDamage(sk) * sk.drain / 100); b.hp = Math.min(b.maxHp, b.hp + heal); bump(a.key, 'healed', heal); } });
   },
   async islands(a, sk) {
     const b = run.boss, is = sk.islands, end = Date.now() + sk.castMs, off = Math.random() * 2 * Math.PI;
@@ -623,6 +672,11 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     share: () => (x.shares ? `allein im Fadenkreuz ${x.alone || 0}/${x.shares} · Ø ${(x.sharers / x.shares).toFixed(1)} teilen` : ''),
     mark: () => `Markierter getroffen ${x.marked || 0}× (unvermeidbar, zählt als getankt)`,
     chargeRing: () => `gebrochen ${x.broken || 0}/${RUNDEN}`,
+    pull: () => `herangezogen ${x.pulled || 0}×`,
+    trip: () => `gestolpert ${x.tripped || 0}×`,
+    execute: () => `hingerichtet ${x.executed || 0}×`,
+    executeLine: () => `hingerichtet ${x.executed || 0}×`,
+    drain: () => `Boss geheilt ${x.healed || 0}`,
     grab: () => (x.grabbed ? `gepackt ${x.grabbed}× · Arm zerschlagen ${x.armBroken || 0}× · Ø ${((x.heldMs || 0) / x.grabbed / 1000).toFixed(1)} s gehalten · ausgesaugt ${x.drain || 0}` : 'nie gepackt'),
   }[a.key]?.() || '');
   for (const a of LIST) {
