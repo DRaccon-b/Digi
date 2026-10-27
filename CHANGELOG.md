@@ -2,6 +2,14 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.0.6 – Kill-Quest: normale Monster vor dem Boss, kein Stehenbleiben neben der Beute
+- **Behoben (live, Destiny Lake):** Bei „besiege Tortomon“ lief der Autopilot zum named Tortomon („sichtbaren Boss
+  bekämpfen“, 550 px, Weg blockiert) und stand danach 77 s neben einem normalen Tortomon, ohne anzugreifen – die
+  3.0.2-Regel „unterwegs zum Boss nicht kämpfen“ griff auch für diese Aufgabe, deren Zielpunkt nur ein Schnappschuss
+  des Bosses ist. Jetzt gilt die Regel dort nicht mehr, und ein Boss wird nur bevorzugt, wenn kein normales Monster
+  derselben Art in Sicht ist.
+- Log: Phase 4 der Map-Runde heißt „Reste anderer Maps“ statt „undefined“; Teilziel-Meldung nennt jede Art nur einmal.
+
 ## 3.0.5 – Event-Digitation, Neustart nach Not-Aus, Greifarm, Ausweichen bei Sondermechaniken
 - **Event/Weltboss: Digitation in jedem Modus.** Vor Reise, Warten und erstem Angriff digitiert der Bot in die Kampfform
   (Lernrouten-Regel bzw. Quest-Digitation, sonst die höchste Form) – auch beim Grinden und im Modus „Nur Event/WB“ und

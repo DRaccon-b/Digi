@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.0.5
+// @version      3.0.6
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1479,7 +1479,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.0.5'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.0.6'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2826,7 +2826,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // zum Spawnpunkt. Dort (FARM_ARRIVE, erst ab FARM_DEPART wieder „unterwegs“) Verfolger erledigen, solange der Boss
   // fehlt; ist er da, wird er bekämpft. Nur bei mindestens halben HP, sonst erst normal zu Ende kämpfen.
   function digibotQuestBossTravel(st, tk) {
-    if (tk.kind !== 'hunt' || !tk.loc?.boss || tk.grind) return false;
+    // nicht bei „sichtbaren Boss bekämpfen“: dessen Zielpunkt ist nur ein Schnappschuss des Bosses – live stand der Bot
+    // 77 s neben einem normalen Tortomon und griff nicht an, weil er „unterwegs“ war (3.0.6)
+    if (tk.kind !== 'hunt' || !tk.loc?.boss || tk.loc.sight || tk.grind) return false;
     const p = st.me?.partner, me = controlled(st);
     if (!me || !p?.maxHp || p.hp / p.maxHp < 0.5) return false;
     const ents = window.dmo?.net?.state?.entities;
@@ -5062,7 +5064,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // So wird pro Map erst alles angenommen, dann alles erledigt und ganz zum Schluss abgegeben –
   // Digimon-Wechsel und Zurück-Digitation passieren nur einmal, beim Übergang zum Abgeben.
   const taskPhase = (t) => (t.purpose === 'accept' || t.purpose === 'daily' ? 1 : t.purpose === 'turnin' ? 3 : 2);
-  const PHASE_NAMES = { 1: 'Quests annehmen', 2: 'Ziele erledigen', 3: 'Quests abgeben' };
+  const PHASE_NAMES = { 1: 'Quests annehmen', 2: 'Ziele erledigen', 3: 'Quests abgeben', 4: 'Reste anderer Maps' };
   // „Erst alle Quests erledigen, dann gemeinsam abgeben“: Reihenfolge Ziele -> Abgaben -> Annahmen. Hat das Annehmen
   // begonnen, werden erst alle Quests auf dieser Map angenommen (sonst ginge es nach der ersten Annahme gleich jagen).
   // Annahmen auf anderen Maps kommen erst, wenn hier nichts mehr zu tun ist – sonst reist der Bot quer durch die Welt.
@@ -5648,10 +5650,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         const species=[].concat(o.species||[]);
         // Nur echte Bosse (Boss-Flag): ein named Boss teilt oft die Art mit normalen Monstern (Divermon Captain / Divermon)
         const isBoss=m=>{const e=entities?.get?.(m.id);return e?!!(e.flags&FLAG.Boss):farmBossList().some(b=>b.map===map&&b.species===m.species);};
+        // Normale Monster derselben Art in Sicht (Tortomon neben dem named Tortomon): die zählen genauso und sind näher
+        // und schwächer – dann keinen Boss bevorzugen (3.0.6; vorher lief er 500 px zum Boss und blieb am Weg hängen)
+        if(sc?.mobs?.some(m=>species.includes(m.species)&&!m.banned&&m.reach!==false&&m.inLvl&&!isBoss(m)))continue;
         const mob=sc?.mobs?.find(m=>species.includes(m.species)&&!m.banned&&m.reach!==false&&isBoss(m));
         if(!mob)continue;
         const b=farmBossList().find(b=>b.map===map&&b.species===mob.species);
-        const task={key:`hunt:${id}:${i}`,kind:'hunt',questId:id,objIndex:i,need:o.count||1,def,species:new Set([mob.species]),names:C?.digimon?.[mob.species]?.name||mob.species,loc:{mapId:map,x:mob.x,y:mob.y,boss:true,key:b?`${map}|boss|${b.at}`:null},prio:3,label:`${def.name}: sichtbaren Boss bekämpfen`};
+        const task={key:`hunt:${id}:${i}`,kind:'hunt',questId:id,objIndex:i,need:o.count||1,def,species:new Set([mob.species]),names:C?.digimon?.[mob.species]?.name||mob.species,loc:{mapId:map,x:mob.x,y:mob.y,boss:true,sight:true,key:b?`${map}|boss|${b.at}`:null},prio:3,label:`${def.name}: sichtbaren Boss bekämpfen`};
         if(!digibotYoungBountyAllowed(st,task))continue;
         return {mob,task};
       }
@@ -5681,7 +5686,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const open = t.parts.filter((p) => pq[p.questId]?.state === 1 && (pq[p.questId].counters?.[p.objIndex] ?? 0) < p.need && digibotYoungBountyAllowed(st,{...t,questId:p.questId,def:questDef(content(),p.questId)},now));
       const sp = new Set(open.flatMap((p) => [...p.species]));
       if (open.length && (sp.size !== t.species.size||[...sp].some(id=>!t.species.has(id)))) {
-        t.species = sp; t.names = [...new Set(open.map((p) => p.names))].join(', ');
+        t.species = sp; t.names = [...new Set(open.flatMap((p) => String(p.names).split(', ')))].join(', '); // je Art einmal (vorher „Guardromon, Mekanorimon, Guardromon, …“)
         if (st.world?.mapId === t.loc.mapId) autopilot.huntSpecies = sp;
         logEvent('auto', `Teilziel erledigt – jage nur noch ${t.names}`);
       }
@@ -5770,7 +5775,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           // Teilziele merken: ist eines erledigt, fliegt seine Beute aus der Liste (apRefresh)
           t.parts = [t, ...same].map((o) => ({ questId: o.questId, objIndex: o.objIndex, need: o.need, species: o.species, names: o.names }));
           t.species = new Set([t.species, ...same.map((o) => o.species)].flatMap((x) => [...x]));
-          t.names = [...new Set([t.names, ...same.map((o) => o.names)])].join(', ');
+          t.names = [...new Set([t.names, ...same.map((o) => o.names)].flatMap((n) => String(n).split(', ')))].join(', ');
           t.label += ` (+${same.length} weitere${same.length > 1 ? '' : 's'} Ziel${same.length > 1 ? 'e' : ''})`;
         }
       }
@@ -5790,7 +5795,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       }
       if (t && t.phase > 0 && cfg.apOrder === 'sweep' && autopilot.sweepAt && t.phase !== autopilot.phase) {
         autopilot.phase = t.phase;
-        logEvent('map', `Runde ${content()?.maps?.[autopilot.sweepAt]?.name || autopilot.sweepAt}: Phase ${t.phase}/3 – ${PHASE_NAMES[t.phase]}`);
+        logEvent('map', `Runde ${content()?.maps?.[autopilot.sweepAt]?.name || autopilot.sweepAt}: Phase ${t.phase}/4 – ${PHASE_NAMES[t.phase] || 'Aufgaben'}`);
       }
       if (t) { logEvent('auto', `Aufgabe: ${t.label}`); groupNoteTalk(t, now); }
       autopilot.nav = null; autopilot.talkTries = 0; autopilot.arrivedAt = 0; autopilot.idleSince = 0;
