@@ -11,6 +11,7 @@
 //   NUR=donut,dash …                     nur diese Attacken (Schlüssel siehe ATTACKS; auch NUR=stufe1 / stufe2 / stufe3)
 //   TEMPO=4 …                            Zeitraffer (wie im Kera-Probelauf; über 4 wird es zu ungenau)
 //   V=1 …                                jeder Statuswechsel der Bots
+//   POS=1 …                              dazu die Positionen von Digimon, Tamer, Boss und Warnkreisen
 //   SKRIPT=pfad/zu/digibot.user.js …     andere Bot-Version testen
 //   GREIF=1 …                            Greiflinie (grab) 320 px breit: erzwingt das Packen, misst das Freikommen
 //
@@ -641,7 +642,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   for (const pl of players) if (!on(pl)) pl.w.document.querySelector('[data-act="bot"]').click();
   await wait(500);
   say(`Bots: ${players.map((pl) => (on(pl) ? 'an' : 'AUS')).join(', ')}`);
-  if (process.env.V) { const prev = {}; setInterval(() => { for (const pl of players) { const x = pl.status(); if (x !== prev[pl.i]) { prev[pl.i] = x; say(`   [Char${pl.i + 1}] ${x}`); } } }, 100); }
+  if (process.env.V) { const prev = {}; setInterval(() => { for (const pl of players) { const x = pl.status(); if (x !== prev[pl.i]) { prev[pl.i] = x; const p = partnerOf(pl), t = ents.get(`t:${pl.i}`), b = run.boss, zs = run.zones.flatMap((z) => z.circles.map((c) => `K(${Math.round(c.x)},${Math.round(c.y)},r${c.r})`)).join(" "); say(`   [Char${pl.i + 1}] ${x}${process.env.POS ? ` · P(${Math.round(p.x)},${Math.round(p.y)}) T(${Math.round(t.x)},${Math.round(t.y)}) B(${Math.round(b.x)},${Math.round(b.y)}) ${zs}` : ""}`); } } }, 100); }
   await wait(4000); // erst einmal in den Kampf kommen
   run.started = true; const fightStart = Date.now();
   for (let r = 1; r <= RUNDEN; r++) {

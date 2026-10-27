@@ -2,6 +2,16 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.0.8 – Kleine Warnkreise: am Kreisrand weiterkämpfen
+- Steht das Digimon absichtlich an der Angriffsposition knapp vor dem Kreisrand (8 px Reserve), jagt das Ausweichen es
+  nicht mehr mit der vollen 28-px-Reserve gleich wieder weg (vorher: zweite Flucht 0,3 s vor dem Einschlag). Und „Ziel
+  steht kurz vor dem Einschlag in der Zone“ sperrt nur noch Angriffe, für die das Digimon erst laufen müsste – steht es
+  schon in Schlagweite außerhalb, schlägt es weiter. Beides nur bei Kreisen; bei Fächern und Strahlen bleibt alles wie
+  bisher. Test-Boss (5 Runden): Dark Roar allein 67 → 82 % Schaden, zu dritt 41 → 75 %, weiter 0 Treffer; Kera und
+  Armageddemon-Raid unverändert (der Raid streut auch mit 3.0.7 gelegentlich einen Flare-Treffer).
+- Ein kürzerer Spät-Ausweich-Puffer (Latenz statt fest 1,5 s) wurde getestet und verworfen: erste Treffer in Gruppe/Raid.
+- Test-Boss: `POS=1` schreibt bei jedem Statuswechsel die Positionen von Digimon, Tamer, Boss und Warnkreisen mit.
+
 ## 3.0.7 – Vorbereitung auf Adventure 3 (Tamers)
 Die Tamers-Daten (21 Maps Lv 99–130, 6 Raids, 109 Quests, Megidramon als Weltboss) sind schon im Spiel, aber noch
 nicht freigeschaltet. Damit der Bot beim Freischalten nicht ins Leere läuft:

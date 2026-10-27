@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.0.7
+// @version      3.0.8
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1479,7 +1479,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.0.7'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.0.8'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2402,11 +2402,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (me0) for (const h of hugeZones()) if ([tamer,partner].some(p=>p && hugeCounts(h,p,walkSpeed))) zones.push(h);
     // Hinter einer Deckung (Platte bei der Ultimate Flare) gilt man in deren Zone als sicher
     const cmap = st?.world?.mapId;
-    const inZone = (p) => p && zones.find((z) => !digibotDodgeZoneSafe(z,p) && !covered(z,p,cmap));
-    const approaching=!!dodgeState.approachTarget;
-    const z = inZone(tamer) || inZone(partner);
     const tEnt = st?.target?.id ? ents?.get?.(st.target.id) : null;
     const target = tEnt && tEnt.hp > 0 ? tEnt : null;
+    // Steht das Digimon absichtlich an der Angriffsposition knapp vor dem Kreisrand (basicTarget, 8 px Reserve), gilt
+    // dort nicht die volle 28-px-Reserve – sonst jagte das Ausweichen es gleich wieder weg (Dark Roar: zweite Flucht
+    // 0,3 s vor dem Einschlag, 3.0.8)
+    // – nur bei Kreisen: Fächer schwenken und Strahlen sind schmal, dort bleibt die volle Reserve (Raid: Ultimate Flare)
+    const atEdge = (p) => p === partner && !!target && dodgeState.basicTarget === target.id;
+    const inZone = (p) => p && zones.find((z) => !digibotDodgeZoneSafe(z,p, atEdge(p) && z.kind === 'circle' ? DODGE_EDGE_MARGIN : DODGE_MARGIN) && !covered(z,p,cmap));
+    const approaching=!!dodgeState.approachTarget;
+    const z = inZone(tamer) || inZone(partner);
     if (!z) {
       // A selected old enemy must not hold up a safe NPC route or boss-channel
       // transition. Their actual movement is checked by walkTo against hazards.
@@ -2433,7 +2438,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         const narrow = c.kind === 'line' && (c.r || 16) < DODGE_MARGIN; // nur schmale Linien – breite Strahlen wie Kreise
         return left != null && left < DODGE_SOON_MS && zoneDist(c, narrow ? attackPos : target).d < (narrow ? Math.max(12, c.r || 16) + 12 : DODGE_SOON_PAD);
       });
-      const plan=digibotOutsideBasicPlan(st,target,partner,tamer,zones,soonNear);
+      // „kurz vor dem Einschlag“ sperrt nur Angriffe, für die das Digimon erst laufen müsste – steht es schon in
+      // Schlagweite außerhalb, darf es weiterschlagen (3.0.8; vorher 1,2 s Pause bei jedem Dark Roar)
+      const onlyCircles = zones.every((c) => c.kind === 'circle');
+      const plan0=digibotOutsideBasicPlan(st,target,partner,tamer,zones,soonNear && !onlyCircles);
+      const plan=plan0 && (!soonNear || !onlyCircles || !plan0.walking) ? plan0 : null;
       // Ziel knapp im Warnkreis, Angriffsposition draußen frei: mit der 1 angreifen – auch ohne vorherigen Kampf
       if(near && plan && st.target?.id===target.id && !noFightEarly(st,now) && !farmShielded(target,now) && !mirrorActive(target.id)){
         if(dodgeState.approachTarget){autopilot.nav=null;autopilot.route=null;dodgeState.approachTarget=null;dodgeState.approachGoal=null;}
