@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.0.4
+// @version      3.0.5
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -102,7 +102,9 @@ function createDigiBotCore({ now = Date.now, state, halt, network = () => null, 
     if (m.leader !== leader || typeof m.session !== 'string' || m.session.length > 80 || !Number.isSafeInteger(m.seq) || !Number.isFinite(m.sentAt) || Math.abs(now() - m.sentAt) > 6000) return false;
     if (!['state','pos','start','stop','invite','maptalk','koh','kohplan'].includes(m.type)) return false;
     if (['start','maptalk','pos'].includes(m.type) && m.slot !== leader) return false;
-    if (['start','maptalk'].includes(m.type) && latch) return false;
+    // Nach einem Not-Aus (latch) startet nur ein bewusster Klick auf „Start“ im Leader-Fenster alle wieder (manual) –
+    // kein automatischer Start, keine Abgeben-&-Annehmen-Folge (3.0.5)
+    if (['start','maptalk'].includes(m.type) && latch && !(m.type === 'start' && m.manual === true)) return false;
     if (lastLeader !== leader) { peers.clear(); lastLeader = leader; }
     const p = peers.get(m.slot);
     if (p && p.session === m.session && m.seq <= p.seq) return false;
@@ -1477,7 +1479,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.0.4'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.0.5'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2062,7 +2064,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const raw=(scene?.telegraphs?.circles||[]).find(o=>Math.abs(o.x-c.x)<2 && Math.abs(o.y-c.y)<2 && (!c.skill || o.skill?.id===c.skill));
     const skill=raw?.skill||content()?.skills?.[c.skill]||{};
     const holes=skill.islands?(scene?.telegraphs?.islands||[]).filter(i=>i.skill===skill.id && raw?.src!=null && i.src===raw.src && (!i.end||i.end>=performance.now())).map(i=>({x:i.x,y:i.y,r:i.r})):[];
-    return {kind:'circle',x:c.x,y:c.y,r:c.r,skillId:skill.id||c.skill,src:raw?.src,end:raw?.end||0,innerRadius:skill.innerRadius||0,holes};
+    return {kind:'circle',x:c.x,y:c.y,r:c.r,skillId:skill.id||c.skill,src:raw?.src,end:raw?.end||0,innerRadius:skill.innerRadius||0,holes,chargeRing:!!skill.chargeRing,hpDamagePct:skill.hpDamagePct||0};
+  }
+  // Lade-Ring (Corona Sanctions, 400 px, 10 s): die Ladung bricht durch Schaden – drinbleiben und draufhauen statt
+  // hinauszulaufen (3.0.5; vorher 10 s Flucht, 0× gebrochen). Nur, solange die HP den Treffer (hpDamagePct) überstehen.
+  function digibotChargeRingStay(z){
+    if(!z?.chargeRing)return false;
+    const p=getStore()?.getState?.()?.me?.partner;
+    return !!p?.maxHp && p.hp/p.maxHp*100 > (z.hpDamagePct||60)+10;
   }
   function digibotDodgeReset(){Object.assign(dodgeState,{active:false,lastTap:0,lastFollow:0,goal:null,late:false,basicTarget:null,lastStop:0,approachTarget:null,approachStopped:false,approachGoal:null});lineMemo.clear();}
   function digibotDodgeSpeed(st) {
@@ -2095,7 +2104,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       for (const c of sc?.telegraphs?.active || []) {
         // Raumweite Kreise (z. B. Apocalymons „Total Annihilation“, 640 px) kann man nicht verlassen – nur den Boss vorher
         // erledigen: nicht ausweichen, weiter angreifen (live: 20 s stillgestanden, Boss heilte sich von 5 auf 8 %)
-        if (c && c.r > 0 && c.r < ZONE_HUGE_R && isFinite(c.x) && isFinite(c.y)) zones.push(digibotCircleZone(c,sc));
+        if (c && c.r > 0 && c.r < ZONE_HUGE_R && isFinite(c.x) && isFinite(c.y)) { const z = digibotCircleZone(c,sc); if (!digibotChargeRingStay(z)) zones.push(z); }
       }
     } catch { /* ignore */ }
     if (!tank) try {
@@ -2137,7 +2146,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (tankNow(Date.now())) return [];
     try {
       return (worldScene()?.telegraphs?.active || []).filter((c) => c && c.r >= ZONE_HUGE_R && isFinite(c.x) && isFinite(c.y))
-        .map((c) => ({...digibotCircleZone(c,worldScene()),huge:true}));
+        .map((c) => ({...digibotCircleZone(c,worldScene()),huge:true})).filter((z) => !digibotChargeRingStay(z));
     } catch { return []; }
   }
   const DODGE_SEARCH_R = 328;     // so weit sucht das Ausweichen nach einem freien Punkt
@@ -2197,8 +2206,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function digibotDodgeZoneSafe(z,p,margin=DODGE_MARGIN){
     // Small protected islands need an interior reserve, not a 28px border that leaves only a 2px target.
     let required=margin;
-    if(z.innerRadius && Math.hypot(p.x-z.x,p.y-z.y)<z.innerRadius)required=Math.min(required,Math.max(10,z.innerRadius/3));
+    // Ring mit sicherem Innenkreis (Endless Surge 32 px, Rengokusou 40 px): im Innenkreis reichen wenige Pixel Reserve –
+    // das Digimon steht beim Angriff ~26 px vom Boss und soll dort bleiben, nicht aus dem ganzen Ring hinauslaufen (3.0.5)
+    if(z.innerRadius && Math.hypot(p.x-z.x,p.y-z.y)<z.innerRadius)required=Math.min(required,Math.max(4,z.innerRadius/8));
     for(const h of z.holes||[])if(Math.hypot(p.x-h.x,p.y-h.y)<h.r)required=Math.min(required,Math.max(10,h.r/3));
+    // Schmaler Strahl/Ansturm (Trinity Arm 10 px, Behemoth 14 px): der Sicherheitsabstand schrumpft mit der Breite –
+    // ein Schritt zur Seite reicht, das Digimon bleibt in Schlagweite (3.0.5; vorher 28/42 px wie bei breiten Kreisen)
+    if(z.kind==='line' && Number.isFinite(z.r))required=required*Math.min(1,Math.max(12,z.r)/DODGE_MARGIN);
     return zoneDist(z,p).d>=required;
   }
   // Exact expanded circle edges supplement the coarse escape rings. Include the
@@ -2408,9 +2422,15 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const near=zones.some(c=>[tamer,partner,target].some(p=>p&&zoneDist(c,p).d<DODGE_HOLD_RANGE)) || !!(target&&partner&&!lineClear(partner,target,zones));
       if(!zones.length&&dodgeState.approachTarget){dodgeState.approachTarget=null;dodgeState.approachGoal=null;dodgeState.approachStopped=false;autopilot.nav=null;autopilot.route=null;}
       const from = partner || tamer;
+      // Strahl/Ansturm, der am Boss beginnt: nicht der Boss zählt (der steht immer „in“ der Linie), sondern die
+      // Angriffsposition seitlich davor – sonst griff der Bot bei jedem Folge-Stoß 1,2 s lang nicht an (3.0.5)
+      const basicRange = content()?.digimon?.[st?.me?.partner?.species]?.basic?.range;
+      const stand0 = Number.isFinite(basicRange) ? basicRange + 7 : 40;
+      const attackPos = target && from ? (() => { const d = Math.hypot(from.x - target.x, from.y - target.y) || 1, k = Math.min(1, stand0 / d); return { x: target.x + (from.x - target.x) * k, y: target.y + (from.y - target.y) * k }; })() : target;
       const soonNear = !!target && zones.some((c) => {
         const left = c.end ? c.end - performance.now() : zoneLeftMs(c);
-        return left != null && left < DODGE_SOON_MS && zoneDist(c, target).d < DODGE_SOON_PAD;
+        const narrow = c.kind === 'line' && (c.r || 16) < DODGE_MARGIN; // nur schmale Linien – breite Strahlen wie Kreise
+        return left != null && left < DODGE_SOON_MS && zoneDist(c, narrow ? attackPos : target).d < (narrow ? Math.max(12, c.r || 16) + 12 : DODGE_SOON_PAD);
       });
       const plan=digibotOutsideBasicPlan(st,target,partner,tamer,zones,soonNear);
       // Ziel knapp im Warnkreis, Angriffsposition draußen frei: mit der 1 angreifen – auch ohne vorherigen Kampf
@@ -2675,6 +2695,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function skillUnsafe(st, t, skill, now, slot) {
     const aggro=digibotSkillAggroReason(st,t,skill);if(aggro)return aggro;
     if (!cfg.safeCast || !t || mealOn(t.id)) return null;
+    // Gepackt (Greifarm): Ausweichen ist ohnehin unmöglich – keinen Skill zurückhalten, alles auf den Arm (3.0.5)
+    if (window.dmo?.net?.state?.entities?.get?.(st?.me?.partner?.entityId)?.flags & FLAG.Held) return null;
     const boss = currentBoss(st);
     if (!boss || boss.id !== t.id) return null;
     // Skills für die nächste Mahlzeit des Bosses (Infermon „NOT HERE“) aufheben: wäre der Skill dann noch im Cooldown,
@@ -2700,7 +2722,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         if (ownCast + latency + MIRROR_LEAD_MS >= tell) return `${r.name} (Spiegel) möglich`;
         continue;
       }
-      const zone = (sk.shape === 'circle' || sk.shape === 'line') && r.castMs > 0 && !sk.islands && !sk.protectionMs
+      const zone = (sk.shape === 'circle' || sk.shape === 'line') && r.castMs > 0 && !sk.islands && !sk.protectionMs && !sk.chargeRing
         && sk.kind !== 'heal' && sk.kind !== 'buff' && sk.target !== 'self';
       if (!zone || r.state === 'cast' || tankable(sk, st.me?.partner, boss.id)) continue; // laufende Ansage: Ausweichen; tankbar: egal
       let dist;
@@ -3063,12 +3085,26 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const stand=Number.isFinite(range)?range+7:192;
     return Math.hypot(partner.x-target.x,partner.y-target.y)>stand+4 && now-p.movedAt<1000;
   }
+  // Greifarme der Bosse auf dieser Map (Spieldaten: skill.grab.arm – Tentacle Bug, Creep Hands)
+  function digibotGrabArms(st){
+    const mapId=st?.world?.mapId,C=content();
+    if(digibotGrabArms.mapId!==mapId||digibotGrabArms.C!==C){
+      const set=new Set();
+      for(const b of C?.spawns?.[mapId]?.bosses||[])for(const sk of b.skills||[])if(sk.grab?.arm)set.add(sk.grab.arm);
+      for(const sk of Object.values(C?.skills||{}))if(sk?.grab?.arm)set.add(sk.grab.arm); // auch ohne Boss-Eintrag der Map (Event/Raum-Bosse)
+      digibotGrabArms.mapId=mapId;digibotGrabArms.C=C;digibotGrabArms.set=set;
+    }
+    return digibotGrabArms.set;
+  }
   function digibotCombatInputReason(st,now=performance.now()){
-    const own=window.dmo?.net?.state?.entities?.get?.(st?.me?.partner?.entityId),queue=window.dmo?.client?.skillQueue;
-    const locked=!!(own?.flags&(FLAG.Casting|FLAG.Evolving|FLAG.Held))||(digibotRawScene()?.ownPartner?.lockLeft?.(now)||0)>0;
+    const ents=window.dmo?.net?.state?.entities,own=ents?.get?.(st?.me?.partner?.entityId),queue=window.dmo?.client?.skillQueue;
+    // Gepackt (Greifarm): Angriffe und Skills auf den Arm sind erlaubt – nur so kommt das Digimon frei (3.0.5; vorher
+    // hielt der Bot 10+ s alle Eingaben zurück und wurde ausgesaugt)
+    const heldByArm=!!(own?.flags&FLAG.Held)&&digibotGrabArms(st).has(ents?.get?.(st?.target?.id)?.defId);
+    const locked=!!(own?.flags&(FLAG.Casting|FLAG.Evolving|(heldByArm?0:FLAG.Held)))||(digibotRawScene()?.ownPartner?.lockLeft?.(now)||0)>0;
     // The client's getter does not expire flight. Use its own timeout-aware API before inspecting it.
     if(typeof queue?.busy==='function')queue.busy(now,locked);
-    if(own?.flags&FLAG.Held)return 'Partner festgehalten';
+    if((own?.flags&FLAG.Held)&&!heldByArm)return 'Partner festgehalten';
     if(own?.flags&FLAG.Evolving)return 'Digitation läuft';
     if(own?.flags&FLAG.Casting)return 'Skill wird ausgeführt';
     if(locked)return 'Aktionssperre des Spielclients';
@@ -3745,9 +3781,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (m.type === 'koh' && m.src && m.slot !== group.slot()) kohState.claims.set(m.src, Date.now());
     if (m.type === 'kohplan' && Number.isInteger(m.slot) && m.slot !== group.slot()) kohState.plans.set(m.slot, { ...m, seen: Date.now() });
     if (!group.active()) return;
-    if (m.type === 'start' && !bot.on) groupStartBot('Gruppe: Start aus dem Leader-Fenster');
-    // normales Stoppen (Bot/Gruppe) sperrt nicht – danach startet „Start“ wieder alle; nur der Not-Aus verlangt einen Neustart von Hand
-    if (m.type === 'stop') groupStopBot('Gruppe: Stopp aus dem Leader-Fenster',m.scope!=='bot'&&m.scope!=='group');
+    if (m.type === 'start' && !bot.on) groupStartBot(m.manual === true && digibotCore.latched ? 'Gruppe: Start aus dem Leader-Fenster – Not-Aus aufgehoben' : 'Gruppe: Start aus dem Leader-Fenster', m.manual === true);
+    // normales Stoppen (Bot/Gruppe) sperrt nicht – danach startet „Start“ wieder alle; der Not-Aus (Esc/Knopf, aus jedem
+    // Fenster) sperrt, bis im Leader-Fenster von Hand auf Start geklickt wird
+    if (m.type === 'stop') groupStopBot(m.scope === 'esc' ? 'Gruppe: Not-Aus (Esc) aus einem anderen Fenster' : m.scope === 'panic' ? 'Gruppe: Not-Aus aus einem anderen Fenster' : 'Gruppe: Stopp aus dem Leader-Fenster', m.scope!=='bot'&&m.scope!=='group');
     if (m.type === 'invite' && group.role() === 'leader') digibotCore.runPassive('Gruppe',20,()=>partyInviteNow()); // auch bei ausgeschaltetem Bot (Knopf im Mitläufer-Fenster)
     if (m.type === 'maptalk') startMapTalk('Gruppe: Abgeben & Annehmen auf dieser Map (aus einem anderen Fenster)');
   }
@@ -4317,10 +4354,15 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     group.msg=`${opened} Fenster geöffnet – in jedem Fenster selbst anmelden und Charakter wählen.`;schedule();
   }
   // Bot in diesem Gruppenfenster starten (Autopilot). Noch nicht in der Welt -> startet nach dem Einloggen.
-  function groupStartBot(why) {
-    if (digibotCore.latched && !digibotManual) return;
+  function groupStartBot(why, manual = false) {
+    if (digibotCore.latched && !digibotManual && !manual) return;
     const st = getStore()?.getState?.();
     if (st?.screen !== 'world' || !st.me?.partner) { ss.set('digibot.go', '1'); group.worldAt = 0; return; }
+    // Start von Hand im Leader-Fenster: zählt hier wie ein eigener Klick (hebt den Not-Aus auf)
+    const prevManual = digibotManual; if (manual) digibotManual = true;
+    try { groupStartNow(why); } finally { digibotManual = prevManual; }
+  }
+  function groupStartNow(why) {
     reloadAcc();
     const boss = group.role() === 'leader' && accounts.leadBoss && !accounts.mirror;
     const dgOn = accounts.dungeon && !accounts.mirror; // Dungeon: alle Fenster im Dungeon-Modus
@@ -4613,7 +4655,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   function digibotEvoReason(st,reason) {
     const p=st?.me?.partner;
-    const key=`${st?.world?.mapId}|${p?.species}|${reason}`;
+    // je Map und Grund nur einmal – nicht nach jedem Digitationsschritt erneut (live: dieselbe Meldung alle paar Sekunden)
+    const key=`${st?.world?.mapId}|${reason}`;
+    void p;
     if(autopilot.evoReasonKey!==key){autopilot.evoReasonKey=key;logEvent('warn',`Digitationsautomatik: ${reason}`);}
     return true;
   }
@@ -4668,6 +4712,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       sp=EVO_MAX;
     }
     return ensureEvolution(st, sp, now);
+  }
+
+  // Event/Weltboss (3.0.5): auch außerhalb des Autopiloten vor dem Kampf digitieren – beim Warten am Spawnpunkt und
+  // zwischen den Kämpfen (vorher nur Autopilot/Rotation/Dungeon: beim Grinden und im Modus „Nur Event/WB“ kämpfte der
+  // Bot in der Grundform). Zielform wie im Autopilot (Lernrouten-Regel bzw. Quest-Digitation), sonst die höchste Form.
+  function digibotEventEvolve(st, sc, now) {
+    if (sc?.attackers?.length) return true;
+    const p = st?.me?.partner; if (!p || p.evolving) return true;
+    if (cfg.autopilot && !cfg.farm && !cfg.dungeon) return autopilotEvolution(st, now);
+    return ensureEvolution(st, cfg.apEvo || EVO_MAX, now);
   }
 
   // IDs belong to one account. A missing saved partner means keep this account's active partner.
@@ -6121,7 +6175,18 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const addSince = new Map(); // Boss-Entity -> wann er zuerst unter seiner Add-Schwelle gesehen wurde
   const ADD_RANGE = 500, ADD_BOSS_NEAR = 640, ADD_RAID_RADIUS = 300;
   function bossAdd(sc) {
-    if (cfg.farm || cfg.dungeon || !sc) return null; // Dungeon: Reihenfolge macht dungeonFocus
+    if (!sc) return null;
+    // Greifarm (Tentacle Bug, Creep Hands), der mich oder ein Gruppenmitglied hält: sofort zerschlagen – in jedem Modus
+    // außer Dungeon (dort regelt es dungeonFocus) (3.0.5)
+    if (!cfg.dungeon) {
+      const st0 = getStore()?.getState?.(), arms = digibotGrabArms(st0);
+      if (arms.size) {
+        const ents = window.dmo?.net?.state?.entities, mine = new Set([st0?.me?.tamerEntityId, st0?.me?.partner?.entityId]);
+        const held = sc.mobs.find((m) => { if (!arms.has(m.species) || m.banned) return false; const h = ents?.get?.(ents?.get?.(m.id)?.targetId); return !!h && (mine.has(h.id) || (group.active() && (h.kind === KIND.Partner || h.kind === KIND.Tamer))); });
+        if (held) return held;
+      }
+    }
+    if (cfg.farm || cfg.dungeon) return null; // Dungeon: Reihenfolge macht dungeonFocus
     if (groupLeader()?.farm) return null; // Leader in der Boss-Rotation: Mitläufer greifen nur sein Ziel an
     const boss = sc.mobs.filter((m) => m.cat === 'boss').sort((a, b) => a.d - b.d)[0];
     if (!boss || boss.d > ADD_BOSS_NEAR) return null;
@@ -6337,6 +6402,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     hunt.goal.up = g.up; hunt.goal.overAt = 0;
     if (group.role() === 'follower' && groupLeader(now)) return null; // in der Gruppe führt der Leader, die anderen folgen ihm
+    // vor Reise, Warten und erstem Angriff in die Kampfform digitieren (nicht, solange ein Angreifer dran ist)
+    { const ev = digibotEventEvolve(st, sc, now); if (ev !== true) return `${name}: ${ev}`; }
     const here = st.world?.mapId === g.mapId;
     const b = here ? huntBossEnt(g.boss, controlled(st)) : null;
     if (b) { // in Sicht: anvisieren, den Kampf macht der normale Ablauf (huntFocus)
@@ -6443,6 +6510,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       logEvent('auto', `Weltboss: ${label} – ${o.at <= now ? 'lebt / ist fällig' : `spawnt in ${fmtClock(o.at - now)}`}`);
     }
     if (group.role() === 'follower' && groupLeader(now)) return null; // in der Gruppe führt der Leader
+    { const ev = digibotEventEvolve(st, sc, now); if (ev !== true) return `${label} · ${ev}`; } // Kampfform vor Reise/Warten/Angriff
     const here = st.world?.mapId === b.map && (st.world?.channel ?? 1) === o.ch;
     const boss = here ? wbFocus(sc) : null;
     if (boss) { // in Sicht: anvisieren, den Kampf macht der normale Ablauf (Fokus)
@@ -7095,7 +7163,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const mine = new Set([st.me?.tamerEntityId, st.me?.partner?.entityId]);
     const ents0 = window.dmo?.net?.state?.entities;
     const score = (m) => {
-      if (arms.has(m.species)) return mine.has(ents0?.get?.(m.id)?.targetId) || m.attacker ? -20 : 150; // hält mich fest: sofort brechen
+      if (arms.has(m.species)) { // hält mich fest: sofort brechen; hält ein Gruppenmitglied: mithelfen (der Gepackte macht nur halben Schaden am Arm)
+        const held = ents0?.get?.(ents0?.get?.(m.id)?.targetId);
+        return mine.has(held?.id) || m.attacker ? -20 : group.active() && held && (held.kind === KIND.Partner || held.kind === KIND.Tamer) ? -10 : 150;
+      }
       // Herde nur in der Gruppe abfangen – allein schafft man kaum eine (je ~15 000 HP, ~3 s bis zum Ei), und die Zeit
       // fehlt dann beim Boss (Probelauf: 330 s statt 420 s bis zum Sieg, Enrage nach 480 s)
       if (herd && m.species === herd.species && herd.to) return group.active() ? 100 + Math.hypot(m.x - herd.to.x, m.y - herd.to.y) / 10 : 20000; // vor dem Ei abfangen
@@ -7825,7 +7896,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (this.on) this.timer = setInterval(() => this.tick(), TICK_MS);
       this.status = this.on ? 'Bot läuft' : 'Bot aus';
       logEvent('bot', this.on ? `Bot gestartet${cfg.farm ? ' (Boss-Rotation)' : cfg.autopilot ? ' (Quest-Autopilot)' : cfg.questMode ? ' (Quest-Modus)' : ''}` : 'Bot gestoppt');
-      if (group.role() === 'leader' && !quiet) {if(this.on)groupPush(true);groupSend(this.on ? 'start' : 'stop',this.on?undefined:'bot');}
+      if (group.role() === 'leader' && !quiet) {if(this.on)groupPush(true);if(this.on)digibotSend({type:'start',manual:digibotManual===true});else groupSend('stop','bot');}
       schedule();
     },
 
@@ -8039,9 +8110,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           const questMon = !digibotQuestPartner(st) || activePartner(st)?.partnerId === digibotQuestPartner(st);
           const farmEvo = cfg.farm && questMon;
           // Dungeon: vor dem Betreten (an der Tür) und zwischen den Kämpfen – z. B. nach einem Zurück-Digitieren durch Infermon
-          if (!attackers.length && (farmEvo || (cfg.dungeon && questMon) || (!cfg.farm && cfg.autopilot && (folIdle || (at?.kind === 'hunt' && st.world?.mapId === at.loc.mapId && questMon))))) {
-            const ev = autopilotEvolution(st, now);
-            if (ev !== true) { this.status = `${cfg.farm ? 'Bosse' : cfg.dungeon ? 'Dungeon' : 'Autopilot'}: ${ev}`; return; }
+          // Event/Weltboss (3.0.5): in jedem Modus – auch Grinden und „Nur Event/WB“ – und auch, wenn der Autopilot gerade
+          // keine Jagd-Aufgabe hat (das Event setzt sie zurück: vorher kämpfte er beim Event in der Grundform)
+          const eventEvo = (huntNow || (cfg.hunt && hunt.goal) || (cfg.wboss && wb.goal) || cfg.eventsOnly) && questMon && !cfg.dungeon;
+          if (!attackers.length && (eventEvo || farmEvo || (cfg.dungeon && questMon) || (!cfg.farm && cfg.autopilot && (folIdle || (at?.kind === 'hunt' && st.world?.mapId === at.loc.mapId && questMon))))) {
+            const ev = eventEvo ? digibotEventEvolve(st, sc, now) : autopilotEvolution(st, now);
+            if (ev !== true) { this.status = `${eventEvo ? 'Event/Weltboss' : cfg.farm ? 'Bosse' : cfg.dungeon ? 'Dungeon' : 'Autopilot'}: ${ev}`; return; }
           }
           // Direkt das beste Ziel anvisieren
           // Mitläufer: vor dem nächsten Kampf prüfen, ob ein Gespräch nachzumachen oder aufzuholen ist
@@ -8960,7 +9034,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (act === 'queue-start'){digibotQueueStart(false);return;}
       if (act === 'queue-resume'){digibotQueueStart(true);return;}
       if (act === 'queue-stop'){digibotCore.stop('Quest-Runde manuell gestoppt',true);return;}
-      if (act === 'digibot-stop') { groupSend('stop');digibotCore.stop('Not-Aus',true);return; }
+      if (act === 'digibot-stop') { groupSend('stop','panic');digibotCore.stop('Not-Aus',true);return; }
       if (act === 'digibot-export') {digibotExport();return;}
       if (act === 'preset-save') {digibotPresetSave();return;}
       if (act === 'preset-load') {digibotPresetLoad();return;}
@@ -9179,7 +9253,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     setInterval(digibotObserve, 500);
     setInterval(digibotDesktopTick,500);
     setInterval(digibotQueueTick, 1000);
-    window.addEventListener('keydown',e=>{if(e.isTrusted&&e.code==='Escape'){groupSend('stop');digibotCore.stop('Not-Aus',true);}},true);
+    window.addEventListener('keydown',e=>{if(e.isTrusted&&e.code==='Escape'){groupSend('stop','esc');digibotCore.stop('Not-Aus',true);}},true);
     store.subscribe(schedule);
     if (cfg.autopilot || cfg.farm) setTimeout(loadWorld, 2000);
     setInterval(schedule, 250); // Fallback, falls ein Update am Store vorbeiläuft

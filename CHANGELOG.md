@@ -2,6 +2,33 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.0.5 – Event-Digitation, Neustart nach Not-Aus, Greifarm, Ausweichen bei Sondermechaniken
+- **Event/Weltboss: Digitation in jedem Modus.** Vor Reise, Warten und erstem Angriff digitiert der Bot in die Kampfform
+  (Lernrouten-Regel bzw. Quest-Digitation, sonst die höchste Form) – auch beim Grinden und im Modus „Nur Event/WB“ und
+  auch, wenn der Autopilot gerade keine Jagd-Aufgabe hat. Vorher kämpfte er beim Event/Weltboss oft in der Grundform.
+- **Nach dem Not-Aus alle gemeinsam starten:** Esc oder der Not-Aus-Knopf in irgendeinem Fenster sperrt weiter alle
+  Fenster. Ein Klick auf ▶ Start im Leader-Fenster hebt die Sperre jetzt bei allen auf (nur ein echter Klick – kein
+  automatischer Start). Die Meldung sagt, ob der Stopp per Esc oder Knopf aus einem anderen Fenster kam.
+- **Greifarm (Tentacle Bug, Creep Hands):** Ist das Digimon gepackt, sind Angriff und Skills auf den Arm erlaubt und
+  werden nicht mehr zurückgehalten (vorher „Partner festgehalten“: 10+ s keine Eingabe, zwei Drittel der HP ausgesaugt –
+  live in Revenge). In der Gruppe greifen die anderen einen Arm, der ein Mitglied hält, mit an (der Gepackte macht laut
+  Spieldaten nur halben Schaden am eigenen Arm). Test-Boss mit erzwungenem Griff: vorher 15 s festgehalten, Arm nie
+  zerschlagen; jetzt allein nach ~13 s zerschlagen, zu dritt nach 3–4 s.
+- **Kleiner Ring mit sicherem Innenkreis (Endless Surge, Rengokusou):** im Innenkreis reichen 4 px Reserve – das Digimon
+  bleibt am Boss statt aus dem Ring hinauszulaufen.
+- **Schmaler Strahl/Ansturm (Trinity Arm, Behemoth, Súkara, Vimohana):** Sicherheitsabstand schrumpft mit der Breite
+  (10 px breit → 12 px statt 28/42), und „Ziel steht in der Gefahr“ misst die Angriffsposition seitlich statt den Boss am
+  Linienanfang – kein 1,2-s-Angriffsstopp mehr bei jedem Folge-Stoß.
+- **Lade-Ring (Corona Sanctions):** drinbleiben und draufhauen, solange die HP den Treffer überstehen (die Ladung bricht
+  durch Schaden) – statt 10 s aus dem 400-px-Kreis zu fliehen.
+- **Simulationen:** Revenge- und Test-Boss-Probelauf setzen beim Packen jetzt das Held-Flag wie das Spiel und rechnen
+  den halben Eigenschaden am Arm; `GREIF=1` erzwingt im Test-Boss das Packen.
+- **Test-Boss (Stufe 2 – Sondermechaniken):** `sim/testboss.js` wirkt jetzt auch Fächer (Reaper), verstreute Kreise in
+  Wellen (Terrible Gaze), liegenbleibende Fallen (Banana Slip), Inseln (Kouen), Deckung hinter Platten (Ultimate Flare),
+  geteilten Treffer (D-Reaper Zone + Pendulum Feet), Markierung (Tekken Seisai), Lade-Ring (Corona Sanctions) und
+  Greifarm (Creep Hands) – mit echten Werten aus den Spieldaten. Neue Spalte „Extra“ (z. B. gebrochen, gepackt, geschützt).
+  `NUR=stufe1` / `NUR=stufe2` wählt eine Stufe. Annahmen zum Server-Verhalten stehen im Dateikopf.
+
 ## 3.0.4 – Modus „Nur Event/Weltboss“, hinter den Boss bei Fächern
 - **Neuer Modus „Nur Event/WB“:** Der Bot tut nichts anderes, als auf das Event (Mega-Jagd) und die Weltbosse zu
   warten – keine Monster suchen, nicht grinden, keine Lern-Route. Ist eins fällig, reist er hin und kämpft, danach

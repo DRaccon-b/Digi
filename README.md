@@ -24,7 +24,7 @@ Einstellungen von 2.x werden übernommen.
   (bzw. Dungeon im Reiter Bosse).
 - **▶ Start** (oder **Alt+B**). Der Bot läuft erst nach diesem Klick – nichts startet von selbst.
 - **■ NOT-AUS** oder **Esc** stoppt sofort alle Fenster. Nach einem Not-Aus oder einem Sicherheitsstopp geht es nur
-  per Hand weiter.
+  per Hand weiter – ein Klick auf **▶ Start** im Leader-Fenster startet dann wieder alle Fenster (ab 3.0.5).
 - Zuschaltbar in jeder Betriebsart: **🎯 Event** (Mega-Jagd) und **🌍 Weltboss** (z. B. BlackWarGreymon, beide Kanäle).
 
 ## Was der Bot kann
@@ -68,7 +68,7 @@ npm install
 npm test                      # alle Tests (nachgebaute Spielwelten mit jsdom)
 node tests/run.js kohtest     # einzelne Tests
 node sim/dungeon-keramon.js   # Probelauf Kera Easy mit echten Bot-Fenstern
-TEMPO=4 node sim/testboss.js  # Test-Boss: jede Grundform einer Boss-Attacke, Auswertung je Attacke
+TEMPO=4 node sim/testboss.js  # Test-Boss: jede Grundform und Sondermechanik einer Boss-Attacke, Auswertung je Attacke
 ```
 
 - `digibot.user.js` – das Skript (ein File, wird so installiert)

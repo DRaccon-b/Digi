@@ -269,7 +269,7 @@ function moveTo(map, name, pl) {
   const sp = objOf(map, name) || at(name);
   const t = ents.get(`t:${pl.i}`), p = ents.get(`p:${pl.i}`);
   pl.store.setState({ screen: 'loading', target: null });
-  pl.goal = null; pl.atk = null; pl.loading = true; pl.grab = null;
+  pl.goal = null; pl.atk = null; pl.loading = true; pl.grab = null; p.flags &= ~8192;
   setTimeout(() => {
     pl.loading = false; pl.map = map; t.map = p.map = map;
     t.x = sp.x; t.y = sp.y; p.x = sp.x + 10; p.y = sp.y;
@@ -315,7 +315,7 @@ function damagePlayer(pl, dmg, what) {
   const st = pl.store.getState(), p = st.me.partner, hp = Math.max(0, p.hp - dmg);
   pl.store.setState({ me: { ...st.me, partner: { ...p, hp, fainted: hp <= 0 } } });
   if (hp <= 0) {
-    pl.fainted = true; pl.atk = null; pl.reviveAt = Date.now() + 5000; pl.grab = null;
+    pl.fainted = true; pl.atk = null; pl.reviveAt = Date.now() + 5000; pl.grab = null; partnerOf(pl).flags &= ~8192;
     run.deaths++; run.roomDeaths++;
     say(`💀 Char${pl.i + 1} fällt (${what}) – Stürze in Raum ${run.room + 3}: ${run.roomDeaths}/3`);
     for (const m of ents.values()) if (m.targetId === `p:${pl.i}`) m.targetId = '';
@@ -349,7 +349,7 @@ function stepPartners(now, dt) {
     if (p0.ds < pl.M.ds) { const s1 = pl.store.getState(); pl.store.setState({ me: { ...s1.me, partner: { ...s1.me.partner, ds: Math.min(pl.M.ds, s1.me.partner.ds + pl.M.ds * 0.01 * dt) } } }); }
     if (pl.grab) { // gepackt: wird zum Boss gezogen und ausgesaugt, bis der Arm bricht
       const arm = ents.get(pl.grab.arm);
-      if (!arm) { pl.grab = null; say(`Char${pl.i + 1} ist frei (Arm zerbrochen)`); }
+      if (!arm) { pl.grab = null; p.flags &= ~8192; say(`Char${pl.i + 1} ist frei (Arm zerbrochen)`); }
       else {
         const b = run.boss; const d = dist(p, b);
         if (d > 40) { p.x += (b.x - p.x) / d * 90 * dt; p.y += (b.y - p.y) / d * 90 * dt; t.x = p.x - 10; t.y = p.y; }
@@ -393,7 +393,8 @@ function forget(id) {
 }
 function hitMob(pl, m, dmg) {
   if (m.flags & 256) return;
-  const mult = (m.boss && Date.now() < run.exposeUntil ? 1.25 : 1) * (pl.M.f || 1);
+  // Spieldaten grab.selfPct 50: der Gepackte macht nur halben Schaden an seinem eigenen Arm
+  const mult = (m.boss && Date.now() < run.exposeUntil ? 1.25 : 1) * (pl.M.f || 1) * (pl.grab && m.id === pl.grab.arm ? 0.5 : 1);
   if (m.boss) { const by = run.stats.dmgBy ||= {}; by[pl.i] = (by[pl.i] || 0) + Math.min(m.hp, dmg * mult); run.stats.dmgT0 ||= Date.now(); run.stats.dmgT1 = Date.now(); }
   m.hp = Math.max(0, m.hp - dmg * mult);
   if (m.hp <= 0) killMob(m, pl);
@@ -553,6 +554,7 @@ function stepClock(now) {
     castZone(b, id, { line: lineTo(b, partnerOf(tank), 260, 12), castMs: sk.castMs, after: 250 /* wie live: der Arm packt erst ~0,2 s nach dem Ende der Ansage */, dmg: 8000, first: true, onHit: (pl) => {
       const arm = spawnMob('tentacle_bug_arm', 'Tentacle Bug', 120000, partnerOf(pl), { targetId: `p:${pl.i}` });
       pl.grab = { arm: arm.id, next: Date.now() + 1000 }; pl.goal = null;
+      partnerOf(pl).flags |= 8192; // wie im Spiel: Held-Flag am Digimon (der Bot sieht „festgehalten“)
       say(`🦑 Char${pl.i + 1} gepackt – Arm zerschlagen!`);
     } });
   } else if (id === 'diaboromon.overclock') {

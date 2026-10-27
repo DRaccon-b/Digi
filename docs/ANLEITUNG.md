@@ -202,6 +202,9 @@ Danach geht es eine Map tiefer und wieder von vorn. Der Phasenwechsel steht im L
 - **▶ Bots starten / ■ Bots stoppen:** Starten bzw. stoppen nur die Bots in allen offenen Gruppenfenstern.
   Sie loggen nicht ein und öffnen keine Fenster.
   - **▶ Start / ■ Stopp** oben im Leader-Fenster (oder **Alt+B**) wirkt ebenfalls auf alle.
+  - **Not-Aus (■ NOT-AUS oder Esc, aus jedem Fenster)** sperrt alle Fenster. Ab 3.0.5 hebt ein Klick auf **▶ Start** im
+    Leader-Fenster die Sperre bei allen wieder auf – nur ein echter Klick, kein automatischer Start. Die Statuszeile
+    sagt, ob der Stopp per Esc oder per Knopf aus einem anderen Fenster kam.
   - Ist der Leader mit allen Quests fertig, stoppen auch die Mitläufer.
   - Ein Fenster, das noch nicht in der Welt ist, startet seinen Bot, sobald es die Welt betritt.
 - **Schneller in der Gruppe (ab 2.10):**
