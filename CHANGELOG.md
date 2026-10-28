@@ -2,6 +2,18 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.12 – Raum 4 live (3. Versuch): Fächer sofort hinter den Boss, Kiten bis er wirklich unten ist, Formwechsel abgeraten
+Bot-Log aus Bauzels Fenster: „Warnfächer – kämpfe weiter, laufe 0,5 s später heraus“ → Treffer (Spät-Ausweichen ließ nur noch
+den Punkt seitlich zu, nicht den hinter dem Boss); „nach unten kiten“ und „ist heran (163 px)“ in derselben Sekunde (der
+Startplatz des Bosses liegt nur ~166 px über der unteren Kante, 250 px waren sofort erfüllt); „zurück zu Imperialdramon“ ging
+im Spiel bis Veemon, der Aufstieg lief stufenweise (~10 s je Stufe) – währenddessen fing niemand Kuramon, SpencerD war beim
+Boss noch Shakkoumon und fiel an der Flare.
+- **Fächer: kein Spät-Ausweichen mehr** – sofort los, mit Vorzug für den Punkt hinter dem Boss.
+- **Kiten:** „heran“ erst, wenn der Boss bis auf 100 px an den Sammelpunkt an der unteren Kante gelaufen ist.
+- **Haken „Herde in niedriger Form“ Standard aus** mit Warnung: im Spiel geht Zurück-Digitieren bis in die Grundform.
+- Simulation Raum 4 (ohne Formwechsel, 2 Läufe): geschafft, 0 Stürze, 0 Flare-Treffer bei 37 Ansagen, 541–559 s;
+  Armageddemon-Raid 3× 0 Treffer. Suite grün.
+
 ## 3.1.11 – Raum 4: richtig nach unten kiten, Herde seitengetreu
 Live (28.10., 3.1.10): Posten oben links/rechts und das Kiten liefen an, aber der Kampf fand immer noch zu weit oben statt –
 Armageddemon kam in 75 s nur 45 px nach unten, weil die 20-s-Frist ablief und sein Ziel (Bauzel) durch Key-of-Hope-Sammeln

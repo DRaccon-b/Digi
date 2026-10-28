@@ -30,7 +30,7 @@ Oben immer sichtbar:
   Ab 3.1.7: Raum 4 – Wellen oben links/rechts abfangen (Gruppe nach Slot geteilt), Boss unten in der Mitte sammeln und in
   der unteren Raumhälfte kämpfen; Regler „Mail Server ignorieren ab Boss-HP unter“ (Standard 8 %); nach einer selbst
   beantworteten Anwesenheitskontrolle läuft der Bot von selbst weiter. Ab 3.1.9 Haken „Raum 4: Herde in niedriger Form
-  abwehren“ (Standard aus): vor den Wellen eine Stufe zurück (Shakkoumon / Dragon Mode, Flächenangriffe), nach Welle 9 wieder hoch.
+  abwehren“ (Standard aus, nicht empfohlen: im Spiel geht Zurück-Digitieren bis in die Grundform, Aufstieg ~10 s je Stufe).
   Ab 3.1.10: Sobald Armageddemon angreifbar ist, kitet die Gruppe ihn nach unten (alle warten in der unteren Raumhälfte, bis er
   nachkommt; 3.1.11: Sammelpunkt ganz unten, Abbruch nur, wenn er 15 s lang nicht näher kommt) und kämpft dort. Die Herde
   wird seitengetreu angegriffen (eigene Seite zuerst). Beim Boss stehen alle auf einer Seite (links oder rechts), beim Fächer

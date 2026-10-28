@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.11
+// @version      3.1.12
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1501,7 +1501,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.11'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.12'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1662,7 +1662,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         ${grp('dungeon', 'Dungeon (Kera)', `
           <div class="digibot__apcfg">
             ${check('dgRetry', 'Nach einem gescheiterten Lauf automatisch neu betreten (bis 3 Versuche) – aus: Bot stoppt, Neustart über den Leader')}
-            ${check('dgHerdForm', 'Raum 4: Herde in niedriger Form abwehren – nach Raum 3 eine Stufe zurück (Clavis → Shakkoumon mit Kachina Bombs, Paladin → Dragon Mode mit Mega Crusher), am Ende von Welle 9 wieder hoch. Simulation: 15–21 statt 10–19 von 60 Kuramon – live noch ungetestet')}
+            ${check('dgHerdForm', 'Raum 4: Herde in niedriger Form abwehren – nach Raum 3 eine Stufe zurück (Clavis → Shakkoumon mit Kachina Bombs, Paladin → Dragon Mode mit Mega Crusher), am Ende von Welle 9 wieder hoch. ACHTUNG, live 28.10.: Zurück-Digitieren geht im Spiel bis in die Grundform (Veemon/Patamon), der Aufstieg dauert ~10 s je Stufe – währenddessen fängt niemand Kuramon, und die Clavis waren beim Boss noch Shakkoumon. Nicht empfohlen')}
             ${slider('dgBreakMinPct', 'Mail Server ignorieren ab Boss-HP unter', 0, 50, (v) => `${v} %`)}
             ${check('dgBreak', 'Mail Server zerstören (Diaboromon ab 30 %, drei Stück): alle dasselbe Ziel, danach zurück zum Boss. Aus: nur der Boss – dann verstärken die Support-Mails Diaboromon über die Server (bis ×2,5). Armageddemons Kuramon-Haufen werden immer zerschlagen')}
             <label>Modus<select data-apsel="dgMode"><option value="easy">Easy – War Game</option><option value="hard">Hard – Revenge (Gruppe)</option><option value="apocalymon">Apocalymon-Raid</option><option value="malomyotismon">MaloMyotismon-Raid</option></select></label>
@@ -2654,7 +2654,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // steht beim Sammeln noch verstreut (Probelauf Raum 4: mehr Stürze)
     // Auch ohne Ziel (Add getötet, Zielwechsel, Formwechsel) – sonst rannte der Bot sofort Hunderte Pixel weg und stand
     // dann bis zum Kreisende untätig herum (2.32.1). Ein schon begonnener Lauf wird abgebrochen, wenn noch viel Zeit bleibt.
-    if (!approaching && (!target || !partner || Math.hypot(partner.x-target.x,partner.y-target.y)<=DODGE_HOLD_RANGE) && inside.length && lefts.length === inside.length && !kohBlockPending(now)) {
+    // Fächer (Ultimate Flare): nie spät – sofort los, sonst reicht das Zeitbudget nur noch für den Punkt seitlich, nicht für den
+    // hinter dem Boss (live 28.10.: „kämpfe weiter, laufe 0,5 s später heraus“ → Treffer, 3.1.12)
+    if (!approaching && !inside.some((c) => c.kind === 'fan') && (!target || !partner || Math.hypot(partner.x-target.x,partner.y-target.y)<=DODGE_HOLD_RANGE) && inside.length && lefts.length === inside.length && !kohBlockPending(now)) {
       const runMs = Math.hypot(best.x - me.x, best.y - me.y) / walkSpeed * 1000;
       // Puffer bewusst fest 1,5 s: ein kürzerer (Latenz + 250 ms, min. 0,7 bzw. 1,2 s) brachte beim Dark Roar (3 s, 40 px)
       // zwar ~20 % mehr Schaden, aber in Gruppe/Raid erste Treffer durch Black Rain/Demon Flame (Test-Boss, 2026-10-27)
@@ -7544,6 +7546,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const dBoss = Math.hypot(te.x - goal.x, te.y - goal.y);
       if (dBoss < K.best - 8) { K.best = dBoss; K.bestAt = now; }
       // angegriffen wird, sobald er auf DG_KITE_NEAR (250 px) an den Sammelpunkt heran ist; Seite = wo die Gruppe gerade steht
+      // live 28.10.: der Startplatz des Bosses liegt nur ~166 px über der unteren Kante – „heran“ erst, wenn er bis auf DG_KITE_NEAR
+      // an den Sammelpunkt herangelaufen ist (3.1.12)
       const down = dBoss <= DG_KITE_NEAR, stall = now - (K.bestAt || K.at) > DG_KITE_STALL_MS;
       if (down || stall) { K.done = true; K.side = Math.sign(goal.x - te.x) || 1; logEvent('bot', down ? `Armageddemon ist heran (${Math.round(dBoss)} px) – Kampf, alle ${K.side > 0 ? 'rechts' : 'links'} von ihm` : `Armageddemon kommt nicht nach (${Math.round(dBoss)} px) – Kampf dort, wo er steht`); }
       else {
@@ -7562,7 +7566,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (walkTo(st, goal.x, goal.y, now, { zones: dangerZones(), nearestSafe: true }) === 'stuck') return null;
     return `Armageddemon: auf die ${side > 0 ? 'rechte' : 'linke'} Seite…`;
   }
-  const DG_KITE_NEAR = 250, DG_KITE_STALL_MS = 15000; // Kiten: angreifen, sobald der Boss 250 px an den Sammelpunkt heran ist; Abbruch nach 15 s ohne Annäherung
+  const DG_KITE_NEAR = 100, DG_KITE_STALL_MS = 15000; // Kiten: angreifen, sobald der Boss 100 px an den Sammelpunkt heran ist; Abbruch nach 15 s ohne Annäherung
   // Raum mit Herde (Armageddemon), Nutzer-Taktik 3.1.9: vor den Wellen eine Stufe zurück (Clavis → Shakkoumon, Paladin → Dragon
   // Mode – beide mit Flächenangriffen; die Clavis hat keinen), die Wellen in dieser Form abwehren, am Ende von Welle 9 wieder
   // in die Kampfform (ensureEvolution zur eingestellten Zielform). Simulation: 20–21 statt 10–19 von 60 Kuramon abgefangen.
