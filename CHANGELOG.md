@@ -2,6 +2,15 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.23 – Draußen in Schlagweite: zuschlagen statt warten; bei der Flare von der Seite hinter den Boss
+Mitschnitt 28.10. (9. Lauf, geschafft): Bei zwei Flares stand Bauzels Digimon 2,5 s lang mit 36–39 px hinter dem Boss auf
+sicherem Boden und „wartete außerhalb“ – der Angriffsplan scheiterte an einer Nebenbedingung (Tamer-Position/Lauf-Flags),
+obwohl das Ziel in Schlagweite stand.
+- **Angriff im Stand:** Steht das Digimon draußen schon in Schlagweite auf sicherem Boden, schlägt es zu (Grundangriff
+  und Skills vom Rand), egal wo der Tamer steht oder ob er noch läuft.
+- **Flare von der Seite:** Wer draußen, aber nicht in Schlagweite steht, läuft hinter den Boss auf die Nahkampfposition,
+  wenn der Weg dorthin außerhalb des Fächers bleibt (nicht mit dem Platten-Haken).
+
 ## 3.1.22 – Klinge: der Paladin erledigt den letzten Haufen
 Mitschnitt 28.10. (8. Lauf, Enrage bei 472 000 HP): Die Klinge erscheint in der Mechanik-Nachricht mit den fünf Haufen,
 liegt aber erst am Boden, wenn der letzte Haufen stirbt – genau an dessen Stelle. MarcusDs Digimon stand 33 px daneben und

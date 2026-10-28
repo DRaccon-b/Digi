@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.22
+// @version      3.1.23
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1528,7 +1528,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.22'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.23'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2581,6 +2581,36 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const onlyCircles = zones.every((c) => c.kind === 'circle');
       const plan0=digibotOutsideBasicPlan(st,target,partner,tamer,zones,soonNear && !onlyCircles);
       const plan=plan0 && (!soonNear || !onlyCircles || !plan0.walking) ? plan0 : null;
+      // Draußen, aber das Digimon steht schon in Schlagweite auf sicherem Boden: im Stand zuschlagen – ohne Rücksicht auf Tamer-Position,
+      // Lauf-Flags oder Annäherungsphase (live 28.10.: Bauzel stand bei der Flare 2,5 s mit 36–39 px hinter dem Boss und „wartete
+      // außerhalb“, weil der Angriffsplan an einer Nebenbedingung scheiterte; 3.1.23)
+      if(!plan && near && target && partner && st.target?.id===target.id && !noFightEarly(st,now) && !farmShielded(target,now) && !mirrorActive(target.id)
+        && !(partner.flags&(FLAG.Dead|FLAG.Casting|FLAG.Evolving|FLAG.Held)) && !(target.flags&(FLAG.Dead|FLAG.Hidden|FLAG.Untargetable))
+        && Math.hypot(partner.x-target.x,partner.y-target.y)<=stand0+6 && !zones.some((c)=>!digibotDodgeZoneSafe(c,partner,DODGE_EDGE_MARGIN))){
+        dodgeState.active=true;dodgeState.basicTarget=target.id;
+        if(bot.can('Digit1',ATTACK_REPEAT_MS,now))bot.hit('Digit1',now);
+        const es=!soonNear?skillsAtEdge(st,target,partner,now):null;
+        return 'Außerhalb der Warnzone · Angriff im Stand'+(es?` · Skill: ${es}`:'');
+      }
+      // Schwenkender Fächer (Ultimate Flare), draußen aber nicht in Schlagweite: hinter den Boss auf die Nahkampfposition, wenn der Weg
+      // dorthin außerhalb des Fächers bleibt – statt seitlich zu warten (3.1.23)
+      if(!plan && near && target && partner && tamer && st.target?.id===target.id && !noFightEarly(st,now) && !cfg.dgFlareCover){
+        const fan=zones.find((c)=>c.kind==='fan'&&c.sweep&&target&&Math.hypot(c.x-target.x,c.y-target.y)<40);
+        if(fan){
+          const q={x:fan.x-Math.cos(fan.dir)*(stand0+FAN_REAR_STAND),y:fan.y-Math.sin(fan.dir)*(stand0+FAN_REAR_STAND)};
+          const grid0=worldScene()?.map?.grid;
+          const okTo=(g)=>digibotDodgeZonePath(partner,g,zones,DODGE_EDGE_MARGIN)&&digibotDodgeZonePath(tamer,g,zones,DODGE_EDGE_MARGIN)&&digibotDodgeGridClear(tamer,g,grid0,5);
+          // gerader Weg streift den Nahbereich (64 px) seitlich: Zwischenpunkt außen herum, auf halbem Winkel zur Rückseite
+          let goal=okTo(q)?q:null,why='Hinter den Boss · Nahkampfposition außerhalb des Fächers';
+          if(!goal){const a0=Math.atan2(partner.y-fan.y,partner.x-fan.x),back=fan.dir+Math.PI;let da=back-a0;while(da>Math.PI)da-=2*Math.PI;while(da<-Math.PI)da+=2*Math.PI;const am=a0+da/2,rr=FAN_APEX_R+10;const w={x:fan.x+Math.cos(am)*rr,y:fan.y+Math.sin(am)*rr};if(okTo(w)){goal=w;why='Hinter den Boss · außen herum';}}
+          if(goal){
+            dodgeState.basicTarget=target.id;dodgeState.active=true;
+            if(Math.hypot(tamer.x-goal.x,tamer.y-goal.y)>DODGE_GOAL_REACHED && now-dodgeState.lastTap>DODGE_RETAP_MS){dodgeState.lastTap=now;autopilot.nav=null;autopilot.route=null;worldScene()?.tapGround?.(goal.x,goal.y);}
+            if(partner.id!==tamer.id && Math.hypot(partner.x-goal.x,partner.y-goal.y)>DODGE_GOAL_REACHED+8 && now-dodgeState.lastFollow>1500){dodgeState.lastFollow=now;commands()?.partnerFollow?.();}
+            return why;
+          }
+        }
+      }
       // Kreise um den Boss, gerader Weg zur Angriffsposition versperrt: Nahkampfposition auf dem Ring außerhalb der Kreise (3.1.19)
       if(cfg.dgRing && !plan && near && target && partner && tamer && st.target?.id===target.id && !noFightEarly(st,now) && zones.some((c)=>c.kind==='circle'&&!c.huge)){
         const grid0=worldScene()?.map?.grid;
