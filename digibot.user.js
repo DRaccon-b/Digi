@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.13
+// @version      3.1.14
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1501,7 +1501,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.13'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.14'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2644,7 +2644,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         if (zones.some((c) => zoneDist(c, aim).d < DODGE_MARGIN * 1.5 && !covered(c, aim, mapId))) continue; // andere Zone
         cov = aim; covD = d;
       }
-      if (cov && (!best || covD < Math.hypot(best.x - me.x, best.y - me.y))) best = cov;
+      // nur Rückfall (3.1.14, Nutzer): die Platten gewannen als nächstgelegener Punkt gegen den Weg hinter den Boss, und der
+      // 22-px-Deckungskreis hinter einer Platte reicht nicht für mehrere Digimon – live Flare-Treffer bei 665 s
+      if (cov && !best) best = cov;
     }
     if (!best) { dodgeState.active = false; dodgeState.goal = null; return null; } // kein Fluchtpunkt: stehen bleiben hilft nicht – weiterkämpfen
     // Lange Ansage (z. B. Machinedramons Full Charge, 12 s): weiterkämpfen und erst so spät loslaufen, dass es
@@ -3401,11 +3403,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   // Beim Sammeln/Positionhalten weiter angreifen, solange das Ziel in Schlagweite steht – ohne hinzulaufen (das verließe den
   // Sammelpunkt). Live (28.10.): der Clavis, der als Nächster zündet, stand die ganzen 5 s der Ansage nur herum (3.1.6)
+  const KOH_ATTACK_SLACK = 36;
   function kohAttackInPlace(st, now) {
     const ents = window.dmo?.net?.state?.entities, t = st?.target, te = t?.kind === 'mob' && t.hp > 0 ? ents?.get?.(t.id) : null, pe = ents?.get?.(st?.me?.partner?.entityId);
     if (!te || !pe || st.me?.partner?.fainted || st.me?.partner?.evolving) return '';
     const C = content(), range = C?.digimon?.[st.me?.partner?.species]?.basic?.range ?? DODGE_BASIC_RANGE, radius = Math.min(C?.digimon?.[te.defId]?.radius ?? 7, 7);
-    if (Math.hypot(te.x - pe.x, te.y - pe.y) > range + radius + 4) return '';
+    // bis KOH_ATTACK_SLACK px außerhalb der Schlagweite trotzdem angreifen – der kleine Schritt bleibt im Schutzkreis (80 px);
+    // live 28.10.: Sammelpunkt 42–45 px vom Boss, Schlagweite ~40 → niemand schlug zu (3.1.14)
+    if (Math.hypot(te.x - pe.x, te.y - pe.y) > range + radius + KOH_ATTACK_SLACK) return '';
     if (bot.can('Digit1', ATTACK_REPEAT_MS, now)) bot.hit('Digit1', now);
     const sk = skillsAtEdge(st, te, pe, now);
     return sk ? ` · greife an (${sk})` : ' · greife an';
@@ -3438,7 +3443,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const who = group.peers.get(plan.slot)?.name || `Slot ${plan.slot + 1}`;
     const d = (e) => (e ? Math.hypot(e.x - plan.x, e.y - plan.y) : 0);
     if (d(partner) <= KOH_GATHER_R && d(tamer) <= KOH_GATHER_R + 40) return `Key of Hope: im Schutzkreis von ${who}` + kohAttackInPlace(st, now);
-    if (tamer && d(tamer) > 24 && bot.can('kohTap', 250, now)) { bot.lastPress.kohTap = now; worldScene()?.tapGround?.(plan.x, plan.y); }
+    // eigener Platz im Schutzkreis (nach Slot verteilt, ≤ 40 px vom Anker): live standen vier Clavis auf demselben Pixel und jeder bekam
+    // zwei Volley-Kreise ab (2 × 45 000 → tot, 28.10., 3.1.14)
+    const ang = (group.slot() * 2 * Math.PI) / 5, spot = { x: plan.x + Math.cos(ang) * 36, y: plan.y + Math.sin(ang) * 36 };
+    if (tamer && Math.hypot(tamer.x - spot.x, tamer.y - spot.y) > 24 && bot.can('kohTap', 250, now)) { bot.lastPress.kohTap = now; worldScene()?.tapGround?.(spot.x, spot.y); }
     if (partner && d(partner) > KOH_GATHER_R && bot.can('kohFollow', 800, now)) { bot.lastPress.kohFollow = now; commands()?.partnerFollow?.(); }
     return `Key of Hope: laufe in den Schutzkreis von ${who}`;
   }

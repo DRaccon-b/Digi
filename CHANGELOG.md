@@ -2,6 +2,16 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.14 – Flare: Platten nur noch Rückfall, Sammeln mit eigenem Platz, Angriff beim Sammeln
+Live (28.10., 4. Lauf, Mitschnitt): SpencerD und Fumiko fielen gleichzeitig an der Flare (je 65 401) – die Deckung hinter
+einer Platte gewann als nächstgelegener Punkt gegen den Weg hinter den Boss; beim Sammeln standen vier Clavis auf demselben
+Pixel und bekamen je zwei Volley-Kreise ab (2 × 45 000, MarcusD und SpencerD tot in Raum 3); beim Sammeln 42–45 px vom
+Boss schlug niemand zu.
+- **Platten nur als Rückfall:** Ausgewichen wird hinter den Boss; die Deckung wird nur gewählt, wenn es keinen erreichbaren
+  Fluchtpunkt gibt.
+- **Sammeln:** jedes Fenster bekommt einen eigenen Platz im Schutzkreis (36 px um den Anker, nach Slot verteilt).
+- **Angriff beim Sammeln** auch bis 36 px außerhalb der Schlagweite (der kleine Schritt bleibt im Schutzkreis).
+
 ## 3.1.13 – Raumstand nach dem Verlassen löschen (Herden-Form stufte an der Tür zurück)
 - Live (28.10.): Nach einem Abbruch und Wiedereinstieg blieb der Raumstand „Raum 4 ist der nächste“ im Bot stehen; mit
   Haken „Herde in niedriger Form“ stuften die Clavis schon an der Tür zu Angemon zurück. Jetzt werden Raumstand, Herden-
