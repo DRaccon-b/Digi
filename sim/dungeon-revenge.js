@@ -7,7 +7,7 @@
 //   GRUPPE=3 node sim/dungeon-revenge.js     Gruppe
 //   TEMPO=4 …                                Zeitraffer (höchstens 4, darüber wird es ungenau)
 //   V=1 …                                    jeder Statuswechsel der Bots
-//   TEAM=clavis …                            Bauzel (Imperialdramon Paladin Lv 99) + 4 ClavisAngemon Lv 70 (Key of Hope)
+//   TEAM=clavis …                            Bauzel (Imperialdramon Paladin Lv 99) + 4 ClavisAngemon Lv 99 (CLAVIS_LV=…) (Key of Hope)
 //   CLAVIS=2 CLAVIS_LV=100 …                 Anzahl (1–4) und Level der ClavisAngemon
 //   START=4 …                                gleich in Raum 4 (Bucht) beginnen
 //   STEUERUNG=tamer …                        Spiel auf Tamer-Steuerung (Standard: Digimon – Klick bewegt das Digimon)
@@ -46,7 +46,7 @@ warp(global);
 
 const TEAM = process.env.TEAM || '';
 const CTRL_P = (process.env.STEUERUNG || 'digimon') !== 'tamer'; // Digimon-Steuerung: Klick = Digimon läuft hin, Tamer folgt
-const CLAVIS_N = Math.max(1, Math.min(4, Number(process.env.CLAVIS) || 4)), CLAVIS_LV = Number(process.env.CLAVIS_LV) || 70; // TEAM=clavis: Anzahl und Level
+const CLAVIS_N = Math.max(1, Math.min(4, Number(process.env.CLAVIS) || 4)), CLAVIS_LV = Number(process.env.CLAVIS_LV) || 99; // TEAM=clavis: Anzahl und Level
 const N = TEAM === 'clavis' ? 1 + CLAVIS_N : Math.max(1, Math.min(5, Number(process.env.GRUPPE) || 1));
 const SCHADEN = Number(process.env.SCHADEN) || 12000;
 const LIVE = !!Number(process.env.LIVE || 0);
