@@ -33,7 +33,8 @@ Einstellungen von 2.x werden übernommen.
   Strahlen und Fächern aus, greift einen Boss knapp im Warnkreis von draußen an und nutzt Fernangriffe von außerhalb.
   Bei langen Ansagen kämpft er weiter und läuft erst spät heraus.
 - **Tamer-Skills (neu in 3.0):** setzt die Fähigkeit des Tamers je nach Lage ein – Heilung und Schutz bei Bedarf,
-  Verstärkung in längeren Kämpfen. In der Gruppe wird abgestimmt, wer sie auslöst.
+  Verstärkung in längeren Kämpfen (ein Angriffs-Crest wartet auf den stärksten Angriffsskill, z. B. Gate of Judgment).
+  Gruppen-Buffs werden in der Gruppe abgestimmt, Selbst-Buffs zündet jedes Fenster selbst.
 - **Lern-Route:** sucht selbst die Zone mit den meisten EXP pro Minute, reist hin, nimmt lohnende Feldbosse mit und
   digitiert je nach Map (Dark Tower / ohne). Beim Warten am Boss-Spawn wehrt sie Angreifer ab; ist der Boss da, hat
   er Vorrang.

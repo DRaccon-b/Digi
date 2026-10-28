@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.16
+// @version      3.1.17
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -655,10 +655,18 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return 'Gruppe: eigene Position am Boss';
   }
 
-  const digibotTamer={skill:'',want:false,since:0,last:0,cooldown:0,retryAt:0,attempts:0};
+  const digibotTamer={skill:'',want:false,since:0,last:0,cooldown:0,retryAt:0,attempts:0,holdSince:0};
+  // Stärkster Angriffsskill auf der Leiste – Gate of Judgment hat Vorrang (Nutzer 28.10.: Crest „immer vor einem Gate of Judgment“)
+  function digibotBurstSkill(st){
+    const C=content();let best=null;
+    for(const k of SKILL_KEYS){const s=skillOnKey(st,k);if(!s||s.skill.unlocked===false)continue;const def=C?.skills?.[s.skill.id];
+      if(!def||!(def.kind==='damage'||def.power>0))continue;const gate=/gate_of_judgment$/.test(s.skill.id),power=def.power||0;
+      if(!best||(gate&&!best.gate)||(gate===best.gate&&power>best.power))best={...s,gate,power};}
+    return best;
+  }
   function digibotTamerTick(st,now) {
     const p=st?.me?.partner,C=content(),sk=C?.tamers?.[st?.me?.tamerId]?.skill;
-    if(digibotTamer.skill!==sk?.id){Object.assign(digibotTamer,{skill:sk?.id||'',want:false,since:0,last:0,cooldown:sk?.cooldownMs||0,retryAt:0,attempts:0});}
+    if(digibotTamer.skill!==sk?.id){Object.assign(digibotTamer,{skill:sk?.id||'',want:false,since:0,last:0,cooldown:sk?.cooldownMs||0,retryAt:0,attempts:0,holdSince:0});}
     digibotTamer.want=false;
     if(!cfg.tamerAuto||!bot.on||!digibotCore.allowed()||!sk||!p||p.fainted){digibotTamer.since=0;return;}
     const remaining=Math.max(0,(st.cooldowns?.tamer?.end||0)-performance.now());
@@ -681,11 +689,21 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const target=ents?.get?.(st.target?.id);
     const dangerous=!!own&&dangerZones().some(z=>zoneDist(z,own).d<24&&(zoneLeftMs(z)==null||zoneLeftMs(z)<2000));
     const skillsOnCooldown=SKILL_KEYS.filter(k=>skillOn(st,k)&&!healAt(st,k)).map(k=>skillOnKey(st,k)).filter(s=>s?.skill?.unlocked!==false&&s?.cdLeft>1000).length;
-    const reason=digibotTamerDecision({skill:sk,partner:p,allies,target,fighting:inCombat(st),incoming:dangerous||shareIncoming(now),debuffed,skillsOnCooldown});
-    if(!reason){digibotTamer.since=0;return;}
+    let reason=digibotTamerDecision({skill:sk,partner:p,allies,target,fighting:inCombat(st),incoming:dangerous||shareIncoming(now),debuffed,skillsOnCooldown});
+    if(!reason){digibotTamer.since=0;digibotTamer.holdSince=0;return;}
+    // Angriffs-Crest (Tai/Izzy/Ken …) erst, wenn der stärkste Angriffsskill (Gate of Judgment) gleich bereit ist – so liegt er
+    // sicher im 15-s-Buff; höchstens 10 s warten (3.1.17)
+    if(/^Angriffsverstärkung/.test(reason)){
+      const burst=digibotBurstSkill(st);
+      if(burst&&burst.cdLeft>2500){if(!digibotTamer.holdSince)digibotTamer.holdSince=now;if(now-digibotTamer.holdSince<10000)return;}
+      else digibotTamer.holdSince=0;
+      if(burst)reason+=` (vor ${burst.skill.name})`;
+    }
     digibotTamer.want=true;
     const partyId=st.party?.id||null;
-    if(group.active()&&partyId){
+    // Gruppenwahl (einer zündet, die anderen warten) nur für Gruppen-Buffs – ein Selbst-Buff (Crest of Courage/Knowledge, Digi-Egg
+    // of Kindness) wirkt nur aufs eigene Digimon, da zündet jedes Fenster selbst (live 28.10.: Clavis setzten ihr Crest zu selten; 3.1.17)
+    if(group.active()&&partyId&&sk.scope!=='self'){
       if(!digibotTamer.since){digibotTamer.since=now;groupPush(true);return;}
       // Let the intent reach other windows before electing one sender.
       if(now-digibotTamer.since<600+group.slot()*150)return;
@@ -693,7 +711,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     const cmd=commands();if(typeof cmd?.tamerSkill!=='function')return;
     const sentAt=now;
-    digibotTamer.retryAt=now+3000;digibotTamer.want=false;digibotTamer.since=0;
+    digibotTamer.retryAt=now+3000;digibotTamer.want=false;digibotTamer.since=0;digibotTamer.holdSince=0;
     digibotTamer.attempts++;cmd.tamerSkill();
     // Provisional claim covers propagation; server cooldown provides final confirmation.
     digibotTamer.last=sentAt;digibotTamer.cooldown=3000;
@@ -1501,7 +1519,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.16'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.17'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1614,7 +1632,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           ${check('koh', 'ClavisAngemon: große Raid-Angriffe mit Key of Hope blocken')}`, true,
           'Ausweichen: raus aus Kreisen, Strahlen und Fächern, möglichst nah am Boss. Immer aktiv: kein Angriff, solange das Ziel Schaden zurückwirft (Spiegel), und lange Casts nur, wenn eine mögliche Boss-Attacke noch Zeit zum Ausweichen lässt.')}
 
-        ${grp('tamer-skills', 'Tamer-Fähigkeit', `${check('tamerAuto', 'Tamer-Skill situationsabhängig automatisch einsetzen')}<div class="digibot__hint">Heilung und Schutz nach Bedarf, Angriffsverstärkung in längeren Kämpfen. Gleiche Fähigkeiten werden zwischen DigiBot-Gruppenfenstern abgestimmt. Das Spiel entscheidet über Reichweite und gemeinsame Abklingzeiten.</div>`, true)}
+        ${grp('tamer-skills', 'Tamer-Fähigkeit', `${check('tamerAuto', 'Tamer-Skill situationsabhängig automatisch einsetzen')}<div class="digibot__hint">Heilung und Schutz nach Bedarf, Angriffsverstärkung in längeren Kämpfen (ein Angriffs-Crest wartet bis zu 10 s auf den stärksten Angriffsskill, z. B. Gate of Judgment). Gruppen-Buffs werden zwischen DigiBot-Gruppenfenstern abgestimmt, Selbst-Buffs zündet jedes Fenster selbst. Das Spiel entscheidet über Reichweite und gemeinsame Abklingzeiten.</div>`, true)}
         ${grp('bskills', 'Attacken des Bosses', `<div class="digibot__bskills" data-f="bskills"><div class="digibot__none">Kein Boss im Kampf – Attacken erscheinen hier, sobald du einen Boss anvisierst.</div></div>`, true,
           'Form, Ansage und Cooldown jeder Attacke. Der Countdown läuft ab dem ersten beobachteten Einsatz; „bereit“ heißt „kann jederzeit kommen“.')}
         ${grp('mobs', '<span data-f="mapname">Monster auf dieser Map</span>', `
@@ -3409,13 +3427,22 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Beim Sammeln/Positionhalten weiter angreifen, solange das Ziel in Schlagweite steht – ohne hinzulaufen (das verließe den
   // Sammelpunkt). Live (28.10.): der Clavis, der als Nächster zündet, stand die ganzen 5 s der Ansage nur herum (3.1.6)
   const KOH_ATTACK_SLACK = 36;
-  function kohAttackInPlace(st, now) {
+  // Schutzkreis: Radius aus den Spieldaten (Key of Hope 128 px), Sicherheitsrand KOH_EDGE – bis dahin darf das Digimon ans Ziel
+  // laufen (live 28.10.: Bauzel stand 41 s untätig im Kreis, weil nur „Ziel schon in Schlagweite“ zählte; 3.1.17)
+  const KOH_EDGE = 28;
+  const kohCircleR = () => content()?.skills?.[KOH_ID]?.radius || 128;
+  // anchor: Mittelpunkt des Kreises (Plan eines anderen Clavis). Angriff erlaubt, wenn der Haltepunkt am Ziel (Schlagweite vom
+  // Ziel) noch im Kreis liegt: Ziel höchstens Radius − Rand + Schlagweite vom Anker. Ohne anchor (ich zünde selbst, der Kreis
+  // hängt an mir): nur, wenn das Ziel schon fast in Schlagweite steht.
+  function kohAttackInPlace(st, now, anchor) {
     const ents = window.dmo?.net?.state?.entities, t = st?.target, te = t?.kind === 'mob' && t.hp > 0 ? ents?.get?.(t.id) : null, pe = ents?.get?.(st?.me?.partner?.entityId);
     if (!te || !pe || st.me?.partner?.fainted || st.me?.partner?.evolving) return '';
     const C = content(), range = C?.digimon?.[st.me?.partner?.species]?.basic?.range ?? DODGE_BASIC_RANGE, radius = Math.min(C?.digimon?.[te.defId]?.radius ?? 7, 7);
-    // bis KOH_ATTACK_SLACK px außerhalb der Schlagweite trotzdem angreifen – der kleine Schritt bleibt im Schutzkreis (80 px);
+    const reach = range + radius;
+    const viaAnchor = !!anchor && Math.hypot(te.x - anchor.x, te.y - anchor.y) <= kohCircleR() - KOH_EDGE + reach;
+    // bis KOH_ATTACK_SLACK px außerhalb der Schlagweite trotzdem angreifen – der kleine Schritt bleibt im Schutzkreis;
     // live 28.10.: Sammelpunkt 42–45 px vom Boss, Schlagweite ~40 → niemand schlug zu (3.1.14)
-    if (Math.hypot(te.x - pe.x, te.y - pe.y) > range + radius + KOH_ATTACK_SLACK) return '';
+    if (!viaAnchor && Math.hypot(te.x - pe.x, te.y - pe.y) > reach + KOH_ATTACK_SLACK) return '';
     if (bot.can('Digit1', ATTACK_REPEAT_MS, now)) bot.hit('Digit1', now);
     const sk = skillsAtEdge(st, te, pe, now);
     return sk ? ` · greife an (${sk})` : ' · greife an';
@@ -3447,12 +3474,20 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const partner = ents?.get?.(st?.me?.partner?.entityId), tamer = controlled(st);
     const who = group.peers.get(plan.slot)?.name || `Slot ${plan.slot + 1}`;
     const d = (e) => (e ? Math.hypot(e.x - plan.x, e.y - plan.y) : 0);
-    if (d(partner) <= KOH_GATHER_R && d(tamer) <= KOH_GATHER_R + 40) return `Key of Hope: im Schutzkreis von ${who}` + kohAttackInPlace(st, now);
-    // eigener Platz im Schutzkreis (nach Slot verteilt, ≤ 40 px vom Anker): live standen vier Clavis auf demselben Pixel und jeder bekam
-    // zwei Volley-Kreise ab (2 × 45 000 → tot, 28.10., 3.1.14)
-    const ang = (group.slot() * 2 * Math.PI) / 5, spot = { x: plan.x + Math.cos(ang) * 36, y: plan.y + Math.sin(ang) * 36 };
+    const inR = kohCircleR() - KOH_EDGE; // Digimon darf bis hierhin vom Anker weg (es läuft im Kreis ans Ziel, 3.1.17)
+    if (d(partner) <= inR && d(tamer) <= KOH_GATHER_R + 40) return `Key of Hope: im Schutzkreis von ${who}` + kohAttackInPlace(st, now, plan);
+    // eigener Platz im Schutzkreis: zur Ziel-Seite hin (so weit zum Ziel, wie der Kreis erlaubt, seitlich nach Slot gefächert) –
+    // dann steht das Digimon nach dem kurzen Weg in Schlagweite (3.1.17). Ohne Ziel nach Slot im Kreis verteilt: live standen vier
+    // Clavis auf demselben Pixel und jeder bekam zwei Volley-Kreise ab (2 × 45 000 → tot, 28.10., 3.1.14)
+    const t0 = st?.target, te0 = t0?.kind === 'mob' && t0.hp > 0 ? ents?.get?.(t0.id) : null;
+    let spot;
+    if (te0) {
+      const dx = te0.x - plan.x, dy = te0.y - plan.y, D = Math.hypot(dx, dy) || 1, ux = dx / D, uy = dy / D;
+      const along = Math.min(KOH_GATHER_R - 10, Math.max(0, D - 50)), off = (group.slot() - 2) * 14;
+      spot = { x: plan.x + ux * along - uy * off, y: plan.y + uy * along + ux * off };
+    } else { const ang = (group.slot() * 2 * Math.PI) / 5; spot = { x: plan.x + Math.cos(ang) * 36, y: plan.y + Math.sin(ang) * 36 }; }
     if (tamer && Math.hypot(tamer.x - spot.x, tamer.y - spot.y) > 24 && bot.can('kohTap', 250, now)) { bot.lastPress.kohTap = now; worldScene()?.tapGround?.(spot.x, spot.y); }
-    if (partner && d(partner) > KOH_GATHER_R && bot.can('kohFollow', 800, now)) { bot.lastPress.kohFollow = now; commands()?.partnerFollow?.(); }
+    if (partner && d(partner) > inR && bot.can('kohFollow', 800, now)) { bot.lastPress.kohFollow = now; commands()?.partnerFollow?.(); }
     return `Key of Hope: laufe in den Schutzkreis von ${who}`;
   }
   function keyOfHope(st, now) {

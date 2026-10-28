@@ -2,6 +2,16 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.17 – Key of Hope: im Schutzkreis bewegen und angreifen; Crests öfter und vor dem Gate of Judgment
+Live 28.10. (Mitschnitt, Bauzel): 41 s des Bosskampfs untätig im Schutzkreis – gesammelt wurde auf 80 px um den Clavis,
+angegriffen nur, wenn das Ziel schon (fast) in Schlagweite stand. Der Kreis hat aber 128 px.
+- **Im Schutzkreis angreifen:** Das Digimon darf ans Ziel laufen, solange sein Haltepunkt im Kreis bleibt (Ziel höchstens
+  Radius − 28 px + Schlagweite vom Anker entfernt). Der eigene Sammelplatz liegt jetzt zur Ziel-Seite hin (seitlich nach Slot
+  gefächert), damit der Weg ans Ziel kurz ist. Der Clavis, der zündet, bleibt wie bisher stehen.
+- **Crests:** Selbst-Buffs (Crest of Courage/Knowledge, Digi-Egg of Kindness, Boost Chip …) zündet jedes Fenster selbst – die
+  Gruppenwahl (einer zündet, die anderen warten die Abklingzeit ab) gilt nur noch für Gruppen-Buffs. Ein Angriffs-Crest wartet
+  bis zu 10 s darauf, dass der stärkste Angriffsskill (Gate of Judgment) bereit ist, damit er sicher im 15-s-Buff liegt.
+
 ## 3.1.16 – Raum 4: kein Kiten mehr
 Live 28.10. (4. Versuch, niemand gestorben): Rauswurf exakt 480 s nach Betreten von Raum 4 bei 1,1 Mio. Boss-HP – der
 Enrage-Timer (enrageMs 480000) läuft ab Raumbeginn, die Herdenphase (~100 s) zählt mit. Für den Boss bleiben ~380 s, nötig
