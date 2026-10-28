@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.8
+// @version      3.1.9
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1315,6 +1315,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     dgBreak: true,        // Optionales Brechbares (Mail Server bei Diaboromon) zerstören – alle dasselbe Ziel; aus = nur der Boss (3.1.1).
     dgRetry: false,       // Nach einem gescheiterten Lauf (rausgeflogen) neu betreten, bis DG_TRIES Versuche – aus: Bot stoppt (3.1.5)
     dgBreakMinPct: 8,     // Mail Server nicht mehr angreifen, sobald der Boss so wenig % HP hat – dann direkt auf ihn (3.1.7)
+    dgHerdForm: false,    // Raum 4: für die Herde eine Stufe zurück (Clavis → Shakkoumon, Paladin → Dragon Mode: Flächenangriffe), am Ende von Welle 9 wieder hoch (3.1.9)
                           // Standard an (3.1.3): stehen die Server, verstärken die Support-Mails den Boss (Spieldaten: 15 % je Mail, bis ×2,5).
                           // Pflicht-Brechbares (Kuramon-Haufen: Armageddemons Panzer) wird immer zerschlagen.
     expMess: false,       // EXP-Messung: je Kill Monster, EXP, Kampfdauer, Treffer mitschreiben (Reiter Log)
@@ -1500,7 +1501,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.8'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.9'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1661,6 +1662,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         ${grp('dungeon', 'Dungeon (Kera)', `
           <div class="digibot__apcfg">
             ${check('dgRetry', 'Nach einem gescheiterten Lauf automatisch neu betreten (bis 3 Versuche) – aus: Bot stoppt, Neustart über den Leader')}
+            ${check('dgHerdForm', 'Raum 4: Herde in niedriger Form abwehren – nach Raum 3 eine Stufe zurück (Clavis → Shakkoumon mit Kachina Bombs, Paladin → Dragon Mode mit Mega Crusher), am Ende von Welle 9 wieder hoch. Simulation: 15–21 statt 10–19 von 60 Kuramon – live noch ungetestet')}
             ${slider('dgBreakMinPct', 'Mail Server ignorieren ab Boss-HP unter', 0, 50, (v) => `${v} %`)}
             ${check('dgBreak', 'Mail Server zerstören (Diaboromon ab 30 %, drei Stück): alle dasselbe Ziel, danach zurück zum Boss. Aus: nur der Boss – dann verstärken die Support-Mails Diaboromon über die Server (bis ×2,5). Armageddemons Kuramon-Haufen werden immer zerschlagen')}
             <label>Modus<select data-apsel="dgMode"><option value="easy">Easy – War Game</option><option value="hard">Hard – Revenge (Gruppe)</option><option value="apocalymon">Apocalymon-Raid</option><option value="malomyotismon">MaloMyotismon-Raid</option></select></label>
@@ -7329,7 +7331,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const DG_PULL_HP = 90;         // einen neuen Raum (Kampf beginnt beim Hineingehen) erst ab so viel HP betreten
   const dg = {
     dps: 0, dpsTrack: null, hud: null, hudAt: 0, inside: false, insideAt: 0, enterAt: 0, doorAt: 0, fails: 0, cleared: false, logRoom: -1,
-    reset() { this.hud = null; this.hudAt = 0; this.inside = false; this.insideAt = 0; this.enterAt = 0; this.doorAt = 0; this.fails = 0; this.cleared = false; this.logRoom = -1; },
+    herd: { low: false, lowAt: 0, back: false, backAt: 0, seen: new Set(), lastSpawn: 0, note: '' }, // Herden-Form (3.1.9)
+    reset() { this.hud = null; this.hudAt = 0; this.inside = false; this.insideAt = 0; this.enterAt = 0; this.doorAt = 0; this.fails = 0; this.cleared = false; this.logRoom = -1; this.herd = { low: false, lowAt: 0, back: false, backAt: 0, seen: new Set(), lastSpawn: 0, note: '' }; },
   };
   function dgNote(ev) {
     dg.hud = { raid: ev.raid, room: ev.room ?? 0, rooms: ev.rooms ?? 0, roomId: ev.roomId, pulled: !!ev.pulled, deaths: ev.deaths ?? 0, deathLimit: ev.deathLimit ?? 0 };
@@ -7526,6 +7529,51 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (walkTo(st, goal.x, goal.y, now, { zones: dangerZones(), nearestSafe: true }) === 'stuck') return null;
     return 'Armageddemon: unten herum – Kampf in der unteren Raumhälfte';
   }
+  // Raum mit Herde (Armageddemon), Nutzer-Taktik 3.1.9: vor den Wellen eine Stufe zurück (Clavis → Shakkoumon, Paladin → Dragon
+  // Mode – beide mit Flächenangriffen; die Clavis hat keinen), die Wellen in dieser Form abwehren, am Ende von Welle 9 wieder
+  // in die Kampfform (ensureEvolution zur eingestellten Zielform). Simulation: 20–21 statt 10–19 von 60 Kuramon abgefangen.
+  const dgHerdLow = () => !!(dg.herd.low && !dg.herd.back); // im Bot-Takt heißt die lokale Ausweich-Variable auch „dg“
+  function dgHerdBossHere(st, mapId) {
+    const raid = dgRaid(mapId); if (!raid) return null;
+    const R = dgRoom(st, raid); if (!R?.m || R.here < 0) return null;
+    const z = R.zone(R.here); if (!z) return null;
+    const sp = content()?.spawns?.[mapId];
+    const inRect0 = (q) => q && q.x >= z.x && q.x <= z.x + z.w && q.y >= z.y && q.y <= z.y + z.h;
+    const b = (sp?.bosses || []).find((o) => o.herd?.from?.length && inRect0(R.m?.spawns?.[o.at]));
+    return b ? { b, R, z } : null;
+  }
+  function dgHerdFormStep(st, sc, now) {
+    const H = dg.herd, p = st?.me?.partner, mapId = st.world?.mapId;
+    if (!cfg.dgHerdForm || !p || p.fainted) return null;
+    const here = dgHerdBossHere(st, mapId);
+    if (!here) { if (H.low && !H.back) { H.back = true; H.backAt = now; } return null; } // anderer Raum: nur noch zurück in die Kampfform
+    const { b, R } = here, ents = window.dmo?.net?.state?.entities;
+    let bossUp = false, herdAlive = false;
+    ents?.forEach?.((e) => { if (e.kind !== KIND.Mob || e.hp <= 0) return; if (e.defId === b.species) bossUp = true; if (e.defId === b.herd.species) { herdAlive = true; if (!H.seen.has(e.id)) { H.seen.add(e.id); H.lastSpawn = now; } } });
+    const perWave = b.herd.perWave || 6, waves = b.herd.waves || 10;
+    const target = cfg.apEvo && cfg.apEvo !== EVO_MAX ? cfg.apEvo : maxEvolution(p);
+    const lowerOf = (sp) => (p.evolutions || []).find((e) => e.species === sp)?.from;
+    // 1) vor der Herde: eine Stufe zurück (nur aus der Zielform, nur wenn noch nichts gezogen und der Boss nicht da ist)
+    if (!H.low) {
+      if (bossUp || R.h?.pulled || H.seen.size || p.evolving) return null;
+      if (!target || p.species !== target || !lowerOf(target)) return null;
+      if (evoCooldownLeft(st) > 0) return `Herde: warte auf die Digitations-Abklingzeit (${Math.ceil(evoCooldownLeft(st) / 1000)} s)`;
+      if (!bot.can('devolve', 4000, now)) return `Herde: zurück zu ${speciesName(lowerOf(target))}…`;
+      bot.lastPress.devolve = now; H.low = true; H.lowAt = now; commands()?.devolve?.();
+      logEvent('bot', `Raum ${R.here + 1}: zurück zu ${speciesName(lowerOf(target))} für die Herde (Flächenangriffe)`);
+      return `Herde: zurück zu ${speciesName(lowerOf(target))}…`;
+    }
+    // 2) Ende von Welle 9 (alle Wellen bis auf die letzte gespawnt, keine Kuramon mehr unterwegs) oder Boss da: wieder hoch
+    if (!H.back) {
+      const spawnedWaves = Math.ceil(H.seen.size / perWave);
+      const lastDone = spawnedWaves >= waves - 1 && !herdAlive && now - H.lastSpawn > 2000;
+      if (bossUp || lastDone || (H.seen.size && now - H.lastSpawn > 25000)) { H.back = true; H.backAt = now; logEvent('bot', `Raum ${R.here + 1}: Welle ${spawnedWaves} vorbei – hoch zu ${speciesName(target)}`); }
+      else return null; // in der niedrigen Form kämpfen (normale Zielwahl/Angriff)
+    }
+    // 3) hoch in die Kampfform – ensureEvolution gibt den Befehl, der Takt läuft weiter (Ausweichen/Key of Hope bleiben aktiv)
+    if (target && p.species !== target && !p.evolving) { const r = ensureEvolution(st, target, now); if (r !== true) H.note = String(r); }
+    return null;
+  }
   function dgHerdPost(st, R, z, mapId, now) {
     const sp = content()?.spawns?.[mapId], ents = window.dmo?.net?.state?.entities;
     const inRect0 = (q) => q && q.x >= z.x && q.x <= z.x + z.w && q.y >= z.y && q.y <= z.y + z.h;
@@ -7624,6 +7672,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const p = st?.me?.partner;
     let sp = cfg.apEvo;
     if (!sp || !p) return null;
+    if (dg.herd.low && !dg.herd.back) return null; // Herden-Form gewollt (3.1.9)
     if (sp === EVO_MAX) sp = maxEvolution(p);
     if (!sp || p.species === sp || autopilot.evoGiveUp === sp) return null;
     const t = (p.evolutions || []).find((e) => e.species === sp);
@@ -8302,6 +8351,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           this.lastPress.select = now; worldScene()?.select?.(mech.id); this.attackedId = null; this.engage = null;
           logEvent('bot', `Dungeon: ${mech.name || mech.species} anvisiert (vor dem Ausweichen)`);
         }
+        const hf = dgHerdFormStep(st, sc, now); // Raum 4: Formwechsel für die Herde (3.1.9)
+        if (hf) { this.status = `Dungeon: ${hf}`; return; }
         const me0 = controlled(st);
         if (!heldNow && !sc.attackers.length && me0 && safeRectAt(st.world?.mapId, me0) && dgEvoPending(st)) {
           const ev = autopilotEvolution(st, now);
@@ -8476,7 +8527,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           // Event/Weltboss (3.0.5): in jedem Modus – auch Grinden und „Nur Event/WB“ – und auch, wenn der Autopilot gerade
           // keine Jagd-Aufgabe hat (das Event setzt sie zurück: vorher kämpfte er beim Event in der Grundform)
           const eventEvo = (huntNow || (cfg.hunt && hunt.goal) || (cfg.wboss && wb.goal) || cfg.eventsOnly) && questMon && !cfg.dungeon;
-          if (!attackers.length && (eventEvo || farmEvo || (cfg.dungeon && questMon) || (!cfg.farm && cfg.autopilot && (folIdle || (at?.kind === 'hunt' && st.world?.mapId === at.loc.mapId && questMon))))) {
+          if (!attackers.length && (eventEvo || farmEvo || (cfg.dungeon && questMon && !dgHerdLow()) || (!cfg.farm && cfg.autopilot && (folIdle || (at?.kind === 'hunt' && st.world?.mapId === at.loc.mapId && questMon))))) {
             const ev = eventEvo ? digibotEventEvolve(st, sc, now) : autopilotEvolution(st, now);
             if (ev !== true) { this.status = `${eventEvo ? 'Event/Weltboss' : cfg.farm ? 'Bosse' : cfg.dungeon ? 'Dungeon' : 'Autopilot'}: ${ev}`; return; }
           }

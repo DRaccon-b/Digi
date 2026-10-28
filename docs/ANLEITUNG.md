@@ -29,7 +29,8 @@ Oben immer sichtbar:
   sonst zündet der nächste Clavis; kurz vor einem fälligen Key of Hope werden Skills mit Castzeit zurückgehalten.
   Ab 3.1.7: Raum 4 – Wellen oben links/rechts abfangen (Gruppe nach Slot geteilt), Boss unten in der Mitte sammeln und in
   der unteren Raumhälfte kämpfen; Regler „Mail Server ignorieren ab Boss-HP unter“ (Standard 8 %); nach einer selbst
-  beantworteten Anwesenheitskontrolle läuft der Bot von selbst weiter.
+  beantworteten Anwesenheitskontrolle läuft der Bot von selbst weiter. Ab 3.1.9 Haken „Raum 4: Herde in niedriger Form
+  abwehren“ (Standard aus): vor den Wellen eine Stufe zurück (Shakkoumon / Dragon Mode, Flächenangriffe), nach Welle 9 wieder hoch.
 - **Start/Stopp** (Alt+B) mit dem Namen des Modus, darunter die Statuszeile (Maus darüber = ganzer Text)
 - **Mini-Leisten** für HP und DS des Digimons und die HP des Ziels – in jedem Reiter sichtbar
 - **💾 Preset speichern / 📂 Preset laden (ab 3.0.1)** – speichert alle Bot-Einstellungen (Modus, Tränke, Skills,

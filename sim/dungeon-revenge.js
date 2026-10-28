@@ -233,6 +233,9 @@ function makeWindow(i) {
     // Spiel-Befehl „Digimon anhalten“: Angriff abbrechen, stehen bleiben (vorher fehlte er – der Bot wartete „außerhalb“,
     // das Digimon lief aber weiter dem Boss hinterher in den Fächer; 3.1.2)
     partnerStop() { pl.atk = null; pl.queued = null; const p = ents.get(`p:${i}`); if (p) p.targetId = ''; },
+    // Digitation (3.1.9): eine Stufe zurück bzw. zur Zielform – Formen laut MEMBER-Tabellen (Clavis ↔ Shakkoumon, Paladin ↔ Dragon Mode)
+    devolve() { const low = pl.M.species === 'clavisangemon' ? SHAKKOUMON : pl.M.species === 'imperialdramon_paladin' ? DRAGON : null; if (low) setForm(pl, low, 'devolve'); },
+    evolve(sp) { const up = sp === 'clavisangemon' ? CLAVIS : sp === 'imperialdramon_paladin' ? PALADIN : null; if (up && pl.M.species !== sp) setForm(pl, up, 'evolve ' + sp); },
     partyInvite() {}, partyRespond() {}, closeDialog() {}, talk() {}, chooseDialog() {},
   };
   const scene = {
@@ -286,12 +289,15 @@ function makeWindow(i) {
     me: { tamerEntityId: `t:${i}`, tamerDs: 300, tamerMaxDs: 360, hotbar: ['cmd:attack', 'skill:0', 'skill:1', 'skill:2', 'skill:3', null, null, null, 'item:hp_pot'],
       inventory: TRAENKE ? [{ itemId: 'hp_pot', qty: TRAENKE }] : [], quests: {},
       partner: { entityId: `p:${i}`, name: M.name, species: M.species, stage: 'mega', level: M.level, hp: M.hp, maxHp: M.hp, ds: M.ds, maxDs: M.ds, exp: 0, expNext: 0,
-        stats: { at: M.at, as: M.as, ms: 120 }, skills: M.psk.map((k) => ({ id: k.id, name: k.name, dsCost: k.dsCost, cooldownMs: k.cooldownMs, range: k.range, unlocked: true })) } },
+        stats: { at: M.at, as: M.as, ms: 120 }, skills: M.psk.map((k) => ({ id: k.id, name: k.name, dsCost: k.dsCost, cooldownMs: k.cooldownMs, range: k.range, unlocked: true })),
+        evolutions: M.species === 'imperialdramon_paladin' ? [{ species: 'imperialdramon_dragon', from: 'paildramon', stage: 'mega', unlocked: true, canEvolveNow: true, dsCost: 450 }, { species: 'imperialdramon_paladin', from: 'imperialdramon_dragon', stage: 'super', unlocked: true, canEvolveNow: true, dsCost: 450, isCurrent: true }]
+          : [{ species: 'shakkoumon', from: 'angemon', stage: 'ultimate', unlocked: true, canEvolveNow: true, dsCost: 300 }, { species: 'clavisangemon', from: 'shakkoumon', stage: 'mega', unlocked: true, canEvolveNow: true, dsCost: 450, isCurrent: true }] } },
     world: { mapId: 'network', mapName: 'Network', channel: 1 }, target: null });
   // KOH_AUS=1: Key of Hope und alle Skill-Haken der Clavis aus – im Dungeon müssen Key of Hope und Gruppenheilung trotzdem laufen (3.1.0)
   w.localStorage.setItem('digibot.cfg', JSON.stringify({ dungeon: true, dgMode: 'hard', autopilot: false, farm: false, questMode: false, hpPot: TRANK_AB, dsPot: 0, tdsPot: 0, tab: 'data', lvlDiff: 100, radius: 400,
     ...(process.env.KOH_AUS ? { koh: false, skillSets: { clavisangemon: { skills: { 2: false, 3: false, 4: false, 5: false, 6: false }, heal: {} } } } : {}),
-    ...(process.env.SERVER === '0' ? { dgBreak: false } : {}) })); // SERVER=0: Mail Server ignorieren (Standard an seit 3.1.3)
+    ...(process.env.SERVER === '0' ? { dgBreak: false } : {}),
+    dgHerdForm: !!process.env.FORMBOT, apEvo: M.species === 'imperialdramon_paladin' ? 'imperialdramon_paladin' : 'clavisangemon' })); // FORMBOT=1: Herden-Form über den Bot (3.1.9) // SERVER=0: Mail Server ignorieren (Standard an seit 3.1.3)
   w.localStorage.setItem('digibot.accounts', JSON.stringify(accounts));
   w.eval(script);
   pl.status = () => w.document.querySelector('[data-f="status"]')?.textContent || '';

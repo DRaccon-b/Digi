@@ -2,6 +2,22 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.9 – Raum 4: Herde in niedriger Form (Shakkoumon / Dragon Mode)
+Nutzer-Taktik, in der Simulation geprüft (20–21 statt 10–19 von 60 Kuramon abgefangen, Boss eine Stufe schwächer, 0 Stürze).
+- **Haken „Raum 4: Herde in niedriger Form abwehren“** (Reiter Bosse → Dungeon, Standard aus – erst live prüfen): Vor den Wellen – noch im
+  sicheren Bereich, bevor etwas gezogen ist – geht jedes Digimon eine Stufe zurück (Clavis → Shakkoumon mit Kachina Bombs,
+  Paladin → Dragon Mode mit Mega Crusher und Positron Laser; die Clavis selbst hat keinen Flächenangriff). Die Wellen
+  werden in dieser Form abgewehrt. Sobald Welle 9 vorbei ist (9 von 10 Wellen gespawnt, keine Kuramon mehr unterwegs) –
+  spätestens, wenn Armageddemon erscheint – digitiert jedes Digimon wieder in seine Zielform (Reiter Quests, „Digitation“).
+  Ausweichen und Key of Hope laufen dabei weiter.
+- Zur Frage Crest-Buffs: Tai +25 % Angriff, Izzy +30 % Skill-Schaden, Ken +25 % Schaden – je 15 s auf den eigenen Partner,
+  90 s Abklingzeit. Eine Kachina Bombs (ca. 11 000–12 000) käme damit auf 14 500–15 200 gegen 15 400 HP der Kuramon:
+  nur mit Izzy gerade so, und nur für eine von zehn Wellen.
+- Simulation: Befehle devolve/evolve, Formkette im Spielzustand, `FORMBOT=1` lässt den Bot selbst wechseln. Mit dem
+  Bot-eigenen Ablauf: zurück bei 4 s, hoch bei 106 s (13 s vor Armageddemon), 15–16 abgefangen, 0–1 Sturz, 2 von 2
+  geschafft – weniger als der ideale Sim-Wechsel (20–21), weil Shakkoumon in der normalen Rotation auch Sacred Clay und
+  Justice Beam statt nur Kachina Bombs nutzt. Entscheidend bleibt der echte Bombenschaden (live messen).
+
 ## 3.1.8 – Reiter „Food“ und Betriebsart „Food kaufen“
 - **Neuer Reiter Food:** HP-Food (Feast), DS-Food fürs Digimon (DS Drive oder DS Cartridge) und Tamer-DS-Food (Ramen
   oder Bento) wählen, je Sorte „auffüllen auf“ (bis 297 Stück, Stapel zu 99).
