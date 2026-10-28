@@ -11,6 +11,10 @@ Oben immer sichtbar:
   dazu **Dungeon** und **Nur Event/WB** (ab 3.0.4: nichts anderes tun, nur auf Event und Weltbosse warten und dann kämpfen;
   ab 3.0.9 mit **Warteplatz** im Reiter Bosse → „Event & Weltboss“, z. B. The Network ohne Tamer-DS-Verlust).
   Früher waren das einzelne Schalter in den Reitern.
+  Ab 3.1.0 gilt im Dungeon und auf Raid-Maps: **Key of Hope ist immer an** (egal, wie der Haken steht), und der
+  Heilskill der Clavis (Sacred Seal) läuft nicht in der Skill-Rotation, sondern **reihum wie Key of Hope**: sobald das
+  eigene Digimon oder ein Gruppenpartner in Reichweite unter 85 % HP ist, heilt das Fenster mit der kleinsten Nummer,
+  dessen Heilung bereit ist, 0,6 s später das nächste, falls nötig; nach einer Heilung warten die anderen 2,5 s.
 - **Start/Stopp** (Alt+B) mit dem Namen des Modus, darunter die Statuszeile (Maus darüber = ganzer Text)
 - **Mini-Leisten** für HP und DS des Digimons und die HP des Ziels – in jedem Reiter sichtbar
 - **💾 Preset speichern / 📂 Preset laden (ab 3.0.1)** – speichert alle Bot-Einstellungen (Modus, Tränke, Skills,
@@ -323,7 +327,7 @@ node sim/dungeon-keramon.js
 - Ergebnisse mit 2.29.2: allein in 393 s geschafft (Boss 308 s, 5 von 8 Mahlzeiten abgebrochen, 28 Tränke), zu dritt in 135 s. Der Simulator ist optimistischer als das Spiel: Live (noch 2.29.0, mit Ausweichen statt Tanken) schaffte der Bot in Raum 1 nur 4/6 Terminals, und Infermon fraß 12 Mahlzeiten bis zum Enrage.
 
 ### Hard („Revenge“)
-`node sim/dungeon-revenge.js` (Standard: allein; `GRUPPE=3` für eine Gruppe, `TEMPO=4`). Gleiche Partner-Werte wie Easy; Boss-HP, Uhr, Enrage und alle Attacken stammen aus den Spieldaten. `SHARE_FOLGT=1`: Der geteilte Treffer folgt dem Ziel (sonst bleibt er liegen und ist ausweichbar). `START=4`: gleich in Raum 4. `DIABO_PCT=71`: Diaboromon startet mit so viel %. `STEUERUNG=tamer`: Spiel auf Tamer-Steuerung (Standard: Digimon-Steuerung, der Klick bewegt das Digimon, es geht auch durch Türen). Im Log steht bei jedem Key of Hope, welche Attacke als Nächstes fällig ist. Angenommen sind der Grundtreffer der Bosse (`BOSS_HIT`, 6 000 alle ~2 s), dass Kopien nicht angreifbar sind und die Aufteilung der Herde.
+`node sim/dungeon-revenge.js` (Standard: allein; `GRUPPE=3` für eine Gruppe, `TEMPO=4`). Gleiche Partner-Werte wie Easy; Boss-HP, Uhr, Enrage und alle Attacken stammen aus den Spieldaten. `SHARE_FOLGT=1`: Der geteilte Treffer folgt dem Ziel (sonst bleibt er liegen und ist ausweichbar). `START=4`: gleich in Raum 4. `DIABO_PCT=71`: Diaboromon startet mit so viel %. `STEUERUNG=tamer`: Spiel auf Tamer-Steuerung (Standard: Digimon-Steuerung, der Klick bewegt das Digimon, es geht auch durch Türen). Im Log steht bei jedem Key of Hope, welche Attacke als Nächstes fällig ist. `KOH_AUS=1` (ab 3.1.0): Key of Hope und alle Skill-Haken aus – im Dungeon müssen Key of Hope und Gruppenheilung trotzdem laufen; die Zusammenfassung zählt Sacred Seal (Anzahl, geheilte HP). Angenommen sind der Grundtreffer der Bosse (`BOSS_HIT`, 6 000 alle ~2 s), dass Kopien nicht angreifbar sind und die Aufteilung der Herde.
 
 ### Was in Raum 1 nicht hilft (A/B-Vergleich, Okt. 2026)
 Simulator kalibriert auf live: Digimon läuft 120 px/s, Skill-Animationen (Invincible Sword 0,6 s, Omega Blade 0,9 s) blockieren den Grundangriff. Allein, je 6–12 Läufe, Terminals heil im Schnitt:

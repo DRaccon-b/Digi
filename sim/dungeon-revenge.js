@@ -234,7 +234,7 @@ function makeWindow(i) {
     const m = state.target && ents.get(state.target.id);
     if (!selfCast && (!m || m.hp <= 0 || m.map !== pl.map)) return;
     if (sk.koh) { const pp = ents.get(`p:${i}`); protections.push({ at: now, x: pp.x, y: pp.y }); run.stats.koh = (run.stats.koh || 0) + 1; say(`🔑 Char${i + 1} zündet Key of Hope · fällig: ${run.zones.filter((z) => z.end - now < 4000).sort((x, y) => x.end - y.end).map((z) => `${SKILLS[z.skill]?.name || z.skill}${z.share ? ' (geteilt)' : ''} in ${((z.end - now) / 1000).toFixed(1)} s`).join(', ') || 'nichts'}`); }
-    if (sk.healAll) { const pp = ents.get(`p:${i}`); for (const x of alivePlayers()) if (dist(partnerOf(x), pp) <= 96) { const s3 = x.store.getState(); x.store.setState({ me: { ...s3.me, partner: { ...s3.me.partner, hp: Math.min(x.M.hp, s3.me.partner.hp + x.M.hp * sk.healAll) } } }); } }
+    if (sk.healAll) { const pp = ents.get(`p:${i}`); run.stats.heals = (run.stats.heals || 0) + 1; for (const x of alivePlayers()) if (dist(partnerOf(x), pp) <= 96) { const s3 = x.store.getState(); const add = Math.min(x.M.hp, s3.me.partner.hp + x.M.hp * sk.healAll) - s3.me.partner.hp; run.stats.healed = (run.stats.healed || 0) + add; x.store.setState({ me: { ...s3.me, partner: { ...s3.me.partner, hp: s3.me.partner.hp + add } } }); } }
     pl.skillCd[n] = now + sk.cooldownMs;
     store.setState({ cooldowns: { ...state.cooldowns, [`skill:${n}`]: { end: w.performance.now() + sk.cooldownMs } }, me: { ...me, partner: { ...me.partner, ds: me.partner.ds - sk.dsCost } } });
     const evAll = (phase) => { for (const x of players) if (x.map === pl.map) x.handlers.evs?.([{ t: 'skill', src: `p:${i}`, skill: sk.id, phase }]); };
@@ -251,13 +251,17 @@ function makeWindow(i) {
   ents.set(`t:${i}`, { id: `t:${i}`, kind: 0, map: 'network', x: sx, y: sy, hp: 1, flags: 0, targetId: '' });
   ents.set(`p:${i}`, { id: `p:${i}`, kind: 1, map: 'network', x: sx + 10, y: sy, hp: 1, flags: 0, targetId: '' });
   store.setState({ screen: 'world', inputFocus: 'game', cooldowns: {}, windows: {}, raid: null,
+    // Party wie im Spiel (Name, eigener Eintrag, Partner-Entity) – die Gruppenheilung liest daraus, wer Schaden hat
+    party: { id: 'party1', members: Array.from({ length: N }, (_, x) => ({ charId: `c${x}`, name: x === 0 && TEAM ? 'Bauzel' : `Char${x + 1}`, me: x === i, partnerEntityId: `p:${x}` })) },
     session: { username: `u${i}`, characters: [{ id: `c${i}`, name: i === 0 && TEAM ? 'Bauzel' : `Char${i + 1}` }] },
     me: { tamerEntityId: `t:${i}`, tamerDs: 300, tamerMaxDs: 360, hotbar: ['cmd:attack', 'skill:0', 'skill:1', 'skill:2', 'skill:3', null, null, null, 'item:hp_pot'],
       inventory: TRAENKE ? [{ itemId: 'hp_pot', qty: TRAENKE }] : [], quests: {},
       partner: { entityId: `p:${i}`, name: M.name, species: M.species, stage: 'mega', level: M.level, hp: M.hp, maxHp: M.hp, ds: M.ds, maxDs: M.ds, exp: 0, expNext: 0,
         stats: { at: M.at, as: M.as, ms: 120 }, skills: M.psk.map((k) => ({ id: k.id, name: k.name, dsCost: k.dsCost, cooldownMs: k.cooldownMs, range: k.range, unlocked: true })) } },
     world: { mapId: 'network', mapName: 'Network', channel: 1 }, target: null });
-  w.localStorage.setItem('digibot.cfg', JSON.stringify({ dungeon: true, dgMode: 'hard', autopilot: false, farm: false, questMode: false, hpPot: TRANK_AB, dsPot: 0, tdsPot: 0, tab: 'data', lvlDiff: 100, radius: 400 }));
+  // KOH_AUS=1: Key of Hope und alle Skill-Haken der Clavis aus – im Dungeon müssen Key of Hope und Gruppenheilung trotzdem laufen (3.1.0)
+  w.localStorage.setItem('digibot.cfg', JSON.stringify({ dungeon: true, dgMode: 'hard', autopilot: false, farm: false, questMode: false, hpPot: TRANK_AB, dsPot: 0, tdsPot: 0, tab: 'data', lvlDiff: 100, radius: 400,
+    ...(process.env.KOH_AUS ? { koh: false, skillSets: { clavisangemon: { skills: { 2: false, 3: false, 4: false, 5: false, 6: false }, heal: {} } } } : {}) }));
   w.localStorage.setItem('digibot.accounts', JSON.stringify(accounts));
   w.eval(script);
   pl.status = () => w.document.querySelector('[data-f="status"]')?.textContent || '';
@@ -333,6 +337,8 @@ function failRun(why) {
 function stepPartners(now, dt) {
   for (const pl of players) {
     const t = ents.get(`t:${pl.i}`), p = partnerOf(pl);
+    // HP des Partners auch an der Entity (wie im Spiel) – die Gruppenheilung liest die HP der anderen daraus (3.1.0)
+    { const sp = pl.store.getState().me.partner; p.hp = sp.hp; p.maxHp = pl.M.hp; }
     if (pl.fainted) {
       if (now >= pl.reviveAt && !run.failed) {
         pl.fainted = false;
@@ -655,7 +661,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   console.log(`Räume ${run.roomTime.map((t) => `${(t / 1000).toFixed(0)} s`).join(' / ') || '–'} · Stürze ${run.deaths} · Tränke ${run.stats.pots} · Skills ${run.stats.skills}${run.room >= 1 ? ` · Herde: ${run.herd.captures} erledigt, ${run.herd.arrived} am Ei, Boss-Stärke ${run.herd.stacks}` : ''}`);
   console.log(`Attacken (Ansagen · getroffen · ausgewichen · geblockt): ${Object.entries(run.perSkill).map(([k, v]) => `${k} ${v.casts} · ${v.hit} · ${v.dodged} · ${v.blocked || 0}${v.cover ? ` (davon ${v.cover}× hinter Deckung)` : ''}`).join(' | ')}`);
   { const by = run.stats.dmgBy || {}, secs = ((run.stats.dmgT1 || 0) - (run.stats.dmgT0 || 0)) / 1000; if (secs > 0) console.log(`Schaden am Boss je Sekunde (Kampfzeit ${Math.round(secs)} s): ${players.map((pl) => `Char${pl.i + 1} ${Math.round((by[pl.i] || 0) / secs)}`).join(' · ')}`); }
-  if (TEAM) console.log(`Key of Hope gezündet: ${run.stats.koh || 0}× · Team: ${MEMBERS.map((m, i) => `Char${i + 1} ${m.name} Lv ${m.level} (${m.hp} HP)`).join(', ')}`);
+  if (TEAM) console.log(`Key of Hope gezündet: ${run.stats.koh || 0}× · Sacred Seal ${run.stats.heals || 0}× (${Math.round(run.stats.healed || 0)} HP) · Team: ${MEMBERS.map((m, i) => `Char${i + 1} ${m.name} Lv ${m.level} (${m.hp} HP)`).join(', ')}`);
   console.log(`Status am Ende: ${players.map((pl) => `Char${pl.i + 1}: ${pl.status()}`).join(' | ')}`);
   process.exit(run.cleared ? 0 : 1);
 })();

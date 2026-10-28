@@ -2,6 +2,23 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.0 – Dungeon/Raid: Key of Hope immer an, Gruppenheilung reihum
+- **Key of Hope immer an:** Im Dungeon-Modus und auf jeder Raid-Map ist Key of Hope aktiv, egal ob der Haken in den
+  Einstellungen gesetzt ist. Anlass: Diaboromon Hard – Imperialdramon wäre fast gestorben, der Timer lief ab.
+- **Gruppenheilung reihum:** Der Heilskill der Clavis (Sacred Seal, heilt Verbündete im Umkreis) läuft im Dungeon/Raid
+  nicht mehr in der normalen Skill-Rotation, sondern wie Key of Hope nacheinander: Sobald das eigene Digimon oder ein
+  Gruppenpartner in Reichweite unter 85 % HP fällt, zündet die Clavis mit der kleinsten Fensternummer (deren Heilung
+  bereit ist), die nächste 0,6 s später, falls dann noch jemand verletzt ist. Nach einer gemeldeten Heilung warten die
+  anderen 2,5 s ab, damit nicht alle gleichzeitig heilen. Die Fenster melden sich die Heilung über den Gruppenkanal
+  (Nachrichtentyp `heal`). Ohne Gruppe heilt das Fenster sich selbst wie bisher.
+- Revenge-Simulation: Party-Mitglieder wie im Spiel, Zähler für Sacred Seal (Anzahl und geheilte HP), `KOH_AUS=1`
+  schaltet Key of Hope und alle Skill-Haken aus, um das Erzwingen zu prüfen.
+- Mitläufer heilen jetzt auch: Heil-Skill und Gruppenheilung laufen vor dem Gruppen-/Autopilot-Zweig (dort kehrten
+  Mitläufer mit „Gruppe: bei …“ zurück, ohne je zu heilen).
+- Revenge Hard (Simulation, 4 Clavis + Imperialdramon, 6-min-Uhr): 3.0.9 Sacred Seal 72× blind in der Rotation,
+  334 000 HP geheilt, 37 Tränke – 3.1.0 50× bei Bedarf, 738 000 HP, 33 Tränke; mit allen Haken aus trotzdem 11× Key of
+  Hope und 50× Sacred Seal. Der Boss fällt in der Simulation in keiner Version rechtzeitig (30–35 % übrig).
+
 ## 3.0.9 – Warteplatz für Event und Weltboss
 - **Warteplatz** (Reiter Bosse → „Event & Weltboss“): Wohin der Bot geht, solange kein Event und kein Weltboss fällig ist –
   im Modus „Nur Event/WB“ und wenn der Autopilot mit allen Quests fertig ist und auf Events wartet. Zum Beispiel
