@@ -45,6 +45,7 @@ Einstellungen von 2.x werden übernommen.
   Ein Boss gilt erst mit Beleg als besiegt; verschwindet er mit viel HP, sucht der Bot ihn.
 - **Event & Weltboss:** reist zur angesagten Mega-Jagd bzw. zum angekündigten Weltboss, hält den Kanal im Kampf
   und lässt sich unterwegs nicht von Angreifern aufhalten.
+- **Food kaufen:** Reiter Food – HP-, DS- und Tamer-DS-Food wählen, der Bot reist zu Händler Tentomon (Dream Ruins) und füllt auf.
 - **Dungeons & Raids:** Kera Easy und Hard, Apocalymon, MaloMyotismon (Gruppe; Key of Hope der ClavisAngemon).
 - **Gruppe (bis 5 Fenster):** Leader und Mitläufer, Bewegungen/Angriffe spiegeln, Ziele verteilen, feste
   Bossplätze je Fenster, Fenster-Anordnung, Quest-Runde (ein Fenster arbeitet mehrere Accounts nacheinander ab).

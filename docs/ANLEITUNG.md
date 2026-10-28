@@ -8,7 +8,8 @@
 Oben immer sichtbar:
 - **Modus-Schalter** – genau eine Betriebsart: **Grinden** (Monsterliste im Suchradius), **Quest-Jagd** (nur
   Quest-Monster dieser Map), **Autopilot** (Quests komplett) oder **Bosse** (Boss-Rotation / Named-Elite-Runde),
-  dazu **Dungeon** und **Nur Event/WB** (ab 3.0.4: nichts anderes tun, nur auf Event und Weltbosse warten und dann kämpfen;
+  dazu **Dungeon**, **Nur Event/WB** und ab 3.1.8 **Food kaufen** (Reiter Food: Sorten und Zielmengen; der Bot reist zu
+  Händler Tentomon im Lager von Dream Ruins, kauft nach und stoppt) (ab 3.0.4: nichts anderes tun, nur auf Event und Weltbosse warten und dann kämpfen;
   ab 3.0.9 mit **Warteplatz** im Reiter Bosse → „Event & Weltboss“, z. B. The Network ohne Tamer-DS-Verlust).
   Früher waren das einzelne Schalter in den Reitern.
   Ab 3.1.0 gilt im Dungeon und auf Raid-Maps: **Key of Hope ist immer an** (egal, wie der Haken steht), und der

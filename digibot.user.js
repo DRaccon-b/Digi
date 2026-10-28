@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.7
+// @version      3.1.8
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -777,7 +777,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if(String(st?.session?.username||'').trim().toLowerCase()!==digibotAccountQueue.user)return;
     cfgProfile(st);
     noteCharacter(st,Date.now());
-    cfg.autopilot=true;cfg.farm=false;cfg.dungeon=false;cfg.questMode=false;
+    cfg.autopilot=true;cfg.farm=false;cfg.dungeon=false;cfg.questMode=false;cfg.foodBuy=false;
     if(!digibotCore.loginMode(false))return;
     if(!bot.on){digibotQueueLaunching=true;try{bot.toggle(true);}finally{digibotQueueLaunching=false;}}
     if(!bot.on){digibotCore.stop('Autopilot konnte nicht gestartet werden',true);return;}
@@ -881,7 +881,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     digibotDesktopControl=p.id;
     if(!digibotDesktopWrite(p))return;
     accounts.mirror=false;accounts.leadBoss=false;accounts.dungeon=false;accounts.serve=false;accounts.popup=true;saveAcc();
-    cfg.autopilot=true;cfg.farm=false;cfg.dungeon=false;cfg.questMode=false;saveCfg();
+    cfg.autopilot=true;cfg.farm=false;cfg.dungeon=false;cfg.questMode=false;cfg.foodBuy=false;saveCfg();
     digibotDesktopJoin(p.id,mine.slot);
     if(st?.screen==='world'&&st.me?.partner)digibotCore.enablePassive(true);
     let blocked=0;
@@ -924,7 +924,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const d=digibotDesktop,now=Date.now(),current=digibotDesktopRead(),st=getStore()?.getState?.();
     if(!d||d.id!==p.id||d.started||!current||current.id!==p.id||current.phase!=='scheduled')return;
     if(now-current.startAt>3000||digibotCore.latched||!digibotCore.armed||!digibotDesktopLocalState(current,st).ready||!digibotDesktopBarrier(current,digibotDesktopMembers(current),now,{armed:true}).ok){digibotDesktopCancel('Gemeinsamer Start abgebrochen: Fenster oder Party nicht mehr bereit.');return;}
-    cfg.autopilot=true;cfg.farm=false;cfg.questMode=false;cfg.dungeon=false;
+    cfg.autopilot=true;cfg.farm=false;cfg.questMode=false;cfg.dungeon=false;cfg.foodBuy=false;
     groupPush(true);if(!bot.on)bot.toggle(true);
     d.started=bot.on;
     if(!d.started){digibotDesktopCancel('Autopilot konnte nicht in allen Fenstern gestartet werden.');return;}
@@ -1322,6 +1322,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     wboss: false,         // Weltboss (z. B. BlackWarGreymon): beide Kanäle nach Spawnzeit abarbeiten – in jedem Modus
     eventsOnly: false,    // Modus „Nur Event/Weltboss“: nichts anderes tun, nur auf Event und Weltbosse warten (3.0.4)
     eventsIdleMap: '',    // Warteplatz beim Warten auf Event/Weltboss ('' = stehen bleiben; z. B. 'network' – dort kein Tamer-DS-Verlust) (3.0.9)
+    foodBuy: false,       // Modus „Food kaufen“: zum Händler in Dream Ruins reisen, Food nachkaufen, stoppen (3.1.8)
+    foodHp: 'feast',      // HP-Food ('' = keins) · foodDs: DS-Food fürs Digimon · foodTamer: Tamer-DS-Food
+    foodDs: 'ds_drive', foodTamer: 'ramen',
+    foodHpQty: 198, foodDsQty: 198, foodTamerQty: 99, // auffüllen auf so viele Stück (Stapel zu 99)
+    foodMap: '', foodNpc: '',  // leer = Dream Ruins / Händler Tentomon (nur für Tests anders)
     routeStart: '',       // Named-Runde: Start-Map (leer = niedrigste)
     routeEnd: '',         // Named-Runde: End-Map (leer = höchste)
     open: {},             // auf-/zugeklappte Gruppen im Panel
@@ -1339,12 +1344,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     try{if(localStorage.getItem(CFG_BATCH_KEY)!=='1'&&!(digibotRecord(saved)&&Object.hasOwn(saved,'apBatch')))cfg.apBatch=true;}catch{}
     if (checked.issues.length) digibotCore.record('Einstellungen korrigiert', {action: checked.issues.join(', ')});
     const m = modeOf(); // alte Einstellungen mit mehreren Schaltern auf eine Betriebsart bringen
-    cfg.questMode = m === 'quest'; cfg.autopilot = m === 'auto'; cfg.farm = m === 'farm'; cfg.dungeon = m === 'dungeon'; cfg.eventsOnly = m === 'events';
+    cfg.questMode = m === 'quest'; cfg.autopilot = m === 'auto'; cfg.farm = m === 'farm'; cfg.dungeon = m === 'dungeon'; cfg.eventsOnly = m === 'events'; cfg.foodBuy = m === 'food';
     cfg.mirror = true; cfg.safeCast = true; // immer an (siehe ALWAYS_ON)
   }
   // Betriebsart (genau eine): Grinden, Quest-Jagd (Quest-Modus), Quest-Autopilot oder Bosse (Rotation/Named-Runde)
-  const MODES = { grind: 'Grinden', quest: 'Quest-Jagd', auto: 'Autopilot', farm: 'Bosse', dungeon: 'Dungeon', events: 'Nur Event/WB' };
-  const modeOf = () => (cfg.dungeon ? 'dungeon' : cfg.farm ? 'farm' : cfg.autopilot ? 'auto' : cfg.questMode ? 'quest' : cfg.eventsOnly ? 'events' : 'grind');
+  const MODES = { grind: 'Grinden', quest: 'Quest-Jagd', auto: 'Autopilot', farm: 'Bosse', dungeon: 'Dungeon', events: 'Nur Event/WB', food: 'Food kaufen' };
+  const modeOf = () => (cfg.dungeon ? 'dungeon' : cfg.farm ? 'farm' : cfg.autopilot ? 'auto' : cfg.questMode ? 'quest' : cfg.eventsOnly ? 'events' : cfg.foodBuy ? 'food' : 'grind');
   try { applyCfg(JSON.parse(localStorage.getItem(CFG_KEY) || localStorage.getItem('digibot.cfg') || '{}')); } catch {}
   const ALWAYS_ON = ['mirror', 'safeCast']; // früher Haken – ausgeschaltet schadete man sich nur selbst
   if (cfg.tab === 'care') cfg.tab = 'attack';
@@ -1495,7 +1500,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.7'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.8'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1510,6 +1515,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         farm: 'Boss-Rotation oder Named-Elite-Runde (Reiter Bosse)',
         dungeon: 'Kera-Dungeon: zur Tür, betreten, Räume räumen, Boss, wieder hinaus (Reiter Bosse)',
         events: 'Nichts anderes tun: nur auf das Event (Mega-Jagd) und die Weltbosse warten, hinreisen und kämpfen. Schaltet 🎯 Event und 🌍 Weltboss ein.',
+        food: 'Zum Händler Tentomon im Lager von Dream Ruins reisen, das eingestellte Food nachkaufen (Reiter Food), dann stoppen',
       }[k])}">${l}</button>`).join('')}</div>
       <button class="digibot__btn digibot__run" data-act="bot" title="Alt+B">▶ Start</button>
       <button class="digibot__btn digibot__hunt" data-act="hunt" title="Event (Mega-Jagd): Sobald der Weltboss angekündigt ist (6 min vorher), reist der Bot zur Map, Kanal 1, wartet, sucht ihn und kämpft. Danach weiter wie vorher. Gilt in jedem Modus.">🎯 Event</button>
@@ -1524,7 +1530,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       <div class="digibot__vitals">${bar('hp mini', 'HP').replace('data-bar="hp mini"', 'data-bar="mhp"')}${bar('ds mini', 'DS').replace('data-bar="ds mini"', 'data-bar="mds"')}${bar('tg mini', 'Ziel').replace('data-bar="tg mini"', 'data-bar="mtg"')}</div>
     </div>
     <nav class="digibot__tabs">
-      <button data-tab="data"><i>📊</i><small>Übersicht</small></button><button data-tab="mon"><i>🐣</i><small>Digimon</small></button><button data-tab="attack"><i>⚔️</i><small>Kampf</small></button><button data-tab="quest"><i>📜</i><small>Quests</small></button><button data-tab="farm"><i>👑</i><small>Bosse</small></button><button data-tab="acc"><i>👥</i><small>Gruppe</small></button><button data-tab="log"><i>📋</i><small>Log</small></button>
+      <button data-tab="data"><i>📊</i><small>Übersicht</small></button><button data-tab="mon"><i>🐣</i><small>Digimon</small></button><button data-tab="attack"><i>⚔️</i><small>Kampf</small></button><button data-tab="quest"><i>📜</i><small>Quests</small></button><button data-tab="farm"><i>👑</i><small>Bosse</small></button><button data-tab="food"><i>🍱</i><small>Food</small></button><button data-tab="acc"><i>👥</i><small>Gruppe</small></button><button data-tab="log"><i>📋</i><small>Log</small></button>
     </nav>
     <div class="digibot__body">
       <section data-page="data">
@@ -1671,6 +1677,18 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           <div class="digibot__bosspick" data-f="bosspick"><div class="digibot__none">warte auf Spielwelt…</div></div>`, false, 'Suchfeld filtert nach Boss- oder Map-Namen. Die Liste hat eine feste Höhe – mit dem Balken rechts scrollen.', 'data-farmmode="boss" data-modes="farm"')}
       </section>
 
+      <section data-page="food">
+        ${grp('foodcfg', 'Food kaufen (Händler Tentomon, Lager in Dream Ruins)', `
+          <div class="digibot__apcfg">
+            <label>HP-Food<select data-apsel="foodHp"><option value="">keins</option><option value="feast">Feast (26 250 HP, 1 200 Bits)</option></select></label>
+            ${slider('foodHpQty', 'HP-Food auffüllen auf', 0, 297, (v) => `${v} Stück`, 0, 9)}
+            <label>DS-Food (Digimon)<select data-apsel="foodDs"><option value="">keins</option><option value="ds_drive">DS Drive (4 000 DS, 780 Bits)</option><option value="ds_cartridge">DS Cartridge (2 500 DS, 375 Bits)</option></select></label>
+            ${slider('foodDsQty', 'DS-Food auffüllen auf', 0, 297, (v) => `${v} Stück`, 0, 9)}
+            <label>Tamer-DS-Food<select data-apsel="foodTamer"><option value="">keins</option><option value="ramen">Ramen (1 500 Tamer-DS, 1 000 Bits)</option><option value="bento">Bento (1 000 Tamer-DS, 600 Bits)</option></select></label>
+            ${slider('foodTamerQty', 'Tamer-DS-Food auffüllen auf', 0, 297, (v) => `${v} Stück`, 0, 9)}
+          </div>`, true,
+          'Betriebsart „Food kaufen“ (Schalter oben): Der Bot reist nach Dream Ruins, geht im Lager zu Händler Tentomon, kauft jede Sorte bis zur eingestellten Stückzahl nach (nur so viel, wie die Bits reichen) und stoppt danach. Vorhandene Stapel werden angerechnet. Danach Betriebsart wieder umstellen.')}
+      </section>
       <section data-page="acc">
         <div class="digibot__scope">👥 Alles in diesem Reiter gilt für alle Gruppenfenster – außer „Dieses Fenster ist“.</div>
         <div class="digibot__seg">
@@ -4537,7 +4555,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     reloadAcc();
     const boss = group.role() === 'leader' && accounts.leadBoss && !accounts.mirror;
     const dgOn = accounts.dungeon && !accounts.mirror; // Dungeon: alle Fenster im Dungeon-Modus
-    cfg.questMode = false; cfg.autopilot = !boss && !dgOn; cfg.farm = boss && !dgOn; cfg.dungeon = dgOn;
+    cfg.questMode = false; cfg.autopilot = !boss && !dgOn; cfg.farm = boss && !dgOn; cfg.dungeon = dgOn; cfg.foodBuy = false;
     if (dgOn) dg.reset();
     if (boss) cfg.farmMode = 'boss';
     loadWorld();
@@ -4550,7 +4568,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const st = getStore()?.getState?.();
     if (st?.screen !== 'world' || !st.me?.partner || autopilot.mapTalk) return;
     autopilot.mapTalk = { mapId: st.world?.mapId, n: 0, prev: { autopilot: cfg.autopilot, farm: cfg.farm, questMode: cfg.questMode, dungeon: cfg.dungeon, on: bot.on } };
-    cfg.autopilot = true; cfg.farm = false; cfg.questMode = false; cfg.dungeon = false;
+    cfg.autopilot = true; cfg.farm = false; cfg.questMode = false; cfg.dungeon = false; cfg.foodBuy = false;
     autopilot.reset();
     loadWorld();
     if (!bot.on) bot.toggle(true); // still: kein Start/Stopp an die ganze Gruppe
@@ -6411,6 +6429,61 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const noFightEarly = (st, now) => cfg.autopilot && !cfg.farm && autopilot.task && PASSIVE(autopilot.task) && !taskDone(st, autopilot.task);
 
   // Bestes nächstes Ziel: zuerst der nächste Angreifer, sonst (nicht im Ruhemodus) das nächste passende Monster im Radius.
+  // ---------- Food kaufen (3.1.8) ----------
+  // Händler Tentomon im Lager von Dream Ruins (myotismon_castle) verkauft Feast, DS Drive, DS Cartridge, Bento, Ramen.
+  // Ablauf: hinreisen → zum NPC → ansprechen → „Show me your wares“ (openShop) → je Sorte bis zur Zielmenge kaufen → Shop zu → fertig.
+  const FOOD_MAP = 'myotismon_castle', FOOD_NPC = 'trader_tentomon', FOOD_STACK = 99, FOOD_STEP_MS = 1500, FOOD_GIVEUP = 4;
+  const food = { talkAt: 0, tries: 0, bought: [], done: false, reset() { this.talkAt = 0; this.tries = 0; this.bought = []; this.done = false; } };
+  const itemCount = (me, id) => (me?.inventory || []).filter((i) => i?.itemId === id).reduce((a, i) => a + (i.qty || 0), 0);
+  function foodWants(st) {
+    const me = st?.me, C = content();
+    return [['foodHp', 'foodHpQty'], ['foodDs', 'foodDsQty'], ['foodTamer', 'foodTamerQty']]
+      .map(([k, q]) => ({ id: cfg[k], want: Number(cfg[q]) || 0 })).filter((w) => w.id)
+      .map((w) => ({ ...w, have: itemCount(me, w.id), price: Number(C?.items?.[w.id]?.price) || 0, name: C?.items?.[w.id]?.name || w.id }))
+      .map((w) => ({ ...w, need: Math.max(0, w.want - w.have) }));
+  }
+  function foodStep(st, now) {
+    const mapId = cfg.foodMap || FOOD_MAP, npcId = cfg.foodNpc || FOOD_NPC;
+    if (food.done) return true;
+    const wants = foodWants(st);
+    if (!wants.length) { logEvent('warn', 'Food kaufen: keine Sorte eingestellt (Reiter Food)'); food.done = true; return true; }
+    if (!wants.some((w) => w.need > 0)) { // alles da (auch nach dem letzten Kauf): Shop/Dialog zu, fertig
+      if (st.shop) commands()?.closeShop?.(); if (st.dialog) commands()?.closeDialog?.();
+      logEvent('bot', `Food kaufen: ${food.bought.length ? `gekauft ${food.bought.join(', ')} – ` : ''}alles voll (${wants.map((w) => `${w.name} ${w.have}`).join(', ')})`); notify('Food gekauft.'); food.done = true; return true; }
+    if (world.state !== 'ready') { loadWorld(); return 'Lade Kartendaten…'; }
+    const tr = travel(st, mapId, now);
+    if (tr !== true) return `Reise nach ${content()?.maps?.[mapId]?.name || mapId} · ${tr}`;
+    const npc = world.maps[mapId]?.npcs.find((n) => n.npcId === npcId), me = controlled(st);
+    if (!npc || !me) return 'Händler nicht in den Kartendaten gefunden';
+    const d = Math.hypot(me.x - npc.x, me.y - npc.y);
+    if (d > 48 && !st.dialog && !st.shop) { if (walkTo(st, npc.x, npc.y + 24, now) === 'stuck') return 'Weg zum Händler blockiert'; return `Gehe zu ${content()?.npcs?.[npcId]?.name || npcId} (${Math.round(d)} px)`; }
+    if (st.shop) { // Shop offen: kaufen
+      const bits = Number(st.me?.bits) || 0;
+      for (const w of wants) {
+        if (w.need <= 0 || !w.price) continue;
+        const afford = Math.floor(bits / w.price), qty = Math.min(w.need, FOOD_STACK, afford);
+        if (qty <= 0) { logEvent('warn', `Food kaufen: zu wenig Bits für ${w.name} (${bits} Bits, ${w.price} je Stück)`); continue; }
+        if (now - food.talkAt < FOOD_STEP_MS) return `Kaufe ${w.name}…`;
+        food.talkAt = now; commands()?.buy?.(w.id, qty); food.bought.push(`${qty}× ${w.name}`);
+        logEvent('bot', `Food kaufen: ${qty}× ${w.name} (${qty * w.price} Bits)`);
+        return `Kaufe ${qty}× ${w.name}`;
+      }
+      if (now - food.talkAt < FOOD_STEP_MS) return 'Kauf wird verbucht…';
+      commands()?.closeShop?.(); commands()?.closeDialog?.();
+      const rest = foodWants(st).filter((w) => w.need > 0);
+      logEvent('bot', `Food gekauft: ${food.bought.join(', ') || 'nichts'}${rest.length ? ` · offen: ${rest.map((w) => `${w.name} ${w.have}/${w.want}`).join(', ')}` : ''}`);
+      notify('Food gekauft.'); food.done = true; return true;
+    }
+    if (st.dialog?.npc === npcId) { // Dialog offen: zum Sortiment
+      if (now - food.talkAt < FOOD_STEP_MS) return 'Warte auf das Sortiment…';
+      food.talkAt = now; commands()?.chooseDialog?.('shop'); return 'Öffne das Sortiment…';
+    }
+    if (st.dialog) { commands()?.closeDialog?.(); return 'Schließe fremden Dialog…'; }
+    if (now - food.talkAt < FOOD_STEP_MS * 2) return 'Spreche den Händler an…';
+    if (++food.tries > FOOD_GIVEUP) { logEvent('warn', 'Food kaufen: Händler antwortet nicht – abgebrochen'); food.done = true; return true; }
+    food.talkAt = now; commands()?.talk?.(npcId); return `Spreche ${content()?.npcs?.[npcId]?.name || npcId} an…`;
+  }
+
   // ---------- Boss-Rotation (Digi-Eier farmen) ----------
   // Ausgewählte Feldbosse (Map + Art) werden reihum besiegt, auf den erlaubten Kanälen. Zeiten kommen aus drei Quellen:
   //  - Boss-Timer des Spiels (wie das Boss-Fenster): Befehl requestBossPins -> st.bossPins.bosses, je Boss EIN Kanal
@@ -8241,6 +8314,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (kg) { this.status = kg; return; }
       const dg = heldNow ? null : dodge(st, now);
       if (dg) { this.status = dg; this.attackedId = null; return; }
+      // Food kaufen (3.1.8): reisen, kaufen, stoppen – kein Kampf
+      if (cfg.foodBuy) { const fsx = foodStep(st, now); this.status = fsx === true ? 'Food gekauft – Bot gestoppt' : `Food: ${fsx}`; if (fsx === true) bot.toggle(true); return; }
       // Armageddemon (3.1.7): in der unteren Raumhälfte kämpfen – wer oberhalb des Bosses steht, läuft erst unten herum
       if (sc) { const ss = dgSouthSide(st, now); if (ss) { this.status = ss; this.attackedId = null; return; } }
       // Heilen vor dem Gruppen-/Autopilot-Zweig: Mitläufer („Gruppe: bei …“) kehren dort schon zurück und heilten sonst nie (3.1.0)
@@ -9368,7 +9443,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (tab) setTab(tab);
       const mode = e.target.closest('[data-mode]')?.dataset.mode;
       if (mode && mode !== modeOf()) {
-        cfg.questMode = mode === 'quest'; cfg.autopilot = mode === 'auto'; cfg.farm = mode === 'farm'; cfg.dungeon = mode === 'dungeon'; cfg.eventsOnly = mode === 'events';
+        cfg.questMode = mode === 'quest'; cfg.autopilot = mode === 'auto'; cfg.farm = mode === 'farm'; cfg.dungeon = mode === 'dungeon'; cfg.eventsOnly = mode === 'events'; cfg.foodBuy = mode === 'food';
+        if (mode === 'food') { food.reset(); loadWorld(); }
         if (mode === 'events') { cfg.hunt = true; cfg.wboss = true; loadWorld(); } // ohne die beiden gäbe es nichts zu tun
         dg.reset();
         saveCfg(); autopilot.reset(); farm.reset(); questSig = '';

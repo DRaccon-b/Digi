@@ -2,6 +2,15 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.8 – Reiter „Food“ und Betriebsart „Food kaufen“
+- **Neuer Reiter Food:** HP-Food (Feast), DS-Food fürs Digimon (DS Drive oder DS Cartridge) und Tamer-DS-Food (Ramen
+  oder Bento) wählen, je Sorte „auffüllen auf“ (bis 297 Stück, Stapel zu 99).
+- **Betriebsart „Food kaufen“:** Der Bot reist nach Dream Ruins, geht im Lager zu Händler Tentomon, spricht ihn an, öffnet
+  das Sortiment, kauft jede Sorte bis zur Zielmenge nach (vorhandene Stapel angerechnet, nur so viel, wie die Bits
+  reichen), schließt den Shop und stoppt. Log: was gekauft wurde und was offen blieb. Antwortet der Händler nicht,
+  bricht er nach vier Versuchen ab. Test foodtest (Händler-Ablauf mit Elecmon als Ersatz); im Spiel noch nicht geprüft.
+  Suite 152/152.
+
 ## 3.1.7 – Raum 4 nach Taktik, Mail-Server-Schwelle, weiter nach der Anwesenheitskontrolle
 Live Revenge Hard (28.10.): Raum 3 geschafft (325 s, alle 11 geteilten Treffer geblockt), Raum 4 verloren – Wellenphase
 130 s in der Raummitte, dann Ultimate Flare 4 s nach Black Rain auf Bauzel und Fumiko.
