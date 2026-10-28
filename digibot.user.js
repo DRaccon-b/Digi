@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.3
+// @version      3.1.4
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1483,7 +1483,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.3'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.4'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2127,7 +2127,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       // Nachwirkzeit lief die Gruppe in den 0,3 s zwischen Ansage-Ende und Treffer zurück zum Boss (Sim Raum 4: 4 Clavis
       // gleichzeitig tot, 3.1.2)
       for (const l of live) if (l.skill?.grab || l.skill?.dash || l.skill?.sweep) lineMemo.set(`${l.src}|${l.skill.id}|${Math.round(l.tx)}|${Math.round(l.ty)}`, { l, until: now + (l.skill.sweep ? Math.max(LINE_AFTER_MS, (l.skill.sweep.ms || 0) + 300) : LINE_AFTER_MS) });
-      for (const [k, m] of lineMemo) { if (m.until < now) lineMemo.delete(k); else if (!live.some((l) => l.src === m.l.src && l.skill?.id === m.l.skill?.id)) live.push({ ...m.l, end: 0 }); }
+      // nachwirkende Linie mit bekannter Restzeit (nicht end: 0 = „unbekannt“): sonst erlaubte rangedSafe einen Fernangriff, nach
+      // dem das Digimon dem Ziel in den noch schwenkenden Fächer hinterherlief (Sim Raum 4: „Fernangriff: Divine Lock“ → tot, 3.1.4)
+      for (const [k, m] of lineMemo) { if (m.until < now) lineMemo.delete(k); else if (!live.some((l) => l.src === m.l.src && l.skill?.id === m.l.skill?.id)) live.push({ ...m.l, end: t + Math.max(50, m.until - now) }); }
       for (const l of live) {
         const len = Math.hypot(l.tx - l.fx, l.ty - l.fy);
         if (l.skill?.sweep) {
@@ -7201,13 +7203,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // (8 s) – jedes zerstörte Terminal kostet Bonus und macht aus dem Fresser ein Keramon. Darum: Fresser zuerst,
   // der dem nächsten heilen Terminal am nächsten ist.
   const DG_DOOR_WAIT_MS = 20000; // Leader wartet so lange an der Tür auf die Gruppe
+  const DG_ALL_IN_MS = 60000;    // nach dem Betreten höchstens so lange warten, bis alle auf der Dungeon-Map sind (3.1.4)
   const DG_DOOR_NEAR = 90;       // so nah an der Tür gilt ein Mitglied als „da“
   const DG_ENTER_MS = 4000;      // Betreten frühestens so oft versuchen
   const DG_TRIES = 3;            // gescheiterte Läufe so oft neu versuchen
   const DG_PULL_HP = 90;         // einen neuen Raum (Kampf beginnt beim Hineingehen) erst ab so viel HP betreten
   const dg = {
-    dps: 0, dpsTrack: null, hud: null, hudAt: 0, inside: false, enterAt: 0, doorAt: 0, fails: 0, cleared: false, logRoom: -1,
-    reset() { this.hud = null; this.hudAt = 0; this.inside = false; this.enterAt = 0; this.doorAt = 0; this.fails = 0; this.cleared = false; this.logRoom = -1; },
+    dps: 0, dpsTrack: null, hud: null, hudAt: 0, inside: false, insideAt: 0, enterAt: 0, doorAt: 0, fails: 0, cleared: false, logRoom: -1,
+    reset() { this.hud = null; this.hudAt = 0; this.inside = false; this.insideAt = 0; this.enterAt = 0; this.doorAt = 0; this.fails = 0; this.cleared = false; this.logRoom = -1; },
   };
   function dgNote(ev) {
     dg.hud = { raid: ev.raid, room: ev.room ?? 0, rooms: ev.rooms ?? 0, roomId: ev.roomId, pulled: !!ev.pulled, deaths: ev.deaths ?? 0, deathLimit: ev.deathLimit ?? 0 };
@@ -7319,7 +7322,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const brk = breaks.size ? sc.mobs.filter((m) => breaks.has(m.species)).sort((a, b) => (a.hp - b.hp) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)) : [];
     const score = (m) => {
       if (arms.has(m.species)) { // hält mich fest: sofort brechen; hält ein Gruppenmitglied: mithelfen (der Gepackte macht nur halben Schaden am Arm)
-        const held = ents0?.get?.(ents0?.get?.(m.id)?.targetId);
+        // live (28.10.) hat der Arm keine targetId: Halter = Digimon/Tamer mit Held-Flag in Reichweite des Arms (3.1.4)
+        let held = ents0?.get?.(ents0?.get?.(m.id)?.targetId);
+        if (!held && ents0) { let best = 200; ents0.forEach((e) => { if ((e.flags & FLAG.Held) && (e.kind === KIND.Partner || e.kind === KIND.Tamer)) { const dd = Math.hypot(e.x - m.x, e.y - m.y); if (dd < best) { best = dd; held = e; } } }); }
         return mine.has(held?.id) || m.attacker ? -20 : group.active() && held && (held.kind === KIND.Partner || held.kind === KIND.Tamer) ? -10 : 150;
       }
       // Herde nur in der Gruppe abfangen – allein schafft man kaum eine (je ~15 000 HP, ~3 s bis zum Ei), und die Zeit
@@ -7334,6 +7339,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const list = sc.mobs.filter((m) => inRect(z, m, 24) && !m.banned && !safeHeld(m.id) && !copies.has(m.id) && (m.attacker || !optional.has(m.species)) && (cfg.dgBreak || !optBreaks.has(m.species) || m.attacker)); // Haken aus: optionales Brechbares (Mail Server) ignorieren
     if (!list.length) return null;
     list.sort((a, b) => score(a) - score(b));
+    dungeonFocus.mech = (m) => !!m && (arms.has(m.species) || breaks.has(m.species)); // Greifarm/Brechbares: hat auch im Ausweich-Zweig Vorrang (3.1.4)
     const cur = st.target, keep = cur && list.find((m) => m.id === cur.id);
     // gewähltes Ziel behalten, solange kein anderes deutlich (DG_SWITCH_MS) dringender ist – kein Hin und Her
     if (keep && score(keep) - score(list[0]) < DG_SWITCH_MS / 10) return keep;
@@ -7344,7 +7350,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const mapId = st.world?.mapId, raid = dgRaid(mapId);
     if (!raid && plainRaid(mapId)) return raidStep(st, now, plainRaid(mapId));
     if (!raid) return dungeonOutside(st, now);
-    if (!dg.inside) { dg.inside = true; dg.doorAt = 0; logEvent('bot', `Dungeon betreten: ${content()?.maps?.[mapId]?.name || mapId}`); }
+    if (!dg.inside) { dg.inside = true; dg.insideAt = now; dg.doorAt = 0; logEvent('bot', `Dungeon betreten: ${content()?.maps?.[mapId]?.name || mapId}`); }
     const R = dgRoom(st, raid);
     if (!R.m || !R.me) return 'Lade Kartendaten…';
     const go = (x,y,what,portal=null) => (walkTo(st,x,y,now,{portal}) === 'stuck' ? `${what} – Weg blockiert` : what);
@@ -7366,6 +7372,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const evo = !R.h?.pulled && safeRectAt(st.world?.mapId, R.me) ? dgEvoPending(st) : null;
     if (dgEvoWait(evo, Date.now())) return `${n}: warte im Schutzbereich auf die Digitation zu ${evo}…`;
     if (!R.h?.pulled && hp < DG_PULL_HP && safeRectAt(st.world?.mapId, R.me)) return `${n}: warte im Schutzbereich auf HP (${hp.toFixed(0)} %/${DG_PULL_HP} %)…`;
+    // Nach dem Betreten erst losgehen, wenn die ganze Gruppe wirklich auf der Map ist (höchstens DG_ALL_IN_MS) – sonst rennt der
+    // Leader allein zum Boss, während die anderen noch laden (3.1.4)
+    if (group.active() && !R.h?.pulled && now - dg.insideAt < DG_ALL_IN_MS) {
+      const peers = [...group.peers.values()].filter((q) => fresh(q, now) && q.inWorld && accounts.list[q.slot]?.on);
+      const here = peers.filter((q) => q.mapId === mapId).length;
+      if (here < peers.length) return `${n}: warte, bis alle im Dungeon sind (${here + 1}/${peers.length + 1})…`;
+    }
     if (Math.hypot(R.me.x - cx, R.me.y - cy) > 40) return go(cx, cy, R.h?.pulled ? `${n}: zurück in die Raummitte` : `${n}: gehe hinein – der Kampf beginnt`);
     return R.h?.pulled ? `${n}: warte auf die nächste Welle…` : `${n}: warte in der Raummitte…`;
   }
@@ -8109,12 +8122,32 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       potion(3, tamerFoodNeeded(me, now));
 
       digibotTamerTick(st,now);
+      // 1a) Dungeon (3.1.4): Greifarm und Brechbares (Mail Server) gehen dem Ausweichen vor – vorher blieb der Bot bei aktiven
+      // Warnkreisen im Ausweich-Zweig und behielt den Boss als Ziel (live: Arm und Mail Server nie angegriffen). Gepackt: das
+      // Digimon kann ohnehin nicht laufen – nicht ausweichen und nicht sammeln, sondern den Arm schlagen. Und im
+      // Schutzbereich (nach einem Sturz) erst wieder digitieren.
+      let sc = null;
+      const heldNow = !!(window.dmo?.net?.state?.entities?.get?.(p.entityId)?.flags & FLAG.Held);
+      if (cfg.dungeon && dgRaid(st.world?.mapId)) {
+        sc = scan(st);
+        const mech = dungeonFocus(sc);
+        // nur anvisieren, nicht den Takt verlassen – Key of Hope und Ausweichen laufen weiter (sonst 4 Stürze in der Sim)
+        if (mech && dungeonFocus.mech?.(mech) && t?.id !== mech.id && this.can('select', SELECT_GAP_MS, now)) {
+          this.lastPress.select = now; worldScene()?.select?.(mech.id); this.attackedId = null; this.engage = null;
+          logEvent('bot', `Dungeon: ${mech.name || mech.species} anvisiert (vor dem Ausweichen)`);
+        }
+        const me0 = controlled(st);
+        if (!heldNow && !sc.attackers.length && me0 && safeRectAt(st.world?.mapId, me0) && dgEvoPending(st)) {
+          const ev = autopilotEvolution(st, now);
+          if (ev !== true) { this.status = `Dungeon: ${ev}`; return; }
+        }
+      }
       // 1b) Flächenangriffen ausweichen hat Vorrang vor allem anderen
       const kh = keyOfHope(st, now);
       if (kh) { this.status = kh; return; }
-      const kg = kohGather(st, now);
+      const kg = heldNow ? null : kohGather(st, now);
       if (kg) { this.status = kg; return; }
-      const dg = dodge(st, now);
+      const dg = heldNow ? null : dodge(st, now);
       if (dg) { this.status = dg; this.attackedId = null; return; }
       // Heilen vor dem Gruppen-/Autopilot-Zweig: Mitläufer („Gruppe: bei …“) kehren dort schon zurück und heilten sonst nie (3.1.0)
       healSkill(st, now); // Heil-Skill bei niedrigen HP (auch außerhalb des Kampfes)
@@ -8130,7 +8163,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         const L = groupLeader(now);
         autopilot.huntSpecies = L && L.mapId === st.world?.mapId ? new Set(L.hunt || []) : new Set();
       }
-      const sc = scan(st);
+      sc = sc || scan(st);
       const sharedMove=digibotSharedStep(st,sc,now);
       if(sharedMove){this.status=sharedMove;return;}
       let attackers = sc ? sc.attackers.map((m) => m.id) : [];

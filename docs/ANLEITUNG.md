@@ -19,7 +19,9 @@ Oben immer sichtbar:
   drei Stück) – mit Haken greifen alle Fenster dasselbe an, dann das nächste, dann wieder den Boss; aus = nur der Boss
   (schneller, aber die Support-Mails verstärken Diaboromon über die stehenden Server bis ×2,5 – live Wipe bei 14 %). Armageddemons Kuramon-Haufen (Panzer) werden immer zerschlagen. Und Skills werden auch von
   der Angriffsposition am Kreisrand gewirkt (vorher dort nur Taste 1). Ab 3.1.2 bleibt ein schwenkender Fächer
-  (Ultimate Flare) nach dem Ende der Ansage noch Schwenkdauer + 0,3 s lang Gefahrenzone.
+  (Ultimate Flare) nach dem Ende der Ansage noch Schwenkdauer + 0,3 s lang Gefahrenzone. Ab 3.1.4 gehen Greifarm und
+  Mail Server dem Ausweichen vor, ein gepacktes Digimon schlägt den Arm statt auszuweichen, nach einem Sturz wird im
+  Schutzbereich erst digitiert, und nach dem Betreten wartet die Gruppe (bis 60 s), bis alle auf der Dungeon-Map sind.
 - **Start/Stopp** (Alt+B) mit dem Namen des Modus, darunter die Statuszeile (Maus darüber = ganzer Text)
 - **Mini-Leisten** für HP und DS des Digimons und die HP des Ziels – in jedem Reiter sichtbar
 - **💾 Preset speichern / 📂 Preset laden (ab 3.0.1)** – speichert alle Bot-Einstellungen (Modus, Tränke, Skills,

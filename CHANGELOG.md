@@ -2,6 +2,26 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.4 – Dungeon: Greifarm und Mail Server trotz Warnkreisen, Digitation nach Sturz, auf alle warten
+Live Revenge Hard (28.10., Bauzels Fenster) gemeldet: Greifarm nicht angegriffen, Mail Server trotz Haken nicht angegriffen,
+keine Digitation im Dungeon, Gruppe rennt nach dem Betreten einzeln los.
+- **Greifarm und Mail Server gehen dem Ausweichen vor:** Solange Warnkreise aktiv sind (bei Diaboromon fast immer), blieb
+  der Bot im Ausweich-Zweig und behielt den Boss als Ziel – die Zielwahl des Dungeons (Arm, Brechbares) kam nie dran.
+  Jetzt visiert er Greifarm/Mail Server vor dem Ausweichen an. Live hat der Arm keine Ziel-Kennung: Wer gepackt ist, wird
+  über das „festgehalten“-Flag erkannt (eigenes Digimon: sofort brechen; Gruppenmitglied: mithelfen).
+- **Gepackt: nicht ausweichen, nicht sammeln** – das Digimon kann ohnehin nicht laufen; es schlägt den Arm.
+- **Digitation im Dungeon:** Bisher digitierte der Bot nur ohne Ziel und ohne Angreifer (an der Tür). Nach einem Sturz
+  stand der Boss weiter als Ziel – keine Digitation mehr. Jetzt digitiert er im Schutzbereich zuerst, dann geht es weiter.
+- **Nach dem Betreten auf alle warten:** Der Raum wird erst betreten, wenn alle Gruppenfenster auf der Dungeon-Map sind
+  (höchstens 60 s), Status „warte, bis alle im Dungeon sind (n/5)“.
+- Test-Boss Greifarm: 3 von 3 Armen zerschlagen (unverändert).
+- **Ultimate Flare, Nachtrag zu 3.1.2:** Die nachwirkende Fächer-Zone hatte „Restzeit unbekannt“ – damit erlaubte der
+  Fernangriff-Zweig („Warte außerhalb · Fernangriff: Divine Lock“) einen Skill, nach dem das Digimon dem Boss in den noch
+  schwenkenden Fächer hinterherlief (Simulation Raum 4: Treffer 0,1 s nach dem Skill). Die Zone trägt jetzt die echte
+  Restzeit, der Fernangriff bleibt gesperrt, solange der Schwenk läuft.
+- Simulation Revenge ab 35 % Boss-HP (Mail Server, Raum 4, 3 Läufe): 3 von 3 geschafft, 0 Stürze, Ultimate Flare 0 Treffer
+  bei 50 Ansagen, Mail Server in 25–35 s zerschlagen. Suite 148/148.
+
 ## 3.1.3 – Mail Server standardmäßig zerstören
 - Haken „Mail Server zerstören“ ist wieder **an**. Live (28.10.) flog die Gruppe bei 14 % Boss-HP aus Raum 3, nachdem
   die Server stehen geblieben waren. Die Spieldaten erklären es: Die herumtreibenden Support-Mails werden über die

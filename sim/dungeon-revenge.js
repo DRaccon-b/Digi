@@ -265,7 +265,7 @@ function makeWindow(i) {
   // KOH_AUS=1: Key of Hope und alle Skill-Haken der Clavis aus – im Dungeon müssen Key of Hope und Gruppenheilung trotzdem laufen (3.1.0)
   w.localStorage.setItem('digibot.cfg', JSON.stringify({ dungeon: true, dgMode: 'hard', autopilot: false, farm: false, questMode: false, hpPot: TRANK_AB, dsPot: 0, tdsPot: 0, tab: 'data', lvlDiff: 100, radius: 400,
     ...(process.env.KOH_AUS ? { koh: false, skillSets: { clavisangemon: { skills: { 2: false, 3: false, 4: false, 5: false, 6: false }, heal: {} } } } : {}),
-    ...(process.env.SERVER ? { dgBreak: true } : {}) })); // SERVER=1: Mail Server zerstören (3.1.1, Standard aus)
+    ...(process.env.SERVER === '0' ? { dgBreak: false } : {}) })); // SERVER=0: Mail Server ignorieren (Standard an seit 3.1.3)
   w.localStorage.setItem('digibot.accounts', JSON.stringify(accounts));
   w.eval(script);
   pl.status = () => w.document.querySelector('[data-f="status"]')?.textContent || '';
@@ -320,6 +320,7 @@ const alivePlayers = () => players.filter((pl) => pl.inside && !pl.fainted && pl
 const partnerOf = (pl) => ents.get(`p:${pl.i}`);
 function damagePlayer(pl, dmg, what) {
   if (pl.fainted) return;
+  if (run.forwardMult > 1 && run.boss && run.boss.defId === 'diaboromon') dmg = Math.round(dmg * run.forwardMult); // stehende Mail-Server
   const st = pl.store.getState(), p = st.me.partner, hp = Math.max(0, p.hp - dmg);
   pl.store.setState({ me: { ...st.me, partner: { ...p, hp, fainted: hp <= 0 } } });
   if (hp <= 0) {
@@ -536,7 +537,10 @@ function stepClock(now) {
   const pct = b.hp / b.maxHp;
   if (!run.copies && pct <= 0.7) { run.copies = { until: pct - 0.06, next: now + 3000 }; say('👯 Kopien erscheinen (70 %) – Strahlen aus allen Ecken'); }
   if (run.copies && pct <= run.copies.until) { run.copies = { done: true }; say('Kopien falten sich zurück'); }
-  if (!run.servers && pct <= 0.3) { run.servers = true; for (const n of ['forward_1', 'forward_2', 'forward_3']) spawnMob('mail_server', 'Mail Server', 180000, at(n)); say('📧 Mail-Server erscheinen (30 %)'); }
+  if (!run.servers && pct <= 0.3) { run.servers = true; run.forwardNext = now + 5000; for (const n of ['forward_1', 'forward_2', 'forward_3']) spawnMob('mail_server', 'Mail Server', 180000, at(n)); say('📧 Mail-Server erscheinen (30 %)'); }
+  // Stehende Server leiten die Support-Mails weiter (Spieldaten: forward perPct 15, maxMult 2.5, Mails alle 5 s): Boss-Schaden ×
+  if (run.servers) { const up = [...ents.values()].some((e) => e.defId === 'mail_server' && e.hp > 0); if (!up) { if (run.forwardMult > 1) say('📧 Alle Mail-Server zerschlagen – Verstärkung weg'); run.forwardMult = 1; }
+    else if (now >= (run.forwardNext || 0)) { run.forwardNext = now + 5000; const m = Math.min(2.5, (run.forwardMult || 1) + 0.15); if (m !== run.forwardMult) { run.forwardMult = m; run.stats.forwardMax = Math.max(run.stats.forwardMax || 0, m); if (Math.round(m * 100) % 45 === 0 || m >= 2.5) say(`📧 Mails weitergeleitet – Diaboromon ×${m.toFixed(2)}`); } } }
   const over = now < run.overUntil;
   const tank = bossMelee(b, now, over ? 1800 / 1.35 : 1800);
   if (!tank || now < b.casting) return;
@@ -665,6 +669,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   console.log(`\nErgebnis: ${run.cleared ? '✅ geschafft' : run.failed ? `❌ gescheitert (${run.failed})` : '⏱ Zeit abgelaufen'}${!run.cleared && b ? ` – ${b.name} bei ${Math.round(b.hp / b.maxHp * 100)} %` : ''}`);
   console.log(`Räume ${run.roomTime.map((t) => `${(t / 1000).toFixed(0)} s`).join(' / ') || '–'} · Stürze ${run.deaths} · Tränke ${run.stats.pots} · Skills ${run.stats.skills}${run.room >= 1 ? ` · Herde: ${run.herd.captures} erledigt, ${run.herd.arrived} am Ei, Boss-Stärke ${run.herd.stacks}` : ''}`);
   console.log(`Attacken (Ansagen · getroffen · ausgewichen · geblockt): ${Object.entries(run.perSkill).map(([k, v]) => `${k} ${v.casts} · ${v.hit} · ${v.dodged} · ${v.blocked || 0}${v.cover ? ` (davon ${v.cover}× hinter Deckung)` : ''}`).join(' | ')}`);
+  if (run.stats.forwardMax) console.log(`Mail-Server standen: Diaboromon bis ×${run.stats.forwardMax.toFixed(2)} verstärkt`);
   { const by = run.stats.dmgBy || {}, secs = ((run.stats.dmgT1 || 0) - (run.stats.dmgT0 || 0)) / 1000; if (secs > 0) console.log(`Schaden am Boss je Sekunde (Kampfzeit ${Math.round(secs)} s): ${players.map((pl) => `Char${pl.i + 1} ${Math.round((by[pl.i] || 0) / secs)}`).join(' · ')}`); }
   if (TEAM) console.log(`Key of Hope gezündet: ${run.stats.koh || 0}× · Sacred Seal ${run.stats.heals || 0}× (${Math.round(run.stats.healed || 0)} HP) · Team: ${MEMBERS.map((m, i) => `Char${i + 1} ${m.name} Lv ${m.level} (${m.hp} HP)`).join(', ')}`);
   console.log(`Status am Ende: ${players.map((pl) => `Char${pl.i + 1}: ${pl.status()}`).join(' | ')}`);
