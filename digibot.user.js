@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.5
+// @version      3.1.6
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1484,7 +1484,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.5'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.6'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2314,6 +2314,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (!s || isKoh(s.skill) || s.cdLeft > 0 || s.skill.unlocked === false || p.ds < (s.skill.dsCost || 0)) continue;
       const def = (s.skill.id && C?.skills?.[s.skill.id]) || {};
       if(digibotSkillAggroReason(st,target,s.skill)||digibotBossPeace(st))continue;
+      { const soon = kohSoon(st, now); if (soon != null && soon < KOH_LEAD_MS + 800 + (s.skill.castMs ?? def.castMs ?? 600)) return null; } // Key of Hope gleich fällig (3.1.6)
       const range = s.skill.range ?? def.range ?? 0, tgt = s.skill.target ?? def.target;
       if (range < RANGED_MIN || d > range || (tgt && tgt !== 'enemy') || s.skill.dash || def.dash) continue;
       if (!bot.can('Digit' + k, SKILL_GAP_MS * 2, now)) continue;
@@ -2343,6 +2344,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if ((tgt && tgt !== 'enemy') || s.skill.dash || def.dash || d > Math.max(range, reach)) continue;
       if (!bot.can('Digit' + k, SKILL_GAP_MS * 2, now)) continue;
       if (skillUnsafe(st, target, s.skill, now, Number(String(s.ref).slice(6)))) continue;
+      { const soon = kohSoon(st, now); if (soon != null && soon < KOH_LEAD_MS + 800 + (s.skill.castMs ?? def.castMs ?? 600)) return null; } // Key of Hope gleich fällig
       if (bot.hit('Digit' + k, now) === false) return null;
       bot.lastPress.skill = now;
       dodgeState.rangedUntil = now + (s.skill.castMs ?? def.castMs ?? 600) + 300; // Cast nicht durch partnerStop abbrechen
@@ -2664,6 +2666,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           if (ev.t === 'dmg' || ev.t === 'die') { const me0 = getStore()?.getState?.()?.me; if (me0) { const mine = new Set([me0.tamerEntityId, me0.partner?.entityId]); dpsNote(ev, mine); mobExpEvent(ev, mine); } }
           if (ev.t === 'die' && ev.id) { bossSkillLog.delete(ev.id); continue; }
           if (ev.t !== 'skill' || !ev.src || !ev.skill) continue;
+          if (ev.skill === KOH_ID) kohState.seen.set(ev.src, now); // Bestätigung eines beanspruchten Key of Hope (3.1.6)
           if (!bossSkillLog.has(ev.src)) bossSkillLog.set(ev.src, new Map());
           const log = bossSkillLog.get(ev.src);
           const def = content()?.skills?.[ev.skill];
@@ -3264,12 +3267,28 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const KOH_GATHER_MS = 2000; // so lange vor dem Einschlag sammeln (vorher wird noch ausgewichen)
   const KOH_LEAD_MS = 700;    // so lange vor dem Einschlag zündet der erste Clavis (Schutz hält 2 s)
   const KOH_STEP_MS = 200;    // Abstand, bis der nächste Clavis einspringt
+  const KOH_CLAIM_MS = 450;   // so lange gilt eine Beanspruchung ohne Bestätigung (Skill-Ereignis des Zünders), danach springt der nächste ein (3.1.6)
+  function kohClaimValid(claim, now) {
+    if (now - claim.at < KOH_CLAIM_MS) return true;
+    if (!kohState.seen.size) return true; // noch nie ein Key-of-Hope-Ereignis gesehen (z. B. Spiel meldet keins): auf Vertrauen
+    const st = getStore()?.getState?.();
+    const ent = claim.slot === group.slot() ? st?.me?.partner?.entityId : group.peers.get(claim.slot)?.ents?.[1];
+    const t = ent ? kohState.seen.get(ent) : null;
+    return t != null && t >= claim.at - 300;
+  }
+  // Key of Hope bald fällig (ms bis zum Einschlag) – dann keine Skills mit Cast mehr, der Tastendruck ginge sonst verloren
+  function kohSoon(st, now) {
+    if (!kohOn() || !group.active() || !kohSlot(st)) return null;
+    const h = kohUpcoming(st, now);
+    return h ? h.left : null;
+  }
   const KOH_COVER_MS = 1700;  // Einschläge bis so lange nach dem Zünden gelten als abgedeckt
   const KOH_RANGE = 700;      // nur Angriffe von Bossen in dieser Entfernung (nicht für geteilte Treffer)
   const KOH_SHARED = new Set(['diaboromon.catastrophe_cannon', 'armageddemon.black_rain_shell']); // geteilt, auch ohne share in den Daten
   const KOH_GATHER_R = 80;     // so nah laufen die anderen ans Clavis-Digimon (Schutzkreis 128 px)
   const kohState = {
-    claims: new Map(), // Boss-Entity -> Zeitpunkt, an dem ein Clavis Key of Hope gezündet hat
+    claims: new Map(), // Boss-Entity -> { at, slot }: ein Clavis hat Key of Hope beansprucht (gilt erst mit Skill-Ereignis, 3.1.6)
+    seen: new Map(),   // Partner-Entity -> Zeitpunkt des letzten Key-of-Hope-Skill-Ereignisses im Spiel (Bestätigung)
     plans: new Map(),  // Slot -> { x, y, mapId, end }: dieser Clavis zündet gleich, hier sammeln
     anchor: null, sentAt: 0, // ich zünde gleich: { src, end }
   };
@@ -3308,7 +3327,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         const b = ents?.get?.(src), shared = !!content()?.skills?.[sid]?.share || KOH_SHARED.has(sid);
         if (!shared && b && me && Math.hypot(b.x - me.x, b.y - me.y) > KOH_RANGE) continue;
         const claim = kohState.claims.get(src);
-        if (claim && e.castEnd <= claim + KOH_COVER_MS) continue; // ein Clavis hat schon gezündet
+        if (claim && e.castEnd <= claim.at + KOH_COVER_MS && kohClaimValid(claim, now)) continue; // ein Clavis hat schon gezündet
         if (!hit || left < hit.left) hit = { src, sid, left, castEnd: e.castEnd, main: e.castEnd };
       }
     }
@@ -3344,8 +3363,19 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     kohState.sentAt = now;
     try { digibotSend({ type: 'kohplan', slot: group.slot(), x: me.x, y: me.y, mapId: st.world?.mapId, end: hit.castEnd + 500 }); } catch { /* ignore */ }
   }
+  // Beim Sammeln/Positionhalten weiter angreifen, solange das Ziel in Schlagweite steht – ohne hinzulaufen (das verließe den
+  // Sammelpunkt). Live (28.10.): der Clavis, der als Nächster zündet, stand die ganzen 5 s der Ansage nur herum (3.1.6)
+  function kohAttackInPlace(st, now) {
+    const ents = window.dmo?.net?.state?.entities, t = st?.target, te = t?.kind === 'mob' && t.hp > 0 ? ents?.get?.(t.id) : null, pe = ents?.get?.(st?.me?.partner?.entityId);
+    if (!te || !pe || st.me?.partner?.fainted || st.me?.partner?.evolving) return '';
+    const C = content(), range = C?.digimon?.[st.me?.partner?.species]?.basic?.range ?? DODGE_BASIC_RANGE, radius = Math.min(C?.digimon?.[te.defId]?.radius ?? 7, 7);
+    if (Math.hypot(te.x - pe.x, te.y - pe.y) > range + radius + 4) return '';
+    if (bot.can('Digit1', ATTACK_REPEAT_MS, now)) bot.hit('Digit1', now);
+    const sk = skillsAtEdge(st, te, pe, now);
+    return sk ? ` · greife an (${sk})` : ' · greife an';
+  }
   // Ein anderer Clavis zündet gleich: hinlaufen (Tamer, das Digimon folgt) – Vorrang vor Ausweichen und Kampf.
-  // Der Clavis, der zündet, bleibt stehen.
+  // Der Clavis, der zündet, bleibt stehen (schlägt aber weiter zu, wenn das Ziel in Reichweite steht).
   function kohGather(st, now) {
     if (!kohOn() || !group.active()) return null;
     // Bis kurz vor dem Einschlag gilt Ausweichen (z. B. eine Volley davor): erst in den letzten KOH_GATHER_MS sammeln
@@ -3358,7 +3388,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const uncovered = (end) => inDanger(end - 500 - KOH_LEAD_MS - 100);
     if (kohState.anchor && kohState.anchor.end > now) {
       if ((kohState.anchor.end - 500 - now > KOH_GATHER_MS && inDanger()) || uncovered(kohState.anchor.end)) return null;
-      return 'Key of Hope gleich – halte Position, Gruppe sammelt sich';
+      return 'Key of Hope gleich – halte Position, Gruppe sammelt sich' + kohAttackInPlace(st, now);
     }
     let plan = null;
     for (const [slot, pl] of kohState.plans) {
@@ -3371,7 +3401,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const partner = ents?.get?.(st?.me?.partner?.entityId), tamer = controlled(st);
     const who = group.peers.get(plan.slot)?.name || `Slot ${plan.slot + 1}`;
     const d = (e) => (e ? Math.hypot(e.x - plan.x, e.y - plan.y) : 0);
-    if (d(partner) <= KOH_GATHER_R && d(tamer) <= KOH_GATHER_R + 40) return `Key of Hope: im Schutzkreis von ${who}`;
+    if (d(partner) <= KOH_GATHER_R && d(tamer) <= KOH_GATHER_R + 40) return `Key of Hope: im Schutzkreis von ${who}` + kohAttackInPlace(st, now);
     if (tamer && d(tamer) > 24 && bot.can('kohTap', 250, now)) { bot.lastPress.kohTap = now; worldScene()?.tapGround?.(plan.x, plan.y); }
     if (partner && d(partner) > KOH_GATHER_R && bot.can('kohFollow', 800, now)) { bot.lastPress.kohFollow = now; commands()?.partnerFollow?.(); }
     return `Key of Hope: laufe in den Schutzkreis von ${who}`;
@@ -3392,10 +3422,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (kohState.dueKey !== dueKey) { kohState.dueKey = dueKey; kohState.dueAt = now; }
     if (now - kohState.dueAt < kohRank(st, now) * KOH_STEP_MS) return null;
     if (!bot.can('Digit' + own.k, 300, now)) return null;
-    kohState.claims.set(hit.src, now);
-    try { digibotSend({ type: 'koh', slot: group.slot(), src: hit.src, skill: hit.sid }); } catch { /* ignore */ }
+    // erst drücken, dann beanspruchen: wurde die Taste zurückgehalten (laufender Skill, Eingabesperre), bleibt der Treffer
+    // offen und der nächste Clavis springt ein (live 28.10.: Beanspruchung ohne Cast → ganze Gruppe ungeschützt, 3.1.6)
+    if (bot.hit('Digit' + own.k, now) === false) return null;
     bot.lastPress.skill = now;
-    bot.hit('Digit' + own.k, now);
+    kohState.claims.set(hit.src, { at: now, slot: group.slot() });
+    try { digibotSend({ type: 'koh', slot: group.slot(), src: hit.src, skill: hit.sid }); } catch { /* ignore */ }
     const name = (content()?.skills?.[hit.sid]?.name || hit.sid) + (hit.also ? ` (+ ${content()?.skills?.[hit.also]?.name || hit.also})` : '');
     logEvent('warn', `Key of Hope gegen ${name}`);
     return `Key of Hope gegen ${name}`;
@@ -3903,7 +3935,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (bot.on && group.active() && (!prev || groupSig(prev) !== groupSig(m))) kickTick();
     }
     if (m.type === 'pos' && m.slot === accounts.leader && m.slot !== group.slot()) group.leaderPos = { ...m, seen: Date.now() };
-    if (m.type === 'koh' && m.src && m.slot !== group.slot()) kohState.claims.set(m.src, Date.now());
+    if (m.type === 'koh' && m.src && m.slot !== group.slot()) kohState.claims.set(m.src, { at: Date.now(), slot: m.slot });
     if (m.type === 'heal' && m.slot !== group.slot()) healState.lastAt = Date.now(); // ein anderer hat gerade geheilt
     if (m.type === 'kohplan' && Number.isInteger(m.slot) && m.slot !== group.slot()) kohState.plans.set(m.slot, { ...m, seen: Date.now() });
     if (!group.active()) return;
@@ -8468,6 +8500,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         if (s && isAllyHeal(s.skill) && dungeonLike(st)) continue; // Dungeon/Raid: Gruppenheilung nur über groupHeal (3.1.0)
         if (!s || s.cdLeft > 0 || s.skill.unlocked === false || p.ds < (s.skill.dsCost || 0)) continue;
         if (!this.can('Digit' + k, SKILL_GAP_MS * 2, now)) continue; // Server-Cooldown noch nicht angekommen
+        { const soon = kohSoon(st, now), cast = s.skill.castMs ?? content()?.skills?.[s.skill.id]?.castMs ?? 600;
+          if (soon != null && soon < KOH_LEAD_MS + 800 + cast) { held ||= 'Key of Hope gleich fällig – Skills warten'; break; } }
         const why = skillUnsafe(st, t, s.skill, now, Number(String(s.ref).slice(6))); // zu langer Cast vor einer möglichen Boss-Attacke -> nächster Skill
         if (why) { held ||= `${s.skill.name} zurückgehalten: ${why}`; continue; }
         if(this.hit('Digit'+k,now)===false){held=digibotLastInputBlock?.reason||'Kampfeingabe zurückgehalten';break;}

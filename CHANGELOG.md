@@ -2,6 +2,22 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.6 – Key of Hope: Beanspruchung nur mit echtem Cast, kein Skill kurz vor dem Zünden
+Live Revenge Hard (28.10., Fumikos Fenster): Nur Slot 0 und 1 zündeten je Key of Hope, Fumiko und Makota nie. Bei 111,5 s
+beanspruchte MarcusD den Treffer, im Spiel kam kein Key-of-Hope-Cast an (Tastendruck während eines laufenden Skills
+verloren), niemand sprang ein – alle fünf kassierten den geteilten Catastrophe Cannon (44 000–71 000).
+- **Erst drücken, dann beanspruchen:** Wird die Taste zurückgehalten (laufender Skill, Eingabesperre), bleibt der Treffer
+  offen und der nächste bereite Clavis zündet.
+- **Beanspruchung muss sich bestätigen:** Nach 450 ms gilt sie nur, wenn das Spiel den Key-of-Hope-Cast des Zünders gemeldet
+  hat – sonst springt der nächste Clavis ein (Reihenfolge nach Slot wie bisher).
+- **Keine Skills mit Cast kurz vor fälligem Key of Hope:** Rotation, Kreisrand- und Fernangriff halten Divine Lock, Gate of
+  Judgment & Co. zurück, wenn in weniger als 1,5 s (plus Castzeit) ein Key of Hope fällig ist – damit der Druck durchgeht.
+- **Beim Sammeln weiter angreifen:** Wer als Nächster zündet („halte Position“) oder schon im Schutzkreis steht, schlägt
+  weiter zu und nutzt Skills, solange der Boss in Schlagweite steht – ohne hinzulaufen. Vorher stand der zündende Clavis die
+  ganzen 5 s der Ansage nur herum.
+- Test kohclaimtest. Simulation ab 35 % (3 Läufe): alle geschafft, 0 Stürze, 15 geteilte Catastrophe Cannons und 43
+  Black-Rain-Hüllen geblockt, 0 Flare-Treffer bei 49 Ansagen. Suite 150/150.
+
 ## 3.1.5 – Nach dem Rausfliegen nicht automatisch wieder hinein
 - Scheitert ein Dungeon-Lauf (alle rausgeflogen), stoppt der Bot in jedem Fenster, statt bis zu dreimal automatisch neu
   zu betreten. Neustart wie gewohnt über Start im Leader-Fenster. Wer das alte Verhalten will: Haken „Nach einem
