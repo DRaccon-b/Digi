@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.14
+// @version      3.1.15
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1501,7 +1501,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.14'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.15'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2041,6 +2041,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   //    Zielpunkt (tx/ty) mit halber Breite r; mit skill.sweep ein Fächer, der um den Boss schwenkt.
   // Steht der Tamer oder das Digimon in einer Zone, läuft der Tamer zum nächsten freien Punkt und ruft das Digimon.
   const DODGE_MARGIN = 28;
+  const FAN_APEX_R = 64;        // schwenkender Strahl: so weit um den Ursprung gilt als drin, egal in welcher Richtung (3.1.15)
   const FAN_SAFE_DEG = 25;      // so viel Winkel neben einem Fächer gilt als voller Sicherheitsabstand (alle Fächer ≤ 180°)
   const DODGE_BASIC_PAD = 4;    // Reserve inside the real basic-attack range.
   const DODGE_LATE_ABORT_MS = 3000; // begonnene Flucht abbrechen, wenn danach noch so viel Zeit bliebe
@@ -2168,7 +2169,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         const len = Math.hypot(l.tx - l.fx, l.ty - l.fy);
         if (l.skill?.sweep) {
           zones.push({ kind: 'fan', x: l.fx, y: l.fy, len: len + (l.r || 16), dir: Math.atan2(l.ty - l.fy, l.tx - l.fx),
-            half: (l.skill.sweep.arc || 90) * Math.PI / 360, end: l.end || 0,
+            half: (l.skill.sweep.arc || 90) * Math.PI / 360, end: l.end || 0, sweep: true,
             cover: l.skill.cover || content()?.skills?.[l.skill.id]?.cover || null });
         } else {
           zones.push({ kind: 'line', x: l.fx, y: l.fy, tx: l.tx, ty: l.ty, len, r: l.r || 16, end: l.end || 0 });
@@ -2246,6 +2247,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // Fächer gelten wie der volle Sicherheitsabstand – so ist der Platz direkt hinter dem Boss frei, auch dicht dran,
     // und das Digimon schlägt von dort weiter zu (3.0.4; vorher galt nur der Abstand zur Spitze = zum Boss)
     const dist = Math.hypot(p.x - z.x, p.y - z.y);
+    // Schwenkender Strahl (Ultimate Flare): der Nahbereich um den Ursprung wird beim Schwenk in jeder Richtung erfasst – live
+    // (28.10., Mitschnitt) wurden zwei Clavis 144° abseits der Strahlrichtung, aber nur 26 px vom Boss entfernt getroffen,
+    // wer 40 px und mehr entfernt stand, nicht. Darum gilt der Umkreis FAN_APEX_R als drin (3.1.15)
+    if (z.sweep && dist < FAN_APEX_R) return { d: dist - FAN_APEX_R, nx: z.x, ny: z.y };
     let diff = Math.abs(Math.atan2(p.y - z.y, p.x - z.x) - z.dir) % (2 * Math.PI);
     if (diff > Math.PI) diff = 2 * Math.PI - diff;
     if (diff <= z.half) return { d: dist - z.len, nx: z.x, ny: z.y };

@@ -2,6 +2,13 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.15 – Flare: Nahbereich um den Boss gilt als drin
+Mitschnitt (28.10., 4. Lauf): Die Ansage-Linie steht 4,1 s (2,5 s Ansage + 1,6 s Schwenk), die Treffer kamen am Ende des
+Schwenks. SpencerD und Fumiko standen 144° abseits der Strahlrichtung („hinter“ dem Boss), aber nur 26 px von ihm entfernt –
+getroffen; wer 40 px und mehr entfernt stand, blieb heil, bei ähnlichen Winkeln.
+- **Umkreis von 64 px um den Ursprung eines schwenkenden Strahls gilt als drin:** der Bot geht mindestens 92 px vom Boss weg,
+  bevorzugt hinter ihn (Vorzug aus 3.1.11), nicht mehr dicht an seinen Rücken.
+
 ## 3.1.14 – Flare: Platten nur noch Rückfall, Sammeln mit eigenem Platz, Angriff beim Sammeln
 Live (28.10., 4. Lauf, Mitschnitt): SpencerD und Fumiko fielen gleichzeitig an der Flare (je 65 401) – die Deckung hinter
 einer Platte gewann als nächstgelegener Punkt gegen den Weg hinter den Boss; beim Sammeln standen vier Clavis auf demselben
