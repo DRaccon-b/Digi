@@ -2,6 +2,11 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.5 – Nach dem Rausfliegen nicht automatisch wieder hinein
+- Scheitert ein Dungeon-Lauf (alle rausgeflogen), stoppt der Bot in jedem Fenster, statt bis zu dreimal automatisch neu
+  zu betreten. Neustart wie gewohnt über Start im Leader-Fenster. Wer das alte Verhalten will: Haken „Nach einem
+  gescheiterten Lauf automatisch neu betreten“ (Reiter Bosse → Dungeon, Standard aus).
+
 ## 3.1.4 – Dungeon: Greifarm und Mail Server trotz Warnkreisen, Digitation nach Sturz, auf alle warten
 Live Revenge Hard (28.10., Bauzels Fenster) gemeldet: Greifarm nicht angegriffen, Mail Server trotz Haken nicht angegriffen,
 keine Digitation im Dungeon, Gruppe rennt nach dem Betreten einzeln los.

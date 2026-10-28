@@ -22,6 +22,8 @@ Oben immer sichtbar:
   (Ultimate Flare) nach dem Ende der Ansage noch Schwenkdauer + 0,3 s lang Gefahrenzone. Ab 3.1.4 gehen Greifarm und
   Mail Server dem Ausweichen vor, ein gepacktes Digimon schlägt den Arm statt auszuweichen, nach einem Sturz wird im
   Schutzbereich erst digitiert, und nach dem Betreten wartet die Gruppe (bis 60 s), bis alle auf der Dungeon-Map sind.
+  Ab 3.1.5 stoppt der Bot nach einem gescheiterten Lauf (rausgeflogen), statt automatisch neu zu betreten; Haken „Nach
+  einem gescheiterten Lauf automatisch neu betreten“ stellt die bis zu drei Versuche wieder her.
 - **Start/Stopp** (Alt+B) mit dem Namen des Modus, darunter die Statuszeile (Maus darüber = ganzer Text)
 - **Mini-Leisten** für HP und DS des Digimons und die HP des Ziels – in jedem Reiter sichtbar
 - **💾 Preset speichern / 📂 Preset laden (ab 3.0.1)** – speichert alle Bot-Einstellungen (Modus, Tränke, Skills,
