@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.23
+// @version      3.1.24
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1528,7 +1528,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.23'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.24'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -6532,6 +6532,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   const addSince = new Map(); // Boss-Entity -> wann er zuerst unter seiner Add-Schwelle gesehen wurde
   const ADD_RANGE = 500, ADD_BOSS_NEAR = 640, ADD_RAID_RADIUS = 300;
+  const GK_GUARD_NEAR = 400; // Hinukamuy so nah an Gankoomon gelten als seine Schutz-Adds (sie erscheinen ~60 px neben ihm, laufen aber auf Angreifer zu)
   function bossAdd(sc) {
     if (!sc) return null;
     // Greifarm (Tentacle Bug, Creep Hands), der mich oder ein Gruppenmitglied hält: sofort zerschlagen – in jedem Modus
@@ -6542,6 +6543,17 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         const ents = window.dmo?.net?.state?.entities, mine = new Set([st0?.me?.tamerEntityId, st0?.me?.partner?.entityId]);
         const held = sc.mobs.find((m) => { if (!arms.has(m.species) || m.banned) return false; const h = ents?.get?.(ents?.get?.(m.id)?.targetId); return !!h && (mine.has(h.id) || (group.active() && (h.kind === KIND.Partner || h.kind === KIND.Tamer))); });
         if (held) return held;
+      }
+    }
+    // Gankoomon (Mega-Jagd): bei 50 % und 25 % ruft er je drei Hinukamuy; solange einer lebt, blockt er jeden Treffer
+    // (live 28.10. mitgeschnitten: HP eingefroren 15,0–26,8 s und 35,6–42,1 s). Die Regel steht nicht in den Client-Daten –
+    // darum fest: alle auf denselben Hinukamuy (der angeschlagenste, bei Gleichstand feste Reihenfolge), danach zurück (3.1.24)
+    if (!cfg.dungeon) {
+      const gk = sc.mobs.find((m) => m.species === 'gankoomon_hunt' && m.hp > 0);
+      if (gk) {
+        const hk = sc.mobs.filter((m) => m.species === 'hinukamuy' && m.hp > 0 && !m.banned && Math.hypot(m.x - gk.x, m.y - gk.y) <= GK_GUARD_NEAR)
+          .sort((a, b) => (a.hp - b.hp) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+        if (hk.length) return hk[0];
       }
     }
     if (cfg.farm || cfg.dungeon) return null; // Dungeon: Reihenfolge macht dungeonFocus

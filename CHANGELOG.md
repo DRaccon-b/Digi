@@ -2,6 +2,12 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.24 – Gankoomon: zuerst die Hinukamuy
+Mitschnitt der Mega-Jagd 28.10.: Gankoomon ruft bei 50 % und 25 % je drei Hinukamuy (Lv 75, 427 844 HP). Solange einer lebt,
+verliert er keine HP, jeder Treffer am Boss wird geblockt. Die Regel steht nicht in den Spieldaten des Clients.
+- **Hinukamuy zuerst:** Steht Gankoomon da und lebt ein Hinukamuy in seiner Nähe (≤ 400 px), greifen alle denselben an
+  (den angeschlagensten), danach den nächsten, dann zurück auf den Boss. Nur für Gankoomon.
+
 ## 3.1.23 – Draußen in Schlagweite: zuschlagen statt warten; bei der Flare von der Seite hinter den Boss
 Mitschnitt 28.10. (9. Lauf, geschafft): Bei zwei Flares stand Bauzels Digimon 2,5 s lang mit 36–39 px hinter dem Boss auf
 sicherem Boden und „wartete außerhalb“ – der Angriffsplan scheiterte an einer Nebenbedingung (Tamer-Position/Lauf-Flags),
