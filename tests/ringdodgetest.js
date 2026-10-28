@@ -19,7 +19,7 @@ const boss = { x: 450, y: 330 }, me0 = { x: 492, y: 330 }; // Digimon 42 px rech
   const taps = [], atk = [];
   sc.tapGround = (x, y) => taps.push({ x, y, t: Date.now() });
   G.w.addEventListener('keydown', (e) => { if (e.code === 'Digit1') atk.push(Date.now()); }, true);
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, dodge: true, tab: 'log', lvlDiff: 20 }));
+  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, dodge: true, tab: 'log', lvlDiff: 20, dgRing: true }));
   G.w.eval(script);
   await wait(1500);
   for (const id of [...G.ents.keys()]) if (id.startsWith('m:')) G.ents.delete(id);

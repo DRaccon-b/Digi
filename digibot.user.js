@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.19
+// @version      3.1.20
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -564,8 +564,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if(digibotLastLeader===null)digibotLastLeader=accounts.leader;
     else if(digibotLastLeader!==accounts.leader){digibotLastLeader=accounts.leader;group.peers.clear();group.leaderPos=null;group.talks=[];group.handled.clear();autopilot.reset();digibotFormation.reset();}
   }
+  let dgObsMap = '';
+  function dgObserveMap(st, now) { // 3.1.20: Rauswurf merken, auch wenn der Raumstand schon zurückgesetzt wurde
+    const m = st?.world?.mapId || ''; if (m === dgObsMap) return; const prev = dgObsMap; dgObsMap = m;
+    if (prev && isRaidMap(prev) && !isRaidMap(m) && !dg.cleared && !(st?.raid?.cleared)) dgNoteExit(now, prev);
+  }
   function digibotObserve() {
     const st=window.dmo?.store?.getState?.();
+    try { dgObserveMap(st, Date.now()); } catch { /* Raid-Daten noch nicht geladen */ } // 3.1.20
     if(!st?.challenge&&bot?.on)digibotWasOnAt=Date.now(); // der Stopp kommt oft schon über store.subscribe → inspect(), bevor wir hier sind
     const wasOn=!!bot?.on||Date.now()-digibotWasOnAt<5000;
     digibotCore.inspect();
@@ -1333,6 +1339,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     dgBreak: true,        // Optionales Brechbares (Mail Server bei Diaboromon) zerstören – alle dasselbe Ziel; aus = nur der Boss (3.1.1).
     dgRetry: false,       // Nach einem gescheiterten Lauf (rausgeflogen) neu betreten, bis DG_TRIES Versuche – aus: Bot stoppt (3.1.5)
     dgFlareCover: false,  // Ultimate Flare: Platten als Deckung nutzen, wenn näher – aus: nur hinter Armageddemon, dort weiter angreifen (3.1.18)
+    dgRing: false,        // Warnkreise: zur Nahkampfposition auf der freien Seite des Bosses ausweichen (3.1.19) – live 28.10. zwei Tote bei Cannon Volley → Standard aus (3.1.20)
     dgBreakMinPct: 8,     // Mail Server nicht mehr angreifen, sobald der Boss so wenig % HP hat – dann direkt auf ihn (3.1.7)
     dgHerdForm: false,    // Raum 4: für die Herde eine Stufe zurück (Clavis → Shakkoumon, Paladin → Dragon Mode: Flächenangriffe), am Ende von Welle 9 wieder hoch (3.1.9)
                           // Standard an (3.1.3): stehen die Server, verstärken die Support-Mails den Boss (Spieldaten: 15 % je Mail, bis ×2,5).
@@ -1520,7 +1527,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.19'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.20'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1683,6 +1690,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
             ${check('dgRetry', 'Nach einem gescheiterten Lauf automatisch neu betreten (bis 3 Versuche) – aus: Bot stoppt, Neustart über den Leader')}
             ${check('dgHerdForm', 'Raum 4: Herde in niedriger Form abwehren – nach Raum 3 eine Stufe zurück (Clavis → Shakkoumon mit Kachina Bombs, Paladin → Dragon Mode mit Mega Crusher), am Ende von Welle 9 wieder hoch. ACHTUNG, live 28.10.: Zurück-Digitieren geht im Spiel bis in die Grundform (Veemon/Patamon), der Aufstieg dauert ~10 s je Stufe – währenddessen fängt niemand Kuramon, und die Clavis waren beim Boss noch Shakkoumon. Nicht empfohlen')}
             ${slider('dgBreakMinPct', 'Mail Server ignorieren ab Boss-HP unter', 0, 50, (v) => `${v} %`)}
+            ${check('dgRing', 'Warnkreise (Black Rain, Volley): statt hinauszulaufen zur Nahkampfposition auf der freien Seite des Bosses ausweichen und dort weiter angreifen. EXPERIMENTELL – live 28.10.: bei Cannon Volley (2,2 s) kamen zwei Clavis nicht rechtzeitig durch die Kreise und starben. Aus (Standard): wie bisher hinaus und draußen warten')}
             ${check('dgFlareCover', 'Ultimate Flare: Hindernisse (Platten) als Deckung nutzen, wenn sie näher liegen als der Weg hinter den Boss. Aus (Standard): immer hinter Armageddemon ausweichen – dort bleibt das Digimon in Schlagweite und greift weiter an (live 28.10.: ab 40 px hinter ihm kein Treffer; einmal wurden 26 px getroffen)')}
             ${check('dgBreak', 'Mail Server zerstören (Diaboromon ab 30 %, drei Stück): alle dasselbe Ziel, danach zurück zum Boss. Aus: nur der Boss – dann verstärken die Support-Mails Diaboromon über die Server (bis ×2,5). Armageddemons Kuramon-Haufen werden immer zerschlagen')}
             <label>Modus<select data-apsel="dgMode"><option value="easy">Easy – War Game</option><option value="hard">Hard – Revenge (Gruppe)</option><option value="apocalymon">Apocalymon-Raid</option><option value="malomyotismon">MaloMyotismon-Raid</option></select></label>
@@ -2572,7 +2580,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const plan0=digibotOutsideBasicPlan(st,target,partner,tamer,zones,soonNear && !onlyCircles);
       const plan=plan0 && (!soonNear || !onlyCircles || !plan0.walking) ? plan0 : null;
       // Kreise um den Boss, gerader Weg zur Angriffsposition versperrt: Nahkampfposition auf dem Ring außerhalb der Kreise (3.1.19)
-      if(!plan && near && target && partner && tamer && st.target?.id===target.id && !noFightEarly(st,now) && zones.some((c)=>c.kind==='circle'&&!c.huge)){
+      if(cfg.dgRing && !plan && near && target && partner && tamer && st.target?.id===target.id && !noFightEarly(st,now) && zones.some((c)=>c.kind==='circle'&&!c.huge)){
         const grid0=worldScene()?.map?.grid;
         const q=ringSpot(target,partner,zones,stand0,(a,b)=>digibotDodgeZonePath(a,b,zones,DODGE_EDGE_MARGIN)&&digibotDodgeGridClear(a,b,grid0,5));
         if(q){
@@ -2664,7 +2672,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         const stand=(Number.isFinite(br)?br+7:40)+FAN_REAR_STAND;candidates.push({x:c.x-Math.cos(c.dir)*stand,y:c.y-Math.sin(c.dir)*stand,rear:true});}
       // Kreise (Black Rain, Volley): Nahkampfpositionen rund um das Ziel, außerhalb aller Kreise – dort wird sofort weiter
       // angegriffen statt draußen zu warten (3.1.19)
-      if(target&&partner&&inside.some((c)=>c.kind==='circle'&&!c.huge)){const br=content()?.digimon?.[partner?.defId||st?.me?.partner?.species]?.basic?.range;const stand=Number.isFinite(br)?br+7:40;
+      if(cfg.dgRing&&target&&partner&&inside.some((c)=>c.kind==='circle'&&!c.huge)){const br=content()?.digimon?.[partner?.defId||st?.me?.partner?.species]?.basic?.range;const stand=Number.isFinite(br)?br+7:40;
         for(let i=0;i<DODGE_RING_STEPS;i++){const a=(i*2*Math.PI)/DODGE_RING_STEPS;candidates.push({x:target.x+Math.cos(a)*stand,y:target.y+Math.sin(a)*stand,ring:true});}}
       for(let rad=40;rad<=maxR;rad+=24)for(let i=0;i<16;i++){
         const ang=base+(i%2?1:-1)*Math.ceil(i/2)*(Math.PI/8);
@@ -4661,6 +4669,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const dgOn = accounts.dungeon && !accounts.mirror; // Dungeon: alle Fenster im Dungeon-Modus
     cfg.questMode = false; cfg.autopilot = !boss && !dgOn; cfg.farm = boss && !dgOn; cfg.dungeon = dgOn; cfg.foodBuy = false;
     if (dgOn) dg.reset();
+    if (dgOn && digibotManual === true) dgExit.manualAt = Date.now(); // Leader-Start von Hand (3.1.20)
     if (boss) cfg.farmMode = 'boss';
     loadWorld();
     if (!bot.on) bot.toggle(true);
@@ -7743,8 +7752,17 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return Math.hypot(me.x - spot.x, me.y - spot.y) > 80 ? go(spot.x, spot.y, 'Raid: gehe zum Boss') : 'Raid: warte auf den Boss…';
   }
   // Außerhalb: Lauf vorbei? Sonst zur Tür, auf die Gruppe warten, betreten (Leader bzw. allein)
+  // Rausgeflogen (ohne „geschafft“): kein automatischer Wiedereinstieg, egal was den Bot dazwischen neu gestartet hat
+  // (live 28.10.: dreimal hintereinander wieder hinein, zwei Clavis tot, dann noch zwei – der Raumstand dg war durch einen
+  // Neustart zurückgesetzt, die Fehlschlag-Prüfung griff nicht). Erst ein Start von Hand (Knopf, Taste B, Leader-Start) hebt
+  // die Sperre auf (3.1.20)
+  const dgExit = { at: 0, manualAt: 0, map: '' };
+  const DG_REENTER_LOCK_MS = 15 * 60000;
+  function dgNoteExit(now, mapId) { dgExit.at = now; dgExit.map = mapId || ''; }
+  const dgReenterLocked = (now) => !cfg.dgRetry && dgExit.at > 0 && now - dgExit.at < DG_REENTER_LOCK_MS && dgExit.manualAt < dgExit.at;
   function dungeonOutside(st, now) {
     if (dg.inside) { // gerade herausgekommen
+      if (!dg.cleared) dgNoteExit(now, st.world?.mapId);
       dg.inside = false; dg.doorAt = 0; dg.hud = null; dg.hudAt = 0;
       dg.herd = { low: false, lowAt: 0, back: false, backAt: 0, seen: new Set(), lastSpawn: 0, note: '' }; dg.kite = { at: 0, done: false, best: Infinity, bestAt: 0, side: 0 }; // 3.1.13
       if (dg.cleared) {
@@ -7762,6 +7780,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     const pick = dgPick();
     if (!pick) return 'Kein Dungeon in den Spieldaten';
+    if (dgReenterLocked(now)) { // 3.1.20
+      logEvent('warn', 'Dungeon: aus dem Lauf geflogen – kein automatischer Wiedereinstieg (Start von Hand über den Leader)');
+      notify('Dungeon: rausgeflogen – Bot gestoppt.');
+      bot.toggle(true);
+      return 'Rausgeflogen – Bot gestoppt (Neustart von Hand)';
+    }
+    if (st.me?.partner?.fainted) return 'Partner bewusstlos – kein Einstieg in den Dungeon';
     if (world.state !== 'ready') return 'Lade Kartendaten…';
     const gate = pick.raid.gate;
     const tr = travel(st, gate.mapId, now);
@@ -8403,6 +8428,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       // sonst fehlt z. B. eine Map, die beim letzten Lauf noch nichts zu tun hatte, inzwischen aber schon)
       if (this.on && cfg.apOrder === 'sweep' && cfg.apSweepMap) { cfg.apSweepMap = ''; saveCfg(); }
       if (this.on && cfg.dungeon && !dg.inside) dg.reset(); // alter Lauf (geschafft/Fehlversuche/Raum-Stand) zählt nicht
+      if (this.on && (!quiet || digibotManual === true)) dgExit.manualAt = Date.now(); // Start von Hand hebt die Wiedereinstiegs-Sperre auf (3.1.20)
       if (this.on) loadWorld(); // Kartendaten (Portale, Zonen, Schutzzonen) für alle Modi
       if (this.on) this.timer = setInterval(() => this.tick(), TICK_MS);
       this.status = this.on ? 'Bot läuft' : 'Bot aus';

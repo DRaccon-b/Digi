@@ -2,6 +2,17 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.20 – Kein Wiedereinstieg nach dem Rauswurf; Kreis-Nahkampfposition nur noch mit Haken
+Live 28.10. (7. Lauf): Die Gruppe flog bei vollem Leben aus Raum 3 (vermutlich die 6-Minuten-Uhr des Raums), der Bot lief
+sofort wieder hinein – ohne Fehlschlag-Meldung, weil ein Neustart zwischendurch den Raumstand zurückgesetzt hatte. Danach
+starben bei einer Cannon Volley zwei Clavis (sie kamen beim Weg zur Nahkampfposition nicht rechtzeitig durch die Kreise),
+der Bot lief wieder hinein, zwei weitere starben.
+- **Wiedereinstiegs-Sperre:** Wer aus einem Lauf fliegt (Raid-Map verlassen ohne „geschafft“), geht 15 Minuten lang nicht
+  automatisch wieder hinein – der Bot stoppt mit Meldung. Unabhängig vom Raumstand, den Gruppenstart/Neustart zurücksetzen.
+  Erst ein Start von Hand (Knopf, Taste B, Leader-Start) hebt die Sperre auf. Mit bewusstlosem Partner kein Einstieg.
+- **Haken „Warnkreise: zur Nahkampfposition ausweichen“ (3.1.19) Standard aus.** Die Volley gibt 2,2 s, der Weg durch die
+  Kreise auf die andere Seite des Bosses reichte live nicht. Aus: Ausweichen wie bis 3.1.18.
+
 ## 3.1.19 – Warnkreise: Nahkampfposition außerhalb der Kreise statt draußen warten
 Live 28.10. (erster geschaffter Lauf, Mitschnitt Bauzel): Black Rain (fünf Kreise r 64 auf den Spielern, 3 s) kam zwölfmal
 und kostete je ~3,5 s ohne Angriff – 1,5 s laufen (Fluchtpunkt 77–88 px vom Boss), 1,5 s „Warte außerhalb“ (der Boss stand

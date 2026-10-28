@@ -20,14 +20,16 @@ async function trial(retry) {
   const t = G.ents.get('t:me'); t.x = 10; t.y = 320; // ins Portal nach Primary Village laufen
   await wait(2500);
   const r = { retry, inside, map: G.state.world.mapId, status: G.status(), on: G.w.document.querySelector('[data-act="bot"]')?.textContent || '', log: G.log.slice(-3) };
+  // 3.1.20: ohne Haken ist der Wiedereinstieg gesperrt – ein Start von Hand (Knopf) hebt die Sperre auf und betritt wieder
+  if (!retry) { G.w.document.querySelector('[data-act="bot"]').click(); await wait(2500); r.manualMap = G.state.world.mapId; r.manualStatus = G.status(); }
   G.w.close();
   return r;
 }
 (async () => {
   const stop = await trial(false), again = await trial(true);
   console.log(stop, again);
-  const ok = stop.map === 'primary_village' && /gescheitert – Bot gestoppt/.test(stop.status)
+  const ok = stop.map === 'primary_village' && /gescheitert – Bot gestoppt/.test(stop.status) && stop.manualMap === 'native_forest' // Start von Hand: wieder drin (3.1.20)
     && again.map === 'native_forest' && /Stopp/.test(again.on) && !/Bot gestoppt/.test(again.status); // mit Haken: wieder drin, Bot läuft
-  console.log(ok ? 'OK – nach dem Rausfliegen gestoppt; mit Haken neuer Versuch' : 'FEHLER');
+  console.log(ok ? 'OK – nach dem Rausfliegen gestoppt (Start von Hand geht wieder hinein); mit Haken neuer Versuch' : 'FEHLER');
   process.exit(ok ? 0 : 1);
 })();
