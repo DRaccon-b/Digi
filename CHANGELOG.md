@@ -2,6 +2,13 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.21 – Armageddemons Klinge aufheben
+Spieldaten: ab 20 % Boss-HP erscheint die Klinge (blade: 3,5 s doppelter Schlag, 6 s Pause); Spielcode: sie steht in der
+Mechanik-Nachricht (mechB.view.blade: Position, Radius, Träger), Aufnehmen = drüberlaufen.
+- **Neuer Haken „Klinge aufheben“ (Standard an):** Liegt die Klinge am Boden, läuft der Paladin hin (ohne Paladin Slot 1) und
+  nimmt das Digimon mit; danach normal weiterkämpfen. Nur, wenn Punkt und Weg frei von Warnflächen sind – Ausweichen und
+  Key of Hope gehen vor. Höchstens 20 s je Klinge.
+
 ## 3.1.20 – Kein Wiedereinstieg nach dem Rauswurf; Kreis-Nahkampfposition nur noch mit Haken
 Live 28.10. (7. Lauf): Die Gruppe flog bei vollem Leben aus Raum 3 (vermutlich die 6-Minuten-Uhr des Raums), der Bot lief
 sofort wieder hinein – ohne Fehlschlag-Meldung, weil ein Neustart zwischendurch den Raumstand zurückgesetzt hatte. Danach

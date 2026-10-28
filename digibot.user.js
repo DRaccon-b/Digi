@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.20
+// @version      3.1.21
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1340,6 +1340,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     dgRetry: false,       // Nach einem gescheiterten Lauf (rausgeflogen) neu betreten, bis DG_TRIES Versuche – aus: Bot stoppt (3.1.5)
     dgFlareCover: false,  // Ultimate Flare: Platten als Deckung nutzen, wenn näher – aus: nur hinter Armageddemon, dort weiter angreifen (3.1.18)
     dgRing: false,        // Warnkreise: zur Nahkampfposition auf der freien Seite des Bosses ausweichen (3.1.19) – live 28.10. zwei Tote bei Cannon Volley → Standard aus (3.1.20)
+    dgBlade: true,        // Armageddemons Klinge (ab 20 %) vom Boden aufheben – der Paladin läuft hin, wenn Punkt und Weg frei von Warnflächen sind (3.1.21)
     dgBreakMinPct: 8,     // Mail Server nicht mehr angreifen, sobald der Boss so wenig % HP hat – dann direkt auf ihn (3.1.7)
     dgHerdForm: false,    // Raum 4: für die Herde eine Stufe zurück (Clavis → Shakkoumon, Paladin → Dragon Mode: Flächenangriffe), am Ende von Welle 9 wieder hoch (3.1.9)
                           // Standard an (3.1.3): stehen die Server, verstärken die Support-Mails den Boss (Spieldaten: 15 % je Mail, bis ×2,5).
@@ -1527,7 +1528,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.20'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.21'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1690,6 +1691,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
             ${check('dgRetry', 'Nach einem gescheiterten Lauf automatisch neu betreten (bis 3 Versuche) – aus: Bot stoppt, Neustart über den Leader')}
             ${check('dgHerdForm', 'Raum 4: Herde in niedriger Form abwehren – nach Raum 3 eine Stufe zurück (Clavis → Shakkoumon mit Kachina Bombs, Paladin → Dragon Mode mit Mega Crusher), am Ende von Welle 9 wieder hoch. ACHTUNG, live 28.10.: Zurück-Digitieren geht im Spiel bis in die Grundform (Veemon/Patamon), der Aufstieg dauert ~10 s je Stufe – währenddessen fängt niemand Kuramon, und die Clavis waren beim Boss noch Shakkoumon. Nicht empfohlen')}
             ${slider('dgBreakMinPct', 'Mail Server ignorieren ab Boss-HP unter', 0, 50, (v) => `${v} %`)}
+            ${check('dgBlade', 'Klinge aufheben: liegt Armageddemons Klinge am Boden (ab 20 % Boss-HP), läuft der Paladin hin und nimmt sie auf (drüberlaufen, 3,5 s doppelter Schlag) – nur, wenn Punkt und Weg frei von Warnflächen sind; Ausweichen und Key of Hope gehen vor')}
             ${check('dgRing', 'Warnkreise (Black Rain, Volley): statt hinauszulaufen zur Nahkampfposition auf der freien Seite des Bosses ausweichen und dort weiter angreifen. EXPERIMENTELL – live 28.10.: bei Cannon Volley (2,2 s) kamen zwei Clavis nicht rechtzeitig durch die Kreise und starben. Aus (Standard): wie bisher hinaus und draußen warten')}
             ${check('dgFlareCover', 'Ultimate Flare: Hindernisse (Platten) als Deckung nutzen, wenn sie näher liegen als der Weg hinter den Boss. Aus (Standard): immer hinter Armageddemon ausweichen – dort bleibt das Digimon in Schlagweite und greift weiter an (live 28.10.: ab 40 px hinter ihm kein Treffer; einmal wurden 26 px getroffen)')}
             ${check('dgBreak', 'Mail Server zerstören (Diaboromon ab 30 %, drei Stück): alle dasselbe Ziel, danach zurück zum Boss. Aus: nur der Boss – dann verstärken die Support-Mails Diaboromon über die Server (bis ×2,5). Armageddemons Kuramon-Haufen werden immer zerschlagen')}
@@ -7627,6 +7629,37 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   // Boss mit Herde (Armageddemon): Kampf in der unteren Raumhälfte – Angriffsposition südlich des Bosses, nach Slot gefächert.
   // Wer nördlich steht, geht erst (mit Abstand zu Warnflächen) unten herum (3.1.7, Nutzer-Taktik)
+  // Klinge (Armageddemon ab 20 % – Spielcode: mechB.view.blade = [{ boss, x, y, r, fx, carrier }], Aufnehmen = drüberlaufen, der
+  // Träger steht danach in carrier; Spieldaten: 3,5 s doppelter Schlag, 6 s Pause). Liegt sie am Boden, holt sie der Paladin
+  // (härtester Schlag); ohne Paladin in der Gruppe Slot 1. Nur, wenn Punkt und Weg frei von Warnflächen sind – Ausweichen und
+  // Key of Hope laufen vorher im Takt. Höchstens DG_BLADE_GIVEUP_MS je Klinge, dann weiterkämpfen (Nutzer 28.10., 3.1.21)
+  const DG_BLADE_GIVEUP_MS = 20000, DG_BLADE_NEAR = 6;
+  function dgBladeStep(st, now) {
+    if (!cfg.dgBlade || !dungeonLike(st)) return null;
+    const V = worldScene()?.mechB?.view, list = Array.isArray(V?.blade) ? V.blade : null;
+    if (!list?.length) { dg.blade = null; return null; }
+    const p = st?.me?.partner, me = controlled(st), ents = window.dmo?.net?.state?.entities;
+    if (!p || p.fainted || p.evolving || !me) return null;
+    const mine = new Set([st.me?.tamerEntityId, p.entityId]);
+    const bl = list.find((k) => k.x !== undefined && k.y !== undefined && !k.carrier && (!k.boss || (ents?.get?.(k.boss)?.hp ?? 1) > 0));
+    if (!bl) { dg.blade = null; return null; } // getragen (von wem auch immer) oder weg: normal kämpfen
+    if (p.species !== 'imperialdramon_paladin') {
+      let other = false;
+      for (const m of st.party?.members || []) { const e = m.partnerEntityId && ents?.get?.(m.partnerEntityId); if (e && !mine.has(e.id) && e.defId === 'imperialdramon_paladin' && e.hp > 0) other = true; }
+      if (other || (group.active() && group.slot() !== 0)) return null;
+    }
+    const zones = dangerZones(), pt = { x: bl.x, y: bl.y };
+    if (zones.some((z) => zoneDist(z, pt).d < DODGE_MARGIN)) return 'Klinge liegt im Warnbereich – warte';
+    if (!digibotDodgeZonePath(me, pt, zones)) return 'Klinge: Weg führt durch einen Warnbereich – warte';
+    if (!dg.blade || Math.hypot(dg.blade.x - bl.x, dg.blade.y - bl.y) > 24) { dg.blade = { x: bl.x, y: bl.y, at: now }; logEvent('bot', `Klinge am Boden (${Math.round(bl.x)}, ${Math.round(bl.y)}) – hole sie`); }
+    if (now - dg.blade.at > DG_BLADE_GIVEUP_MS) return null;
+    const d = Math.hypot(me.x - bl.x, me.y - bl.y), pe = ents?.get?.(p.entityId);
+    // das Digimon mitnehmen (wer von beiden aufhebt, zeigt carrier – beide sollen drüberlaufen)
+    if (pe && pe.id !== me.id && Math.hypot(pe.x - me.x, pe.y - me.y) > 40 && bot.can('bladeFollow', 1500, now)) { bot.lastPress.bladeFollow = now; commands()?.partnerFollow?.(); }
+    if (d <= Math.max(DG_BLADE_NEAR, (bl.r || 12) - 4)) { if (bot.can('bladeTap', 600, now)) { bot.lastPress.bladeTap = now; worldScene()?.tapGround?.(bl.x, bl.y); } return 'Klinge: aufheben…'; }
+    if (walkTo(st, bl.x, bl.y, now, { zones }) === 'stuck') return null;
+    return `Klinge: laufe hin (${Math.round(d)} px)`;
+  }
   function dgSouthSide(st, now) {
     const mapId = st.world?.mapId, sp = content()?.spawns?.[mapId], ents = window.dmo?.net?.state?.entities;
     const pe = ents?.get?.(st.me?.partner?.entityId);
@@ -8522,6 +8555,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (dg) { this.status = dg; this.attackedId = null; return; }
       // Food kaufen (3.1.8): reisen, kaufen, stoppen – kein Kampf
       if (cfg.foodBuy) { const fsx = foodStep(st, now); this.status = fsx === true ? 'Food gekauft – Bot gestoppt' : `Food: ${fsx}`; if (fsx === true) bot.toggle(true); return; }
+      // Klinge am Boden (Armageddemon ab 20 %): der Paladin holt sie – nach dem Ausweichen, damit kein Weg durch Warnflächen führt (3.1.21)
+      { const bl = dgBladeStep(st, now); if (bl) { this.status = bl; this.attackedId = null; return; } }
       // Armageddemon (3.1.7): in der unteren Raumhälfte kämpfen – wer oberhalb des Bosses steht, läuft erst unten herum
       if (sc) { const ss = dgSouthSide(st, now); if (ss) { this.status = ss; this.attackedId = null; return; } }
       // Heilen vor dem Gruppen-/Autopilot-Zweig: Mitläufer („Gruppe: bei …“) kehren dort schon zurück und heilten sonst nie (3.1.0)
