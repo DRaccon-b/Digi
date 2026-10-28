@@ -18,7 +18,8 @@ Oben immer sichtbar:
   Ab 3.1.1: Haken **Mail Server zerstören** (Reiter Bosse → Dungeon, Standard aus): Diaboromons Mail Server (ab 30 %,
   drei Stück) – mit Haken greifen alle Fenster dasselbe an, dann das nächste, dann wieder den Boss; aus = nur der Boss
   (Simulation: 47 s schneller). Armageddemons Kuramon-Haufen (Panzer) werden immer zerschlagen. Und Skills werden auch von
-  der Angriffsposition am Kreisrand gewirkt (vorher dort nur Taste 1).
+  der Angriffsposition am Kreisrand gewirkt (vorher dort nur Taste 1). Ab 3.1.2 bleibt ein schwenkender Fächer
+  (Ultimate Flare) nach dem Ende der Ansage noch Schwenkdauer + 0,3 s lang Gefahrenzone.
 - **Start/Stopp** (Alt+B) mit dem Namen des Modus, darunter die Statuszeile (Maus darüber = ganzer Text)
 - **Mini-Leisten** für HP und DS des Digimons und die HP des Ziels – in jedem Reiter sichtbar
 - **💾 Preset speichern / 📂 Preset laden (ab 3.0.1)** – speichert alle Bot-Einstellungen (Modus, Tränke, Skills,

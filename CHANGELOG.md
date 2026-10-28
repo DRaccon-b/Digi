@@ -2,6 +2,22 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.2 – Ultimate Flare: Fächer wirkt nach der Ansage nach
+- **Fächer bleibt nach der Ansage Gefahrenzone** (Schwenkdauer + 0,3 s, bei der Ultimate Flare 1,9 s): Die Ansage
+  verschwindet, bevor der Strahl schwenkt – vorher lief der Bot in diesem Moment zurück zum Boss und stand beim Treffer
+  wieder im Bogen (Simulation Raum 4: Clavis fällt 0,1 s nach „eigene Position am Boss“). Ein gewöhnlicher Strahl ohne
+  Schwenk wird wie bisher sofort vergessen.
+- **Simulation:** Revenge und Kera kannten den Spielbefehl „Digimon anhalten“ (partnerStop) nicht – der Bot „wartete
+  außerhalb“, das Digimon lief aber weiter dem Boss hinterher in den Fächer. Das war der Hauptgrund für die vier
+  gleichzeitig gefallenen Clavis in Raum 4 (nur Simulation; im Spiel gibt es den Befehl, der Test-Boss hatte ihn schon).
+  Flare-Ansagen stehen jetzt im Revenge-Log.
+- Ergebnis Raum 4 (Revenge Hard, 4 Clavis Lv 99 + Paladin, Live-Schaden): vorher 2 von 6 Läufen geschafft mit 4–7
+  Flare-Treffern, jetzt 3 von 3 geschafft, 0 Treffer, 0 Stürze, Armageddemon in 319–336 s Kampfzeit. Schaden je
+  Sekunde in der Simulation: Paladin 8 300–8 500, Clavis je 3 500–3 800 (live 3 000–3 900). Kompletter Lauf (Raum 1–4):
+  geschafft, Diaboromon in 321 s (Uhr 360 s), Armageddemon in 490 s, 1 Flare-Treffer, 24× Key of Hope, 90× Sacred Seal.
+- Der vorgeschlagene Seitenwechsel als Gruppe (alle auf der Gegenseite des Bosses) ist damit vorerst nicht nötig;
+  bleibt als Option, falls live noch Treffer kommen.
+
 ## 3.1.1 – Skills vom Kreisrand, Mail Server gemeinsam oder gar nicht
 - **Skills auch von der Angriffsposition am Kreisrand:** Stand das Digimon außerhalb eines Warnkreises und schlug von dort
   zu („Außerhalb der Warnzone · normaler Angriff ohne Annäherung“), drückte der Bot nur Taste 1 – die Skill-Rotation wurde

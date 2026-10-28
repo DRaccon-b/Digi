@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.1
+// @version      3.1.2
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1482,7 +1482,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.1'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.2'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2122,7 +2122,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       // Greifarm (Tentacle Bug) und Ansturm treffen erst NACH der Ansage – deren Strahl verschwindet aber schon vorher:
       // noch LINE_AFTER_MS als Gefahr behalten
       const now = Date.now(), live = (sc?.mechB?.lines || []).filter((l) => l && isFinite(l.fx) && isFinite(l.tx) && !(l.end && t > l.end + 150));
-      for (const l of live) if (l.skill?.grab || l.skill?.dash) lineMemo.set(`${l.src}|${l.skill.id}|${Math.round(l.tx)}|${Math.round(l.ty)}`, { l, until: now + LINE_AFTER_MS });
+      // Fächer (Ultimate Flare): der Strahl schwenkt erst NACH der Ansage (sweep.ms) – die Ansage verschwindet vorher. Ohne
+      // Nachwirkzeit lief die Gruppe in den 0,3 s zwischen Ansage-Ende und Treffer zurück zum Boss (Sim Raum 4: 4 Clavis
+      // gleichzeitig tot, 3.1.2)
+      for (const l of live) if (l.skill?.grab || l.skill?.dash || l.skill?.sweep) lineMemo.set(`${l.src}|${l.skill.id}|${Math.round(l.tx)}|${Math.round(l.ty)}`, { l, until: now + (l.skill.sweep ? Math.max(LINE_AFTER_MS, (l.skill.sweep.ms || 0) + 300) : LINE_AFTER_MS) });
       for (const [k, m] of lineMemo) { if (m.until < now) lineMemo.delete(k); else if (!live.some((l) => l.src === m.l.src && l.skill?.id === m.l.skill?.id)) live.push({ ...m.l, end: 0 }); }
       for (const l of live) {
         const len = Math.hypot(l.tx - l.fx, l.ty - l.fy);

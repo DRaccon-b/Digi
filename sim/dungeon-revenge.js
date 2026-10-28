@@ -204,6 +204,9 @@ function makeWindow(i) {
     raidEnter(raid) { say(`Char${i + 1}: Betreten (${raid})`); if (raid === 'revenge') enterDungeon(pl); else say(`⚠ falscher Modus: ${raid}`); },
     raidLeave() {}, closeRaidGate() { store.setState({ windows: { ...state.windows, raid: false } }); },
     partnerFollow() { pl.atk = null; const p = ents.get(`p:${i}`); if (p) p.targetId = ''; },
+    // Spiel-Befehl „Digimon anhalten“: Angriff abbrechen, stehen bleiben (vorher fehlte er – der Bot wartete „außerhalb“,
+    // das Digimon lief aber weiter dem Boss hinterher in den Fächer; 3.1.2)
+    partnerStop() { pl.atk = null; pl.queued = null; const p = ents.get(`p:${i}`); if (p) p.targetId = ''; },
     partyInvite() {}, partyRespond() {}, closeDialog() {}, talk() {}, chooseDialog() {},
   };
   const scene = {
@@ -606,6 +609,7 @@ function stepBay(now, dt) {
   const alive = alivePlayers();
   if (id === 'armageddemon.ultimate_flare') {
     const l = lineTo(b, partnerOf(tank), 360, 20); l.sweep = 140; l.len = 360;
+    say(`⚠ Ultimate Flare angesagt (2,5 s) – zielt auf Char${tank.i + 1}`);
     castZone(b, id, { line: l, castMs: sk.castMs, dmg: 60000 });
   } else {
     castZone(b, id, { circles: alive.map((pl) => ({ x: partnerOf(pl).x, y: partnerOf(pl).y, r: 48 })), castMs: sk.castMs, dmg: 40000 });

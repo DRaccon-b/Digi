@@ -203,6 +203,7 @@ function makeWindow(i) {
     raidEnter(raid) { say(`Char${i + 1}: Betreten (${raid})`); enterDungeon(pl); },
     raidLeave() {}, closeRaidGate() { store.setState({ windows: { ...state.windows, raid: false } }); },
     partnerFollow() { pl.atk = null; const p = ents.get(`p:${i}`); if (p) p.targetId = ''; },
+    partnerStop() { pl.atk = null; pl.queued = null; const p = ents.get(`p:${i}`); if (p) p.targetId = ''; }, // Spiel-Befehl „anhalten“ (3.1.2)
     partyInvite() {}, partyRespond() {}, closeDialog() {}, talk() {}, chooseDialog() {},
   };
   const scene = {
