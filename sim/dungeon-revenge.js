@@ -135,6 +135,31 @@ const CSK = [
 const PALADIN = { species: 'imperialdramon_paladin', name: 'Imperialdramon Paladin Mode', level: 99, hp: HP, ds: 9365, as: AS, dmg: SCHADEN, at: 12806, psk: PSK, f: F_PAL };
 const CLAVIS = (() => { const L = CLAVIS_LV, hp = Math.round(lvHp(2863, 345.6, L) * 1.51), at = Math.round((586 + 82.3 * (L - 1)) * 1.32);
   return { species: 'clavisangemon', name: 'ClavisAngemon', level: L, hp, ds: Math.round(lvHp(1293, 77.6, L) * 1.5), as: 1450, dmg: Math.round(SCHADEN * at / 12806), at, psk: CSK, f: F_CLAV }; })();
+// FORM=1: Raum 4 – für die Herde zurück-digitieren (Shakkoumon mit Kachina Bombs r56, Dragon Mode mit Mega Crusher r56 + Positron Laser r80),
+// bei Welle 10 wieder hoch (Digitation je 2,5 s, Bot wartet). mult ≈ power/145 wie bei den anderen Skills.
+const FORM = Number(process.env.FORM || 0), EVO_MS = 2500;
+const SHAKKOUMON = (() => { const L = CLAVIS_LV, hp = Math.round(lvHp(2603, 314.2, L) * 1.51), at = Math.round((359 + 50.4 * (L - 1)) * 1.32);
+  return { species: 'shakkoumon', name: 'Shakkoumon', level: L, hp, ds: Math.round(lvHp(1175, 70.5, L) * 1.5), as: 2250, dmg: Math.round(SCHADEN * at / 12806), at, f: F_CLAV, psk: [
+    { id: 'shakkoumon.sacred_clay', name: 'Sacred Clay', cooldownMs: 45000, dsCost: 535, range: 128, mult: 0, def: { kind: 'buff', target: 'self', shape: 'circle', radius: 128, power: 0, castMs: 0 } },
+    { id: 'shakkoumon.kachina_bombs', name: 'Kachina Bombs', cooldownMs: 20000, dsCost: 600, range: 128, mult: 4.2, def: { kind: 'damage', target: 'enemy', shape: 'circle', radius: 56, power: 608, castMs: 600 } },
+    { id: 'shakkoumon.justice_beam', name: 'Justice Beam', cooldownMs: 8000, dsCost: 400, range: 128, mult: 3.3, def: { kind: 'damage', target: 'enemy', shape: 'single', power: 480, castMs: 300 } },
+    { id: 'shakkoumon.harmony', name: 'Harmony', cooldownMs: 18000, dsCost: 500, range: 128, mult: 0, healAll: 0.2, def: { kind: 'heal', target: 'ally', shape: 'circle', radius: 96, power: 600, castMs: 300 } } ] }; })();
+const DRAGON = { species: 'imperialdramon_dragon', name: 'Imperialdramon Dragon Mode', level: 99, hp: Math.round(HP * lvHp(4353, 525.3, 99) / lvHp(4787, 578, 99)), ds: 9365, as: 1300,
+  at: Math.round(12806 * (500 + 70.4 * 98) / (660 + 92.5 * 98)), f: F_PAL, psk: [
+    { id: 'imperialdramon_dragon.mega_crusher', name: 'Mega Crusher', cooldownMs: 8000, dsCost: 370, range: 128, mult: 2.2, def: { kind: 'damage', target: 'enemy', shape: 'circle', radius: 56, power: 320, castMs: 600 } },
+    { id: 'imperialdramon_dragon.emperors_might', name: "Emperor's Might", cooldownMs: 30000, dsCost: 600, range: 32, mult: 0, def: { kind: 'buff', target: 'self', shape: 'single', power: 0, castMs: 0 } },
+    { id: 'imperialdramon_dragon.mode_change', name: 'Mode Change', cooldownMs: 8000, dsCost: 0, range: 32, mult: 0, def: { kind: 'buff', target: 'self', shape: 'single', power: 0, castMs: 0 } },
+    { id: 'imperialdramon_dragon.positron_laser', name: 'Positron Laser', cooldownMs: 22000, dsCost: 1050, range: 144, mult: 3.5, def: { kind: 'damage', target: 'enemy', shape: 'circle', radius: 80, power: 512, castMs: 900 } } ] };
+DRAGON.dmg = Math.round(SCHADEN * DRAGON.at / 12806);
+function setForm(pl, M2, why) {
+  const st = pl.store.getState(), p0 = st.me.partner, pct = p0.maxHp > 0 ? p0.hp / p0.maxHp : 1;
+  pl.M = { ...M2, f: pl.M.f }; pl.queued = null; pl.castUntil = Date.now() + EVO_MS;
+  const ent = partnerOf(pl); if (ent) ent.flags |= 4;
+  pl.store.setState({ me: { ...st.me, partner: { ...p0, name: M2.name, species: M2.species, hp: Math.round(M2.hp * pct), maxHp: M2.hp, evolving: true,
+    stats: { at: M2.at, as: M2.as, ms: 120 }, skills: M2.psk.map((k) => ({ id: k.id, name: k.name, dsCost: k.dsCost, cooldownMs: k.cooldownMs, range: k.range, unlocked: true })) } } });
+  setTimeout(() => { const s2 = pl.store.getState(); pl.store.setState({ me: { ...s2.me, partner: { ...s2.me.partner, evolving: false } } }); const e2 = partnerOf(pl); if (e2) e2.flags &= ~4; }, EVO_MS);
+  say(`🔁 Char${pl.i + 1} → ${M2.name} (${why})`);
+}
 const MEMBERS = TEAM === 'clavis' ? [PALADIN, ...Array.from({ length: CLAVIS_N }, () => CLAVIS)] : Array.from({ length: N }, () => PALADIN);
 const protections = []; // Key of Hope: { at, x, y }
 const protectedAt = (p, now) => protections.some((pr) => now >= pr.at && now <= pr.at + 2000 && Math.hypot(p.x - pr.x, p.y - pr.y) <= 128);
@@ -387,7 +412,9 @@ function stepPartners(now, dt) {
       else if (now >= pl.hitAt && now >= (pl.castUntil || 0)) { pl.hitAt = now + pl.M.as; hitMob(pl, m, pl.M.dmg); }
       if (pl.queued && pl.queued.id === m.id && d <= pl.M.psk[pl.queued.n].range + 26 && now >= (pl.castUntil || 0)) {
         run.stats.skills++; const q = pl.queued; pl.queued = null; const ms = pl.M.psk[q.n].def.castMs || 0; pl.castUntil = now + ms;
-        setTimeout(() => { const mm = ents.get(q.id); if (mm && mm.hp > 0 && !pl.fainted) hitMob(pl, mm, pl.M.dmg * pl.M.psk[q.n].mult); }, ms);
+        setTimeout(() => { const mm = ents.get(q.id); if (!mm || mm.hp <= 0 || pl.fainted) return; const def = pl.M.psk[q.n].def, dmg = pl.M.dmg * pl.M.psk[q.n].mult;
+          if (def.shape === 'circle' && def.radius > 0 && def.target === 'enemy') { for (const o of [...ents.values()]) if (o.kind === 2 && o.hp > 0 && o.map === pl.map && dist(o, mm) <= def.radius) hitMob(pl, o, dmg); } // Fläche (3.1.8-Sim)
+          else hitMob(pl, mm, dmg); }, ms);
       }
     } else if (CTRL_P) { pl.atk = null; p.targetId = ''; }
     else if (!pl.grab) {
@@ -582,7 +609,7 @@ function stepBay(now, dt) {
   const b = run.boss; if (!b || !ents.has(b.id)) return;
   if (!run.pulled) {
     pullCheck('room_bay', 'landing_bay', 'Raum 4: die Herde kommt');
-    if (run.pulled) run.herd.next = Date.now();
+    if (run.pulled) { run.herd.next = Date.now(); if (FORM) for (const pl of players) if (!pl.fainted) setForm(pl, pl.M.species === 'clavisangemon' ? SHAKKOUMON : DRAGON, 'Herde: Flächenangriffe'); }
     return;
   }
   const H = run.herd, egg = at('egg_bay');
@@ -591,6 +618,7 @@ function stepBay(now, dt) {
   if (run.armaAt && now - run.armaAt > 480000) return failRun('Enrage nach 8 min');
   if (H.wave < 10 && now >= H.next) {
     H.wave++; H.next = now + 12000;
+    if (FORM && H.wave === 10) for (const pl of players) if (!pl.fainted) setForm(pl, pl.M.species === 'shakkoumon' ? CLAVIS : PALADIN, 'Welle 10 – zurück in die Kampfform');
     for (let k = 0; k < 6; k++) spawnMob('kuramon', 'Kuramon', lvHp(1208, 145.3, 99), at(k < 3 ? 'herd_w' : 'herd_e'), { herd: true, y: PT.herd_w[1] + (k % 3) * 14 - 14 });
     say(`🪼 Herde Welle ${H.wave}/10 (6 Kuramon)`);
   }

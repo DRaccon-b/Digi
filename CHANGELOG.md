@@ -10,6 +10,10 @@ Alle Änderungen an DigiBot, neueste zuerst.
   reichen), schließt den Shop und stoppt. Log: was gekauft wurde und was offen blieb. Antwortet der Händler nicht,
   bricht er nach vier Versuchen ab. Test foodtest (Händler-Ablauf mit Elecmon als Ersatz); im Spiel noch nicht geprüft.
   Suite 152/152.
+- Simulation: Flächen-Skills der Spieler (Invincible Sword, Kachina Bombs …) treffen alle Monster im Radius (vorher nur das
+  Ziel). `FORM=1`: Raum 4 – für die Herde zu Shakkoumon/Dragon Mode zurück, bei Welle 10 wieder hoch (Experiment zur
+  Nutzer-Idee: 20–23 statt 10–19 Kuramon abgefangen, aber die Rück-Digitation bei Welle 10 kollidiert mit dem Boss-Start;
+  nicht in den Bot übernommen).
 
 ## 3.1.7 – Raum 4 nach Taktik, Mail-Server-Schwelle, weiter nach der Anwesenheitskontrolle
 Live Revenge Hard (28.10.): Raum 3 geschafft (325 s, alle 11 geteilten Treffer geblockt), Raum 4 verloren – Wellenphase
