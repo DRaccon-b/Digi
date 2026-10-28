@@ -32,7 +32,9 @@ Oben immer sichtbar:
   beantworteten Anwesenheitskontrolle läuft der Bot von selbst weiter. Ab 3.1.9 Haken „Raum 4: Herde in niedriger Form
   abwehren“ (Standard aus): vor den Wellen eine Stufe zurück (Shakkoumon / Dragon Mode, Flächenangriffe), nach Welle 9 wieder hoch.
   Ab 3.1.10: Sobald Armageddemon angreifbar ist, kitet die Gruppe ihn nach unten (alle warten in der unteren Raumhälfte, bis er
-  nachkommt, höchstens 20 s) und kämpft dort.
+  nachkommt; 3.1.11: Sammelpunkt ganz unten, Abbruch nur, wenn er 15 s lang nicht näher kommt) und kämpft dort. Die Herde
+  wird seitengetreu angegriffen (eigene Seite zuerst). Beim Boss stehen alle auf einer Seite (links oder rechts), beim Fächer
+  wird hinter ihm ausgewichen.
 - **Start/Stopp** (Alt+B) mit dem Namen des Modus, darunter die Statuszeile (Maus darüber = ganzer Text)
 - **Mini-Leisten** für HP und DS des Digimons und die HP des Ziels – in jedem Reiter sichtbar
 - **💾 Preset speichern / 📂 Preset laden (ab 3.0.1)** – speichert alle Bot-Einstellungen (Modus, Tränke, Skills,

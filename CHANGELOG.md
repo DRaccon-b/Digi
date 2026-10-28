@@ -2,6 +2,23 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.11 – Raum 4: richtig nach unten kiten, Herde seitengetreu
+Live (28.10., 3.1.10): Posten oben links/rechts und das Kiten liefen an, aber der Kampf fand immer noch zu weit oben statt –
+Armageddemon kam in 75 s nur 45 px nach unten, weil die 20-s-Frist ablief und sein Ziel (Bauzel) durch Key-of-Hope-Sammeln
+bei einem oben stehenden Clavis und durch Ausweichen immer wieder nach oben lief; Fumiko und Makota fielen an der Flare.
+- **Kiten für alle, unabhängig vom eigenen Ziel:** Jedes Fenster kitet, sobald der Herden-Boss sichtbar und angreifbar ist –
+  auch wer gerade noch ein Kuramon anvisiert hatte (vorher blieb der oben und zog den Boss mit).
+- **Sammelpunkt ganz unten** (50 px über der Raumkante statt 90), „unten“ erst, wenn der Boss höchstens 90 px darüber steht.
+  Keine feste Frist mehr: abgebrochen wird nur, wenn er 15 s lang nicht näher kommt.
+- **Seiten-Taktik beim Boss (Nutzer):** Angegriffen wird, sobald Armageddemon auf 250 px an den Sammelpunkt an der unteren
+  Kante heran ist. Dann stehen alle auf EINER Seite von ihm (links oder rechts, je nachdem, wo die Gruppe gerade steht),
+  niemand oben oder unten – nur solange der Boss das eigene Ziel ist (Kuramon-Haufen in der Panzer-Phase dürfen angelaufen
+  werden). Beim Fächer wird hinter dem Boss ausgewichen (gegenüber seiner Zielrichtung).
+- **Herde seitengetreu:** Die Clavis greifen zuerst die Kuramon ihrer eigenen Seite an (links/rechts vom Ei); vorher liefen
+  die linken zur rechten Welle, weil nur der Abstand zum Ei zählte.
+- Simulation Raum 4 mit allem (Formwechsel, Posten, Kiten, Seite): 4 von 4 geschafft, 0 Stürze, 0 Flare-Treffer bei 63
+  Ansagen, 25–29 von 60 Kuramon abgefangen (vorher 10–19), Boss-Stärke 7–8; Boss-Kampf 320–395 s von 480 s Enrage.
+
 ## 3.1.10 – Raum 4 live nachgebessert: Boss zählt erst sichtbar, Zurückstufen nach Raum 3, Kiten nach unten
 Live (28.10., erster Lauf mit 3.1.9): Armageddemon steht im Spielzustand schon ab Raumstart da – versteckt und unangreifbar
 (Flags Hidden + Untargetable) –, sichtbar wird er erst nach der Herde. Der Bot hielt ihn für „da“: kein Zurückstufen, alle
