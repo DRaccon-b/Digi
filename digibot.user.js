@@ -7543,6 +7543,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       side = idx >= 0 && idx < Math.floor(slots.length / 2) ? 0 : 1;
     }
     const sorted = lanes.slice().sort((a, c) => a.x - c.x), lane = sorted[Math.min(side, sorted.length - 1)];
+    // Posten auf halbem Weg (Sim-Vergleich 28.10.: 70 px vor dem Ei 13–14, nahe am Start 10, Paladin am Ei 10–13, halber Weg 10–19)
     return { x: (lane.x + egg.x) / 2, y: (lane.y + egg.y) / 2, what: `Wellen oben abfangen (${side === 0 ? 'links' : 'rechts'})`, wait: `warte oben ${side === 0 ? 'links' : 'rechts'} auf die nächste Welle…` };
   }
   // Einfacher Raid: zum Boss (aus dem Schutzbereich erst mit Digitation und ~voller HP), nach dem Sieg hinaus

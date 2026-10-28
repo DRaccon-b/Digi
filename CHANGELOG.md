@@ -13,7 +13,9 @@ Alle Änderungen an DigiBot, neueste zuerst.
 - Simulation: Flächen-Skills der Spieler (Invincible Sword, Kachina Bombs …) treffen alle Monster im Radius (vorher nur das
   Ziel). `FORM=1`: Raum 4 – für die Herde zu Shakkoumon/Dragon Mode zurück, bei Welle 10 wieder hoch (Experiment zur
   Nutzer-Idee: 20–23 statt 10–19 Kuramon abgefangen, aber die Rück-Digitation bei Welle 10 kollidiert mit dem Boss-Start;
-  nicht in den Bot übernommen).
+  nicht in den Bot übernommen). Nach drei Sim-Korrekturen (Cooldowns je Tastenplatz, Skill-Tabelle der aktuellen Form,
+  Hochdigitieren am Ende von Welle 9): 20–21 abgefangen, 0 Stürze, Raum 4 in 446–512 s (heute 10–19, 510–570 s).
+  Stellungs-Versuche (70 px vor dem Ei, nahe am Start, Paladin am Ei) brachten weniger als der halbe Weg.
 
 ## 3.1.7 – Raum 4 nach Taktik, Mail-Server-Schwelle, weiter nach der Anwesenheitskontrolle
 Live Revenge Hard (28.10.): Raum 3 geschafft (325 s, alle 11 geteilten Treffer geblockt), Raum 4 verloren – Wellenphase

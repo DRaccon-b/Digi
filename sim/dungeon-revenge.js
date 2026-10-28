@@ -153,9 +153,10 @@ const DRAGON = { species: 'imperialdramon_dragon', name: 'Imperialdramon Dragon 
 DRAGON.dmg = Math.round(SCHADEN * DRAGON.at / 12806);
 function setForm(pl, M2, why) {
   const st = pl.store.getState(), p0 = st.me.partner, pct = p0.maxHp > 0 ? p0.hp / p0.maxHp : 1;
-  pl.M = { ...M2, f: pl.M.f }; pl.queued = null; pl.castUntil = Date.now() + EVO_MS;
+  pl.M = { ...M2, f: pl.M.f }; pl.queued = null; pl.castUntil = Date.now() + EVO_MS; pl.skillCd = {}; // Sim-Cooldowns je Tastenplatz: nach dem Formwechsel neu
   const ent = partnerOf(pl); if (ent) ent.flags |= 4;
-  pl.store.setState({ me: { ...st.me, partner: { ...p0, name: M2.name, species: M2.species, hp: Math.round(M2.hp * pct), maxHp: M2.hp, evolving: true,
+  // Cooldowns im Sim sind je Tastenplatz (skill:n) – nach dem Formwechsel gehören sie zu anderen Skills: zurücksetzen (im Spiel je Skill)
+  pl.store.setState({ cooldowns: {}, me: { ...st.me, partner: { ...p0, name: M2.name, species: M2.species, hp: Math.round(M2.hp * pct), maxHp: M2.hp, evolving: true,
     stats: { at: M2.at, as: M2.as, ms: 120 }, skills: M2.psk.map((k) => ({ id: k.id, name: k.name, dsCost: k.dsCost, cooldownMs: k.cooldownMs, range: k.range, unlocked: true })) } } });
   setTimeout(() => { const s2 = pl.store.getState(); pl.store.setState({ me: { ...s2.me, partner: { ...s2.me.partner, evolving: false } } }); const e2 = partnerOf(pl); if (e2) e2.flags &= ~4; }, EVO_MS);
   say(`🔁 Char${pl.i + 1} → ${M2.name} (${why})`);
@@ -251,12 +252,12 @@ function makeWindow(i) {
     const me = state.me, inv = me.inventory.find((x) => x.itemId === 'hp_pot');
     if (!inv?.qty || Date.now() - (pl.potAt || 0) < 2000) return;
     pl.potAt = Date.now(); run.stats.pots++;
-    store.setState({ me: { ...me, inventory: me.inventory.map((x) => (x === inv ? { ...x, qty: x.qty - 1 } : x)), partner: { ...me.partner, hp: Math.min(M.hp, me.partner.hp + TRANK_HP) } } });
+    store.setState({ me: { ...me, inventory: me.inventory.map((x) => (x === inv ? { ...x, qty: x.qty - 1 } : x)), partner: { ...me.partner, hp: Math.min(pl.M.hp, me.partner.hp + TRANK_HP) } } });
   }, true);
   w.addEventListener('keydown', (e) => { // 2–5: Skills (Animation castMs, Treffer am Ende)
     const k = /^Digit([2-5])$/.exec(e.code)?.[1];
     if (!k || pl.fainted) return;
-    const n = Number(k) - 2, sk = M.psk[n], me = state.me, now = Date.now();
+    const n = Number(k) - 2, sk = pl.M.psk[n], me = state.me, now = Date.now();
     if (!sk || (pl.skillCd[n] || 0) > now || me.partner.ds < sk.dsCost) return;
     const selfCast = sk.koh || sk.healAll || sk.heal;
     const m = state.target && ents.get(state.target.id);
@@ -267,7 +268,7 @@ function makeWindow(i) {
     store.setState({ cooldowns: { ...state.cooldowns, [`skill:${n}`]: { end: w.performance.now() + sk.cooldownMs } }, me: { ...me, partner: { ...me.partner, ds: me.partner.ds - sk.dsCost } } });
     const evAll = (phase) => { for (const x of players) if (x.map === pl.map) x.handlers.evs?.([{ t: 'skill', src: `p:${i}`, skill: sk.id, phase }]); };
     evAll('cast'); setTimeout(() => evAll('release'), sk.def.castMs || 0);
-    if (sk.heal) { const s2 = store.getState(); store.setState({ me: { ...s2.me, partner: { ...s2.me.partner, hp: Math.min(M.hp, s2.me.partner.hp + M.hp * sk.heal) } } }); }
+    if (sk.heal) { const s2 = store.getState(); store.setState({ me: { ...s2.me, partner: { ...s2.me.partner, hp: Math.min(pl.M.hp, s2.me.partner.hp + pl.M.hp * sk.heal) } } }); }
     if (sk.mult && m) { pl.queued = { n, id: m.id }; pl.atk = m.id; if (CTRL_P) pl.goal = null; }
   }, true);
   w.addEventListener('keydown', (e) => {
@@ -614,11 +615,13 @@ function stepBay(now, dt) {
   }
   const H = run.herd, egg = at('egg_bay');
   const herdLeft = [...ents.values()].some((m) => m.defId === 'kuramon' && m.herd);
+  // FORM: Ende Welle 9 (alle Kuramon der 9. Welle weg) hoch in die Kampfform – vor dem Boss-Start (Nutzer: dort noch safe)
+  if (FORM && H.wave === 9 && !herdLeft && !run.formBack) { run.formBack = true; for (const pl of players) if (!pl.fainted) setForm(pl, pl.M.species === 'shakkoumon' ? CLAVIS : PALADIN, 'Ende Welle 9 – hoch in die Kampfform'); }
   if (b.map === 'hidden' && H.wave >= 10 && !herdLeft) { b.map = MAP; run.armaAt = now; say('Armageddemon erscheint (Herde vorbei)'); hud(); }
   if (run.armaAt && now - run.armaAt > 480000) return failRun('Enrage nach 8 min');
   if (H.wave < 10 && now >= H.next) {
     H.wave++; H.next = now + 12000;
-    if (FORM && H.wave === 10) for (const pl of players) if (!pl.fainted) setForm(pl, pl.M.species === 'shakkoumon' ? CLAVIS : PALADIN, 'Welle 10 – zurück in die Kampfform');
+    if (FORM && H.wave === 10 && !run.formBack) { run.formBack = true; for (const pl of players) if (!pl.fainted) setForm(pl, pl.M.species === 'shakkoumon' ? CLAVIS : PALADIN, 'Welle 10 – zurück in die Kampfform'); }
     for (let k = 0; k < 6; k++) spawnMob('kuramon', 'Kuramon', lvHp(1208, 145.3, 99), at(k < 3 ? 'herd_w' : 'herd_e'), { herd: true, y: PT.herd_w[1] + (k % 3) * 14 - 14 });
     say(`🪼 Herde Welle ${H.wave}/10 (6 Kuramon)`);
   }
