@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.21
+// @version      3.1.22
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1528,7 +1528,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.21'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.22'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -7543,12 +7543,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       return { urgent: best, save: ttk <= best + 300, slack: best - ttk };
     };
     // Boss-Mechaniken aus den Spawn-Daten: Greifarme (grab.arm), Herde (herd: läuft zum Ei), Brechbares (breakables)
-    const arms = new Set(), breaks = new Set(), optBreaks = new Set(); let herd = null;
+    const arms = new Set(), breaks = new Set(), optBreaks = new Set(), bladeBreaks = new Set(); let herd = null; // bladeBreaks: Haufen, aus deren letztem die Klinge fällt (3.1.22)
     for (const b of spawn?.bosses || []) {
       for (const sk of b.skills || []) if (sk.grab?.arm) arms.add(sk.grab.arm);
       // Pflicht: Brechbares, das der Boss für seinen Panzer/Schlag braucht (blade.breakables, Kuramon-Haufen) – optional: der
       // Rest (Mail Server: nur 15 s +25 % Schaden, kostet mehr Zeit als es bringt), nur mit Haken dgBreak (3.1.1)
-      for (const br of b.breakables || []) if (br.species) { breaks.add(br.species); if (b.blade?.breakables !== br.id) optBreaks.add(br.species); }
+      for (const br of b.breakables || []) if (br.species) { breaks.add(br.species); if (b.blade?.breakables !== br.id) optBreaks.add(br.species); else bladeBreaks.add(br.species); }
       if (b.herd?.species) herd = { species: b.herd.species, to: R.m?.spawns?.[b.herd.to] };
     }
     const mine = new Set([st.me?.tamerEntityId, st.me?.partner?.entityId]);
@@ -7576,7 +7576,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       return m.attacker ? 5000 + m.d : 10000 + m.d;
     };
     const copies = new Set((mb?.view?.copies || []).flatMap((c) => c.ids || [])); // Diaboromons Kopien: nur das Original angreifen
-    const list = sc.mobs.filter((m) => inRect(z, m, 24) && !m.banned && !safeHeld(m.id) && !copies.has(m.id) && (m.attacker || !optional.has(m.species)) && ((cfg.dgBreak && !bossLow) || !optBreaks.has(m.species) || m.attacker)); // Haken aus oder Boss fast tot: Mail Server ignorieren
+    // Klinge (3.1.22, Mitschnitt 28.10.): sie fällt genau dort, wo der LETZTE Haufen stirbt, und wer dort steht, hat sie nach 0,5 s –
+    // als Träger trifft man ohne Blocks mit doppeltem Schaden, alle anderen werden im Panzer zur Hälfte geblockt. Darum erledigt der
+    // Paladin den letzten Haufen allein: die Clavis lassen ihn unter DG_BLADE_HANDOFF ab und gehen zurück auf den Boss, sobald der
+    // Paladin (lebend, in der Nähe) dran ist. Ohne Paladin oder mit Paladin weit weg: wie bisher alle drauf.
+    const iAmPal = st.me?.partner?.species === 'imperialdramon_paladin';
+    let palNear = null;
+    if (cfg.dgBlade && bladeBreaks.size && !iAmPal) for (const q of st.party?.members || []) { const e = q.partnerEntityId && ents0?.get?.(q.partnerEntityId); if (e && !mine.has(e.id) && e.defId === 'imperialdramon_paladin' && e.hp > 0) palNear = e; }
+    const handOff = (m) => !!palNear && bladeBreaks.has(m.species) && m.maxHp > 0 && m.hp / m.maxHp < DG_BLADE_HANDOFF
+      && sc.mobs.filter((x) => x.species === m.species && x.hp > 0).length === 1 && Math.hypot(palNear.x - m.x, palNear.y - m.y) <= DG_BLADE_HANDOFF_R;
+    const list = sc.mobs.filter((m) => inRect(z, m, 24) && !m.banned && !safeHeld(m.id) && !copies.has(m.id) && !handOff(m) && (m.attacker || !optional.has(m.species)) && ((cfg.dgBreak && !bossLow) || !optBreaks.has(m.species) || m.attacker)); // Haken aus oder Boss fast tot: Mail Server ignorieren
     if (!list.length) return null;
     list.sort((a, b) => score(a) - score(b));
     dungeonFocus.mech = (m) => !!m && (arms.has(m.species) || breaks.has(m.species)); // Greifarm/Brechbares: hat auch im Ausweich-Zweig Vorrang (3.1.4)
@@ -7634,6 +7643,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // (härtester Schlag); ohne Paladin in der Gruppe Slot 1. Nur, wenn Punkt und Weg frei von Warnflächen sind – Ausweichen und
   // Key of Hope laufen vorher im Takt. Höchstens DG_BLADE_GIVEUP_MS je Klinge, dann weiterkämpfen (Nutzer 28.10., 3.1.21)
   const DG_BLADE_GIVEUP_MS = 20000, DG_BLADE_NEAR = 6;
+  const DG_BLADE_HANDOFF = 0.35, DG_BLADE_HANDOFF_R = 220; // letzter Haufen unter 35 %: den Clavis weg, der Paladin (≤ 220 px) macht ihn fertig und steht auf der Klinge (3.1.22)
   function dgBladeStep(st, now) {
     if (!cfg.dgBlade || !dungeonLike(st)) return null;
     const V = worldScene()?.mechB?.view, list = Array.isArray(V?.blade) ? V.blade : null;

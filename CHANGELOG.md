@@ -2,6 +2,15 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.22 – Klinge: der Paladin erledigt den letzten Haufen
+Mitschnitt 28.10. (8. Lauf, Enrage bei 472 000 HP): Die Klinge erscheint in der Mechanik-Nachricht mit den fünf Haufen,
+liegt aber erst am Boden, wenn der letzte Haufen stirbt – genau an dessen Stelle. MarcusDs Digimon stand 33 px daneben und
+hatte sie nach 0,5 s. Als Träger traf es ohne Blocks mit etwa doppeltem Schaden (537 000 in 74 s), alle anderen wurden ab
+da bei jedem zweiten Treffer geblockt (0 Schaden). Der Gruppenschaden am Boss fiel von 24 000 auf 12 600 je Sekunde.
+- **Letzter Haufen an den Paladin:** Ist nur noch ein Haufen übrig und unter 35 %, lassen die Clavis ihn ab und gehen auf
+  den Boss, sobald ein lebender Paladin in der Nähe (≤ 220 px) ist. Der Paladin macht ihn fertig, steht damit auf der
+  Klinge und nimmt sie (3.1.21). Ohne Paladin oder mit ihm weit weg: wie bisher alle drauf.
+
 ## 3.1.21 – Armageddemons Klinge aufheben
 Spieldaten: ab 20 % Boss-HP erscheint die Klinge (blade: 3,5 s doppelter Schlag, 6 s Pause); Spielcode: sie steht in der
 Mechanik-Nachricht (mechB.view.blade: Position, Radius, Träger), Aufnehmen = drüberlaufen.
