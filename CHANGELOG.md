@@ -2,6 +2,14 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.16 – Raum 4: kein Kiten mehr
+Live 28.10. (4. Versuch, niemand gestorben): Rauswurf exakt 480 s nach Betreten von Raum 4 bei 1,1 Mio. Boss-HP – der
+Enrage-Timer (enrageMs 480000) läuft ab Raumbeginn, die Herdenphase (~100 s) zählt mit. Für den Boss bleiben ~380 s, nötig
+sind ~20 400 HP/s, erreicht wurden ~17 500. Das Kiten an die untere Kante kostete davon Zeit, und laut Nutzer stören die
+Hindernisse oben die Bewegung nicht.
+- **Kiten entfernt:** gekämpft wird dort, wo Armageddemon steht. Die Seite (alle links oder alle rechts von ihm) wird ein Mal
+  festgelegt, zum Raumzentrum hin – in allen Fenstern gleich berechnet.
+
 ## 3.1.15 – Flare: Nahbereich um den Boss gilt als drin
 Mitschnitt (28.10., 4. Lauf): Die Ansage-Linie steht 4,1 s (2,5 s Ansage + 1,6 s Schwenk), die Treffer kamen am Ende des
 Schwenks. SpencerD und Fumiko standen 144° abseits der Strahlrichtung („hinter“ dem Boss), aber nur 26 px von ihm entfernt –

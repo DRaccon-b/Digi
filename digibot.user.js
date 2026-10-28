@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.15
+// @version      3.1.16
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1501,7 +1501,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.15'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.16'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -7548,26 +7548,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const slots = [group.slot(), ...[...group.peers.entries()].filter(([, q]) => fresh(q, now) && q.inWorld && q.mapId === mapId).map(([k]) => k)].sort((a, c) => a - c);
       idx = Math.max(0, slots.indexOf(group.slot())); n = slots.length;
     }
-    // 1) Kiten (3.1.10, Nutzer-Taktik): alle gehen in die untere Raumhälfte und warten dort ohne Angriff, bis der Boss
-    //    nachgekommen ist (er läuft seinem Ziel hinterher, 60 px/s) – höchstens DG_KITE_WAIT_MS, dann wird dort gekämpft, wo er steht
+    // Kein Kiten mehr (3.1.16, Nutzer 28.10.: die Hindernisse oben stören die Bewegung nicht; das Kiten kostete nur Zeit –
+    // der Enrage-Timer läuft ab Betreten des Raums). Seite ein Mal festlegen, für alle Fenster gleich: zum Raumzentrum hin.
     const K = dg.kite, raid = dgRaid(mapId), R = raid && dgRoom(st, raid), z = R && R.cur >= 0 ? R.zone(R.cur) : null;
-    if (!K.done && z) {
-      if (!K.at) { K.at = now; logEvent('bot', 'Armageddemon ist da – nach unten kiten, Kampf in der unteren Raumhälfte'); }
-      // Sammelpunkt ganz unten (live 28.10.: bei y −90 wurde noch viel zu weit oben gekämpft); „unten“ = Boss höchstens DG_KITE_NEAR
-      // über dem Sammelpunkt. Abbruch nur, wenn er DG_KITE_STALL_MS lang nicht näher kommt (er folgt seinem Ziel mit 60 px/s)
-      const goal = { x: z.x + z.w / 2 + (idx - (n - 1) / 2) * 40, y: z.y + z.h - 50 };
-      const dBoss = Math.hypot(te.x - goal.x, te.y - goal.y);
-      if (dBoss < K.best - 8) { K.best = dBoss; K.bestAt = now; }
-      // angegriffen wird, sobald er auf DG_KITE_NEAR (250 px) an den Sammelpunkt heran ist; Seite = wo die Gruppe gerade steht
-      // live 28.10.: der Startplatz des Bosses liegt nur ~166 px über der unteren Kante – „heran“ erst, wenn er bis auf DG_KITE_NEAR
-      // an den Sammelpunkt herangelaufen ist (3.1.12)
-      const down = dBoss <= DG_KITE_NEAR, stall = now - (K.bestAt || K.at) > DG_KITE_STALL_MS;
-      if (down || stall) { K.done = true; K.side = Math.sign(goal.x - te.x) || 1; logEvent('bot', down ? `Armageddemon ist heran (${Math.round(dBoss)} px) – Kampf, alle ${K.side > 0 ? 'rechts' : 'links'} von ihm` : `Armageddemon kommt nicht nach (${Math.round(dBoss)} px) – Kampf dort, wo er steht`); }
-      else {
-        if (Math.hypot(pe.x - goal.x, pe.y - goal.y) > 30) { if (walkTo(st, goal.x, goal.y, now, { zones: dangerZones(), nearestSafe: true }) === 'stuck') { K.done = true; return null; } return 'Armageddemon: nach unten kiten…'; }
-        return `Armageddemon: warte unten, bis er nachkommt (${Math.round(dBoss)} px)…`;
-      }
-    }
+    if (!K.side) { K.side = (z ? Math.sign(z.x + z.w / 2 - te.x) : 0) || 1; logEvent('bot', `Armageddemon ist da – Kampf, alle ${K.side > 0 ? 'rechts' : 'links'} von ihm`); }
     // 2) im Kampf alle auf EINER Seite von ihm (links oder rechts), niemand oben oder unten (Nutzer-Taktik 3.1.11) – nur solange
     //    der Boss mein Ziel ist (Kuramon-Haufen/Panzer-Phase: dorthin laufen dürfen)
     if (st.target?.id !== te.id) return null;
@@ -7579,7 +7563,6 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (walkTo(st, goal.x, goal.y, now, { zones: dangerZones(), nearestSafe: true }) === 'stuck') return null;
     return `Armageddemon: auf die ${side > 0 ? 'rechte' : 'linke'} Seite…`;
   }
-  const DG_KITE_NEAR = 100, DG_KITE_STALL_MS = 15000; // Kiten: angreifen, sobald der Boss 100 px an den Sammelpunkt heran ist; Abbruch nach 15 s ohne Annäherung
   // Raum mit Herde (Armageddemon), Nutzer-Taktik 3.1.9: vor den Wellen eine Stufe zurück (Clavis → Shakkoumon, Paladin → Dragon
   // Mode – beide mit Flächenangriffen; die Clavis hat keinen), die Wellen in dieser Form abwehren, am Ende von Welle 9 wieder
   // in die Kampfform (ensureEvolution zur eingestellten Zielform). Simulation: 20–21 statt 10–19 von 60 Kuramon abgefangen.
