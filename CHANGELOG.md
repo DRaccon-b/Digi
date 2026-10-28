@@ -2,6 +2,20 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.7 – Raum 4 nach Taktik, Mail-Server-Schwelle, weiter nach der Anwesenheitskontrolle
+Live Revenge Hard (28.10.): Raum 3 geschafft (325 s, alle 11 geteilten Treffer geblockt), Raum 4 verloren – Wellenphase
+130 s in der Raummitte, dann Ultimate Flare 4 s nach Black Rain auf Bauzel und Fumiko.
+- **Raum 4 (Armageddemon) nach der Taktik des Nutzers:** Wellen oben abfangen, Gruppe aufgeteilt – erste Hälfte nach Slot
+  links, Rest rechts, jeweils auf halbem Weg zwischen Herden-Start und Ei. Sobald der Boss da ist: unten in der Mitte
+  sammeln und in der unteren Raumhälfte kämpfen – wer nördlich des Bosses steht, läuft erst unten herum (Angriffsposition
+  südlich, nach Slot gefächert).
+- **Mail Server ignorieren ab Boss-HP unter x %** (Regler, Standard 8 %): kurz vor dem Ende direkt auf Diaboromon.
+- **Anwesenheitskontrolle:** Der Bot stoppt dabei wie bisher und rührt sie nicht an – der Spieler beantwortet sie selbst.
+  Neu: Hat er geantwortet (innerhalb von 10 min) und lief der Bot vorher, läuft er von selbst weiter, statt bis zum Klick zu
+  stehen (live: mitten im Dungeon gestorben).
+- Simulation Raum 4 (2 Läufe): beide geschafft, 0 Stürze, 0 Flare-Treffer bei 32 Ansagen, 15–19 statt 9–12 Kuramon vor dem
+  Ei abgefangen. Tests challengetest; Suite 151/151.
+
 ## 3.1.6 – Key of Hope: Beanspruchung nur mit echtem Cast, kein Skill kurz vor dem Zünden
 Live Revenge Hard (28.10., Fumikos Fenster): Nur Slot 0 und 1 zündeten je Key of Hope, Fumiko und Makota nie. Bei 111,5 s
 beanspruchte MarcusD den Treffer, im Spiel kam kein Key-of-Hope-Cast an (Tastendruck während eines laufenden Skills

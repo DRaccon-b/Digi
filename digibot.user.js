@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.6
+// @version      3.1.7
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -430,6 +430,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
 
   // DigiBot integration: adapters are evaluated lazily after the original declarations.
   let digibotManual = false, digibotNotice = null, digibotNet = null, digibotStore = null;
+  let digibotChallengeStop = 0, digibotWasOnAt = 0; // Bot lief, als die Anwesenheitskontrolle kam: nach der Antwort des Spielers von selbst weiter (3.1.7)
   let digibotLastContext = '', digibotLastLeader = null, digibotLastPrune = 0, digibotCurrentObjective = null;
   const digibotKeys = new Map(), digibotDeaths = new Map();
   const digibotCombat=createDigiBotCombat();
@@ -565,9 +566,18 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   function digibotObserve() {
     const st=window.dmo?.store?.getState?.();
+    if(!st?.challenge&&bot?.on)digibotWasOnAt=Date.now(); // der Stopp kommt oft schon über store.subscribe → inspect(), bevor wir hier sind
+    const wasOn=!!bot?.on||Date.now()-digibotWasOnAt<5000;
     digibotCore.inspect();
     digibotHistory.observe(digibotHistoryState());
     if(st?.challenge&&!digibotCore.latched)digibotCore.stop('Anwesenheitskontrolle – bitte selbst beantworten',true);
+    // Die Kontrolle beantwortet der Spieler selbst; danach läuft der Bot von selbst weiter (vorher blieb er bis zum Klick stehen –
+    // live 28.10. mitten im Dungeon gestorben). Nur wenn er beim Erscheinen lief, und höchstens 10 min später (3.1.7)
+    if(st?.challenge){ if(wasOn&&!digibotChallengeStop)digibotChallengeStop=Date.now(); }
+    else if(digibotChallengeStop){
+      const age=Date.now()-digibotChallengeStop; digibotChallengeStop=0;
+      if(age<600000&&!bot.on&&digibotCore.latched&&st?.screen==='world'){ const prev=digibotManual; digibotManual=true; try{ bot.toggle(true); logEvent('bot','Anwesenheitskontrolle beantwortet – Bot läuft weiter'); } finally { digibotManual=prev; } }
+    }
     if(window.dmo?.store!==digibotStore && window.dmo?.store?.subscribe) {
       digibotStore=window.dmo.store;digibotCore.touch();digibotStore.subscribe(()=>{digibotCore.touch();digibotCore.inspect();digibotHistory.observe(digibotHistoryState());});
     }
@@ -1304,6 +1314,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     dgMode: 'easy',       // 'easy' = War Game, 'hard' = Revenge (allein kaum zu schaffen), 'apocalymon' / 'malomyotismon' = Raid
     dgBreak: true,        // Optionales Brechbares (Mail Server bei Diaboromon) zerstören – alle dasselbe Ziel; aus = nur der Boss (3.1.1).
     dgRetry: false,       // Nach einem gescheiterten Lauf (rausgeflogen) neu betreten, bis DG_TRIES Versuche – aus: Bot stoppt (3.1.5)
+    dgBreakMinPct: 8,     // Mail Server nicht mehr angreifen, sobald der Boss so wenig % HP hat – dann direkt auf ihn (3.1.7)
                           // Standard an (3.1.3): stehen die Server, verstärken die Support-Mails den Boss (Spieldaten: 15 % je Mail, bis ×2,5).
                           // Pflicht-Brechbares (Kuramon-Haufen: Armageddemons Panzer) wird immer zerschlagen.
     expMess: false,       // EXP-Messung: je Kill Monster, EXP, Kampfdauer, Treffer mitschreiben (Reiter Log)
@@ -1484,7 +1495,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.6'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.7'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1644,6 +1655,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         ${grp('dungeon', 'Dungeon (Kera)', `
           <div class="digibot__apcfg">
             ${check('dgRetry', 'Nach einem gescheiterten Lauf automatisch neu betreten (bis 3 Versuche) – aus: Bot stoppt, Neustart über den Leader')}
+            ${slider('dgBreakMinPct', 'Mail Server ignorieren ab Boss-HP unter', 0, 50, (v) => `${v} %`)}
             ${check('dgBreak', 'Mail Server zerstören (Diaboromon ab 30 %, drei Stück): alle dasselbe Ziel, danach zurück zum Boss. Aus: nur der Boss – dann verstärken die Support-Mails Diaboromon über die Server (bis ×2,5). Armageddemons Kuramon-Haufen werden immer zerschlagen')}
             <label>Modus<select data-apsel="dgMode"><option value="easy">Easy – War Game</option><option value="hard">Hard – Revenge (Gruppe)</option><option value="apocalymon">Apocalymon-Raid</option><option value="malomyotismon">MaloMyotismon-Raid</option></select></label>
           </div>`, true,
@@ -7354,6 +7366,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // Brechbares: alle Fenster dasselbe Ziel – das angeschlagenste zuerst, bei Gleichstand feste Reihenfolge (HP sehen alle gleich,
     // der Abstand nicht) – fertig, dann das nächste, dann zurück zum Boss (3.1.1)
     const brk = breaks.size ? sc.mobs.filter((m) => breaks.has(m.species)).sort((a, b) => (a.hp - b.hp) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)) : [];
+    // Boss fast tot (unter dgBreakMinPct): Mail Server stehen lassen, direkt auf den Boss (3.1.7)
+    const bossLow = optBreaks.size > 0 && sc.mobs.some((m) => (ents0?.get?.(m.id)?.flags & FLAG.Boss) && m.maxHp > 0 && m.hp / m.maxHp * 100 <= (Number(cfg.dgBreakMinPct) || 0));
     const score = (m) => {
       if (arms.has(m.species)) { // hält mich fest: sofort brechen; hält ein Gruppenmitglied: mithelfen (der Gepackte macht nur halben Schaden am Arm)
         // live (28.10.) hat der Arm keine targetId: Halter = Digimon/Tamer mit Held-Flag in Reichweite des Arms (3.1.4)
@@ -7370,7 +7384,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       return m.attacker ? 5000 + m.d : 10000 + m.d;
     };
     const copies = new Set((mb?.view?.copies || []).flatMap((c) => c.ids || [])); // Diaboromons Kopien: nur das Original angreifen
-    const list = sc.mobs.filter((m) => inRect(z, m, 24) && !m.banned && !safeHeld(m.id) && !copies.has(m.id) && (m.attacker || !optional.has(m.species)) && (cfg.dgBreak || !optBreaks.has(m.species) || m.attacker)); // Haken aus: optionales Brechbares (Mail Server) ignorieren
+    const list = sc.mobs.filter((m) => inRect(z, m, 24) && !m.banned && !safeHeld(m.id) && !copies.has(m.id) && (m.attacker || !optional.has(m.species)) && ((cfg.dgBreak && !bossLow) || !optBreaks.has(m.species) || m.attacker)); // Haken aus oder Boss fast tot: Mail Server ignorieren
     if (!list.length) return null;
     list.sort((a, b) => score(a) - score(b));
     dungeonFocus.mech = (m) => !!m && (arms.has(m.species) || breaks.has(m.species)); // Greifarm/Brechbares: hat auch im Ausweich-Zweig Vorrang (3.1.4)
@@ -7413,8 +7427,50 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const here = peers.filter((q) => q.mapId === mapId).length;
       if (here < peers.length) return `${n}: warte, bis alle im Dungeon sind (${here + 1}/${peers.length + 1})…`;
     }
-    if (Math.hypot(R.me.x - cx, R.me.y - cy) > 40) return go(cx, cy, R.h?.pulled ? `${n}: zurück in die Raummitte` : `${n}: gehe hinein – der Kampf beginnt`);
+    // Raum mit Herde (Armageddemon, 3.1.7): die Wellen oben abfangen – Gruppe aufgeteilt, erste Hälfte nach Slot links, Rest
+    // rechts, jeweils auf halbem Weg zwischen Herden-Start und Ei; sobald der Boss da ist, unten in der Mitte sammeln
+    const post = dgHerdPost(st, R, z, mapId, now);
+    const tx = post ? post.x : cx, ty = post ? post.y : cy;
+    if (Math.hypot(R.me.x - tx, R.me.y - ty) > 40) return go(tx, ty, post ? `${n}: ${post.what}` : R.h?.pulled ? `${n}: zurück in die Raummitte` : `${n}: gehe hinein – der Kampf beginnt`);
+    if (post) return `${n}: ${post.wait}`;
     return R.h?.pulled ? `${n}: warte auf die nächste Welle…` : `${n}: warte in der Raummitte…`;
+  }
+  // Boss mit Herde (Armageddemon): Kampf in der unteren Raumhälfte – Angriffsposition südlich des Bosses, nach Slot gefächert.
+  // Wer nördlich steht, geht erst (mit Abstand zu Warnflächen) unten herum (3.1.7, Nutzer-Taktik)
+  function dgSouthSide(st, now) {
+    const mapId = st.world?.mapId, sp = content()?.spawns?.[mapId], ents = window.dmo?.net?.state?.entities;
+    const t = st.target, te = t?.kind === 'mob' && t.hp > 0 ? ents?.get?.(t.id) : null, pe = ents?.get?.(st.me?.partner?.entityId);
+    if (!te || !pe || !(te.flags & FLAG.Boss) || pe.flags & FLAG.Held) return null;
+    const b = (sp?.bosses || []).find((o) => o.herd?.from?.length && o.species === te.defId);
+    if (!b) return null;
+    if (pe.y >= te.y + 20) return null; // schon unterhalb
+    let idx = 0, n = 1;
+    if (group.active()) {
+      const slots = [group.slot(), ...[...group.peers.entries()].filter(([, q]) => fresh(q, now) && q.inWorld && q.mapId === mapId).map(([k]) => k)].sort((a, c) => a - c);
+      idx = Math.max(0, slots.indexOf(group.slot())); n = slots.length;
+    }
+    const goal = { x: te.x + (idx - (n - 1) / 2) * 36, y: te.y + 60 };
+    if (walkTo(st, goal.x, goal.y, now, { zones: dangerZones(), nearestSafe: true }) === 'stuck') return null;
+    return 'Armageddemon: unten herum – Kampf in der unteren Raumhälfte';
+  }
+  function dgHerdPost(st, R, z, mapId, now) {
+    const sp = content()?.spawns?.[mapId], ents = window.dmo?.net?.state?.entities;
+    const inRect0 = (q) => q && q.x >= z.x && q.x <= z.x + z.w && q.y >= z.y && q.y <= z.y + z.h;
+    const b = (sp?.bosses || []).find((o) => o.herd?.from?.length && inRect0(R.m?.spawns?.[o.at]));
+    if (!b) return null;
+    const egg = R.m?.spawns?.[b.herd.to], lanes = b.herd.from.map((nm) => R.m?.spawns?.[nm]).filter(Boolean);
+    if (!egg || !lanes.length) return null;
+    let bossUp = false; ents?.forEach?.((e) => { if (e.kind === KIND.Mob && e.defId === b.species && e.hp > 0) bossUp = true; });
+    if (bossUp) return { x: z.x + z.w / 2, y: z.y + z.h - 70, what: 'Boss ist da – unten in der Mitte sammeln', wait: 'unten in der Mitte – warte auf den Boss-Kampf' };
+    // meine Seite: Gruppenmitglieder auf dieser Map nach Slot, erste Hälfte links (kleinere x), Rest rechts
+    let side = 0;
+    if (group.active()) {
+      const slots = [group.slot(), ...[...group.peers.entries()].filter(([, q]) => fresh(q, now) && q.inWorld && q.mapId === mapId).map(([k]) => k)].sort((a, c) => a - c);
+      const idx = slots.indexOf(group.slot());
+      side = idx >= 0 && idx < Math.floor(slots.length / 2) ? 0 : 1;
+    }
+    const sorted = lanes.slice().sort((a, c) => a.x - c.x), lane = sorted[Math.min(side, sorted.length - 1)];
+    return { x: (lane.x + egg.x) / 2, y: (lane.y + egg.y) / 2, what: `Wellen oben abfangen (${side === 0 ? 'links' : 'rechts'})`, wait: `warte oben ${side === 0 ? 'links' : 'rechts'} auf die nächste Welle…` };
   }
   // Einfacher Raid: zum Boss (aus dem Schutzbereich erst mit Digitation und ~voller HP), nach dem Sieg hinaus
   function raidStep(st, now, raid) {
@@ -8185,6 +8241,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (kg) { this.status = kg; return; }
       const dg = heldNow ? null : dodge(st, now);
       if (dg) { this.status = dg; this.attackedId = null; return; }
+      // Armageddemon (3.1.7): in der unteren Raumhälfte kämpfen – wer oberhalb des Bosses steht, läuft erst unten herum
+      if (sc) { const ss = dgSouthSide(st, now); if (ss) { this.status = ss; this.attackedId = null; return; } }
       // Heilen vor dem Gruppen-/Autopilot-Zweig: Mitläufer („Gruppe: bei …“) kehren dort schon zurück und heilten sonst nie (3.1.0)
       healSkill(st, now); // Heil-Skill bei niedrigen HP (auch außerhalb des Kampfes)
       groupHeal(st, now); // Dungeon/Raid: Gruppen-Heilskill reihum, sobald jemand in Reichweite Schaden hat (3.1.0)
