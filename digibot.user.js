@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.12
+// @version      3.1.13
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1501,7 +1501,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.12'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.13'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -7481,7 +7481,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const mapId = st.world?.mapId, raid = dgRaid(mapId);
     if (!raid && plainRaid(mapId)) return raidStep(st, now, plainRaid(mapId));
     if (!raid) return dungeonOutside(st, now);
-    if (!dg.inside) { dg.inside = true; dg.insideAt = now; dg.doorAt = 0; logEvent('bot', `Dungeon betreten: ${content()?.maps?.[mapId]?.name || mapId}`); }
+    if (!dg.inside) { dg.inside = true; dg.insideAt = now; dg.doorAt = 0; dg.herd = { low: false, lowAt: 0, back: false, backAt: 0, seen: new Set(), lastSpawn: 0, note: '' }; dg.kite = { at: 0, done: false, best: Infinity, bestAt: 0, side: 0 }; logEvent('bot', `Dungeon betreten: ${content()?.maps?.[mapId]?.name || mapId}`); }
     const R = dgRoom(st, raid);
     if (!R.m || !R.me) return 'Lade Kartendaten…';
     const go = (x,y,what,portal=null) => (walkTo(st,x,y,now,{portal}) === 'stuck' ? `${what} – Weg blockiert` : what);
@@ -7583,6 +7583,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function dgHerdFormStep(st, sc, now) {
     const H = dg.herd, p = st?.me?.partner, mapId = st.world?.mapId;
     if (!cfg.dgHerdForm || !p || p.fainted) return null;
+    if (!dg.hud || dg.hudAt < dg.insideAt) return null; // Raumstand noch nicht aus diesem Lauf: nichts tun (3.1.13)
     const here = dgHerdBossHere(st, mapId);
     if (!here) { if (H.low && !H.back) { H.back = true; H.backAt = now; } return null; } // anderer Raum: nur noch zurück in die Kampfform
     const { b, R } = here, ents = window.dmo?.net?.state?.entities;
@@ -7659,7 +7660,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Außerhalb: Lauf vorbei? Sonst zur Tür, auf die Gruppe warten, betreten (Leader bzw. allein)
   function dungeonOutside(st, now) {
     if (dg.inside) { // gerade herausgekommen
-      dg.inside = false; dg.doorAt = 0;
+      dg.inside = false; dg.doorAt = 0; dg.hud = null; dg.hudAt = 0;
+      dg.herd = { low: false, lowAt: 0, back: false, backAt: 0, seen: new Set(), lastSpawn: 0, note: '' }; dg.kite = { at: 0, done: false, best: Infinity, bestAt: 0, side: 0 }; // 3.1.13
       if (dg.cleared) {
         logEvent('bot', 'Dungeon geschafft – Bot gestoppt');
         notify('Dungeon geschafft.');

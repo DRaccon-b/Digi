@@ -2,6 +2,11 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.13 – Raumstand nach dem Verlassen löschen (Herden-Form stufte an der Tür zurück)
+- Live (28.10.): Nach einem Abbruch und Wiedereinstieg blieb der Raumstand „Raum 4 ist der nächste“ im Bot stehen; mit
+  Haken „Herde in niedriger Form“ stuften die Clavis schon an der Tür zu Angemon zurück. Jetzt werden Raumstand, Herden-
+  und Kite-Zustand beim Verlassen und beim Betreten gelöscht, und die Herden-Form wartet auf den Raumstand dieses Laufs.
+
 ## 3.1.12 – Raum 4 live (3. Versuch): Fächer sofort hinter den Boss, Kiten bis er wirklich unten ist, Formwechsel abgeraten
 Bot-Log aus Bauzels Fenster: „Warnfächer – kämpfe weiter, laufe 0,5 s später heraus“ → Treffer (Spät-Ausweichen ließ nur noch
 den Punkt seitlich zu, nicht den hinter dem Boss); „nach unten kiten“ und „ist heran (163 px)“ in derselben Sekunde (der
