@@ -2,6 +2,12 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.3 – Mail Server standardmäßig zerstören
+- Haken „Mail Server zerstören“ ist wieder **an**. Live (28.10.) flog die Gruppe bei 14 % Boss-HP aus Raum 3, nachdem
+  die Server stehen geblieben waren. Die Spieldaten erklären es: Die herumtreibenden Support-Mails werden über die
+  Server „weitergeleitet“ und verstärken Diaboromon um 15 % je Mail bis ×2,5 (`forward: servers, perPct 15, maxMult 2.5`).
+  Die 47 s aus der Simulation galten ohne diese Verstärkung. Mit Haken greifen alle Fenster denselben Server an.
+
 ## 3.1.2 – Ultimate Flare: Fächer wirkt nach der Ansage nach
 - **Fächer bleibt nach der Ansage Gefahrenzone** (Schwenkdauer + 0,3 s, bei der Ultimate Flare 1,9 s): Die Ansage
   verschwindet, bevor der Strahl schwenkt – vorher lief der Bot in diesem Moment zurück zum Boss und stand beim Treffer

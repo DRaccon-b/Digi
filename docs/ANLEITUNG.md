@@ -15,9 +15,9 @@ Oben immer sichtbar:
   Heilskill der Clavis (Sacred Seal) läuft nicht in der Skill-Rotation, sondern **reihum wie Key of Hope**: sobald das
   eigene Digimon oder ein Gruppenpartner in Reichweite unter 85 % HP ist, heilt das Fenster mit der kleinsten Nummer,
   dessen Heilung bereit ist, 0,6 s später das nächste, falls nötig; nach einer Heilung warten die anderen 2,5 s.
-  Ab 3.1.1: Haken **Mail Server zerstören** (Reiter Bosse → Dungeon, Standard aus): Diaboromons Mail Server (ab 30 %,
+  Ab 3.1.1: Haken **Mail Server zerstören** (Reiter Bosse → Dungeon, Standard an ab 3.1.3): Diaboromons Mail Server (ab 30 %,
   drei Stück) – mit Haken greifen alle Fenster dasselbe an, dann das nächste, dann wieder den Boss; aus = nur der Boss
-  (Simulation: 47 s schneller). Armageddemons Kuramon-Haufen (Panzer) werden immer zerschlagen. Und Skills werden auch von
+  (schneller, aber die Support-Mails verstärken Diaboromon über die stehenden Server bis ×2,5 – live Wipe bei 14 %). Armageddemons Kuramon-Haufen (Panzer) werden immer zerschlagen. Und Skills werden auch von
   der Angriffsposition am Kreisrand gewirkt (vorher dort nur Taste 1). Ab 3.1.2 bleibt ein schwenkender Fächer
   (Ultimate Flare) nach dem Ende der Ansage noch Schwenkdauer + 0,3 s lang Gefahrenzone.
 - **Start/Stopp** (Alt+B) mit dem Namen des Modus, darunter die Statuszeile (Maus darüber = ganzer Text)
