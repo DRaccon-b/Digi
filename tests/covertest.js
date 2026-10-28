@@ -36,7 +36,8 @@ G.w.eval(script);
   console.log({ danach: st2, neueKlicks: taps.length - n0, woandershin: moved });
   // 3.1.14: Deckung nur noch Rückfall – entweder hinter der Platte oder außerhalb des Fächers (nach rechts, 140°) und
   // 3.1.15: mindestens 64 px vom Ursprung weg
-  const inFan = () => { const a = Math.abs(Math.atan2(tap.y - boss.y, tap.x - boss.x)); const dd = Math.hypot(tap.x - boss.x, tap.y - boss.y); return dd < 64 || a <= 70 * Math.PI / 180; };
+  // 3.1.18: direkt hinter dem Boss (> 110° abseits) gilt der Nahbereich nicht mehr (Standard ohne Platten-Haken)
+  const inFan = () => { const a = Math.abs(Math.atan2(tap.y - boss.y, tap.x - boss.x)); const dd = Math.hypot(tap.x - boss.x, tap.y - boss.y); return (dd < 64 && a < 110 * Math.PI / 180) || a <= 70 * Math.PI / 180; };
   const ok = ((!!tap && d <= 22 && behind) || (!!tap && !inFan())) && !/Weiche/.test(st2) && !moved;
   console.log(ok ? 'OK – aus dem Fächer heraus (oder hinter die Platte) und dort sicher' : 'FEHLER');
   process.exit(ok ? 0 : 1);

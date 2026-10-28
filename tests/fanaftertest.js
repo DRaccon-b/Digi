@@ -34,12 +34,13 @@ async function trial(sweep) {
   await wait(2000);
   const later = G.status();
   G.w.close();
-  return { sweep, during, after, d1, later };
+  return { sweep, during, after, d1, later, px: Math.round(p.x) }; // px: 3.1.18 – hinter dem Boss (x ≥ 570) darf schon während des Schwenks angegriffen werden
 }
 (async () => {
   const f = await trial(true), l = await trial(false);
   console.log(f, l);
-  const ok = /Weiche|Warte außerhalb|Fernangriff|Außerhalb der Warnzone/.test(f.during) && /Warte außerhalb|Weiche|Fernangriff|Außerhalb der Warnzone/.test(f.after) && f.d1 === 0 && !/Warte außerhalb|Weiche|Außerhalb der Warnzone/.test(f.later)
+  const behind = f.px >= 570; // 3.1.18: Fluchtpunkt hinter dem Boss – von dort weiter angreifen ist erlaubt
+  const ok = (behind || /Weiche|Warte außerhalb|Fernangriff|Außerhalb der Warnzone/.test(f.during)) && (behind ? /Warte außerhalb|Weiche|normaler Angriff|Wehre ab/.test(f.after) : (/Warte außerhalb|Weiche|Fernangriff|Außerhalb der Warnzone/.test(f.after) && f.d1 === 0)) && !/Warte außerhalb|Weiche|Außerhalb der Warnzone/.test(f.later)
     && /Weiche|Warte außerhalb|Fernangriff/.test(l.during) && !/Warte außerhalb|Weiche|Außerhalb der Warnzone/.test(l.after);
   console.log(ok ? 'OK – Fächer wirkt nach der Ansage nach, Strahl nicht' : 'FEHLER');
   process.exit(ok ? 0 : 1);

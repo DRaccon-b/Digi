@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.17
+// @version      3.1.18
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1332,6 +1332,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     dgMode: 'easy',       // 'easy' = War Game, 'hard' = Revenge (allein kaum zu schaffen), 'apocalymon' / 'malomyotismon' = Raid
     dgBreak: true,        // Optionales Brechbares (Mail Server bei Diaboromon) zerstören – alle dasselbe Ziel; aus = nur der Boss (3.1.1).
     dgRetry: false,       // Nach einem gescheiterten Lauf (rausgeflogen) neu betreten, bis DG_TRIES Versuche – aus: Bot stoppt (3.1.5)
+    dgFlareCover: false,  // Ultimate Flare: Platten als Deckung nutzen, wenn näher – aus: nur hinter Armageddemon, dort weiter angreifen (3.1.18)
     dgBreakMinPct: 8,     // Mail Server nicht mehr angreifen, sobald der Boss so wenig % HP hat – dann direkt auf ihn (3.1.7)
     dgHerdForm: false,    // Raum 4: für die Herde eine Stufe zurück (Clavis → Shakkoumon, Paladin → Dragon Mode: Flächenangriffe), am Ende von Welle 9 wieder hoch (3.1.9)
                           // Standard an (3.1.3): stehen die Server, verstärken die Support-Mails den Boss (Spieldaten: 15 % je Mail, bis ×2,5).
@@ -1519,7 +1520,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.17'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.18'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1682,6 +1683,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
             ${check('dgRetry', 'Nach einem gescheiterten Lauf automatisch neu betreten (bis 3 Versuche) – aus: Bot stoppt, Neustart über den Leader')}
             ${check('dgHerdForm', 'Raum 4: Herde in niedriger Form abwehren – nach Raum 3 eine Stufe zurück (Clavis → Shakkoumon mit Kachina Bombs, Paladin → Dragon Mode mit Mega Crusher), am Ende von Welle 9 wieder hoch. ACHTUNG, live 28.10.: Zurück-Digitieren geht im Spiel bis in die Grundform (Veemon/Patamon), der Aufstieg dauert ~10 s je Stufe – währenddessen fängt niemand Kuramon, und die Clavis waren beim Boss noch Shakkoumon. Nicht empfohlen')}
             ${slider('dgBreakMinPct', 'Mail Server ignorieren ab Boss-HP unter', 0, 50, (v) => `${v} %`)}
+            ${check('dgFlareCover', 'Ultimate Flare: Hindernisse (Platten) als Deckung nutzen, wenn sie näher liegen als der Weg hinter den Boss. Aus (Standard): immer hinter Armageddemon ausweichen – dort bleibt das Digimon in Schlagweite und greift weiter an (live 28.10.: ab 40 px hinter ihm kein Treffer; einmal wurden 26 px getroffen)')}
             ${check('dgBreak', 'Mail Server zerstören (Diaboromon ab 30 %, drei Stück): alle dasselbe Ziel, danach zurück zum Boss. Aus: nur der Boss – dann verstärken die Support-Mails Diaboromon über die Server (bis ×2,5). Armageddemons Kuramon-Haufen werden immer zerschlagen')}
             <label>Modus<select data-apsel="dgMode"><option value="easy">Easy – War Game</option><option value="hard">Hard – Revenge (Gruppe)</option><option value="apocalymon">Apocalymon-Raid</option><option value="malomyotismon">MaloMyotismon-Raid</option></select></label>
           </div>`, true,
@@ -2060,6 +2062,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Steht der Tamer oder das Digimon in einer Zone, läuft der Tamer zum nächsten freien Punkt und ruft das Digimon.
   const DODGE_MARGIN = 28;
   const FAN_APEX_R = 64;        // schwenkender Strahl: so weit um den Ursprung gilt als drin, egal in welcher Richtung (3.1.15)
+  const FAN_REAR_DEG = 40;      // so weit jenseits des Fächerrands beginnt der Rücksektor, in dem der Nahbereich nicht gilt (3.1.18)
+  const FAN_REAR_R = 30;        // im Rücksektor: näher als so am Boss gilt trotzdem als drin (live 26 px getroffen, ab 40 px nie; Schlagweite ~39–43)
+  const FAN_REAR_STAND = 8;     // Fluchtpunkt hinter dem Boss: Schlagweite + so viel (3.1.18)
   const FAN_SAFE_DEG = 25;      // so viel Winkel neben einem Fächer gilt als voller Sicherheitsabstand (alle Fächer ≤ 180°)
   const DODGE_BASIC_PAD = 4;    // Reserve inside the real basic-attack range.
   const DODGE_LATE_ABORT_MS = 3000; // begonnene Flucht abbrechen, wenn danach noch so viel Zeit bliebe
@@ -2268,9 +2273,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // Schwenkender Strahl (Ultimate Flare): der Nahbereich um den Ursprung wird beim Schwenk in jeder Richtung erfasst – live
     // (28.10., Mitschnitt) wurden zwei Clavis 144° abseits der Strahlrichtung, aber nur 26 px vom Boss entfernt getroffen,
     // wer 40 px und mehr entfernt stand, nicht. Darum gilt der Umkreis FAN_APEX_R als drin (3.1.15)
-    if (z.sweep && dist < FAN_APEX_R) return { d: dist - FAN_APEX_R, nx: z.x, ny: z.y };
     let diff = Math.abs(Math.atan2(p.y - z.y, p.x - z.x) - z.dir) % (2 * Math.PI);
     if (diff > Math.PI) diff = 2 * Math.PI - diff;
+    // Direkt hinter dem Boss (mehr als FAN_REAR_DEG jenseits des Fächerrands) gilt der Nahbereich nicht, solange die Platten
+    // nicht gewählt sind: dort steht das Digimon in Schlagweite und schlägt weiter zu (Nutzer 28.10.: „hinter ihm kann man immer
+    // angreifen“; live verschwendete jede Flare ~5 s Angriff; 3.1.18)
+    const rear = !cfg.dgFlareCover && diff >= z.half + FAN_REAR_DEG * Math.PI / 180;
+    if (z.sweep && rear) return dist < FAN_REAR_R ? { d: dist - FAN_REAR_R - DODGE_MARGIN, nx: z.x, ny: z.y } : { d: Math.max(DODGE_SOON_PAD + DODGE_MARGIN, dist - FAN_REAR_R), nx: z.x, ny: z.y }; // klar sicher – auch für „gleich Einschlag“ (DODGE_SOON_PAD)
+    if (z.sweep && dist < FAN_APEX_R) return { d: dist - FAN_APEX_R, nx: z.x, ny: z.y };
     if (diff <= z.half) return { d: dist - z.len, nx: z.x, ny: z.y };
     const side = dist * Math.sin(Math.min(Math.PI / 2, diff - z.half));
     const ang = (diff - z.half) / (FAN_SAFE_DEG * Math.PI / 180) * DODGE_MARGIN * 1.5;
@@ -2536,7 +2546,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const soonNear = !!target && zones.some((c) => {
         const left = c.end ? c.end - performance.now() : zoneLeftMs(c);
         const narrow = c.kind === 'line' && (c.r || 16) < DODGE_MARGIN; // nur schmale Linien – breite Strahlen wie Kreise
-        return left != null && left < DODGE_SOON_MS && zoneDist(c, narrow ? attackPos : target).d < (narrow ? Math.max(12, c.r || 16) + 12 : DODGE_SOON_PAD);
+        return left != null && left < DODGE_SOON_MS && zoneDist(c, narrow || c.kind === 'fan' ? attackPos : target).d < (narrow ? Math.max(12, c.r || 16) + 12 : DODGE_SOON_PAD); // Fächer: Angriffsposition (3.1.18)
       });
       // „kurz vor dem Einschlag“ sperrt nur Angriffe, für die das Digimon erst laufen müsste – steht es schon in
       // Schlagweite außerhalb, darf es weiterschlagen (3.0.8; vorher 1,2 s Pause bei jedem Dark Roar)
@@ -2619,6 +2629,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (keep) best = g0;
     else {
       const candidates=digibotDodgeCirclePoints(zones,me,target,maxR);
+      // Schwenkender Fächer (Ultimate Flare) ohne Platten-Haken: Punkt direkt hinter dem Boss in Schlagweite – von dort wird weiter
+      // angegriffen (3.1.18, Nutzer: „hinter ihm kann man immer angreifen“)
+      if(!cfg.dgFlareCover)for(const c of inside){if(c.kind!=='fan'||!c.sweep)continue;const br=content()?.digimon?.[partner?.defId||st?.me?.partner?.species]?.basic?.range;
+        const stand=(Number.isFinite(br)?br+7:40)+FAN_REAR_STAND;candidates.push({x:c.x-Math.cos(c.dir)*stand,y:c.y-Math.sin(c.dir)*stand,rear:true});}
       for(let rad=40;rad<=maxR;rad+=24)for(let i=0;i<16;i++){
         const ang=base+(i%2?1:-1)*Math.ceil(i/2)*(Math.PI/8);
         candidates.push({x:me.x+Math.cos(ang)*rad,y:me.y+Math.sin(ang)*rad});
@@ -2638,7 +2652,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         // Fächer: hinter dem Boss ausweichen (gegenüber seiner Zielrichtung) – dort trifft der Schwenk sicher nicht (Nutzer-Taktik 3.1.11)
         let behind=0;for(const c of inside){if(c.kind!=='fan')continue;let dd=Math.abs(Math.atan2(p.y-c.y,p.x-c.x)-(c.dir+Math.PI))%(2*Math.PI);if(dd>Math.PI)dd=2*Math.PI-dd;if(dd<Math.PI/4)behind-=150;}
         const score=!target?rad:Math.hypot(p.x-target.x,p.y-target.y)
-          +(lineClear(p,target,zones)||inZone(target)?0:200)+(inLeash(p)?0:1000)+behind;
+          +(lineClear(p,target,zones)||inZone(target)?0:200)+(inLeash(p)?0:1000)+behind+(p.rear?-400:0); // fester Punkt hinter dem Boss gewinnt (3.1.18)
         if(score<bestScore-0.001||(Math.abs(score-bestScore)<=0.001&&(!best||rad<Math.hypot(best.x-me.x,best.y-me.y)))){bestScore=score;best=p;}
         if(!target)break;
       }
@@ -2669,7 +2683,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       }
       // nur Rückfall (3.1.14, Nutzer): die Platten gewannen als nächstgelegener Punkt gegen den Weg hinter den Boss, und der
       // 22-px-Deckungskreis hinter einer Platte reicht nicht für mehrere Digimon – live Flare-Treffer bei 665 s
-      if (cov && !best) best = cov;
+      if (cov && (!best || (cfg.dgFlareCover && covD < Math.hypot(best.x - me.x, best.y - me.y)))) best = cov; // Haken: Platte, wenn näher (3.1.18)
     }
     if (!best) { dodgeState.active = false; dodgeState.goal = null; return null; } // kein Fluchtpunkt: stehen bleiben hilft nicht – weiterkämpfen
     // Lange Ansage (z. B. Machinedramons Full Charge, 12 s): weiterkämpfen und erst so spät loslaufen, dass es

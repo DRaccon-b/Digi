@@ -2,6 +2,18 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.18 – Ultimate Flare: hinter Armageddemon stehen bleiben und weiter angreifen; Platten nur auf Wunsch
+Live 28.10.: jede Flare kostete ~5 s Angriff für alle (17 Flares ≈ 85 s), weil der Fluchtpunkt hinter dem Boss wegen des
+64-px-Nahbereichs (3.1.15) und des Sicherheitsabstands ~100 px hinter ihm lag – außerhalb der Schlagweite.
+- **Neuer Haken „Ultimate Flare: Hindernisse (Platten) als Deckung nutzen“ (Standard aus).** Aus: Es wird immer hinter
+  Armageddemon ausgewichen; direkt hinter ihm (mehr als 40° jenseits des Fächerrands) gilt der Nahbereich nicht – das
+  Digimon bleibt in Schlagweite und schlägt weiter zu (Grundangriff und Skills vom Rand). An: Platten werden genommen,
+  wenn sie näher liegen als der Weg hinter den Boss; der Nahbereich gilt überall.
+- Fluchtpunkt ist ein fester Punkt direkt hinter dem Boss (Schlagweite + 8 px, bei Paladin/Clavis ~51 px); näher als 30 px
+  gilt auch hinten als drin. Kurz vor dem Einschlag zählt beim Fächer die Angriffsposition statt des Bosses (der steht immer
+  in seinem eigenen Fächer) – sonst sperrte die letzten 1,2 s jeder Flare der Angriff.
+- Hinweis: live wurden 40 px und mehr hinter dem Boss nie getroffen, einmal 26 px – die Schlagweite liegt bei ~39–43 px.
+
 ## 3.1.17 – Key of Hope: im Schutzkreis bewegen und angreifen; Crests öfter und vor dem Gate of Judgment
 Live 28.10. (Mitschnitt, Bauzel): 41 s des Bosskampfs untätig im Schutzkreis – gesammelt wurde auf 80 px um den Clavis,
 angegriffen nur, wenn das Ziel schon (fast) in Schlagweite stand. Der Kreis hat aber 128 px.
