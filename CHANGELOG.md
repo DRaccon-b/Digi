@@ -2,6 +2,23 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.1 – Skills vom Kreisrand, Mail Server gemeinsam oder gar nicht
+- **Skills auch von der Angriffsposition am Kreisrand:** Stand das Digimon außerhalb eines Warnkreises und schlug von dort
+  zu („Außerhalb der Warnzone · normaler Angriff ohne Annäherung“), drückte der Bot nur Taste 1 – die Skill-Rotation wurde
+  in diesem Zweig nie erreicht. Live bei Diaboromon (28.10.): Paladin fast ohne Omega Blade, Fumiko die halbe Kampfzeit in
+  diesem Zustand. Jetzt wirkt er dort bereite Skills, deren Reichweite vom Stand aus reicht, kein Ansturm, mit denselben
+  Sperren wie im Kampf (kein langer Cast vor einer Boss-Attacke, nicht kurz vor dem Einschlag).
+- **Haken „Mail Server zerstören“** (Reiter Bosse → Dungeon, Standard **aus**): Diaboromons Mail Server (ab 30 %, drei
+  Stück, je 180 000 HP) bringen nur 15 s lang 25 % mehr Schaden – in der Simulation kostet das Zerschlagen 47 s mehr
+  (Raum 3 in 335 s statt 288 s). Vorher griff jedes Fenster den nächstgelegenen Server an. Mit Haken greifen alle
+  Fenster **denselben** an (den angeschlagensten zuerst, bei Gleichstand feste Reihenfolge), dann den nächsten, dann wieder
+  den Boss. Pflicht-Brechbares wie Armageddemons Kuramon-Haufen (sein Panzer) wird unabhängig davon immer zerschlagen.
+  Wandert mit in Presets.
+- Live gemessen (Revenge Hard, 5 Spieler, Level 99): Diaboromon 6,99 Mio. HP; Schaden je Sekunde Bauzel 5 500–8 000,
+  Clavis je 3 000–3 900, Gruppe 20 000–22 000; Sacred Seal reihum 27× in 224 s. Simulation darauf kalibriert
+  (Clavis-Faktor 0,19 → 0,43): Raum 3 fällt damit in beiden Varianten, in Raum 4 fallen alle vier Clavis gleichzeitig
+  durch die Ultimate Flare (offen, siehe Sammelliste). `SERVER=1` lässt die Simulation die Mail Server zerschlagen.
+
 ## 3.1.0 – Dungeon/Raid: Key of Hope immer an, Gruppenheilung reihum
 - **Key of Hope immer an:** Im Dungeon-Modus und auf jeder Raid-Map ist Key of Hope aktiv, egal ob der Haken in den
   Einstellungen gesetzt ist. Anlass: Diaboromon Hard – Imperialdramon wäre fast gestorben, der Timer lief ab.

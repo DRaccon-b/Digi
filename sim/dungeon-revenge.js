@@ -11,7 +11,7 @@
 //   CLAVIS=2 CLAVIS_LV=100 …                 Anzahl (1–4) und Level der ClavisAngemon
 //   START=4 …                                gleich in Raum 4 (Bucht) beginnen
 //   STEUERUNG=tamer …                        Spiel auf Tamer-Steuerung (Standard: Digimon – Klick bewegt das Digimon)
-//   LIVE=1 …                                 Live-Werte (Okt. 2026 gemessen): Schaden Bauzel ~9 000/s, ClavisAngemon ~1 100/s,
+//   LIVE=1 …                                 Live-Werte (Okt. 2026 gemessen): Schaden Bauzel ~8 000/s, ClavisAngemon Lv 99 ~3 500/s (28.10. gemessen),
 //                                            Einschlag 300 ms nach dem Ende des Warnkreises (EINSCHLAG_MS, F_PAL, F_CLAV einzeln)
 //   SHARE_FOLGT=0 …                          geteilter Treffer bleibt liegen (ausweichbar) – Standard: folgt dem Ziel (live)
 //   SCHADEN=12000 HP=92660 TRAENKE=400 TRANK_HP=15000 TRANK_AB=50 BOSS_HIT=6000 DAUER=1400 …
@@ -51,7 +51,7 @@ const N = TEAM === 'clavis' ? 1 + CLAVIS_N : Math.max(1, Math.min(5, Number(proc
 const SCHADEN = Number(process.env.SCHADEN) || 12000;
 const LIVE = !!Number(process.env.LIVE || 0);
 const EINSCHLAG_MS = Number(process.env.EINSCHLAG_MS ?? (LIVE ? 300 : 0)); // live: Treffer kommt nach dem Warnkreis
-const F_PAL = Number(process.env.F_PAL) || (LIVE ? 0.72 : 1), F_CLAV = Number(process.env.F_CLAV) || (LIVE ? 0.19 : 1); // Schaden-Faktoren (live: 9 000/s bzw. 1 100/s)
+const F_PAL = Number(process.env.F_PAL) || (LIVE ? 0.72 : 1), F_CLAV = Number(process.env.F_CLAV) || (LIVE ? 0.43 : 1); // Schaden-Faktoren (live Okt. 2026: Paladin 5 500–8 000/s, Clavis Lv 99 3 000–3 900/s)
 const AS = 1121, P_SPEED = Number(process.env.P_SPEED) || 120;
 const HP = Number(process.env.HP) || 92660;
 const TRAENKE = Number(process.env.TRAENKE ?? 400), TRANK_HP = Number(process.env.TRANK_HP) || 15000, TRANK_AB = Number(process.env.TRANK_AB) || 50;
@@ -261,7 +261,8 @@ function makeWindow(i) {
     world: { mapId: 'network', mapName: 'Network', channel: 1 }, target: null });
   // KOH_AUS=1: Key of Hope und alle Skill-Haken der Clavis aus – im Dungeon müssen Key of Hope und Gruppenheilung trotzdem laufen (3.1.0)
   w.localStorage.setItem('digibot.cfg', JSON.stringify({ dungeon: true, dgMode: 'hard', autopilot: false, farm: false, questMode: false, hpPot: TRANK_AB, dsPot: 0, tdsPot: 0, tab: 'data', lvlDiff: 100, radius: 400,
-    ...(process.env.KOH_AUS ? { koh: false, skillSets: { clavisangemon: { skills: { 2: false, 3: false, 4: false, 5: false, 6: false }, heal: {} } } } : {}) }));
+    ...(process.env.KOH_AUS ? { koh: false, skillSets: { clavisangemon: { skills: { 2: false, 3: false, 4: false, 5: false, 6: false }, heal: {} } } } : {}),
+    ...(process.env.SERVER ? { dgBreak: true } : {}) })); // SERVER=1: Mail Server zerstören (3.1.1, Standard aus)
   w.localStorage.setItem('digibot.accounts', JSON.stringify(accounts));
   w.eval(script);
   pl.status = () => w.document.querySelector('[data-f="status"]')?.textContent || '';

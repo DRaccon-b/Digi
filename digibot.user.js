@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.0
+// @version      3.1.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1302,6 +1302,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     farmMode: 'boss',     // 'boss' = Boss-Rotation, 'named' = Named-Elite-Runde (Map für Map)
     dungeon: false,       // Dungeon-Modus (Kera): betreten, Räume räumen, Boss, raus
     dgMode: 'easy',       // 'easy' = War Game, 'hard' = Revenge (allein kaum zu schaffen), 'apocalymon' / 'malomyotismon' = Raid
+    dgBreak: false,       // Optionales Brechbares (Mail Server bei Diaboromon) zerstören – alle dasselbe Ziel; aus = nur der Boss (3.1.1).
+                          // Pflicht-Brechbares (Kuramon-Haufen: Armageddemons Panzer) wird immer zerschlagen.
     expMess: false,       // EXP-Messung: je Kill Monster, EXP, Kampfdauer, Treffer mitschreiben (Reiter Log)
     hunt: false,          // Event (Mega-Jagd): zum angesagten Weltboss reisen, ihn suchen und bekämpfen – in jedem Modus
     wboss: false,         // Weltboss (z. B. BlackWarGreymon): beide Kanäle nach Spawnzeit abarbeiten – in jedem Modus
@@ -1480,7 +1482,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1639,6 +1641,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           'Gilt für den Modus Bosse. Boss-Rotation: reist zum ausgewählten Boss, der als Nächstes da ist. Named-Elite-Runde: Maps von Start bis Ende ablaufen, je Kanal prüfen (lebt → kämpfen, Respawn unter 2 min → warten, sonst weiter), danach per Digi-Phone zurück. Kanalwechsel nur außerhalb des Kampfes; das Level-Limit gilt für diese Bosse nicht.', 'data-modes="farm"')}
         ${grp('dungeon', 'Dungeon (Kera)', `
           <div class="digibot__apcfg">
+            ${check('dgBreak', 'Mail Server zerstören (Diaboromon ab 30 %, drei Stück): alle dasselbe Ziel, danach zurück zum Boss – aus: nur der Boss (Simulation: 47 s schneller). Pflicht-Brechbares wie Armageddemons Kuramon-Haufen wird immer zerschlagen')}
             <label>Modus<select data-apsel="dgMode"><option value="easy">Easy – War Game</option><option value="hard">Hard – Revenge (Gruppe)</option><option value="apocalymon">Apocalymon-Raid</option><option value="malomyotismon">MaloMyotismon-Raid</option></select></label>
           </div>`, true,
           'Gilt für den Modus Dungeon: zur Tür auf der Map Network, betreten (in der Gruppe nur der Leader, die anderen kommen mit), Raum 1: Terminals schützen – Tsumemon, die zu einem Terminal laufen, zuerst; dann durchs Tor, Boss Keramon (Chrysalimon, Infermon) und zum Ausgang. Ausweichen, Spiegel und Skill-Timing wie bei Bossen. Hard (Revenge): Diaboromon mit Uhr, dann Armageddemon mit Kuramon-Herde – der geteilte Treffer (240 % der HP) ist allein tödlich, also nur in der Gruppe sinnvoll. Apocalymon-Raid: über Spiral Summit zur Tür, digitieren, betreten, Megadramon-Adds zuerst, dann Apocalymon; nach dem Sieg wieder hinaus. MaloMyotismon-Raid genauso über Myotismon Castle: Phantomon und Illusionstürme zuerst, dann MaloMyotismon.', 'data-modes="dungeon"')}
@@ -2313,6 +2316,32 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     return null;
   }
+  // Angriffsposition am Kreisrand („Außerhalb der Warnzone · normaler Angriff“): bisher nur Taste 1 – Skills blieben liegen,
+  // solange Kreise aktiv waren (live Diaboromon: Paladin fast ohne Omega Blade, Fumiko die halbe Kampfzeit). Jetzt die
+  // normale Rotation für Skills, deren Reichweite vom Stand aus reicht, kein Ansturm, mit denselben Sperren wie im Kampf
+  // (skillUnsafe: kein langer Cast vor einer Boss-Attacke) und nicht kurz vor dem Einschlag (soonNear) (3.1.1)
+  function skillsAtEdge(st, target, partner, now) {
+    const p = st?.me?.partner;
+    if (!p || p.evolving || p.fainted || st.target?.id !== target.id || (bot.engage?.id === target.id && bot.engage.noDmg) || noFightEarly(st, now)) return null;
+    if (!bot.can('skill', SKILL_GAP_MS, now) || farmShielded(target, now) || (cfg.mirror && mirrorActive(target.id))) return null;
+    const d = Math.hypot(target.x - partner.x, target.y - partner.y), C = content();
+    const basicRange = C?.digimon?.[p.species]?.basic?.range, reach = (Number.isFinite(basicRange) ? basicRange : 33) + 12;
+    for (const k of SKILL_KEYS) {
+      if (!skillOn(st, k) || healAt(st, k)) continue;
+      const s = skillOnKey(st, k);
+      if (!s || isKoh(s.skill) || isAllyHeal(s.skill) || s.cdLeft > 0 || s.skill.unlocked === false || p.ds < (s.skill.dsCost || 0)) continue;
+      const def = (s.skill.id && C?.skills?.[s.skill.id]) || {};
+      const tgt = s.skill.target ?? def.target, range = s.skill.range ?? def.range ?? 0;
+      if ((tgt && tgt !== 'enemy') || s.skill.dash || def.dash || d > Math.max(range, reach)) continue;
+      if (!bot.can('Digit' + k, SKILL_GAP_MS * 2, now)) continue;
+      if (skillUnsafe(st, target, s.skill, now, Number(String(s.ref).slice(6)))) continue;
+      if (bot.hit('Digit' + k, now) === false) return null;
+      bot.lastPress.skill = now;
+      dodgeState.rangedUntil = now + (s.skill.castMs ?? def.castMs ?? 600) + 300; // Cast nicht durch partnerStop abbrechen
+      return s.skill.name || `Skill ${k}`;
+    }
+    return null;
+  }
   // fromStart: der Abstand zu blockierten Feldern wächst erst vom Startpunkt aus auf radius an – wer dicht an einer Wand
   // steht, darf von ihr weggehen (sonst fiel jede Strecke schon am Start durch: alles „nicht erreichbar“, 3.0.2)
   function digibotDodgeGridClear(a,b,grid,radius=0,fromStart=false) {
@@ -2454,7 +2483,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         if(dodgeState.approachTarget){autopilot.nav=null;autopilot.route=null;dodgeState.approachTarget=null;dodgeState.approachGoal=null;}
         dodgeState.active=true;dodgeState.basicTarget=target.id;
         if(bot.can('Digit1',ATTACK_REPEAT_MS,now))bot.hit('Digit1',now);
-        return plan.walking?'Sicherer Weg zur Angriffsposition · normaler Angriff':'Außerhalb der Warnzone · normaler Angriff ohne Annäherung';
+        const edgeSkill = !plan.walking && !soonNear ? skillsAtEdge(st, target, partner, now) : null; // 3.1.1: Skills auch von hier
+        return (plan.walking?'Sicherer Weg zur Angriffsposition · normaler Angriff':'Außerhalb der Warnzone · normaler Angriff ohne Annäherung') + (edgeSkill ? ` · Skill: ${edgeSkill}` : '');
       }
       if(dodgeState.basicTarget)digibotOutsideStop(partner,now);
       const approach=zones.length?digibotDodgeApproach(st,target,tamer,partner,zones,now):null;
@@ -7270,14 +7300,19 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       return { urgent: best, save: ttk <= best + 300, slack: best - ttk };
     };
     // Boss-Mechaniken aus den Spawn-Daten: Greifarme (grab.arm), Herde (herd: läuft zum Ei), Brechbares (breakables)
-    const arms = new Set(), breaks = new Set(); let herd = null;
+    const arms = new Set(), breaks = new Set(), optBreaks = new Set(); let herd = null;
     for (const b of spawn?.bosses || []) {
       for (const sk of b.skills || []) if (sk.grab?.arm) arms.add(sk.grab.arm);
-      for (const br of b.breakables || []) if (br.species) breaks.add(br.species);
+      // Pflicht: Brechbares, das der Boss für seinen Panzer/Schlag braucht (blade.breakables, Kuramon-Haufen) – optional: der
+      // Rest (Mail Server: nur 15 s +25 % Schaden, kostet mehr Zeit als es bringt), nur mit Haken dgBreak (3.1.1)
+      for (const br of b.breakables || []) if (br.species) { breaks.add(br.species); if (b.blade?.breakables !== br.id) optBreaks.add(br.species); }
       if (b.herd?.species) herd = { species: b.herd.species, to: R.m?.spawns?.[b.herd.to] };
     }
     const mine = new Set([st.me?.tamerEntityId, st.me?.partner?.entityId]);
     const ents0 = window.dmo?.net?.state?.entities;
+    // Brechbares: alle Fenster dasselbe Ziel – das angeschlagenste zuerst, bei Gleichstand feste Reihenfolge (HP sehen alle gleich,
+    // der Abstand nicht) – fertig, dann das nächste, dann zurück zum Boss (3.1.1)
+    const brk = breaks.size ? sc.mobs.filter((m) => breaks.has(m.species)).sort((a, b) => (a.hp - b.hp) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)) : [];
     const score = (m) => {
       if (arms.has(m.species)) { // hält mich fest: sofort brechen; hält ein Gruppenmitglied: mithelfen (der Gepackte macht nur halben Schaden am Arm)
         const held = ents0?.get?.(ents0?.get?.(m.id)?.targetId);
@@ -7286,13 +7321,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       // Herde nur in der Gruppe abfangen – allein schafft man kaum eine (je ~15 000 HP, ~3 s bis zum Ei), und die Zeit
       // fehlt dann beim Boss (Probelauf: 330 s statt 420 s bis zum Sieg, Enrage nach 480 s)
       if (herd && m.species === herd.species && herd.to) return group.active() ? 100 + Math.hypot(m.x - herd.to.x, m.y - herd.to.y) / 10 : 20000; // vor dem Ei abfangen
-      if (breaks.has(m.species)) return 400 + m.d / 10;
+      if (breaks.has(m.species)) return 400 + Math.max(0, brk.indexOf(m)) * 10;
       const r = rate(m);
       if (r) return r.save ? Math.max(0, r.slack) / 10 : 3000 + r.urgent / 10; // rettbar: kleinster Zeitpuffer zuerst
       return m.attacker ? 5000 + m.d : 10000 + m.d;
     };
     const copies = new Set((mb?.view?.copies || []).flatMap((c) => c.ids || [])); // Diaboromons Kopien: nur das Original angreifen
-    const list = sc.mobs.filter((m) => inRect(z, m, 24) && !m.banned && !safeHeld(m.id) && !copies.has(m.id) && (m.attacker || !optional.has(m.species)));
+    const list = sc.mobs.filter((m) => inRect(z, m, 24) && !m.banned && !safeHeld(m.id) && !copies.has(m.id) && (m.attacker || !optional.has(m.species)) && (cfg.dgBreak || !optBreaks.has(m.species) || m.attacker)); // Haken aus: optionales Brechbares (Mail Server) ignorieren
     if (!list.length) return null;
     list.sort((a, b) => score(a) - score(b));
     const cur = st.target, keep = cur && list.find((m) => m.id === cur.id);
