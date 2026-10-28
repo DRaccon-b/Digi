@@ -2,6 +2,17 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.19 – Warnkreise: Nahkampfposition außerhalb der Kreise statt draußen warten
+Live 28.10. (erster geschaffter Lauf, Mitschnitt Bauzel): Black Rain (fünf Kreise r 64 auf den Spielern, 3 s) kam zwölfmal
+und kostete je ~3,5 s ohne Angriff – 1,5 s laufen (Fluchtpunkt 77–88 px vom Boss), 1,5 s „Warte außerhalb“ (der Boss stand
+im eigenen Kreis, geprüft wurde nur der Punkt auf der Geraden zum Boss), 0,5 s zurück auf die Seite (16,5 s je Bosskampf).
+Die andere Seite des Bosses war dabei frei (80–95 px von allen Kreismitten).
+- **Fluchtpunkt bei Kreisen:** 24 Punkte auf dem Ring in Schlagweite um das Ziel; liegt einer außerhalb aller Kreise (Rand
+  16 px, Weg frei), ist er der Fluchtpunkt – dort wird sofort weiter angegriffen. Sonst wie bisher.
+- **Draußen statt warten:** Ist der gerade Weg zur Angriffsposition versperrt, läuft der Bot zur nächsten freien Ring-Position
+  („Sicherer Weg um den Boss“) und greift von dort an.
+- **Seitenregel ruht** (alle links/rechts vom Boss), solange Kreise stehen und 4 s danach.
+
 ## 3.1.18 – Ultimate Flare: hinter Armageddemon stehen bleiben und weiter angreifen; Platten nur auf Wunsch
 Live 28.10.: jede Flare kostete ~5 s Angriff für alle (17 Flares ≈ 85 s), weil der Fluchtpunkt hinter dem Boss wegen des
 64-px-Nahbereichs (3.1.15) und des Sicherheitsabstands ~100 px hinter ihm lag – außerhalb der Schlagweite.

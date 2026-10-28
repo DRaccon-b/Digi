@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.18
+// @version      3.1.19
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1520,7 +1520,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.18'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.19'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2065,11 +2065,27 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const FAN_REAR_DEG = 40;      // so weit jenseits des Fächerrands beginnt der Rücksektor, in dem der Nahbereich nicht gilt (3.1.18)
   const FAN_REAR_R = 30;        // im Rücksektor: näher als so am Boss gilt trotzdem als drin (live 26 px getroffen, ab 40 px nie; Schlagweite ~39–43)
   const FAN_REAR_STAND = 8;     // Fluchtpunkt hinter dem Boss: Schlagweite + so viel (3.1.18)
+  const DG_SIDE_GRACE_MS = 4000; // Seitenregel (alle links/rechts vom Boss) ruht so lange nach Warnkreisen (3.1.19)
   const FAN_SAFE_DEG = 25;      // so viel Winkel neben einem Fächer gilt als voller Sicherheitsabstand (alle Fächer ≤ 180°)
   const DODGE_BASIC_PAD = 4;    // Reserve inside the real basic-attack range.
   const DODGE_LATE_ABORT_MS = 3000; // begonnene Flucht abbrechen, wenn danach noch so viel Zeit bliebe
   const DODGE_BASIC_RANGE = 32;     // Grundangriff-Reichweite, falls die Spieldaten keine nennen
   const DODGE_EDGE_MARGIN = 8;      // Abstand der Angriffsposition zum Kreisrand (etwa Körperbreite des Digimons)
+  // Kreise am Boden (Black Rain, Cannon Volley): Nahkampfposition auf dem Ring in Schlagweite um das Ziel, die außerhalb aller
+  // Kreise liegt – live 28.10.: fünf Kreise (r 64) auf den fünf Spielern rechts vom Boss (42 px), die linke Seite des Bosses war
+  // frei (80–95 px von den Kreismitten), trotzdem je Black Rain ~3,5 s ohne Angriff (laufen, warten, zurück zur Seite) (3.1.19)
+  const DODGE_RING_MARGIN = 16, DODGE_RING_STEPS = 24;
+  function ringSpot(target, from, zones, stand, pathOk) {
+    let best = null, bd = Infinity;
+    for (let i = 0; i < DODGE_RING_STEPS; i++) {
+      const a = (i * 2 * Math.PI) / DODGE_RING_STEPS, q = { x: target.x + Math.cos(a) * stand, y: target.y + Math.sin(a) * stand };
+      if (zones.some((c) => !digibotDodgeZoneSafe(c, q, DODGE_RING_MARGIN))) continue;
+      const d = Math.hypot(q.x - from.x, q.y - from.y);
+      if (d >= bd || (pathOk && !pathOk(from, q))) continue;
+      best = q; bd = d;
+    }
+    return best;
+  }
   const DODGE_WALK_PX_S = 130;   // vorsichtig geschätzte Laufgeschwindigkeit beim Ausweichen
   const DODGE_HOLD_RANGE = 220; // so nah an einer noch aktiven Zone wird nach dem Ausweichen gewartet
   // Kurz vor dem Einschlag nicht wieder angreifen, wenn das Ziel neben einer Zone steht: Bosse laufen weiter, das
@@ -2443,7 +2459,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const tamerWalking=tamer.id!==partner.id && (tamerDist>180 || scene?.approach?.phase==='walking');
     // Current client approaches from beyond 192px and stops at 112px; check a slightly longer corridor.
     const tamerPoint=tamerWalking?{x:target.x+(tamer.x-target.x)*Math.min(1,108/(tamerDist||1)),y:target.y+(tamer.y-target.y)*Math.min(1,108/(tamerDist||1))}:tamer;
-    if(!digibotDodgeZonePath(tamer,tamerPoint,zones)||!digibotDodgeGridClear(tamer,tamerPoint,grid,tamerWalking?5:0))return null;
+    // Tamer am Kreisrand (Ring-Position, 3.1.19): wie beim Digimon Körperbreite als Rand, sonst volle Reserve
+    if(!digibotDodgeZonePath(tamer,tamerPoint,zones,following?DODGE_EDGE_MARGIN:DODGE_MARGIN)||!digibotDodgeGridClear(tamer,tamerPoint,grid,tamerWalking?5:0))return null;
     const positions=[partner],predicted=scene?.ownPartner;
     if(predicted?.moving&&!following)return null;
     if(predicted&&Number.isFinite(predicted.x)&&Number.isFinite(predicted.y))positions.push(predicted);
@@ -2518,7 +2535,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // dort nicht die volle 28-px-Reserve – sonst jagte das Ausweichen es gleich wieder weg (Dark Roar: zweite Flucht
     // 0,3 s vor dem Einschlag, 3.0.8)
     // – nur bei Kreisen: Fächer schwenken und Strahlen sind schmal, dort bleibt die volle Reserve (Raid: Ultimate Flare)
-    const atEdge = (p) => p === partner && !!target && dodgeState.basicTarget === target.id;
+    const atRing = (p) => !!dodgeState.goal?.ring && !!p && Math.hypot(p.x - dodgeState.goal.x, p.y - dodgeState.goal.y) < 20;
+    const atEdge = (p) => (p === partner || p === tamer) && !!target && (dodgeState.basicTarget === target.id || atRing(p)); // 3.1.19: auch der Tamer, auch am Ring-Fluchtpunkt
     const inZone = (p) => p && zones.find((z) => !digibotDodgeZoneSafe(z,p, atEdge(p) && z.kind === 'circle' ? DODGE_EDGE_MARGIN : DODGE_MARGIN) && !covered(z,p,cmap));
     const approaching=!!dodgeState.approachTarget;
     const z = inZone(tamer) || inZone(partner);
@@ -2553,6 +2571,17 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const onlyCircles = zones.every((c) => c.kind === 'circle');
       const plan0=digibotOutsideBasicPlan(st,target,partner,tamer,zones,soonNear && !onlyCircles);
       const plan=plan0 && (!soonNear || !onlyCircles || !plan0.walking) ? plan0 : null;
+      // Kreise um den Boss, gerader Weg zur Angriffsposition versperrt: Nahkampfposition auf dem Ring außerhalb der Kreise (3.1.19)
+      if(!plan && near && target && partner && tamer && st.target?.id===target.id && !noFightEarly(st,now) && zones.some((c)=>c.kind==='circle'&&!c.huge)){
+        const grid0=worldScene()?.map?.grid;
+        const q=ringSpot(target,partner,zones,stand0,(a,b)=>digibotDodgeZonePath(a,b,zones,DODGE_EDGE_MARGIN)&&digibotDodgeGridClear(a,b,grid0,5));
+        if(q){
+          dodgeState.basicTarget=target.id;dodgeState.active=true;
+          if(Math.hypot(tamer.x-q.x,tamer.y-q.y)>DODGE_GOAL_REACHED && now-dodgeState.lastTap>DODGE_RETAP_MS){dodgeState.lastTap=now;autopilot.nav=null;autopilot.route=null;worldScene()?.tapGround?.(q.x,q.y);}
+          if(partner.id!==tamer.id && Math.hypot(partner.x-q.x,partner.y-q.y)>DODGE_GOAL_REACHED+8 && now-dodgeState.lastFollow>1500){dodgeState.lastFollow=now;commands()?.partnerFollow?.();}
+          return 'Sicherer Weg um den Boss · Nahkampfposition außerhalb der Kreise';
+        }
+      }
       // Ziel knapp im Warnkreis, Angriffsposition draußen frei: mit der 1 angreifen – auch ohne vorherigen Kampf
       if(near && plan && st.target?.id===target.id && !noFightEarly(st,now) && !farmShielded(target,now) && !mirrorActive(target.id)){
         if(dodgeState.approachTarget){autopilot.nav=null;autopilot.route=null;dodgeState.approachTarget=null;dodgeState.approachGoal=null;}
@@ -2618,7 +2647,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // aktuellen Position sprang der beste Punkt beim Laufen zwischen Nachbarrichtungen hin und her (Eiern)
     const g0 = dodgeState.goal;
     let keep = g0 && now - g0.at < DODGE_GOAL_MS && Math.hypot(me.x - g0.x, me.y - g0.y) > DODGE_GOAL_REACHED
-      && !zones.some((c) => !digibotDodgeZoneSafe(c,g0,DODGE_MARGIN*1.5) && !covered(c,g0,mapId)) && pathClear(g0);
+      && !zones.some((c) => !digibotDodgeZoneSafe(c,g0,g0.ring?DODGE_RING_MARGIN:DODGE_MARGIN*1.5) && !covered(c,g0,mapId)) && pathClear(g0);
     // Raumweiter Kreis (z. B. Marsmons Corona Sanctions, 400 px): so weit suchen, wie das Digimon in der Restzeit
     // kommt – dann aber nur Punkte mit geradem, begehbarem Weg (keine Wand dazwischen)
     const maxR = inside.some((c) => c.huge) ? hugeReach(left,walkSpeed) : DODGE_SEARCH_R;
@@ -2633,6 +2662,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       // angegriffen (3.1.18, Nutzer: „hinter ihm kann man immer angreifen“)
       if(!cfg.dgFlareCover)for(const c of inside){if(c.kind!=='fan'||!c.sweep)continue;const br=content()?.digimon?.[partner?.defId||st?.me?.partner?.species]?.basic?.range;
         const stand=(Number.isFinite(br)?br+7:40)+FAN_REAR_STAND;candidates.push({x:c.x-Math.cos(c.dir)*stand,y:c.y-Math.sin(c.dir)*stand,rear:true});}
+      // Kreise (Black Rain, Volley): Nahkampfpositionen rund um das Ziel, außerhalb aller Kreise – dort wird sofort weiter
+      // angegriffen statt draußen zu warten (3.1.19)
+      if(target&&partner&&inside.some((c)=>c.kind==='circle'&&!c.huge)){const br=content()?.digimon?.[partner?.defId||st?.me?.partner?.species]?.basic?.range;const stand=Number.isFinite(br)?br+7:40;
+        for(let i=0;i<DODGE_RING_STEPS;i++){const a=(i*2*Math.PI)/DODGE_RING_STEPS;candidates.push({x:target.x+Math.cos(a)*stand,y:target.y+Math.sin(a)*stand,ring:true});}}
       for(let rad=40;rad<=maxR;rad+=24)for(let i=0;i<16;i++){
         const ang=base+(i%2?1:-1)*Math.ceil(i/2)*(Math.PI/8);
         candidates.push({x:me.x+Math.cos(ang)*rad,y:me.y+Math.sin(ang)*rad});
@@ -2644,7 +2677,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         const rad=Math.hypot(p.x-me.x,p.y-me.y);
         const budget=left!=null?Math.max(firstRad,(left-300)/1000*walkSpeed):firstRad+72;
         if(first&&rad>budget+0.001)break;
-        if(!walkable(p.x,p.y)||zones.some(c=>!digibotDodgeZoneSafe(c,p,DODGE_MARGIN*1.5))||!walkLine(p))continue;
+        const mg=p.ring?DODGE_RING_MARGIN:DODGE_MARGIN*1.5; // Ring-Position: Körperbreite als Rand wie an der Angriffsposition (3.1.19)
+        if(!walkable(p.x,p.y)||zones.some(c=>!digibotDodgeZoneSafe(c,p,mg))||!walkLine(p))continue;
         const clear=pathClear(p);
         if(safeRectAt(mapId,p)){if(clear)safeOnly||=p;else crossOnly||=p;continue;}
         if(!clear){crossOnly||=p;continue;}
@@ -2652,7 +2686,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         // Fächer: hinter dem Boss ausweichen (gegenüber seiner Zielrichtung) – dort trifft der Schwenk sicher nicht (Nutzer-Taktik 3.1.11)
         let behind=0;for(const c of inside){if(c.kind!=='fan')continue;let dd=Math.abs(Math.atan2(p.y-c.y,p.x-c.x)-(c.dir+Math.PI))%(2*Math.PI);if(dd>Math.PI)dd=2*Math.PI-dd;if(dd<Math.PI/4)behind-=150;}
         const score=!target?rad:Math.hypot(p.x-target.x,p.y-target.y)
-          +(lineClear(p,target,zones)||inZone(target)?0:200)+(inLeash(p)?0:1000)+behind+(p.rear?-400:0); // fester Punkt hinter dem Boss gewinnt (3.1.18)
+          +(lineClear(p,target,zones)||inZone(target)?0:200)+(inLeash(p)?0:1000)+behind+(p.rear?-400:0)+(p.ring?-300:0); // fester Punkt hinter dem Boss / Ring-Position gewinnt (3.1.18/19)
         if(score<bestScore-0.001||(Math.abs(score-bestScore)<=0.001&&(!best||rad<Math.hypot(best.x-me.x,best.y-me.y)))){bestScore=score;best=p;}
         if(!target)break;
       }
@@ -2695,7 +2729,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // dann bis zum Kreisende untätig herum (2.32.1). Ein schon begonnener Lauf wird abgebrochen, wenn noch viel Zeit bleibt.
     // Fächer (Ultimate Flare): nie spät – sofort los, sonst reicht das Zeitbudget nur noch für den Punkt seitlich, nicht für den
     // hinter dem Boss (live 28.10.: „kämpfe weiter, laufe 0,5 s später heraus“ → Treffer, 3.1.12)
-    if (!approaching && !inside.some((c) => c.kind === 'fan') && (!target || !partner || Math.hypot(partner.x-target.x,partner.y-target.y)<=DODGE_HOLD_RANGE) && inside.length && lefts.length === inside.length && !kohBlockPending(now)) {
+    // Ring-Position (3.1.19): nicht spät – dort wird sofort weiter angegriffen, Warten bringt nichts
+    if (!approaching && !best.ring && !inside.some((c) => c.kind === 'fan') && (!target || !partner || Math.hypot(partner.x-target.x,partner.y-target.y)<=DODGE_HOLD_RANGE) && inside.length && lefts.length === inside.length && !kohBlockPending(now)) {
       const runMs = Math.hypot(best.x - me.x, best.y - me.y) / walkSpeed * 1000;
       // Puffer bewusst fest 1,5 s: ein kürzerer (Latenz + 250 ms, min. 0,7 bzw. 1,2 s) brachte beim Dark Roar (3 s, 40 px)
       // zwar ~20 % mehr Schaden, aber in Gruppe/Raid erste Treffer durch Black Rain/Demon Flame (Test-Boss, 2026-10-27)
@@ -2709,7 +2744,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     dodgeState.late = false;
     if (!dodgeState.active) { dodgeState.active = true; logEvent('warn', `${zoneName(z)} – weiche aus`); }
-    if (best !== g0) dodgeState.goal = { x: best.x, y: best.y, at: now };
+    if (best !== g0) dodgeState.goal = { x: best.x, y: best.y, at: now, ring: !!best.ring };
+    if (best.ring && target) dodgeState.basicTarget = target.id; // am Ring sofort angreifen (3.1.19)
     // Klick nur bei neuem Punkt sofort, sonst selten wiederholen (falls er verloren ging)
     if (best !== g0 || now - dodgeState.lastTap > DODGE_RETAP_MS) { dodgeState.lastTap = now;autopilot.nav=null;autopilot.route=null; worldScene()?.tapGround?.(best.x, best.y); }
     // Digimon-Steuerung: der Klick bewegt das Digimon selbst – „Folgen“ würde es zum Tamer zurückziehen (Zickzack)
@@ -7604,6 +7640,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // 2) im Kampf alle auf EINER Seite von ihm (links oder rechts), niemand oben oder unten (Nutzer-Taktik 3.1.11) – nur solange
     //    der Boss mein Ziel ist (Kuramon-Haufen/Panzer-Phase: dorthin laufen dürfen)
     if (st.target?.id !== te.id) return null;
+    // Seitenregel ruht, solange Warnkreise stehen, und DG_SIDE_GRACE_MS danach: die Nahkampfposition außerhalb der Kreise liegt
+    // oft auf der anderen Seite – zurückzulaufen kostete live 16,5 s je Bosskampf (3.1.19)
+    if (dangerZones().some((z) => z.kind === 'circle' && !z.huge)) K.sideHold = now;
+    if (now - (K.sideHold || 0) < DG_SIDE_GRACE_MS) return null;
     const side = K.side || 1, dx = pe.x - te.x, dy = pe.y - te.y;
     if (Math.sign(dx) === side && Math.abs(dy) <= 45) return null; // richtige Seite, auf Höhe
     if (!bot.can('sidePos', 800, now)) return `Armageddemon: auf die ${side > 0 ? 'rechte' : 'linke'} Seite…`;
