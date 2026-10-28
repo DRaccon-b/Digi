@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.9
+// @version      3.1.10
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1501,7 +1501,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.9'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.10'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -7332,7 +7332,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const dg = {
     dps: 0, dpsTrack: null, hud: null, hudAt: 0, inside: false, insideAt: 0, enterAt: 0, doorAt: 0, fails: 0, cleared: false, logRoom: -1,
     herd: { low: false, lowAt: 0, back: false, backAt: 0, seen: new Set(), lastSpawn: 0, note: '' }, // Herden-Form (3.1.9)
-    reset() { this.hud = null; this.hudAt = 0; this.inside = false; this.insideAt = 0; this.enterAt = 0; this.doorAt = 0; this.fails = 0; this.cleared = false; this.logRoom = -1; this.herd = { low: false, lowAt: 0, back: false, backAt: 0, seen: new Set(), lastSpawn: 0, note: '' }; },
+    kite: { at: 0, done: false }, // Armageddemon nach unten kiten (3.1.10)
+    reset() { this.hud = null; this.hudAt = 0; this.inside = false; this.insideAt = 0; this.enterAt = 0; this.doorAt = 0; this.fails = 0; this.cleared = false; this.logRoom = -1; this.herd = { low: false, lowAt: 0, back: false, backAt: 0, seen: new Set(), lastSpawn: 0, note: '' }; this.kite = { at: 0, done: false }; },
   };
   function dgNote(ev) {
     dg.hud = { raid: ev.raid, room: ev.room ?? 0, rooms: ev.rooms ?? 0, roomId: ev.roomId, pulled: !!ev.pulled, deaths: ev.deaths ?? 0, deathLimit: ev.deathLimit ?? 0 };
@@ -7516,27 +7517,43 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function dgSouthSide(st, now) {
     const mapId = st.world?.mapId, sp = content()?.spawns?.[mapId], ents = window.dmo?.net?.state?.entities;
     const t = st.target, te = t?.kind === 'mob' && t.hp > 0 ? ents?.get?.(t.id) : null, pe = ents?.get?.(st.me?.partner?.entityId);
-    if (!te || !pe || !(te.flags & FLAG.Boss) || pe.flags & FLAG.Held) return null;
+    if (!te || !pe || !(te.flags & FLAG.Boss) || (te.flags & (FLAG.Hidden | FLAG.Untargetable)) || pe.flags & FLAG.Held) return null;
     const b = (sp?.bosses || []).find((o) => o.herd?.from?.length && o.species === te.defId);
     if (!b) return null;
-    if (pe.y >= te.y + 20) return null; // schon unterhalb
     let idx = 0, n = 1;
     if (group.active()) {
       const slots = [group.slot(), ...[...group.peers.entries()].filter(([, q]) => fresh(q, now) && q.inWorld && q.mapId === mapId).map(([k]) => k)].sort((a, c) => a - c);
       idx = Math.max(0, slots.indexOf(group.slot())); n = slots.length;
     }
+    // 1) Kiten (3.1.10, Nutzer-Taktik): alle gehen in die untere Raumhälfte und warten dort ohne Angriff, bis der Boss
+    //    nachgekommen ist (er läuft seinem Ziel hinterher, 60 px/s) – höchstens DG_KITE_WAIT_MS, dann wird dort gekämpft, wo er steht
+    const K = dg.kite, raid = dgRaid(mapId), R = raid && dgRoom(st, raid), z = R && R.cur >= 0 ? R.zone(R.cur) : null;
+    if (!K.done && z) {
+      if (!K.at) { K.at = now; logEvent('bot', 'Armageddemon ist da – nach unten kiten, Kampf in der unteren Raumhälfte'); }
+      const goal = { x: z.x + z.w / 2 + (idx - (n - 1) / 2) * 40, y: z.y + z.h - 90 };
+      // „unten“ = der Boss hat die Raummitte nach Süden überschritten (sein Startplatz liegt nur ~130 px über dem Sammelpunkt)
+      const down = te.y >= z.y + z.h / 2 + 10, dBoss = Math.hypot(te.x - goal.x, te.y - goal.y);
+      if (down || now - K.at > DG_KITE_WAIT_MS) { K.done = true; logEvent('bot', down ? 'Armageddemon ist unten – Kampf' : 'Armageddemon kommt nicht nach – Kampf dort, wo er steht'); }
+      else {
+        if (Math.hypot(pe.x - goal.x, pe.y - goal.y) > 30) { if (walkTo(st, goal.x, goal.y, now, { zones: dangerZones(), nearestSafe: true }) === 'stuck') { K.done = true; return null; } return 'Armageddemon: nach unten kiten…'; }
+        return `Armageddemon: warte unten, bis er nachkommt (${Math.round(dBoss)} px)…`;
+      }
+    }
+    // 2) im Kampf südlich des Bosses bleiben – wer nördlich steht, geht (mit Abstand zu Warnflächen) unten herum
+    if (pe.y >= te.y + 20) return null; // schon unterhalb
     const goal = { x: te.x + (idx - (n - 1) / 2) * 36, y: te.y + 60 };
     if (walkTo(st, goal.x, goal.y, now, { zones: dangerZones(), nearestSafe: true }) === 'stuck') return null;
     return 'Armageddemon: unten herum – Kampf in der unteren Raumhälfte';
   }
+  const DG_KITE_WAIT_MS = 20000; // Kiten: höchstens so lange unten warten, bis der Boss die Raummitte überschritten hat
   // Raum mit Herde (Armageddemon), Nutzer-Taktik 3.1.9: vor den Wellen eine Stufe zurück (Clavis → Shakkoumon, Paladin → Dragon
   // Mode – beide mit Flächenangriffen; die Clavis hat keinen), die Wellen in dieser Form abwehren, am Ende von Welle 9 wieder
   // in die Kampfform (ensureEvolution zur eingestellten Zielform). Simulation: 20–21 statt 10–19 von 60 Kuramon abgefangen.
   const dgHerdLow = () => !!(dg.herd.low && !dg.herd.back); // im Bot-Takt heißt die lokale Ausweich-Variable auch „dg“
   function dgHerdBossHere(st, mapId) {
     const raid = dgRaid(mapId); if (!raid) return null;
-    const R = dgRoom(st, raid); if (!R?.m || R.here < 0) return null;
-    const z = R.zone(R.here); if (!z) return null;
+    const R = dgRoom(st, raid); if (!R?.m || R.cur < 0 || R.cur >= R.rooms.length) return null;
+    const z = R.zone(R.cur); if (!z) return null; // der nächste zu räumende Raum – zurückgestuft wird schon direkt nach Raum 3
     const sp = content()?.spawns?.[mapId];
     const inRect0 = (q) => q && q.x >= z.x && q.x <= z.x + z.w && q.y >= z.y && q.y <= z.y + z.h;
     const b = (sp?.bosses || []).find((o) => o.herd?.from?.length && inRect0(R.m?.spawns?.[o.at]));
@@ -7549,9 +7566,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (!here) { if (H.low && !H.back) { H.back = true; H.backAt = now; } return null; } // anderer Raum: nur noch zurück in die Kampfform
     const { b, R } = here, ents = window.dmo?.net?.state?.entities;
     let bossUp = false, herdAlive = false;
-    ents?.forEach?.((e) => { if (e.kind !== KIND.Mob || e.hp <= 0) return; if (e.defId === b.species) bossUp = true; if (e.defId === b.herd.species) { herdAlive = true; if (!H.seen.has(e.id)) { H.seen.add(e.id); H.lastSpawn = now; } } });
+    ents?.forEach?.((e) => { if (e.kind !== KIND.Mob || e.hp <= 0) return; if (e.defId === b.species && !(e.flags & (FLAG.Hidden | FLAG.Untargetable))) bossUp = true; if (e.defId === b.herd.species) { herdAlive = true; if (!H.seen.has(e.id)) { H.seen.add(e.id); H.lastSpawn = now; } } });
     const perWave = b.herd.perWave || 6, waves = b.herd.waves || 10;
-    const target = cfg.apEvo && cfg.apEvo !== EVO_MAX ? cfg.apEvo : maxEvolution(p);
+    const want = cfg.apEvo && cfg.apEvo !== EVO_MAX ? cfg.apEvo : null;
+    const target = want && (p.evolutions || []).some((e) => e.species === want) ? want : maxEvolution(p);
     const lowerOf = (sp) => (p.evolutions || []).find((e) => e.species === sp)?.from;
     // 1) vor der Herde: eine Stufe zurück (nur aus der Zielform, nur wenn noch nichts gezogen und der Boss nicht da ist)
     if (!H.low) {
@@ -7560,14 +7578,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (evoCooldownLeft(st) > 0) return `Herde: warte auf die Digitations-Abklingzeit (${Math.ceil(evoCooldownLeft(st) / 1000)} s)`;
       if (!bot.can('devolve', 4000, now)) return `Herde: zurück zu ${speciesName(lowerOf(target))}…`;
       bot.lastPress.devolve = now; H.low = true; H.lowAt = now; commands()?.devolve?.();
-      logEvent('bot', `Raum ${R.here + 1}: zurück zu ${speciesName(lowerOf(target))} für die Herde (Flächenangriffe)`);
+      logEvent('bot', `Raum ${R.cur + 1}: zurück zu ${speciesName(lowerOf(target))} für die Herde (Flächenangriffe)`);
       return `Herde: zurück zu ${speciesName(lowerOf(target))}…`;
     }
     // 2) Ende von Welle 9 (alle Wellen bis auf die letzte gespawnt, keine Kuramon mehr unterwegs) oder Boss da: wieder hoch
     if (!H.back) {
       const spawnedWaves = Math.ceil(H.seen.size / perWave);
       const lastDone = spawnedWaves >= waves - 1 && !herdAlive && now - H.lastSpawn > 2000;
-      if (bossUp || lastDone || (H.seen.size && now - H.lastSpawn > 25000)) { H.back = true; H.backAt = now; logEvent('bot', `Raum ${R.here + 1}: Welle ${spawnedWaves} vorbei – hoch zu ${speciesName(target)}`); }
+      if (bossUp || lastDone || (H.seen.size && now - H.lastSpawn > 25000)) { H.back = true; H.backAt = now; logEvent('bot', `Raum ${R.cur + 1}: Welle ${spawnedWaves} vorbei – hoch zu ${speciesName(target)}`); }
       else return null; // in der niedrigen Form kämpfen (normale Zielwahl/Angriff)
     }
     // 3) hoch in die Kampfform – ensureEvolution gibt den Befehl, der Takt läuft weiter (Ausweichen/Key of Hope bleiben aktiv)
@@ -7581,7 +7599,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (!b) return null;
     const egg = R.m?.spawns?.[b.herd.to], lanes = b.herd.from.map((nm) => R.m?.spawns?.[nm]).filter(Boolean);
     if (!egg || !lanes.length) return null;
-    let bossUp = false; ents?.forEach?.((e) => { if (e.kind === KIND.Mob && e.defId === b.species && e.hp > 0) bossUp = true; });
+    // live (28.10.): Armageddemon steht schon während der Herde da – versteckt und unangreifbar (Flags Hidden+Untargetable). Erst
+    // wenn er sichtbar/angreifbar ist, gilt „Boss ist da“ (3.1.10)
+    let bossUp = false; ents?.forEach?.((e) => { if (e.kind === KIND.Mob && e.defId === b.species && e.hp > 0 && !(e.flags & (FLAG.Hidden | FLAG.Untargetable))) bossUp = true; });
     if (bossUp) return { x: z.x + z.w / 2, y: z.y + z.h - 70, what: 'Boss ist da – unten in der Mitte sammeln', wait: 'unten in der Mitte – warte auf den Boss-Kampf' };
     // meine Seite: Gruppenmitglieder auf dieser Map nach Slot, erste Hälfte links (kleinere x), Rest rechts
     let side = 0;

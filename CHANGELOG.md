@@ -2,6 +2,23 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.10 – Raum 4 live nachgebessert: Boss zählt erst sichtbar, Zurückstufen nach Raum 3, Kiten nach unten
+Live (28.10., erster Lauf mit 3.1.9): Armageddemon steht im Spielzustand schon ab Raumstart da – versteckt und unangreifbar
+(Flags Hidden + Untargetable) –, sichtbar wird er erst nach der Herde. Der Bot hielt ihn für „da“: kein Zurückstufen, alle
+sofort unten in der Mitte statt auf den Wellen-Posten, und nach seinem Erscheinen wurde nicht nach unten gekitet.
+- **„Boss ist da“** gilt erst, wenn er sichtbar und angreifbar ist (Posten, Formwechsel, Kiten).
+- **Zurückstufen direkt nach dem geschafften Raum 3** (nächster zu räumender Raum ist der Herden-Raum), nicht erst im Raum.
+- **Zielform:** Ist die eingestellte Digitation nicht die des eigenen Digimons (Bauzel hatte „ClavisAngemon“ stehen), gilt
+  die höchste Form – vorher blieb der Formwechsel dann stumm aus.
+- **Kiten:** Sobald Armageddemon angreifbar ist, gehen alle in die untere Raumhälfte und warten dort ohne Angriff, bis er
+  nachgekommen ist (er folgt seinem Ziel mit 60 px/s), höchstens 20 s; dann Kampf unten, wer nördlich von ihm steht, geht
+  unten herum. Ausweichen und Key of Hope laufen dabei weiter.
+- Live-Befund 3.1.6: Key of Hope wechselt jetzt zwischen drei Clavis (Makota, Fumiko, MarcusD), Raum 3 ohne großen Treffer
+  in 302 s.
+- Simulation Raum 4 mit Formwechsel und Kiten (2 Läufe): geschafft, 0 Stürze, 0 Flare-Treffer bei 37 Ansagen, 15 Kuramon
+  abgefangen; Raum 4 dauert mit dem Kiten 568–579 s (vorher 510–550 s) – der Boss-Kampf rückt damit näher an die
+  8-min-Enrage (live ist der Gruppenschaden höher als in der Simulation). Suite 152/152.
+
 ## 3.1.9 – Raum 4: Herde in niedriger Form (Shakkoumon / Dragon Mode)
 Nutzer-Taktik, in der Simulation geprüft (20–21 statt 10–19 von 60 Kuramon abgefangen, Boss eine Stufe schwächer, 0 Stürze).
 - **Haken „Raum 4: Herde in niedriger Form abwehren“** (Reiter Bosse → Dungeon, Standard aus – erst live prüfen): Vor den Wellen – noch im
