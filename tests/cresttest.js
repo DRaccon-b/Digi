@@ -39,6 +39,12 @@ const check = (name, ok, info) => { results.push(ok); console.log((ok ? 'OK     
   W.store.setState({ cooldowns: { 'skill:0': { end: perf() + 1000 }, 'skill:1': { end: perf() + 30000 } } });
   await wait(1500);
   check('B: Gate gleich bereit – Crest gezündet', calls.length === 1, `${calls.length} Aufrufe · ${W.status()}`);
+  // 3.1.25: C – der Boss zielt auf jemand anderen, ich greife gerade nicht an (Ausweichen): Bosskampf in der Nähe zählt trotzdem
+  const b = W.ents.get('boss:1'); b.targetId = 'p:other'; b.flags = 16 | 8;
+  W.store.setState({ cooldowns: { tamer: { end: perf() - 1 }, 'skill:0': { end: perf() + 500 }, 'skill:1': { end: perf() + 30000 } }, target: { id: 'boss:1', kind: 'mob', name: 'Armageddemon', level: 99, hp: 900000, maxHp: 900000, flags: 24 } });
+  W.w.document.querySelector('[data-act="bot"]').click(); await wait(300); W.w.document.querySelector('[data-act="bot"]').click();
+  const c0 = calls.length; await wait(3500);
+  check('C: Boss zielt auf andere, Bosskampf in der Nähe – Crest gezündet', calls.length > c0, `${calls.length - c0} Aufrufe · ${W.status()}`);
   console.log(results.every(Boolean) ? 'ALLES OK' : 'FEHLER');
   process.exit(results.every(Boolean) ? 0 : 1);
 })();

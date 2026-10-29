@@ -2,6 +2,14 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.25 – Crests: Bosskampf zählt als Kampf, Wartezeit aufs Gate läuft weiter
+Die Clavis setzten ihr Crest selten: „im Kampf“ galt nur, wenn das eigene Fenster gerade selbst angriff oder ein Monster es
+anvisierte. Der Boss zielt aber auf den mit den meisten Max-HP, und Ausweichen/Sammeln setzt den eigenen Angriff zurück –
+jedes Wegfallen begann außerdem die 10-s-Wartezeit aufs Gate of Judgment von vorn (Fehler aus 3.1.17).
+- **Bosskampf in der Nähe (≤ 320 px, Boss im Kampf) zählt als Kampf**, auch beim Ausweichen und Sammeln.
+- **Die Wartezeit aufs Gate läuft weiter**, wenn „im Kampf“ bis zu 6 s wegfällt. Nach spätestens 10 s wird gezündet, auch
+  wenn das Gate noch nicht bereit ist.
+
 ## 3.1.24 – Gankoomon: zuerst die Hinukamuy
 Mitschnitt der Mega-Jagd 28.10.: Gankoomon ruft bei 50 % und 25 % je drei Hinukamuy (Lv 75, 427 844 HP). Solange einer lebt,
 verliert er keine HP, jeder Treffer am Boss wird geblockt. Die Regel steht nicht in den Spieldaten des Clients.
