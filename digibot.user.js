@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.28
+// @version      3.1.29
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1572,7 +1572,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.28'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.29'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1587,7 +1587,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         farm: 'Boss-Rotation oder Named-Elite-Runde (Reiter Bosse)',
         dungeon: 'Kera-Dungeon: zur Tür, betreten, Räume räumen, Boss, wieder hinaus (Reiter Bosse)',
         events: 'Nichts anderes tun: nur auf das Event (Mega-Jagd) und die Weltbosse warten, hinreisen und kämpfen. Schaltet 🎯 Event und 🌍 Weltboss ein.',
-        food: 'Zum Händler Tentomon im Lager von Dream Ruins reisen, das eingestellte Food nachkaufen (Reiter Food), dann stoppen',
+        food: 'Zum Händler Tentomon im Lager von Dream Ruins reisen, das eingestellte Food nachkaufen (Reiter Food), zurück zum Startpunkt, dann stoppen',
       }[k])}">${l}</button>`).join('')}</div>
       <div class="digibot__runrow">
         <button class="digibot__btn digibot__run" data-act="bot" title="Alt+B">▶ Start</button>
@@ -6751,7 +6751,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Händler Tentomon im Lager von Dream Ruins (myotismon_castle) verkauft Feast, DS Drive, DS Cartridge, Bento, Ramen.
   // Ablauf: hinreisen → zum NPC → ansprechen → „Show me your wares“ (openShop) → je Sorte bis zur Zielmenge kaufen → Shop zu → fertig.
   const FOOD_MAP = 'myotismon_castle', FOOD_NPC = 'trader_tentomon', FOOD_STACK = 99, FOOD_STEP_MS = 1500, FOOD_GIVEUP = 4;
-  const food = { talkAt: 0, tries: 0, bought: [], done: false, reset() { this.talkAt = 0; this.tries = 0; this.bought = []; this.done = false; } };
+  const FOOD_HOME_NEAR = 40, FOOD_HOME_GIVEUP_MS = 600000; // 3.1.29: nach dem Kauf zurück zum Startpunkt (so nah, höchstens so lange)
+  const food = { talkAt: 0, tries: 0, bought: [], done: false, home: null, homing: 0,
+    reset() { this.talkAt = 0; this.tries = 0; this.bought = []; this.done = false; this.home = null; this.homing = 0; } };
   const itemCount = (me, id) => (me?.inventory || []).filter((i) => i?.itemId === id).reduce((a, i) => a + (i.qty || 0), 0);
   function foodWants(st) {
     const me = st?.me, C = content();
@@ -6763,11 +6765,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function foodStep(st, now) {
     const mapId = cfg.foodMap || FOOD_MAP, npcId = cfg.foodNpc || FOOD_NPC;
     if (food.done) return true;
+    if (!food.home) { const me0 = controlled(st); if (st.world?.mapId && me0) food.home = { mapId: st.world.mapId, x: me0.x, y: me0.y }; }
+    if (food.homing) return foodReturn(st, now);
     const wants = foodWants(st);
     if (!wants.length) { logEvent('warn', 'Food kaufen: keine Sorte eingestellt (Reiter Food)'); food.done = true; return true; }
     if (!wants.some((w) => w.need > 0)) { // alles da (auch nach dem letzten Kauf): Shop/Dialog zu, fertig
       if (st.shop) commands()?.closeShop?.(); if (st.dialog) commands()?.closeDialog?.();
-      logEvent('bot', `Food kaufen: ${food.bought.length ? `gekauft ${food.bought.join(', ')} – ` : ''}alles voll (${wants.map((w) => `${w.name} ${w.have}`).join(', ')})`); notify('Food gekauft.'); food.done = true; return true; }
+      logEvent('bot', `Food kaufen: ${food.bought.length ? `gekauft ${food.bought.join(', ')} – ` : ''}alles voll (${wants.map((w) => `${w.name} ${w.have}`).join(', ')})`); notify('Food gekauft.'); return foodReturn(st, now); }
     if (world.state !== 'ready') { loadWorld(); return 'Lade Kartendaten…'; }
     const tr = travel(st, mapId, now);
     if (tr !== true) return `Reise nach ${content()?.maps?.[mapId]?.name || mapId} · ${tr}`;
@@ -6790,7 +6794,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       commands()?.closeShop?.(); commands()?.closeDialog?.();
       const rest = foodWants(st).filter((w) => w.need > 0);
       logEvent('bot', `Food gekauft: ${food.bought.join(', ') || 'nichts'}${rest.length ? ` · offen: ${rest.map((w) => `${w.name} ${w.have}/${w.want}`).join(', ')}` : ''}`);
-      notify('Food gekauft.'); food.done = true; return true;
+      notify('Food gekauft.'); return foodReturn(st, now);
     }
     if (st.dialog?.npc === npcId) { // Dialog offen: zum Sortiment
       if (now - food.talkAt < FOOD_STEP_MS) return 'Warte auf das Sortiment…';
@@ -6800,6 +6804,28 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (now - food.talkAt < FOOD_STEP_MS * 2) return 'Spreche den Händler an…';
     if (++food.tries > FOOD_GIVEUP) { logEvent('warn', 'Food kaufen: Händler antwortet nicht – abgebrochen'); food.done = true; return true; }
     food.talkAt = now; commands()?.talk?.(npcId); return `Spreche ${content()?.npcs?.[npcId]?.name || npcId} an…`;
+  }
+
+  // Nach erfolgreichem Kauf: zurück auf die Start-Map und zur Startposition, dann fertig (Nutzer 29.10., 3.1.29)
+  function foodReturn(st, now) {
+    const h = food.home;
+    if (!food.homing) food.homing = now;
+    if (!h) { food.done = true; return true; }
+    const name = content()?.maps?.[h.mapId]?.name || h.mapId;
+    if (now - food.homing > FOOD_HOME_GIVEUP_MS) { logEvent('warn', `Food: Rückweg nach ${name} dauert zu lange – Bot stoppt hier`); food.done = true; return true; }
+    if (st.shop) { commands()?.closeShop?.(); return 'Schließe den Shop…'; }
+    if (st.dialog) { commands()?.closeDialog?.(); return 'Schließe den Dialog…'; }
+    if (world.state !== 'ready') { loadWorld(); return 'Lade Kartendaten…'; }
+    const tr = travel(st, h.mapId, now);
+    if (tr === 'Keine Route' || tr === 'Portal nicht erreichbar') { logEvent('warn', `Food: kein Weg zurück nach ${name} – Bot stoppt hier`); food.done = true; return true; }
+    if (tr !== true) return `Zurück nach ${name} · ${tr}`;
+    const me = controlled(st); if (!me) return 'Warte auf das Digimon…';
+    const d = Math.hypot(me.x - h.x, me.y - h.y);
+    if (d > FOOD_HOME_NEAR) {
+      if (walkTo(st, h.x, h.y, now) === 'stuck') { logEvent('warn', 'Food: Weg zum Startpunkt blockiert – Bot stoppt hier'); food.done = true; return true; }
+      return `Zurück zum Startpunkt (${Math.round(d)} px)`;
+    }
+    logEvent('bot', `Food: zurück am Startpunkt (${name})`); food.done = true; return true;
   }
 
   // ---------- Boss-Rotation (Digi-Eier farmen) ----------
@@ -8669,6 +8695,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       this.resting = false;
       autopilot.reset();
       farm.reset();
+      if (starting) food.reset(); // 3.1.29: neuer Food-Lauf mit neuem Startpunkt
       if (this.on) autopilot.newRun();
       // Map-für-Map-Runde: bei jedem Start an der eingestellten Start-Map beginnen (nicht beim gespeicherten Fortschritt,
       // sonst fehlt z. B. eine Map, die beim letzten Lauf noch nichts zu tun hatte, inzwischen aber schon)
@@ -8767,7 +8794,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const dg = heldNow ? null : dodge(st, now);
       if (dg) { this.status = dg; this.attackedId = null; return; }
       // Food kaufen (3.1.8): reisen, kaufen, stoppen – kein Kampf
-      if (cfg.foodBuy) { const fsx = foodStep(st, now); this.status = fsx === true ? 'Food gekauft – Bot gestoppt' : `Food: ${fsx}`; if (fsx === true) bot.toggle(true); return; }
+      if (cfg.foodBuy) { const fsx = foodStep(st, now); this.status = fsx === true ? 'Food fertig – Bot gestoppt' : `Food: ${fsx}`; if (fsx === true) bot.toggle(true); return; }
       // Klinge am Boden (Armageddemon ab 20 %): der Paladin holt sie – nach dem Ausweichen, damit kein Weg durch Warnflächen führt (3.1.21)
       { const bl = dgBladeStep(st, now); if (bl) { this.status = bl; this.attackedId = null; return; } }
       // Armageddemon (3.1.7): in der unteren Raumhälfte kämpfen – wer oberhalb des Bosses steht, läuft erst unten herum

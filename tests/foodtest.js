@@ -1,6 +1,6 @@
 // 3.1.8: Betriebsart „Food kaufen“ – zum Händler reisen (hier: Elecmon in Primary Village als Ersatz für Tentomon in Dream
 // Ruins), ansprechen, Sortiment öffnen, je Sorte bis zur Zielmenge kaufen (vorhandene Stapel angerechnet, Bits beachtet),
-// Shop schließen, Bot stoppt.
+// Shop schließen. 3.1.29: danach zurück zur Start-Map und Startposition (Native Forest 400/330), erst dann stoppt der Bot.
 const fs = require('fs');
 const makeWorld = require('./gw');
 const script = fs.readFileSync(process.argv[2], 'utf8');
@@ -28,12 +28,16 @@ G.w.eval(script);
   const mode = G.w.document.querySelector('[data-mode].on')?.dataset.mode;
   G.w.document.querySelector('[data-act="bot"]').click();
   let done = false;
-  for (let i = 0; i < 120; i++) { await wait(250); if (calls.includes('closeShop')) { done = true; await wait(600); break; } }
-  const s = G.store.getState();
-  const r = { mode, done, map: s.world.mapId, calls, bits: s.me.bits, status: G.status(), btn: G.w.document.querySelector('[data-act="bot"]')?.textContent };
+  for (let i = 0; i < 120; i++) { await wait(250); if (calls.includes('closeShop')) { done = true; break; } }
+  const shopMap = G.store.getState().world.mapId;
+  let stopped = false;
+  for (let i = 0; i < 240 && done; i++) { await wait(250); if (/Start/.test(G.w.document.querySelector('[data-act="bot"]')?.textContent || '') && G.store.getState().world.mapId === 'native_forest') { stopped = true; await wait(300); break; } }
+  const s = G.store.getState(), t = G.ents.get('t:me') || {}, p0 = G.ents.get('p:me') || {};
+  const r = { mode, done, shopMap, stopped, map: s.world.mapId, pos: [Math.round(p0.x), Math.round(p0.y)], tpos: [Math.round(t.x), Math.round(t.y)], calls, bits: s.me.bits, status: G.status(), btn: G.w.document.querySelector('[data-act="bot"]')?.textContent };
   console.log(r);
-  const ok = mode === 'food' && done && r.map === 'primary_village' && calls.includes('talk elecmon') && calls.includes('choose shop')
+  const home = Math.min(Math.hypot(p0.x - 400, p0.y - 330), Math.hypot(t.x - 400, t.y - 330)) <= 60;
+  const ok = mode === 'food' && done && shopMap === 'primary_village' && stopped && r.map === 'native_forest' && home && calls.includes('talk elecmon') && calls.includes('choose shop')
     && calls.some((c) => /^buy ds_drive 9$/.test(c)) && calls.some((c) => /^buy feast \d+$/.test(c)) && calls.includes('closeShop') && /Start/.test(r.btn);
-  console.log(ok ? 'OK – hingereist, Sortiment geöffnet, nachgekauft, gestoppt' : 'FEHLER');
+  console.log(ok ? 'OK – hingereist, Sortiment geöffnet, nachgekauft, zurück zum Startpunkt, gestoppt' : 'FEHLER');
   process.exit(ok ? 0 : 1);
 })();

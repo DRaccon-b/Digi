@@ -2,6 +2,13 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.29 – Food kaufen: danach zurück zum Startpunkt
+- **Neu:** Nach dem erfolgreichen Kauf (oder wenn schon alles voll ist) reist der Bot zurück auf die Map und zur Stelle,
+  an der der Food-Lauf gestartet wurde, und stoppt erst dort. Gibt es keinen Weg zurück, ist er blockiert oder dauert der
+  Rückweg über 10 min, stoppt er, wo er ist (Meldung im Protokoll). Antwortet der Händler nicht, bleibt er wie bisher dort.
+- **Fehler behoben:** Ein zweiter Start im Modus Food kaufen (ohne Moduswechsel) stoppte sofort wieder. Jeder Start ist jetzt
+  ein neuer Lauf mit neuem Startpunkt.
+
 ## 3.1.28 – Übersichtlicheres Panel
 Nur die Oberfläche, keine Änderung an der Bot-Logik. Alle Einstellungen behalten ihre Namen und Werte.
 - **Startleiste:** vorne nur Modus, ▶ Start und ■ NOT-AUS, darunter 🎯 Event und 🌍 Weltboss. Diagnose, Presets und
