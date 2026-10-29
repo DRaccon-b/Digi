@@ -2,6 +2,13 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.31 – Boss-Rotation: nicht mehr in der Schutzzone warten
+- **Fehler behoben (live, Mummymon auf Destiny Lake):** Mit „Gruppe: eigene Wege“ sucht sich jedes Fenster einen eigenen
+  Warteplatz um den Spawnpunkt. Der konnte in einer Schutzzone liegen (Steininsel direkt über Mummymons Spawn). Beim Spawn
+  musste der Bot erst herauslaufen und griff nicht an. Warteplätze in einer Schutzzone oder dahinter werden jetzt verworfen;
+  ohne freien Platz wartet das Fenster am Spawnpunkt selbst. Auch allein bleibt der Bot nicht mehr in einer Schutzzone neben
+  dem Spawnpunkt stehen, sondern läuft bis zum Punkt.
+
 ## 3.1.30 – Alle Modi durchgeprüft: 62 Befunde behoben
 Alle Befunde aus der Modus-Prüfung vom 29.10. (docs/pruefung-modi-2026-10-29.md), von hoch bis niedrig. Jeder Bereich hat einen
 eigenen Test (tests/fix3130*test.js), der gegen 3.1.29 scheitert.

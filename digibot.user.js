@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.30
+// @version      3.1.31
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -631,7 +631,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const me=controlled(st),field=me&&pathField(st,me,Math.max(1000,Math.hypot(me.x-center.x,me.y-center.y)+500));
     if(!field)return null;const zones=dangerZones();
     const peers=[...group.peers.values()].filter(p=>fresh(p,Date.now())&&p.mapId===st.world?.mapId&&p.channel===(st.world?.channel??1)&&p.reservation?.key===key).map(p=>p.reservation);
-    return digibotFormation.point(key,center,group.slot(),p=>pathFree(field,p)&&!zones.some(z=>zoneDist(z,p).d<32),peers,radius);
+    // nie in einer Schutzzone warten: dort kann nicht gekämpft werden, beim Spawn lief der Bot erst heraus und ließ den Boss
+    // nach drei Ausflügen 15 s in Ruhe (live Mummymon, Destiny Lake – Steininsel direkt über dem Spawnpunkt, 3.1.31)
+    // auch nicht hinter einer Schutzzone (der Weg zum Boss führte sonst quer hindurch)
+    const mapId=st.world?.mapId;
+    const safeFree=p=>{const n=Math.ceil(Math.hypot(p.x-center.x,p.y-center.y)/12);for(let i=0;i<=n;i++){const f=n?i/n:0;if(safeRectAt(mapId,{x:center.x+(p.x-center.x)*f,y:center.y+(p.y-center.y)*f}))return false;}return true;};
+    return digibotFormation.point(key,center,group.slot(),p=>pathFree(field,p)&&!zones.some(z=>zoneDist(z,p).d<32)&&safeFree(p),peers,radius);
   }
   function digibotSharedStep(st,sc,now) {
     if(!cfg.independentGroup||group.role()!=='follower'||!bot.on)return null;
@@ -1591,7 +1596,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.30'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.31'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -7862,7 +7867,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const spot = cfg.independentGroup && baseSpot ? digibotPoint(st, `farm/${b.map}/${b.index}/${o.ch}`, baseSpot) || baseSpot : baseSpot;
     const me = controlled(st);
     const d = spot && me ? Math.hypot(me.x - spot.x, me.y - spot.y) : 0;
-    if (spot && d > (cfg.independentGroup && group.active() ? 20 : FARM_NEAR)) {
+    // nicht in einer Schutzzone am Spawnpunkt stehen bleiben – ganz bis zum Punkt laufen (3.1.31)
+    if (spot && (d > (cfg.independentGroup && group.active() ? 20 : FARM_NEAR) || (d > 8 && safeRectAt(st.world?.mapId, me)))) {
       if (walkTo(st, spot.x, spot.y, now) === 'stuck') {
         farm.chBan.set(`${b.map}#${o.ch}`, now + TASK_BAN_MS);
         logEvent('warn', `${b.name}: Spawnpunkt nicht erreichbar – 5 min übersprungen`);
