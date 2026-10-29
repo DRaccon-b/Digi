@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.29
+// @version      3.1.30
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -431,6 +431,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // DigiBot integration: adapters are evaluated lazily after the original declarations.
   let digibotManual = false, digibotNotice = null, digibotNet = null, digibotStore = null;
   let digibotChallengeStop = 0, digibotWasOnAt = 0; // Bot lief, als die Anwesenheitskontrolle kam: nach der Antwort des Spielers von selbst weiter (3.1.7)
+  let digibotChallengeResume = false, digibotChallengeQueue = false, digibotQueueWasAt = 0; // Weiterlaufen nach der Kontrolle / Quest-Runde lief (3.1.30)
   let digibotLastContext = '', digibotLastLeader = null, digibotLastPrune = 0, digibotCurrentObjective = null;
   const digibotKeys = new Map(), digibotDeaths = new Map();
   const digibotCombat=createDigiBotCombat();
@@ -472,6 +473,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     clearInterval(bot.timer); bot.questIdle=false;bot.on=false;bot.attackedId=null;bot.engage=null;bot.status=reason;
     ss.set('digibot.go',null);ss.set('digibot.login',null);
     group.mirroring=false;if(locked)group.leaderPos=null;group.lastPos=null;group.worldAt=0;
+    group.noFight=false;group.leaveSince=0; // gestoppt: altes „nicht kämpfen“ nicht weitersenden, Abfahrts-Grenze neu (3.1.30)
+    if(autopilot.mapTalk)restoreMapTalkCfg(autopilot.mapTalk); // Stopp mitten in Abgeben & Annehmen: alte Betriebsart zurück (3.1.30)
+    if(group.cur){group.done.push(group.cur);group.done=group.done.slice(-30);group.cur=null;} // nicht dauerhaft „busy“ melden (3.1.30)
     digibotCombatPlace=null;autopilot.reset();autopilot.route=null;autopilot.tp=null;autopilot.mapTalk=null;
     hunt.goal=null;hunt.seenAt=0;wb.goal=null;wb.seenAt=0;farm.reset();lr.boss=null;
     digibotFormation.reset();digibotCurrentObjective=null;
@@ -579,10 +583,17 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if(st?.challenge&&!digibotCore.latched)digibotCore.stop('Anwesenheitskontrolle – bitte selbst beantworten',true);
     // Die Kontrolle beantwortet der Spieler selbst; danach läuft der Bot von selbst weiter (vorher blieb er bis zum Klick stehen –
     // live 28.10. mitten im Dungeon gestorben). Nur wenn er beim Erscheinen lief, und höchstens 10 min später (3.1.7)
-    if(st?.challenge){ if(wasOn&&!digibotChallengeStop)digibotChallengeStop=Date.now(); }
+    if(!st?.challenge&&digibotAccountQueue.active)digibotQueueWasAt=Date.now(); // wie digibotWasOnAt: die Queue pausiert oft schon vorher (3.1.30)
+    if(st?.challenge){ if(wasOn&&!digibotChallengeStop){digibotChallengeStop=Date.now();digibotChallengeQueue=digibotAccountQueue.active||(digibotAccountQueue.phase==='paused'&&Date.now()-digibotQueueWasAt<5000);} }
     else if(digibotChallengeStop){
       const age=Date.now()-digibotChallengeStop; digibotChallengeStop=0;
-      if(age<600000&&!bot.on&&digibotCore.latched&&st?.screen==='world'){ const prev=digibotManual; digibotManual=true; try{ bot.toggle(true); logEvent('bot','Anwesenheitskontrolle beantwortet – Bot läuft weiter'); } finally { digibotManual=prev; } }
+      const queue=digibotChallengeQueue; digibotChallengeQueue=false;
+      // Weiterlaufen ist kein neuer Start von Hand: Food-Lauf behalten, Dungeon-Wiedereinstiegs-Sperre nicht aufheben,
+      // eine laufende Quest-Runde fortsetzen statt nur diesen Account (3.1.30)
+      if(age<600000&&!bot.on&&digibotCore.latched&&st?.screen==='world'){ const prev=digibotManual; digibotManual=true; digibotChallengeResume=true; try{
+        if(queue&&digibotAccountQueue.phase==='paused'&&String(st?.session?.username||'').trim().toLowerCase()===digibotAccountQueue.user){ digibotQueueStart(true); logEvent('bot','Anwesenheitskontrolle beantwortet – Quest-Runde läuft weiter'); }
+        else { bot.toggle(true); logEvent('bot','Anwesenheitskontrolle beantwortet – Bot läuft weiter'); }
+      } finally { digibotManual=prev; digibotChallengeResume=false; } }
     }
     if(window.dmo?.store!==digibotStore && window.dmo?.store?.subscribe) {
       digibotStore=window.dmo.store;digibotCore.touch();digibotStore.subscribe(()=>{digibotCore.touch();digibotCore.inspect();digibotHistory.observe(digibotHistoryState());});
@@ -603,6 +614,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if(huntSeen.size>500)huntSeen.clear();
   }
   function digibotObjective(st) {
+    if(cfg.dungeon)return null; // im Dungeon kein Oberwelt-Ziel an die Gruppe (altes Event-/Weltboss-Ziel nach Moduswechsel) (3.1.30)
     if(hunt.goal&&cfg.hunt)return {kind:'event',key:hunt.goal.key,mapId:hunt.goal.mapId,channel:hunt.goal.ch,boss:hunt.goal.boss};
     if(wb.goal&&cfg.wboss){const g=wb.goal;return {kind:'world',key:g.key,mapId:g.b.map,channel:g.ch,boss:g.b.species,...farmSpot(g.b)};}
     if(cfg.farm&&farm.goal){const g=farm.goal,b=farmSelected().find(x=>x.map===g.map&&x.index===g.index);if(b)return {kind:'farm',key:`${g.map}/${g.index}/${g.ch}`,mapId:g.map,channel:g.ch,boss:b.species,...farmSpot(b)};}
@@ -664,9 +676,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const digibotTamer={skill:'',want:false,since:0,last:0,cooldown:0,retryAt:0,attempts:0,holdSince:0,holdSeen:0};
   const TAMER_BOSS_NEAR=320, TAMER_HOLD_GRACE_MS=6000, DAVIS_BURST_LEFT_MS=10000; // Davis erst, wenn der stärkste Skill noch ≥ 10 s Abklingzeit hat (3.1.27) // Bosskampf: so nah am Boss zählt als Kampf; so lange darf „im Kampf“ wegfallen, ohne dass die Gate-Wartezeit neu beginnt (3.1.25)
   // Stärkster Angriffsskill auf der Leiste – Gate of Judgment hat Vorrang (Nutzer 28.10.: Crest „immer vor einem Gate of Judgment“)
+  // nur Skills, die der Bot auch wirkt – ein abgehakter stärkster Skill hielt Davis sonst für immer zurück (3.1.30)
   function digibotBurstSkill(st){
     const C=content();let best=null;
-    for(const k of SKILL_KEYS){const s=skillOnKey(st,k);if(!s||s.skill.unlocked===false)continue;const def=C?.skills?.[s.skill.id];
+    for(const k of SKILL_KEYS){const s=skillOnKey(st,k);if(!s||s.skill.unlocked===false||!skillOn(st,k)||healAt(st,k))continue;const def=C?.skills?.[s.skill.id];
       if(!def||!(def.kind==='damage'||def.power>0))continue;const gate=/gate_of_judgment$/.test(s.skill.id),power=def.power||0;
       if(!best||(gate&&!best.gate)||(gate===best.gate&&power>best.power))best={...s,gate,power};}
     return best;
@@ -720,7 +733,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const burst=digibotBurstSkill(st);
       if(!burst||burst.cdLeft<DAVIS_BURST_LEFT_MS)return;
       const Cs=content()?.skills||{};
-      const dmgWaiting=SKILL_KEYS.map(k=>skillOnKey(st,k)).filter(x=>x&&x.skill.unlocked!==false&&x.cdLeft>1000&&(Cs[x.skill.id]?.kind==='damage'||(Cs[x.skill.id]?.power>0&&Cs[x.skill.id]?.kind!=='heal'))).length;
+      const dmgWaiting=SKILL_KEYS.filter(k=>skillOn(st,k)&&!healAt(st,k)).map(k=>skillOnKey(st,k)).filter(x=>x&&x.skill.unlocked!==false&&x.cdLeft>1000&&(Cs[x.skill.id]?.kind==='damage'||(Cs[x.skill.id]?.power>0&&Cs[x.skill.id]?.kind!=='heal'))).length;
       if(dmgWaiting<2)return;
       reason=`${burst.skill.name} und ${dmgWaiting-1} weitere${dmgWaiting>2?'':'r'} Angriffsskill auf Abklingzeit`;
     }
@@ -829,7 +842,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if(String(st?.session?.username||'').trim().toLowerCase()!==digibotAccountQueue.user)return;
     cfgProfile(st);
     noteCharacter(st,Date.now());
-    cfg.autopilot=true;cfg.farm=false;cfg.dungeon=false;cfg.questMode=false;cfg.foodBuy=false;
+    cfg.autopilot=true;cfg.farm=false;cfg.dungeon=false;cfg.questMode=false;cfg.foodBuy=false;cfg.eventsOnly=false; // 3.1.30
     if(!digibotCore.loginMode(false))return;
     if(!bot.on){digibotQueueLaunching=true;try{bot.toggle(true);}finally{digibotQueueLaunching=false;}}
     if(!bot.on){digibotCore.stop('Autopilot konnte nicht gestartet werden',true);return;}
@@ -1429,7 +1442,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const saveCfg = () => {
     applyCfg(cfg);
     try {
-      localStorage.setItem(CFG_KEY, JSON.stringify(cfg));
+      // Abgeben & Annehmen läuft: die eigentliche Betriebsart speichern, nicht den vorübergehenden Autopilot (3.1.30)
+      let mt = null; try { mt = autopilot.mapTalk; } catch { /* noch nicht angelegt */ }
+      localStorage.setItem(CFG_KEY, JSON.stringify(mt ? { ...cfg, ...mapTalkPrevCfg(mt) } : cfg));
       localStorage.setItem(CFG_SHARED_KEY, '1');
       localStorage.setItem(CFG_BATCH_KEY, '1');
     } catch { digibotCore.record('Gemeinsame Einstellungen konnten nicht gespeichert werden'); }
@@ -1454,12 +1469,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     try{if(localStorage.getItem(CFG_BATCH_KEY)!=='1')saveCfg();}catch{}
     schedule();
   }
+  // Betriebsart und Laufzustand: läuft hier der Bot oder ist das Fenster in einer Gruppe, gehören sie diesem Fenster –
+  // sonst schaltete ein Reiterklick in einem anderen Fenster den laufenden (Gruppen-)Modus um (3.1.30)
+  const RUN_KEYS = ['questMode', 'autopilot', 'farm', 'dungeon', 'eventsOnly', 'foodBuy', 'farmMode', 'apSweepMap'];
   window.addEventListener('storage', (event) => {
     if(event.key!==CFG_KEY || !event.newValue)return;
     try {
       const saved=JSON.parse(event.newValue);if(!digibotRecord(saved))return;
-      const behavior=()=>JSON.stringify(Object.fromEntries(Object.entries(cfg).filter(([key])=>!UI_KEYS.includes(key))));
-      const before=behavior();applyCfg(saved);syncCfgInputs();
+      const own=!!bot?.on||group.active(), keep=own?Object.fromEntries(RUN_KEYS.map(k=>[k,cfg[k]])):null;
+      const behavior=()=>JSON.stringify(Object.fromEntries(Object.entries(cfg).filter(([key])=>!UI_KEYS.includes(key)&&!(own&&RUN_KEYS.includes(key)))));
+      const before=behavior();applyCfg(saved);if(keep)Object.assign(cfg,keep);syncCfgInputs();
       if(before!==behavior()){farm.reset();autopilot.reset();}
       schedule();
     } catch { digibotCore.record('Gemeinsame Einstellungen konnten nicht geladen werden'); }
@@ -1572,9 +1591,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.29'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.30'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
-      <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
+      <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
       <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
       <button class="digibot__btn" data-act="min" title="Ein-/Ausklappen">–</button>
@@ -2135,6 +2154,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const FAN_REAR_R = 30;        // im Rücksektor: näher als so am Boss gilt trotzdem als drin (live 26 px getroffen, ab 40 px nie; Schlagweite ~39–43)
   const FAN_REAR_STAND = 8;     // Fluchtpunkt hinter dem Boss: Schlagweite + so viel (3.1.18)
   const DG_SIDE_GRACE_MS = 4000; // Seitenregel (alle links/rechts vom Boss) ruht so lange nach Warnkreisen (3.1.19)
+  const DG_SIDE_GIVEUP_MS = 6000, DG_SIDE_OFF_MS = 10000; // Seite so lange vergeblich gesucht: so lange normal kämpfen (3.1.30)
   const FAN_SAFE_DEG = 25;      // so viel Winkel neben einem Fächer gilt als voller Sicherheitsabstand (alle Fächer ≤ 180°)
   const DODGE_BASIC_PAD = 4;    // Reserve inside the real basic-attack range.
   const DODGE_LATE_ABORT_MS = 3000; // begonnene Flucht abbrechen, wenn danach noch so viel Zeit bliebe
@@ -2689,7 +2709,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         const edgeSkill = !plan.walking && !soonNear ? skillsAtEdge(st, target, partner, now) : null; // 3.1.1: Skills auch von hier
         return (plan.walking?'Sicherer Weg zur Angriffsposition · normaler Angriff':'Außerhalb der Warnzone · normaler Angriff ohne Annäherung') + (edgeSkill ? ` · Skill: ${edgeSkill}` : '');
       }
-      if(dodgeState.basicTarget)digibotOutsideStop(partner,now);
+      // Skill vom Kreisrand läuft noch (Casting): Angriffsposition und Kantenreserve behalten, nicht per partnerStop abbrechen (3.1.30)
+      const casting=!!partner&&!!(partner.flags&FLAG.Casting);
+      if(casting&&near&&target&&dodgeState.basicTarget===target.id&&!zones.some(c=>!digibotDodgeZoneSafe(c,partner,DODGE_EDGE_MARGIN)))return 'Außerhalb der Warnzone · Skill wird gewirkt';
+      if(dodgeState.basicTarget&&!(dodgeState.rangedUntil>now)&&!casting)digibotOutsideStop(partner,now);
       const approach=zones.length?digibotDodgeApproach(st,target,tamer,partner,zones,now):null;
       if(approach)return approach;
       const blocked=!!target || dodgeState.active;
@@ -2879,7 +2902,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
               const ents1 = window.dmo?.net?.state?.entities, meE = ents1?.get?.(ev.dst), aId = cl ? (cl.slot === group.slot() ? me0.partner?.entityId : group.peers.get(cl.slot)?.ents?.[1]) : null, aE = aId && ents1?.get?.(aId);
               if (cl && dec?.ok && now - cl.at <= KOH_COVER_MS + 300 && st1 && meE && aE && Math.hypot(meE.x - aE.x, meE.y - aE.y) <= kohCircleR() - 12) { kohState.moreOff = true; logEvent('warn', `Key of Hope hat ${content()?.skills?.[ev.skill]?.name || ev.skill} nicht abgefangen (${ev.amount}) – Zusatz-Blocken aus, wieder ausweichen`); notify('Key of Hope blockt Black Rain/Volley nicht – Bot weicht wieder aus.'); } }
           } }
-          if (ev.t === 'die' && ev.id) { bossSkillLog.delete(ev.id); continue; }
+          if (ev.t === 'die' && ev.id) { bossSkillLog.delete(ev.id);
+            // Boss stirbt während der Ansage: Anker und Sammel-Pläne zu ihm sofort verwerfen, nicht bis castEnd+500 halten (3.1.30)
+            if (kohState.anchor?.src === ev.id) kohState.anchor = null;
+            for (const [s, pl] of kohState.plans) if (pl.src === ev.id) kohState.plans.delete(s);
+            kohState.dead.set(ev.id, now); if (kohState.dead.size > 20) kohState.dead.delete(kohState.dead.keys().next().value);
+            continue; }
           if (ev.t !== 'skill' || !ev.src || !ev.skill) continue;
           if (ev.skill === KOH_ID) kohState.seen.set(ev.src, now); // Bestätigung eines beanspruchten Key of Hope (3.1.6)
           if (!bossSkillLog.has(ev.src)) bossSkillLog.set(ev.src, new Map());
@@ -3590,6 +3618,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     plans: new Map(),  // Slot -> { x, y, mapId, end }: dieser Clavis zündet gleich, hier sammeln
     anchor: null, sentAt: 0, // ich zünde gleich: { src, end }
     more: new Map(), moreOff: false, optSeen: new Map(), // Zusatz-Treffer: Entscheidung je Cast; abgeschaltet nach einem Treffer trotz Key (3.1.26)
+    dead: new Map(),   // Boss-Entity -> Todeszeitpunkt: verspätete Pläne zu ihm verwerfen (3.1.30)
   };
   // Sagt gerade ein Boss einen Treffer an, gegen den Key of Hope zündet?
   function kohBlockPending(now) {
@@ -3643,11 +3672,15 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   const kohReady = (st, own) => { const p = st?.me?.partner, sk = own?.s; return !!sk && !!p && !p.fainted && !p.evolving && sk.cdLeft <= 0 && sk.skill.unlocked !== false && p.ds >= (sk.skill.dsCost || 0); };
   // Wie viele bereite Clavis auf derselben Map haben eine kleinere Slot-Nummer (sind vor mir dran)?
-  function kohRank(st, now) {
+  // hit: steht das Digimon eines Peers bei einem nicht geteilten Treffer weiter als KOH_RANGE vom Boss, verwirft er den Treffer
+  // (kohUpcoming) und zündet nie – nicht auf ihn warten, sonst führte niemand das Sammeln (3.1.30)
+  function kohRank(st, now, hit) {
     let rank = 0;
     if (!group.active()) return 0;
+    const ents = window.dmo?.net?.state?.entities, b = hit ? ents?.get?.(hit.src) : null;
+    const far = b && !(content()?.skills?.[hit.sid]?.share || KOH_SHARED.has(hit.sid)) ? (m) => { const pe = ents?.get?.(m.ents?.[1]), x = pe ? pe.x : m.x, y = pe ? pe.y : m.y; return Number.isFinite(x) && Number.isFinite(y) && Math.hypot(x - b.x, y - b.y) > KOH_RANGE; } : () => false;
     for (const [slot, m] of group.peers) {
-      if (slot < group.slot() && fresh(m, now) && m.kohAt != null && m.kohAt <= now && m.bot && m.inWorld && m.mapId === st.world?.mapId) rank++; // nur mit laufendem Bot
+      if (slot < group.slot() && fresh(m, now) && m.kohAt != null && m.kohAt <= now && m.bot && m.inWorld && m.mapId === st.world?.mapId && !far(m)) rank++; // nur mit laufendem Bot
     }
     return rank;
   }
@@ -3655,7 +3688,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function kohAnchor(st, now) {
     const own = kohOn() && group.active() && kohSlot(st);
     const hit = own && kohReady(st, own) ? kohUpcoming(st, now) : null;
-    let rank = hit ? kohRank(st, now) : 0;
+    let rank = hit ? kohRank(st, now, hit) : 0;
     if (hit && rank > 0 && KOH_OPT.has(hit.sid)) { // Zusatz-Treffer: führt ein kleinerer Slot nicht (kein Plan), übernehme ich
       const k = `${hit.src}|${hit.sid}`; if (!kohState.optSeen.has(k)) kohState.optSeen.set(k, now);
       const lower = [...kohState.plans].some(([slot, pl]) => slot < group.slot() && now - (pl.seen || 0) < 700 && pl.end >= hit.castEnd);
@@ -3683,6 +3716,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function kohAttackInPlace(st, now, anchor) {
     const ents = window.dmo?.net?.state?.entities, t = st?.target, te = t?.kind === 'mob' && t.hp > 0 ? ents?.get?.(t.id) : null, pe = ents?.get?.(st?.me?.partner?.entityId);
     if (!te || !pe || st.me?.partner?.fainted || st.me?.partner?.evolving) return '';
+    // dieselben Sperren wie die anderen Angriffswege – nicht hinlaufen/folgen, das verließe den Schutzkreis (3.1.30)
+    if (mirrorActive(te.id) || farmShielded(te, now)) return ' · Spiegel/Schild – kein Angriff';
+    if (noFightEarly(st, now) || (bot.engage?.id === te.id && bot.engage.noDmg)) return '';
     const C = content(), range = C?.digimon?.[st.me?.partner?.species]?.basic?.range ?? DODGE_BASIC_RANGE, radius = Math.min(C?.digimon?.[te.defId]?.radius ?? 7, 7);
     const reach = range + radius;
     const viaAnchor = !!anchor && Math.hypot(te.x - anchor.x, te.y - anchor.y) <= kohCircleR() - KOH_EDGE + reach;
@@ -3693,6 +3729,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const sk = skillsAtEdge(st, te, pe, now);
     return sk ? ` · greife an (${sk})` : ' · greife an';
   }
+  // Hat der Clavis dieses Plans für genau diesen Einschlag schon gezündet (gültige Beanspruchung)? (3.1.30)
+  const kohPlanFired = (pl, slot, now) => { const cl = pl?.src != null ? kohState.claims.get(pl.src) : null; return !!cl && cl.slot === slot && cl.at <= pl.end && pl.end - 500 <= cl.at + KOH_COVER_MS && kohClaimValid(cl, now); };
   // Ein anderer Clavis zündet gleich: hinlaufen (Tamer, das Digimon folgt) – Vorrang vor Ausweichen und Kampf.
   // Der Clavis, der zündet, bleibt stehen (schlägt aber weiter zu, wenn das Ziel in Reichweite steht).
   function kohGather(st, now) {
@@ -3708,15 +3746,24 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       return me0.some((e) => e && z.some((zz) => { if (zoneDist(zz, e).d >= DODGE_MARGIN) return false; const l = left(zz); return l == null || now + l < before; })); };
     // Einschlag vor dem Zünden (Key zündet KOH_LEAD_MS vor dem Treffer): den deckt der Schutz nicht – erst ausweichen
     const uncovered = (end) => inDanger(end - 500 - KOH_LEAD_MS - 100);
+    // Quelle tot (falls das 'die'-Ereignis verloren ging): Anker und Pläne zu ihr verwerfen – nur bei sichtbarem, totem Boss;
+    // geteilte Treffer folgen einem Spieler, der Boss kann außer Sicht sein (3.1.30)
+    const srcDead = (src) => { const se = src != null ? window.dmo?.net?.state?.entities?.get?.(src) : null; return (!!se && se.hp <= 0) || (src != null && now - (kohState.dead.get(src) ?? -Infinity) < 10000); };
+    if (kohState.anchor && srcDead(kohState.anchor.src)) kohState.anchor = null;
     if (kohState.anchor && kohState.anchor.end > now) {
       if ((kohState.anchor.end - 500 - now > KOH_GATHER_MS && inDanger()) || uncovered(kohState.anchor.end)) return null;
       return 'Key of Hope gleich – halte Position, Gruppe sammelt sich' + kohAttackInPlace(st, now);
     }
     let plan = null;
     for (const [slot, pl] of kohState.plans) {
-      if (pl.end <= now) { kohState.plans.delete(slot); continue; }
+      if (pl.end <= now || srcDead(pl.src)) { kohState.plans.delete(slot); continue; }
       if (pl.opt && now - (pl.seen || 0) > 700) continue; // Zusatz-Treffer: nur frische Pläne (Anker sendet alle 200 ms)
-      if (pl.mapId === st.world?.mapId && (!plan || slot < plan.slot)) plan = pl;
+      // Pflicht-Treffer: Plan eines Clavis, der noch nicht gezündet hat, gilt nur, solange er laut Gruppenstatus noch zünden kann
+      // und weiter sendet – sonst liefen die anderen zur letzten Position eines ausgefallenen Ankers (bewusstlos, Digitation,
+      // zu wenig DS, gestoppt, neu geladen). Nach dem Zünden sendet der Anker nicht mehr, der Plan bleibt bis zum Einschlag (3.1.30)
+      if (!pl.opt && !kohPlanFired(pl, slot, now)) { const pm = group.peers.get(slot); if (!fresh(pm, now) || pm.kohAt == null || !pm.bot || !pm.inWorld || now - (pl.seen || 0) > 1500) continue; }
+      // ein schon gezündeter Plan geht vor (dort liegt der Schutzkreis), sonst der kleinste Slot
+      if (pl.mapId === st.world?.mapId && (!plan || (kohPlanFired(pl, slot, now) !== kohPlanFired(plan, plan.slot, now) ? kohPlanFired(pl, slot, now) : slot < plan.slot))) plan = pl;
     }
     if (!plan) return null;
     if ((plan.end - 500 - now > KOH_GATHER_MS && inDanger()) || uncovered(plan.end)) return null; // erst ausweichen, gleich danach sammeln
@@ -3737,7 +3784,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       spot = { x: plan.x + ux * along - uy * off, y: plan.y + uy * along + ux * off };
     } else { const ang = (group.slot() * 2 * Math.PI) / 5; spot = { x: plan.x + Math.cos(ang) * 36, y: plan.y + Math.sin(ang) * 36 }; }
     if (tamer && Math.hypot(tamer.x - spot.x, tamer.y - spot.y) > 24 && bot.can('kohTap', 250, now)) { bot.lastPress.kohTap = now; worldScene()?.tapGround?.(spot.x, spot.y); }
-    if (partner && d(partner) > inR && bot.can('kohFollow', 800, now)) { bot.lastPress.kohFollow = now; commands()?.partnerFollow?.(); }
+    // Digimon-Steuerung (Tamer = Digimon): der Klick reicht, Folgen holte es zum Tamer zurück (3.1.30)
+    if (partner && (!tamer || partner.id !== tamer.id) && d(partner) > inR && bot.can('kohFollow', 800, now)) { bot.lastPress.kohFollow = now; commands()?.partnerFollow?.(); }
     return `Key of Hope: laufe in den Schutzkreis von ${who}`;
   }
   function keyOfHope(st, now) {
@@ -3754,7 +3802,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // Attacke mit abgedeckt wird – sonst zünden zwei Clavis gleichzeitig)
     const dueKey = `${hit.src}|${hit.main}`;
     if (kohState.dueKey !== dueKey) { kohState.dueKey = dueKey; kohState.dueAt = now; }
-    const rank0 = hit.opt && kohState.anchor?.src === hit.src ? 0 : kohRank(st, now); // Zusatz-Treffer übernommen: sofort (3.1.26-Review)
+    const rank0 = hit.opt && kohState.anchor?.src === hit.src ? 0 : kohRank(st, now, hit); // Zusatz-Treffer übernommen: sofort (3.1.26-Review)
     if (now - kohState.dueAt < rank0 * KOH_STEP_MS) return null;
     if (!bot.can('Digit' + own.k, 300, now)) return null;
     // erst drücken, dann beanspruchen: wurde die Taste zurückgehalten (laufender Skill, Eingabesperre), bleibt der Treffer
@@ -3836,7 +3884,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   // Eigener schneller Takt: der Bot-Takt (250 ms) ist für die Staffelung zwischen den Clavis zu grob
   setInterval(() => {
-    if (!bot.on || !kohOn() || !bossSkillLog.size) return;
+    if (!bot.on || !kohOn() || (!bossSkillLog.size && !kohState.anchor)) return; // Protokoll leer, Anker noch gesetzt: kohAnchor räumt ihn ab (3.1.30)
     digibotCore.run('Notfall-Skill', 100, () => { const st = getStore()?.getState?.(); if (st) { kohAnchor(st, Date.now()); keyOfHope(st, Date.now()); } });
   }, 50);
 
@@ -4166,7 +4214,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           for (const o of layer.objects || []) {
             const type = o.type || o.class;
             const rect = { x: o.x, y: o.y, w: o.width || 0, h: o.height || 0 };
-            if (type === 'portal' && prop(o, 'toMap')) m.portals.push({ toMap: prop(o, 'toMap'), name: o.name || '', toSpawn: prop(o, 'toSpawn') || '', ...rect });
+            if (type === 'portal' && prop(o, 'toMap')) m.portals.push({ toMap: prop(o, 'toMap'), name: o.name || '', toSpawn: prop(o, 'toSpawn') || '', minLevel: Number(prop(o, 'minLevel')) || 0, ...rect }); // Mindeststufe (3.1.30)
             else if (type === 'npc') m.npcs.push({ npcId: prop(o, 'npcId') || o.name, x: o.x, y: o.y });
             else if (type === 'zone') m.zones[o.name] = rect;
             else if (type === 'spawn') m.spawns[o.name] = { x: o.x, y: o.y };
@@ -4201,14 +4249,18 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Raid-/Dungeon-Maps (in der Spawn-Tabelle als "raid" markiert) werden nie betreten.
   const isRaidMap = (mapId) => !!content()?.spawns?.[mapId]?.raid;
 
+  // Portal-Mindeststufe: das Spiel lehnt das Portal darunter ab, der Bot stand dann für immer darin. Vorsichtig das höchste
+  // bekannte Level (Partner, Team, Tamer) – gesperrt wird nur, was unter keiner Lesart reicht (3.1.30)
+  const portalLevel = () => { const s = getStore()?.getState?.(); return s ? Math.max(s.me?.partner?.level ?? 0, s.me?.tamerLevel ?? 0, teamLevel(s)) : 0; };
   function route(a, b) {
     if (a === b) return [a];
     if (isRaidMap(b)) return null;
+    const lv = portalLevel();
     const prev = new Map([[a, null]]), queue = [a];
     while (queue.length) {
       const cur = queue.shift();
       for (const p of world.maps[cur]?.portals || []) {
-        if (prev.has(p.toMap) || isRaidMap(p.toMap)) continue;
+        if (prev.has(p.toMap) || isRaidMap(p.toMap) || (lv && p.minLevel > lv)) continue;
         prev.set(p.toMap, cur);
         if (p.toMap === b) {
           const path = [b];
@@ -4228,8 +4280,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const NPC_TALK_DIST = 36;       // so nah muss man für ein Gespräch stehen
   const WALK_RETRY_MS = 2500;     // Laufbefehl frühestens nach so langer Zeit ohne Fortschritt wiederholen
   const NAV_STUCK_MS = 15000;     // so lange kein Fortschritt -> Ziel gilt als unerreichbar
+  const PORTAL_HOLD_MS = 15000;   // so lange im Portal ohne Map-Wechsel -> Portal gilt als nicht erreichbar (3.1.30)
   const UNREACH_SERIES = 3, UNREACH_WINDOW_MS = 15000; // so viele „nicht erreichbar“ so schnell hintereinander = Standortproblem
   const TASK_BAN_MS = 5 * 60000;  // gescheiterte Aufgabe so lange überspringen
+  const AP_BOSS_FAINTS = 2, AP_BOSS_FAINT_MS = 30 * 60000; // Quest-Boss so oft umgehauen -> Aufgabe so lange auslassen (3.1.30)
   const HUNT_IDLE_MS = 90000;     // im Jagdgebiet so lange kein passendes Monster -> aufgeben
 
   const autopilot = {
@@ -4238,10 +4292,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     dailyVisited: new Set(), dailyAccepted: new Set(),dailyAttempts:new Map(), dailyAt: 0, boardOnly: new Set(),
     avoidSpots: new Map(), // Jagdgebiet-Schlüssel -> bis wann gemieden (war leer)
     phase: 0, // aktuelle Phase der Map-für-Map-Runde (nur fürs Log)
+    bossFaints: new Map(), bossFaintBan: new Map(), // Quest-Boss: Ohnmachten je Aufgabe / ausgelassen bis (3.1.30)
     newRun() { // beim Start des Bots: Wechsel/Digitation/Dailies neu versuchen
       this.bountyReturn=false;this.turninPartnerHeld=false;this.questHome=null;this.questHomeUser=null;this.evoPartner=null;
-      this.switchGiveUp = null; this.evoGiveUp = null; this.switchTries = 0; this.evoTries = 0;
+      this.switchGiveUp = null; this.evoGiveUp = null; this.switchTries = 0; this.evoTries = 0; this.devoGiveUp = null; this.devoTries = 0; // devo: 3.1.30
       this.dailyVisited = new Set(); this.dailyAccepted = new Set();this.dailyAttempts=new Map(); this.failed = new Map(); this.tpBlock = new Map(); this.tp = null; this.phase = 0;
+      this.bossFaints = new Map(); this.bossFaintBan = new Map(); // 3.1.30
     },
     lastTap: 0, lastTalk: 0, talkTries: 0, dialogAt: 0, arrivedAt: 0, idleSince: 0,
     reset() {
@@ -4272,7 +4328,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (m.type === 'pos' && m.slot === accounts.leader && m.slot !== group.slot()) group.leaderPos = { ...m, seen: Date.now() };
     if (m.type === 'koh' && m.src && m.slot !== group.slot()) kohState.claims.set(m.src, { at: Date.now(), slot: m.slot });
     if (m.type === 'heal' && m.slot !== group.slot()) healState.lastAt = Date.now(); // ein anderer hat gerade geheilt
-    if (m.type === 'kohplan' && Number.isInteger(m.slot) && m.slot !== group.slot()) kohState.plans.set(m.slot, { ...m, seen: Date.now() });
+    // verspäteter Plan zu einem schon gestorbenen Boss (kommt nach dem 'die' an) wird nicht angenommen (3.1.30)
+    if (m.type === 'kohplan' && Number.isInteger(m.slot) && m.slot !== group.slot()
+      && !(m.src != null && Date.now() - (kohState.dead.get(m.src) ?? -Infinity) < 10000)) kohState.plans.set(m.slot, { ...m, seen: Date.now() });
     if (!group.active()) return;
     if (m.type === 'start' && !bot.on) groupStartBot(m.manual === true && digibotCore.latched ? 'Gruppe: Start aus dem Leader-Fenster – Not-Aus aufgehoben' : 'Gruppe: Start aus dem Leader-Fenster', m.manual === true);
     // normales Stoppen (Bot/Gruppe) sperrt nicht – danach startet „Start“ wieder alle; der Not-Aus (Esc/Knopf, aus jedem
@@ -4332,9 +4390,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const p = group.peers.get(accounts.leader);
     return fresh(p, now) && p.role === 'leader' ? p : null;
   }
-  function groupMembers(now = Date.now()) {
+  // idle: auch Mitläufer ohne laufenden Bot (Party-Einladung). Sonst zählen gestoppte/neu geladene Fenster nicht mit – auf die
+  // warteten Planung, Gesprächs- und Map-Wechsel-Wartezeiten sonst ohne Ende (Spiegel-Modus: bot:false gewollt) (3.1.30)
+  function groupMembers(now = Date.now(), idle = false) {
     if (group.role() !== 'leader') return [];
-    return [...group.peers.values()].filter((p) => fresh(p, now) && p.role === 'follower' && accounts.list[p.slot]?.on);
+    return [...group.peers.values()].filter((p) => fresh(p, now) && p.role === 'follower' && accounts.list[p.slot]?.on && (idle || p.bot || accounts.mirror));
   }
   // Kämpft dieser Charakter gerade? Kampf-Flag des Spiels auf Tamer/Digimon oder eigener laufender Angriff
   const GROUP_FIGHT_MAX_MS = 120000; // länger wartet der Leader nicht auf ein Kampfende
@@ -4365,7 +4425,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
 
   // Ziele verteilen: nur im Bot-Betrieb der Gruppe (nicht Spiegeln, nicht Boss-Rotation)
-  const spreadNear = (m) => { const L = group.role() === 'follower' ? groupLeader() : null; return !L || L.x == null || Math.hypot(m.x - L.x, m.y - L.y) <= SPREAD_LEASH; };
+  // Leine nur, wenn der Leader wirklich in der Nähe führt: außerhalb des Autopiloten läuft der Mitläufer ihm nicht nach –
+  // Leader auf anderer Map/anderem Kanal, Bot aus oder weit weg: keine Leine, sonst wartete er ohne Ende (3.1.30)
+  const spreadLeader = () => {
+    const L = group.role() === 'follower' ? groupLeader() : null;
+    if (!L || cfg.autopilot) return L;
+    const st = getStore()?.getState?.(), me = controlled(st);
+    return L.bot && L.inWorld && L.x != null && me && L.mapId === st?.world?.mapId && (L.channel ?? 1) === (st?.world?.channel ?? 1)
+      && Math.hypot(L.x - me.x, L.y - me.y) <= SPREAD_LEASH * 2 ? L : null;
+  };
+  const spreadNear = (m) => { const L = spreadLeader(); return !L || L.x == null || Math.hypot(m.x - L.x, m.y - L.y) <= SPREAD_LEASH; };
   const SPREAD_LEASH = 250; // Ziele verteilen: Mitläufer greifen nur Monster in diesem Umkreis um den Leader an
   const spreadOn = () => group.active() && accounts.spread && !accounts.mirror && !cfg.farm;
   function groupTargets() {
@@ -4386,7 +4455,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Leader plant mit dem Stand der ganzen Gruppe: Hat ein Mitläufer bei einer Quest noch offene Kampf-/Sammelziele,
   // gilt sie auch für den Leader als offen – er jagt weiter und gibt erst ab, wenn alle abgeben können.
   // „Leader erledigt die Quests der Mitläufer“ – nur im Quest-Betrieb der Gruppe
-  const serveOn = () => group.role() === 'leader' && accounts.serve && !accounts.mirror && !cfg.farm && !autopilot.mapTalk;
+  // nur im Autopiloten: Quest-Jagd/Grinden erledigen keine Mitläufer-Quests, die Mitläufer standen sonst nutzlos herum (3.1.30)
+  const serveOn = () => group.role() === 'leader' && accounts.serve && !accounts.mirror && cfg.autopilot && !cfg.farm && !autopilot.mapTalk;
   // Quests aller Mitläufer zusammen: aktiv, solange einer noch ein Ziel offen hat (Zähler = der kleinste);
   // fertig (abgeben), wenn alle, die sie haben, fertig sind
   function serveQuests() {
@@ -4458,13 +4528,18 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   // Leader will die Map verlassen: erst warten, bis die Mitläufer auf dieser Map ihre Gespräche beendet haben
   function groupLeaveWait(st, t, now) {
-    if (group.role() !== 'leader' || !t?.loc?.mapId || t.loc.mapId === st.world?.mapId) return null;
+    // ohne Warten zurück: Grenze leeren, sonst entfiele beim nächsten Map-Wechsel jedes Warten (3.1.30)
+    if (group.role() !== 'leader' || !t?.loc?.mapId || t.loc.mapId === st.world?.mapId) { group.leaveSince = 0; return null; }
     const lt = group.talks[group.talks.length - 1];
-    if (lt && now - lt.at > GROUP_WAIT_MS) return null;
+    if (lt && now - lt.at > GROUP_WAIT_MS) { group.leaveSince = 0; return null; }
     // Wer gerade dasselbe Gespräch nachmacht (gleiches Ziel wie der Leader), läuft ohnehin mit – auf den nicht warten
     const sameAsMine = (m) => group.talks.some((x) => x.key === m.busy && x.tkey === t.key);
     const busy = groupMembers(now).filter((m) => m.inWorld && m.busy && m.mapId === st.world?.mapId && !sameAsMine(m));
-    if (!busy.length) return null;
+    if (!busy.length) { group.leaveSince = 0; return null; }
+    // eigene Grenze je Abfahrt (Aufgabe + Map), auch ohne gemerktes Gespräch (Leader neu geladen: group.talks leer) (3.1.30)
+    const lk = `${t.key}@${st.world?.mapId}`;
+    if (group.leaveKey !== lk || !group.leaveSince) { group.leaveKey = lk; group.leaveSince = now; }
+    if (now - group.leaveSince > GROUP_WAIT_MS) return null;
     return `Gruppe: warte vor dem Map-Wechsel auf ${busy.map((m) => m.name || `Slot ${m.slot + 1}`).join(', ')}`;
   }
   // Mitläufer: Gespräch des Leaders als eigene Aufgabe, wenn es für diesen Charakter passt
@@ -4653,7 +4728,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     if (group.role() !== 'leader') return;
     const inParty = (st.party?.members || []).map((x) => String(x.name || '').toLowerCase());
-    for (const m of groupMembers(now)) {
+    for (const m of groupMembers(now, true)) {
       if (!m.inWorld || !m.name || inParty.includes(m.name.toLowerCase())) continue;
       if (now - (group.invited.get(m.name) || 0) < 30000) continue;
       group.invited.set(m.name, now);
@@ -4834,7 +4909,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     group.msg = 'Bots gestartet.';
     if (!digibotCore.start(digibotManual)) return;
     groupStartBot('Gruppe: Bots gestartet');
-    groupPush(true);groupSend('start');
+    // mit manual-Flag wie toggle: hebt bei den Mitläufern Not-Aus und Wiedereinstiegs-Sperre auf (3.1.30)
+    groupPush(true);digibotSend({type:'start',manual:digibotManual===true});
     groupTick();
     schedule();
   }
@@ -4860,8 +4936,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     reloadAcc();
     const boss = group.role() === 'leader' && accounts.leadBoss && !accounts.mirror;
     const dgOn = accounts.dungeon && !accounts.mirror; // Dungeon: alle Fenster im Dungeon-Modus
-    cfg.questMode = false; cfg.autopilot = !boss && !dgOn; cfg.farm = boss && !dgOn; cfg.dungeon = dgOn; cfg.foodBuy = false;
-    if (dgOn) dg.reset();
+    cfg.questMode = false; cfg.autopilot = !boss && !dgOn; cfg.farm = boss && !dgOn; cfg.dungeon = dgOn; cfg.foodBuy = false; cfg.eventsOnly = false; // „Nur Event/WB“ blockierte sonst den Tick (3.1.30)
+    if (dgOn && !dg.inside) dg.reset(); // wie toggle: einen laufenden Lauf (Raumstand, geschafft) behalten (3.1.30)
     if (dgOn && digibotManual === true) dgExit.manualAt = Date.now(); // Leader-Start von Hand (3.1.20)
     if (boss) cfg.farmMode = 'boss';
     loadWorld();
@@ -4873,19 +4949,24 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function startMapTalk(why) {
     const st = getStore()?.getState?.();
     if (st?.screen !== 'world' || !st.me?.partner || autopilot.mapTalk) return;
-    autopilot.mapTalk = { mapId: st.world?.mapId, n: 0, prev: { autopilot: cfg.autopilot, farm: cfg.farm, questMode: cfg.questMode, dungeon: cfg.dungeon, on: bot.on } };
-    cfg.autopilot = true; cfg.farm = false; cfg.questMode = false; cfg.dungeon = false; cfg.foodBuy = false;
+    // Food und „Nur Event/WB“ mit sichern – danach weiter wie vorher (3.1.30)
+    autopilot.mapTalk = { mapId: st.world?.mapId, n: 0, prev: { autopilot: cfg.autopilot, farm: cfg.farm, questMode: cfg.questMode, dungeon: cfg.dungeon, foodBuy: cfg.foodBuy, eventsOnly: cfg.eventsOnly, on: bot.on } };
+    cfg.autopilot = true; cfg.farm = false; cfg.questMode = false; cfg.dungeon = false; cfg.foodBuy = false; cfg.eventsOnly = false;
+    bot.questIdle = false; // Event-Bereitschaft blockierte den Tick sonst vor autopilotStep; danach entscheidet er neu (3.1.30)
     autopilot.reset();
     loadWorld();
     if (!bot.on) bot.toggle(true); // still: kein Start/Stopp an die ganze Gruppe
     logEvent('auto', why);
     schedule();
   }
+  // Betriebsart von vor der Runde – am Ende und beim Stopp mittendrin (digibotHalt) (3.1.30)
+  function mapTalkPrevCfg(mt) { return { autopilot: !!mt.prev.autopilot, farm: !!mt.prev.farm, questMode: !!mt.prev.questMode, dungeon: !!mt.prev.dungeon, foodBuy: !!mt.prev.foodBuy, eventsOnly: !!mt.prev.eventsOnly }; }
+  function restoreMapTalkCfg(mt) { if (mt?.prev) Object.assign(cfg, mapTalkPrevCfg(mt)); }
   function endMapTalk() {
     const mt = autopilot.mapTalk;
     if (!mt) return;
     autopilot.mapTalk = null;
-    Object.assign(cfg, { autopilot: mt.prev.autopilot, farm: mt.prev.farm, questMode: mt.prev.questMode, dungeon: !!mt.prev.dungeon });
+    restoreMapTalkCfg(mt);
     autopilot.reset();
     logEvent('auto', `Abgeben & Annehmen fertig${mt.n ? ` (${mt.n} erledigt)` : ' – hier gab es nichts'}${mt.prev.on ? ' – weiter wie vorher' : ''}`);
     if (!mt.prev.on && bot.on) bot.toggle(true); // nur dieses Fenster – die anderen sind evtl. noch dabei
@@ -5203,7 +5284,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     let x = tgt; for (let i = 0; i < 8 && x && x.species !== p.species; i++) x = evos.find((e) => e.species === x.from);
     if (!x && p.stage && p.stage !== 'rookie' && p.stage !== 'in-training') {
       if (evoCooldownLeft(st) > 0) return true;
+      // Zurück-Digitation wie ensureEvolution nach 5 Versuchen aufgeben, statt endlos zu senden (3.1.30)
+      if (autopilot.devoFrom !== p.species) { autopilot.devoFrom = p.species; autopilot.devoTries = 0; }
+      if (autopilot.devoGiveUp === p.species) return true;
       if (now - autopilot.lastEvolve > 4000) {
+        if (++autopilot.devoTries > 5) { autopilot.devoGiveUp = p.species; logEvent('warn', `Zurück-Digitation von ${speciesName(p.species)} klappt nicht`); return true; }
         autopilot.lastEvolve = now; commands()?.devolve?.();
         logEvent('auto', `Zurück-Digitation: ${speciesName(p.species)} → Grundform (für ${speciesName(sp)}${lrDarkMap(st) ? ', Dark Tower' : ''})`);
       }
@@ -5244,7 +5329,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function digibotEvolutionContext(st) {
     const key=activePartner(st)?.partnerId||st?.me?.partner?.entityId;
     if(key && autopilot.evoPartner!==key){
-      autopilot.evoPartner=key;autopilot.evoGiveUp=null;autopilot.evoTries=0;autopilot.evoFrom=null;autopilot.evoNote=null;
+      autopilot.evoPartner=key;autopilot.evoGiveUp=null;autopilot.evoTries=0;autopilot.devoGiveUp=null;autopilot.devoTries=0;autopilot.evoFrom=null;autopilot.evoNote=null;
     }
   }
   function digibotQuestPartner(st) {
@@ -5272,16 +5357,25 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if(task?.purpose==='turnin' && (!task.questId || st.me?.quests?.[task.questId]?.state===2))return true;
       // Complete the hand-in sequence before restoring/evolving the quest partner.
       // The current task can already be done (or reset) while the planner has yet to select the next reward.
-      if((autopilot.turninPartnerHeld || task?.purpose==='turnin') && (!task || task.purpose==='turnin')){
+      // Annahme beim selben NPC mitten in der Abgabe-Folge: kein Grund zum Zurückwechseln, solange noch eine Abgabe folgt (3.1.30)
+      const holdAccept=(x)=>x?.purpose==='accept' && (x.sameNpc || autopilot.batchPhase==='turnin');
+      if((autopilot.turninPartnerHeld || task?.purpose==='turnin') && (!task || task.purpose==='turnin' || holdAccept(task))){
         if(world.state!=='ready')return true;
-        const next=autopilot.mapTalk
-          ?questTasks(st).find(t=>t.kind==='talk' && ['turnin','accept','objective'].includes(t.purpose) && t.loc?.mapId===autopilot.mapTalk.mapId)
-          :questTasks(st)[0];
+        const list=autopilot.mapTalk
+          ?questTasks(st).filter(t=>t.kind==='talk' && ['turnin','accept','objective'].includes(t.purpose) && t.loc?.mapId===autopilot.mapTalk.mapId)
+          :questTasks(st);
+        const next=list[0];
         if(next?.purpose==='turnin')return true;
+        if(holdAccept(task||next) && list.some(t=>t.purpose==='turnin'))return true;
       }
       autopilot.turninPartnerHeld=false;
     }
 
+    // Wechsel/Zurück-Digitation im Kampf aufschieben: sonst wartete der Tick hier und wehrte Angreifer nie ab (3.1.30)
+    if(home&&activePartner(st)&&activePartner(st).partnerId!==home){
+      const pe=window.dmo?.net?.state?.entities?.get?.(st?.me?.partner?.entityId);
+      if(pe&&(pe.flags&FLAG.InCombat))return true;
+    }
     const sw=ensurePartner(st,home,now);
     if(sw!==true)return sw;
     if(home&&activePartner(st)?.partnerId!==home)return true;
@@ -5529,7 +5623,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if(autopilot.bountyReturn)tasks=tasks.filter(t=>digibotIsYoungBounty(t.def)&&t.purpose==='turnin');
     // Board dailies stay active and collect incidental progress, but must not
     // trigger travel or postpone ordinary quest rewards while other work is feasible.
-    if(!autopilot.mapTalk && tasks.some(t=>!t.def?.pool && (autopilot.failed.get(t.key)||0)<now && hops(mapId,t.loc.mapId)<Infinity)){
+    // Grinden zählt nicht als andere Arbeit – sonst lagen Dailies (auch fertige Abgaben) bis zum Ziel-Level (3.1.30)
+    if(!autopilot.mapTalk && tasks.some(t=>!t.grind && !t.def?.pool && (autopilot.failed.get(t.key)||0)<now && hops(mapId,t.loc.mapId)<Infinity)){
       tasks=tasks.filter(t=>!t.def?.pool);
     }
     // Runde: nur Quests, deren Geber auf der aktuellen Runden-Map steht (Ziele dürfen woanders liegen)
@@ -5992,6 +6087,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   function tryTeleport(st, mapId, now) {
     const cur = st.world?.mapId;
+    // Teilstrecke geschafft oder anderes Ziel: frisch anrufen statt mit altem asked sofort „keine Zielliste“ (3.1.30)
+    if (autopilot.tp?.map && (autopilot.tp.map !== cur || autopilot.tp.to !== mapId)) autopilot.tp = null;
     const h = hops(cur, mapId);
     if (h < TELEPORT_MIN_HOPS || (autopilot.tpBlock.get(mapId) || 0) > now) return null;
     const phone = (world.maps[cur]?.npcs || []).find((n) => n.npcId === 'digiphone');
@@ -6011,7 +6108,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const best = list.includes(mapId) ? mapId
         : list.filter((m) => m !== cur && hops(m, mapId) <= h - TELEPORT_MIN_HOPS).sort((a, b) => hops(a, mapId) - hops(b, mapId))[0];
       if (!best) return block(`${mapName(mapId)} (noch) nicht freigeschaltet`);
-      autopilot.tp ||= { tries: 0, at: 0 };
+      autopilot.tp ||= { tries: 0, at: 0, map: cur, to: mapId };
       if (!autopilot.tp.at || now-autopilot.tp.at>=DIGIPHONE_CD_MS+DIGIPHONE_CD_PAD_MS) {
         if ((autopilot.tp.teleportTries=(autopilot.tp.teleportTries||0)+1) > 3) return block('Reise klappt nicht (zu wenig Bits?)');
         autopilot.tp.at = now;
@@ -6021,7 +6118,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       }
       return `Digi-Phone: Schnellreise nach ${mapName(best)}…`;
     }
-    autopilot.tp ||= { tries: 0, at: 0, asked: 0 };
+    autopilot.tp ||= { tries: 0, at: 0, asked: 0, map: cur, to: mapId };
     if (st.dialog?.npc === 'digiphone') {
       if (now - autopilot.dialogAt > 1200) {
         autopilot.dialogAt = now;
@@ -6067,6 +6164,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (!portal) return 'Keine Route';
     const res = walkTo(st,portal.x+portal.w/2,portal.y+portal.h/2,now,{portal});
     if (res === 'stuck') return 'Portal nicht erreichbar';
+    // Rückfallnetz: steht der Bot im Portal, ohne dass die Map wechselt (Spiel lehnt ab), nach PORTAL_HOLD_MS aufgeben (3.1.30)
+    const pk = `${cur}>${r[1]}`;
+    if (travel.portalKey !== pk || now - (travel.portalSeen || 0) > 5000) { travel.portalKey = pk; travel.portalAt = 0; }
+    if (typeof res === 'number' && res < 24) {
+      travel.portalSeen = now; travel.portalAt ||= now;
+      if (now - travel.portalAt > PORTAL_HOLD_MS) { travel.portalAt = 0; travel.portalKey = null; return 'Portal nicht erreichbar'; }
+    }
     const C = content();
     const nm = (id) => C?.maps?.[id]?.name || id;
     return `Reise nach ${nm(mapId)}: Portal → ${nm(r[1])}${r.length > 2 ? ` (noch ${r.length - 1} Maps)` : ''}`;
@@ -6161,6 +6265,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if(q.state!==1 || !def || def.pool || cfg.questOff[id])continue;
       for(const [i,o]of (def.objectives||[]).entries()){
         if(o.kind!=='kill' || (q.counters?.[i]??0)>=(o.count||1))continue;
+        if((autopilot.bossFaintBan.get(`hunt:${id}:${i}`)||0)>Date.now())continue; // haut das Digimon um: ausgelassen (3.1.30)
         const species=[].concat(o.species||[]);
         // Nur echte Bosse (Boss-Flag): ein named Boss teilt oft die Art mit normalen Monstern (Divermon Captain / Divermon)
         const isBoss=m=>{const e=entities?.get?.(m.id);return e?!!(e.flags&FLAG.Boss):farmBossList().some(b=>b.map===map&&b.species===m.species);};
@@ -6193,6 +6298,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const HUNT_STALL_MS = 240000; // so lange darf eine Jagd ohne Fortschritt dauern
   function apRefresh(st, now) {
     const t = autopilot.task;
+    // Grinden gedrosselt neu bewerten: Level-Up macht Jagden machbar, Sperren laufen ab – sonst grindete er bis zum Ziel-Level (3.1.30)
+    if (t?.grind && group.role() !== 'follower' && world.state === 'ready' && now - (autopilot.grindPeekAt || 0) > 15000) {
+      autopilot.grindPeekAt = now;
+      const nt = questTasks(st)[0];
+      if (nt && !nt.grind) { logEvent('auto', `Grinden unterbrochen: ${nt.label}`); autopilot.reset(); }
+      return;
+    }
     if (!t || t.kind !== 'hunt' || t.grind || group.role() === 'follower') return;
     if(!digibotYoungBountyAllowed(st,t,now)){autopilot.reset();autopilot.route=null;autopilot.tp=null;return;}
     if (t.parts) {
@@ -6210,6 +6322,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const pq = planQuests(st);
       const parts = t.parts || [{ questId: t.questId, objIndex: t.objIndex }];
       const prog = parts.reduce((n, p) => n + (pq[p.questId]?.counters?.[p.objIndex] ?? 0) + (pq[p.questId]?.state === 2 ? 1000 : 0), 0);
+      if (t.prog !== undefined && prog > t.prog) autopilot.bossFaints.delete(t.key); // Kill geschafft: Ohnmachten neu zählen (3.1.30)
       if (t.prog === undefined || prog > t.prog) { t.prog = prog; t.progAt = now; }
       else if (now - t.progAt > HUNT_STALL_MS && !t.loc.boss) { // Boss-Quests warten bewusst auf den Respawn
         if (t.loc.key) autopilot.avoidSpots.set(t.loc.key, now + TASK_BAN_MS);
@@ -6254,11 +6367,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         t = null; autopilot.reset(); if (mt) mt.n++;
       }
     }
-    if(!mt && t?.def?.pool && questTasks(st).some(o=>!o.def?.pool)){
+    if(!mt && t?.def?.pool && questTasks(st).some(o=>!o.def?.pool && !o.grind)){ // Grinden verdrängt Dailies nicht (3.1.30)
       autopilot.reset();t=null;
     }
     const sweepM=cfg.apOrder==='sweep'?autopilot.sweepAt:null;
-    if(cfg.apBatch && !mt && t?.purpose==='turnin' && questTasks(st).some(o=>!o.grind && taskPhase(o)===2 && (!sweepM||digibotQuestOfMap(o,sweepM)))){autopilot.reset();t=null;}
+    // in der Abgabe-Phase laufen begonnene Abgaben zu Ende (wie questTasks) – sonst jeden Takt verworfen und neu gewählt (3.1.30)
+    if(cfg.apBatch && !mt && autopilot.batchPhase!=='turnin' && t?.purpose==='turnin' && questTasks(st).some(o=>!o.grind && taskPhase(o)===2 && (!sweepM||digibotQuestOfMap(o,sweepM)))){autopilot.reset();t=null;}
     if (!t && mt) { // Abgeben & Annehmen: nur Gespräche auf dieser Map
       t = autopilot.task = questTasks(st).find((o) => o.kind === 'talk' && (o.purpose === 'turnin' || o.purpose === 'accept' || o.purpose === 'objective') && o.loc?.mapId === mt.mapId) || null;
       if (!t) { endMapTalk(); return 'Abgeben & Annehmen fertig'; }
@@ -6298,8 +6412,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (t && group.role() === 'leader' && t.loc?.mapId && t.loc.mapId !== st.world?.mapId) {
         const own = st.me?.quests || {}, pq = planQuests(st);
         const held = Object.keys(pq).filter((id) => pq[id]?.group && own[id]?.state === 2);
-        if (held.length) {
-          const local = all.find((o) => o.loc?.mapId === st.world?.mapId);
+        // Aufgabe einer zurückgehaltenen Quest selbst (Mitläufer hängt nach, Jagd für ihn) nicht sperren – sonst wartet der
+        // Leader ohne Ende auf der Abgabe-Map, und der Mitläufer kommt dort nie weiter (3.1.30)
+        const ofHeld = held.includes(t.questId) || (t.parts || []).some((p) => held.includes(p.questId));
+        if (held.length && !ofHeld) {
+          // sonst die Aufgabe der zurückgehaltenen Quest selbst, auch wenn sie nicht vorn steht (3.1.30)
+          const local = all.find((o) => o.loc?.mapId === st.world?.mapId)
+            || all.find((o) => held.includes(o.questId) || (o.parts || []).some((p) => held.includes(p.questId)));
           t = autopilot.task = local || null;
           if (!t) {
             const C = content();
@@ -6360,7 +6479,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // Quest-Digimon (in der gewählten Digitation) für Annehmen und Erledigen. In der Map-für-Map-Runde wird schon
     // vor dem ersten Annehmen digitiert. Das Abgabe-Digimon kommt erst beim Quest-Geber dran (zurück-digitieren,
     // wechseln, abgeben) – unterwegs scheitert der Wechsel an Kämpfen, und man läuft in der Grundform herum.
-    if (t.purpose !== 'turnin') {
+    // Annahme beim selben NPC in der Abgabe-Folge braucht kein bestimmtes Digimon: nicht hin und her wechseln (3.1.30)
+    if (t.purpose !== 'turnin' && !(t.purpose === 'accept' && autopilot.turninPartnerHeld && (t.sameNpc || autopilot.batchPhase === 'turnin'))) {
       const sw = ensurePartner(st, digibotQuestPartner(st), now);
       if (sw !== true) return `${t.label} · ${sw}`;
       if (cfg.apOrder === 'sweep' && (!digibotQuestPartner(st) || activePartner(st)?.partnerId === digibotQuestPartner(st))) {
@@ -6744,7 +6864,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       && (fieldAdd(m) || (raid && Math.hypot(m.x - boss.x, m.y - boss.y) <= ADD_RAID_RADIUS))) || null;
   }
   // Abgabe/Gespräch unterwegs (Autopilot) – dann auch keine Adds jagen
-  const noFightEarly = (st, now) => cfg.autopilot && !cfg.farm && autopilot.task && PASSIVE(autopilot.task) && !taskDone(st, autopilot.task);
+  // Event/Weltboss hat übernommen: eine liegengebliebene Gespräch-/Reise-Aufgabe zählt nicht (sonst stoppte dodge() das
+  // Digimon im Boss-Kampf alle 500 ms und die Adds blieben aus) (3.1.30)
+  const noFightEarly = (st, now) => cfg.autopilot && !cfg.farm && autopilot.task && PASSIVE(autopilot.task) && !taskDone(st, autopilot.task)
+    && !(cfg.hunt && hunt.goal) && !(cfg.wboss && wb.goal);
 
   // Bestes nächstes Ziel: zuerst der nächste Angreifer, sonst (nicht im Ruhemodus) das nächste passende Monster im Radius.
   // ---------- Food kaufen (3.1.8) ----------
@@ -6752,8 +6875,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Ablauf: hinreisen → zum NPC → ansprechen → „Show me your wares“ (openShop) → je Sorte bis zur Zielmenge kaufen → Shop zu → fertig.
   const FOOD_MAP = 'myotismon_castle', FOOD_NPC = 'trader_tentomon', FOOD_STACK = 99, FOOD_STEP_MS = 1500, FOOD_GIVEUP = 4;
   const FOOD_HOME_NEAR = 40, FOOD_HOME_GIVEUP_MS = 600000; // 3.1.29: nach dem Kauf zurück zum Startpunkt (so nah, höchstens so lange)
-  const food = { talkAt: 0, tries: 0, bought: [], done: false, home: null, homing: 0,
-    reset() { this.talkAt = 0; this.tries = 0; this.bought = []; this.done = false; this.home = null; this.homing = 0; } };
+  // pend: gesendeter Kauf, bis das Inventar ihn zeigt; buyTries/skip: abgelehnte Sorten (Inventar voll?) nach 2 Versuchen
+  // auslassen; warned: „zu wenig Bits“ nur einmal je Sorte; walkStuck: Weg zum Händler blockiert (3.1.30)
+  const FOOD_CONFIRM_MS = 3000, FOOD_BUY_TRIES = 2, FOOD_WALK_TRIES = 3;
+  const food = { talkAt: 0, tries: 0, bought: [], done: false, home: null, homing: 0, pend: null, buyTries: {}, skip: new Set(), warned: new Set(), walkStuck: 0,
+    reset() { this.talkAt = 0; this.tries = 0; this.bought = []; this.done = false; this.home = null; this.homing = 0; this.pend = null; this.buyTries = {}; this.skip = new Set(); this.warned = new Set(); this.walkStuck = 0; } };
   const itemCount = (me, id) => (me?.inventory || []).filter((i) => i?.itemId === id).reduce((a, i) => a + (i.qty || 0), 0);
   function foodWants(st) {
     const me = st?.me, C = content();
@@ -6774,19 +6900,41 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       logEvent('bot', `Food kaufen: ${food.bought.length ? `gekauft ${food.bought.join(', ')} – ` : ''}alles voll (${wants.map((w) => `${w.name} ${w.have}`).join(', ')})`); notify('Food gekauft.'); return foodReturn(st, now); }
     if (world.state !== 'ready') { loadWorld(); return 'Lade Kartendaten…'; }
     const tr = travel(st, mapId, now);
+    // gesperrte Food-Map / kein Portalweg: abbrechen wie der Rückweg, statt für immer zu stehen (3.1.30)
+    if (tr === 'Keine Route' || tr === 'Portal nicht erreichbar') { logEvent('warn', `Food: kein Weg nach ${content()?.maps?.[mapId]?.name || mapId} (${tr}) – abgebrochen`); food.done = true; autopilot.nav = null; return true; }
     if (tr !== true) return `Reise nach ${content()?.maps?.[mapId]?.name || mapId} · ${tr}`;
     const npc = world.maps[mapId]?.npcs.find((n) => n.npcId === npcId), me = controlled(st);
     if (!npc || !me) return 'Händler nicht in den Kartendaten gefunden';
     const d = Math.hypot(me.x - npc.x, me.y - npc.y);
-    if (d > 48 && !st.dialog && !st.shop) { if (walkTo(st, npc.x, npc.y + 24, now) === 'stuck') return 'Weg zum Händler blockiert'; return `Gehe zu ${content()?.npcs?.[npcId]?.name || npcId} (${Math.round(d)} px)`; }
+    if (d > 48 && !st.dialog && !st.shop) {
+      if (walkTo(st, npc.x, npc.y + 24, now) === 'stuck') { // neu planen (nav weg), nach FOOD_WALK_TRIES aufgeben (3.1.30)
+        autopilot.nav = null;
+        if (++food.walkStuck >= FOOD_WALK_TRIES) { logEvent('warn', 'Food: Weg zum Händler blockiert – abgebrochen'); food.done = true; return true; }
+        return 'Weg zum Händler blockiert – plane neu';
+      }
+      return `Gehe zu ${content()?.npcs?.[npcId]?.name || npcId} (${Math.round(d)} px)`;
+    }
     if (st.shop) { // Shop offen: kaufen
       const bits = Number(st.me?.bits) || 0;
+      // letzten Kauf bestätigen: erst kaufen, wenn das Inventar ihn zeigt (kein Doppelkauf); ohne Anstieg nach FOOD_CONFIRM_MS
+      // gescheitert, nach FOOD_BUY_TRIES Fehlversuchen die Sorte auslassen – sonst endlose Kaufschleife (3.1.30)
+      if (food.pend) {
+        const p = food.pend, w0 = wants.find((w) => w.id === p.id);
+        if (w0 && w0.have > p.have) { food.buyTries[p.id] = 0; food.pend = null; }
+        else if (now - p.at < FOOD_CONFIRM_MS) return 'Kauf wird verbucht…';
+        else {
+          food.pend = null; const i = food.bought.lastIndexOf(p.label); if (i >= 0) food.bought.splice(i, 1);
+          if ((food.buyTries[p.id] || 0) >= FOOD_BUY_TRIES) { food.skip.add(p.id); logEvent('warn', `Food kaufen: Kauf von ${p.name} schlägt fehl (Inventar voll?) – übersprungen`); }
+        }
+      }
       for (const w of wants) {
-        if (w.need <= 0 || !w.price) continue;
+        if (w.need <= 0 || !w.price || food.skip.has(w.id)) continue;
         const afford = Math.floor(bits / w.price), qty = Math.min(w.need, FOOD_STACK, afford);
-        if (qty <= 0) { logEvent('warn', `Food kaufen: zu wenig Bits für ${w.name} (${bits} Bits, ${w.price} je Stück)`); continue; }
+        if (qty <= 0) { if (!food.warned.has(w.id)) { food.warned.add(w.id); logEvent('warn', `Food kaufen: zu wenig Bits für ${w.name} (${bits} Bits, ${w.price} je Stück)`); } continue; } // nur einmal je Sorte (3.1.30)
         if (now - food.talkAt < FOOD_STEP_MS) return `Kaufe ${w.name}…`;
-        food.talkAt = now; commands()?.buy?.(w.id, qty); food.bought.push(`${qty}× ${w.name}`);
+        const label = `${qty}× ${w.name}`;
+        food.talkAt = now; commands()?.buy?.(w.id, qty); food.bought.push(label);
+        food.pend = { id: w.id, have: w.have, at: now, name: w.name, label }; food.buyTries[w.id] = (food.buyTries[w.id] || 0) + 1;
         logEvent('bot', `Food kaufen: ${qty}× ${w.name} (${qty * w.price} Bits)`);
         return `Kaufe ${qty}× ${w.name}`;
       }
@@ -6857,7 +7005,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     route: null,        // Named-Runde: { i, map, skip:Set(ch), back, chSince, chKey, zoneAt, patrol, logged:Set }
     opening: null,      // { key, at, tries } – gerade angestoßenes Öffnen eines neuen Kanals
     leave: false,       // Boss-Ziel lebt woanders: nicht kämpfen, sofort hin
-    reset() { this.goal = null; this.fight = null; this.switchTries = 0; this.route = null; this.opening = null; },
+    reset() { this.goal = null; this.fight = null; this.switchTries = 0; this.route = null; this.opening = null; this.chLoading = false; this.chToken = (this.chToken || 0) + 1; }, // hängende Kanalliste verwerfen (3.1.30)
   };
   // Boss-Rotation unterwegs zum Boss (andere Map, anderer Kanal oder noch nicht am Spawnpunkt): keine Kämpfe – auch
   // nicht gegen Angreifer, die hinterherlaufen. Am Spawnpunkt darf er sie erledigen, solange der Boss nicht da ist.
@@ -6901,7 +7049,38 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const HUNT_POLL_MS = 10000, HUNT_POLL_ACTIVE_MS = 5000; // Event-Fenster so oft abfragen (während einer Jagd öfter)
   const HUNT_QUEST_PREP_MS = 30000; // During quest autopilot, keep working through the early warning.
   const HUNT_WP_NEAR = 60;          // so nah = Suchpunkt abgehakt
-  const hunt = { info: null, skew: 0, polledAt: 0, busy: false, goal: null, visited: new Set(), wp: null, wpAt: 0, warnTs: 0 };
+  const hunt = { info: null, skew: 0, polledAt: 0, busy: false, goal: null, visited: new Set(), wp: null, wpAt: 0, warnTs: 0, skipKey: null, stuckAt: 0, stuckMap: null, stuckSeen: 0 };
+  // Quest-Jagd: Ausgangslage vor der Reise zu Event/Weltboss – danach dorthin zurück, statt auf der Event-Map mit
+  // „Quest-Ziele erledigt“ zu stoppen (3.1.30)
+  const questBack = { home: null };
+  const QUEST_BACK_MS = 5 * 60000; // so lange höchstens zurückreisen, dann hier weiterjagen
+  function questReturn(st, sc, now) {
+    const h = questBack.home;
+    if (!h || !cfg.questMode || cfg.autopilot || (cfg.hunt && hunt.goal) || (cfg.wboss && wb.goal)) return null;
+    const where = content()?.maps?.[h.mapId]?.name || h.mapId;
+    const done = (msg, level = 'auto') => { logEvent(level, msg); questBack.home = null; autopilot.nav = null; return null; };
+    h.backAt ||= now;
+    if (now - h.backAt > QUEST_BACK_MS) return done(`Quest: Rückweg nach ${where} dauert zu lange – jage hier weiter`, 'warn');
+    if (st.world?.mapId !== h.mapId) {
+      wayRecall(st, sc, now); const tr = travel(st, h.mapId, now);
+      if (tr === 'Keine Route') return done(`Quest: kein Weg zurück nach ${where} – jage hier weiter`, 'warn');
+      if (tr !== true) return `Quest: zurück nach ${where} · ${tr}`;
+    }
+    const me = controlled(st), d = me ? Math.hypot(me.x - h.x, me.y - h.y) : 0;
+    if (d > FARM_ARRIVE) {
+      if (walkTo(st, h.x, h.y, now) === 'stuck') return done(`Quest: Jagd-Stelle in ${where} nicht erreichbar – jage hier weiter`, 'warn');
+      return `Quest: zurück zur Jagd-Stelle · ${Math.round(d)} px`;
+    }
+    return done(`Quest: zurück in ${where} – jage weiter`);
+  }
+  const HUNT_STUCK_MS = 60000;      // Portal zur Event-Map so lange am Stück nicht erreichbar: Event auslassen (3.1.30)
+  const EV_FIGHT_KEEP_MS = 60000;   // Vorlauf: laufenden Boss-Kampf erst beenden, solange der Start noch so weit weg ist (3.1.30)
+  // Add oder Greifarm hat Vorrang (wie im Tick): den Event-/Weltboss dann nicht anwählen – sonst wechselte das Ziel im
+  // Takt zwischen Boss und Hinukamuy/Greifarm (3.1.30)
+  const evAddFirst = (st, sc, now) => !noFightEarly(st, now) && !bot.resting && !!bossAdd(sc);
+  // Gerade im Kampf gegen einen Boss (Feldboss der Rotation/Lern-Route): nicht mitten drin zur Event-Reise abbrechen (3.1.30)
+  const evBossFight = (st) => { const t = st.target; if (!(t?.kind === 'mob' && t.hp > 0 && bot.attackedId === t.id)) return false;
+    const e = window.dmo?.net?.state?.entities?.get?.(t.id); return !!e && e.hp > 0 && !!(e.flags & FLAG.Boss); };
   const HUNT_REQUEST_TIMEOUT_MS=15000;
   function huntPoll(now) {
     if(hunt.busy && now-(hunt.requestAt||0)<HUNT_REQUEST_TIMEOUT_MS)return;
@@ -6987,7 +7166,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (still) {
         hunt.seenAt=now; hg.overAt ||= now;
         if (hg.overAt === now) logEvent('auto', `Event-Fenster vorbei, ${C?.digimon?.[hg.boss]?.name || hg.boss} lebt noch – kämpfe weiter`);
-        if (st.target?.id !== still.id && bot.can('select', SELECT_GAP_MS, now)) { bot.lastPress.select = now; hunt.selAt = now; worldScene()?.select?.(still.id); }
+        if (st.target?.id !== still.id && !evAddFirst(st, sc, now) && bot.can('select', SELECT_GAP_MS, now)) { bot.lastPress.select = now; hunt.selAt = now; worldScene()?.select?.(still.id); }
         return null;
       }
       if (!still && !digibotDeaths.has(st.target?.id) && st.world?.mapId===hg.mapId && now-(hunt.seenAt||0)<HUNT_HOLD_MS) return 'Boss kurz nicht sichtbar – warte';
@@ -6997,6 +7176,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (hunt.goal) { logEvent('auto', `Event vorbei: ${C?.digimon?.[hunt.goal.boss]?.name || hunt.goal.boss} – weiter wie vorher`); hunt.goal = null; autopilot.nav = null; }
       return null;
     }
+    // Event-Map gesperrt oder ohne Weg: dieses Event auslassen (3.1.30)
+    if (g.key === hunt.skipKey) { if (hunt.goal) { hunt.goal = null; hunt.wp = null; autopilot.nav = null; } return null; }
     if(cfg.autopilot && !cfg.farm && !g.up){
       const visible=st.world?.mapId===g.mapId && huntBossEnt(g.boss,controlled(st));
       const turningIn=!!autopilot.turninPartnerHeld || autopilot.task?.purpose==='turnin' && st.me?.quests?.[autopilot.task.questId]?.state===2;
@@ -7007,7 +7188,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     const name = C?.digimon?.[g.boss]?.name || g.boss, where = C?.maps?.[g.mapId]?.name || g.mapId;
     if (hunt.goal?.key !== g.key) {
-      hunt.seenAt=0; hunt.goal = g; hunt.visited = new Set(); hunt.wp = null;
+      hunt.seenAt=0; hunt.goal = g; hunt.visited = new Set(); hunt.wp = null; hunt.stuckAt = 0; // neues Ziel: Zähler neu (3.1.30)
       autopilot.nav=null;autopilot.route=null;autopilot.tp=null;
       if(st.dialog?.npc==='digiphone')commands()?.closeDialog?.();
       logEvent('auto', `Event: ${name} – ${where} (Kanal ${g.ch})${g.up ? ' – ist da, suche ihn' : ` – erscheint in ${Math.max(0, Math.round((g.at - now) / 60000))} min`}`);
@@ -7019,12 +7200,31 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const here = st.world?.mapId === g.mapId;
     const b = here ? huntBossEnt(g.boss, controlled(st)) : null;
     if (b) { // in Sicht: anvisieren, den Kampf macht der normale Ablauf (huntFocus)
-      if (st.target?.id !== b.id && bot.can('select', SELECT_GAP_MS, now)) { bot.lastPress.select = now; hunt.selAt = now; worldScene()?.select?.(b.id); }
+      if (st.target?.id !== b.id && !evAddFirst(st, sc, now) && bot.can('select', SELECT_GAP_MS, now)) { bot.lastPress.select = now; hunt.selAt = now; worldScene()?.select?.(b.id); }
       return null;
     }
     // unterwegs (Reise, Kanalwechsel, Suche) nicht kämpfen; beim Warten auf das Erscheinen Angreifer nur abwehren
     const busy = !!sc?.attackers?.length;
-    if (!here) { wayRecall(st, sc, now); const tr = travel(st, g.mapId, now); return tr === true ? `${name}: angekommen in ${where}` : `${name} – reise nach ${where} · ${tr}`; }
+    if (!here) {
+      // Vorlauf: einen laufenden Boss-Kampf (Rotation, Lern-Route) erst zu Ende bringen – sonst Abbruch bis zu 6 min vor dem
+      // Start, und farmUpdate buchte den Boss bei ≤ 15 % als besiegt (3.1.30)
+      if (!g.up && g.at - now > EV_FIGHT_KEEP_MS && evBossFight(st)) return null;
+      wayRecall(st, sc, now); const tr = travel(st, g.mapId, now);
+      // gesperrte Map (Einstiegsquest fehlt) / kein Portalweg: sofort, Portal nicht erreichbar: nach HUNT_STUCK_MS aufgeben –
+      // sonst blockierte das Event jeden Modus bis zum Ende des Fensters (bis 2 h) (3.1.30)
+      if (tr === 'Keine Route' || tr === 'Portal nicht erreichbar') {
+        if (hunt.stuckMap !== st.world?.mapId) { hunt.stuckMap = st.world?.mapId; hunt.stuckAt = 0; }
+        hunt.stuckAt ||= now; hunt.stuckSeen = now;
+        if (tr === 'Keine Route' || now - hunt.stuckAt > HUNT_STUCK_MS) {
+          hunt.skipKey = g.key; hunt.stuckAt = 0; hunt.goal = null; hunt.wp = null; autopilot.nav = null;
+          logEvent('warn', `Event: ${where} nicht erreichbar (${tr}) – überspringe dieses Event`);
+          return null;
+        }
+      // das Portal-Rückfallnetz in travel meldet nur alle PORTAL_HOLD_MS einen Takt lang: Zähler erst nach Map-Wechsel,
+      // Ankunft oder längerer Ruhe löschen, nicht in jedem Zwischentakt (3.1.30)
+      } else if (tr === true || st.world?.mapId !== hunt.stuckMap || now - (hunt.stuckSeen || 0) > PORTAL_HOLD_MS + 5000) hunt.stuckAt = 0;
+      return tr === true ? `${name}: angekommen in ${where}` : `${name} – reise nach ${where} · ${tr}`;
+    }
     if ((st.world?.channel ?? 1) !== g.ch) { wayRecall(st, sc, now); const r = farmSwitch(st, sc, g.mapId, where, g.ch, now, true, false); if (!r.done) return `${name} – Kanal ${g.ch} · ${r.status}`; }
     if (!g.up) {
       if (busy) { bot.defendOnly = now; return null; } // wehre ab, fange nichts Neues an
@@ -7130,12 +7330,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const boss = here ? wbFocus(sc) : null;
     if (boss) { // in Sicht: anvisieren, den Kampf macht der normale Ablauf (Fokus)
       wb.arrAt = 0;
-      if (st.target?.id !== boss.id && bot.can('select', SELECT_GAP_MS, now)) { bot.lastPress.select = now; hunt.selAt = now; worldScene()?.select?.(boss.id); }
+      if (st.target?.id !== boss.id && !evAddFirst(st, sc, now) && bot.can('select', SELECT_GAP_MS, now)) { bot.lastPress.select = now; hunt.selAt = now; worldScene()?.select?.(boss.id); } // Add/Greifarm zuerst (3.1.30)
       return null;
     }
     if (here && wbPresent(st, sc, now)) return null; // da, aber gerade nicht wählbar: der Tick wartet beim Boss
     // unterwegs (Reise, Kanalwechsel, zum Spawnpunkt) nicht kämpfen; am Spawnpunkt Angreifer nur abwehren
     const busy = !!sc?.attackers?.length;
+    // erst fällig in > EV_FIGHT_KEEP_MS: einen laufenden Boss-Kampf woanders zu Ende bringen statt ihn abzubrechen (3.1.30)
+    if (o.at - now > EV_FIGHT_KEEP_MS && evBossFight(st)) return null;
     const tr = travel(st, b.map, now);
     if (tr !== true) { wayRecall(st, sc, now); return `${label} · ${tr}`; }
     const sw = farmSwitch(st, sc, b.map, b.mapName, o.ch, now, true, false);
@@ -7278,6 +7480,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // Antwort, die noch vor unserem Sieg abgeschickt wurde, nicht als „lebt“ übernehmen
     const k = farm.known.get(farmKey(map, index, ch));
     if (e.respawnInMs === undefined && k?.killed && Date.now() - k.at < 10000) return;
+    // am Spawnpunkt nicht zu sehen und bewusst übersprungen: „lebt“ laut Timer bis dahin nicht übernehmen – sonst hing die
+    // Rotation endlos an diesem Boss (ein sichtbarer Boss hebt die Sperre über farmSet auf) (3.1.30)
+    if (e.respawnInMs === undefined && k?.skipUntil > Date.now()) return;
     if (e.respawnInMs === undefined) farmSet(map, index, ch, { up: true, hp: e.hp });
     else farmSet(map, index, ch, { up: false, readyAt: Date.now() - (performance.now() - at) + e.respawnInMs });
   }
@@ -7325,8 +7530,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       // (Sichtweite, Verfolgung), ist er „vermisst“: suchen (letzte Position, dann Spawnpunkt); erst nach FARM_MISS_MS als
       // besiegt mit kurzem Timer – der nächste Boss-Timer korrigiert. Kanal-/Mapwechsel zählen nicht.
       const entity=ents?.get?.(f.id);
-      const confirmed=digibotDeaths.has(f.id)||(entity && (entity.hp<=0 || (entity.flags & FLAG.Dead)))||(st.target?.id===f.id&&st.target.hp<=0)||(f.pct??100)<=15;
       const sameRoom = f.map === st.world?.mapId && f.ch === ch && st.screen === 'world';
+      // „zuletzt fast tot“ nur im selben Raum – Ohnmacht und Lager auf anderer Map/anderem Kanal sind kein Sieg (3.1.30)
+      const confirmed=digibotDeaths.has(f.id)||(entity && (entity.hp<=0 || (entity.flags & FLAG.Dead)))||(st.target?.id===f.id&&st.target.hp<=0)||(sameRoom&&(f.pct??100)<=15);
       const b = knownBosses.find(x=>farmKey(x.map,x.index,f.ch)===f.key);
       if (b && confirmed) {
         farm.known.set(f.key, { up: false, readyAt: now + b.respawnMs, at: now, killed: true });
@@ -7409,18 +7615,25 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   };
   // Kanalliste der aktuellen Map (asynchron, wird zwischengespeichert)
+  const CH_LIST_TIMEOUT_MS = 10000; // so lange auf listChannels warten, dann erneut fragen (3.1.30)
   function farmChannelList(st, now) {
     const mapId = st.world?.mapId;
     const c = farm.channels;
     if (c && c.mapId === mapId && now - c.at < 30000) return c.list;
+    // Antwort bleibt aus: nach CH_LIST_TIMEOUT_MS neu fragen; ein synchroner Fehler ließ chLoading sonst für immer stehen (3.1.30)
+    if (farm.chLoading && now - (farm.chLoadAt || 0) > CH_LIST_TIMEOUT_MS) { farm.chLoading = false; logEvent('warn', 'Kanalliste ohne Antwort – frage erneut ab'); }
     if (!farm.chLoading && commands()?.listChannels) {
-      farm.chLoading = true;
-      Promise.resolve(commands().listChannels()).then((list) => {
+      const token = farm.chToken = (farm.chToken || 0) + 1;
+      farm.chLoading = true; farm.chLoadAt = now;
+      let p;
+      try { p = commands().listChannels(); } catch { farm.chLoading = false; return c && c.mapId === mapId ? c.list : null; }
+      Promise.resolve(p).then((list) => {
+        if (token !== farm.chToken) return; // verspätete Antwort einer aufgegebenen Abfrage
         // Antwort unter der Map ablegen, zu der die Räume gehören – kurz nach einem Map-Wechsel kam live noch die Liste der
         // alten Map; deren Raum-ID für „Ch 2“ brachte den Bot zurück auf die alte Map
         const rows = Array.isArray(list) ? list : [];
         farm.channels = { mapId: rows.find((r) => r?.mapId)?.mapId || mapId, at: Date.now(), list: rows };
-      }).catch(() => { farm.channels = { mapId, at: Date.now(), list: [] }; }).finally(() => { farm.chLoading = false; });
+      }).catch(() => { if (token === farm.chToken) farm.channels = { mapId, at: Date.now(), list: [] }; }).finally(() => { if (token === farm.chToken) farm.chLoading = false; });
     }
     return c && c.mapId === mapId ? c.list : null;
   }
@@ -7457,12 +7670,17 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const room = list.find((r) => r.channel === ch && (!r.mapId || r.mapId === mapId));
     const fail = (why, ms = TASK_BAN_MS) => {
       digibotChannelPeace=null;digibotChannelCleanup=null;
-      farm.chBan.set(`${mapId}#${ch}`, now + ms);
-      logEvent('warn', `${mapName}: Ch ${ch} ${why} – ${Math.round(ms / 60000)} min gemieden`);
+      const banKey = `${mapId}#${ch}`, already = (farm.chBan.get(banKey) || 0) > now;
+      farm.chBan.set(banKey, now + ms);
+      // Mitläufer am vollen Leader-Kanal landet jeden Takt hier: nur einmal je Sperrzeitraum warnen (3.1.30)
+      if (!already) logEvent('warn', `${mapName}: Ch ${ch} ${why} – ${Math.round(ms / 60000)} min gemieden`);
       farm.switchTries = 0;
       return { status: `Ch ${ch} nicht verfügbar`, failed: true };
     };
     if (!room) {
+      // Liste älter als 2 s: erst frisch laden – der Leader kann den Kanal gerade geöffnet haben, sonst öffnete der
+      // Mitläufer selbst einen (3.1.30)
+      if (farm.opening?.key !== `${mapId}#${ch}` && farm.channels && Date.now() - farm.channels.at > 2000) { farm.channels = null; return { status: 'lade Kanalliste neu…' }; }
       // Kanal noch nicht offen. Ist er die nächste freie Nummer, öffnet ihn der Bot selbst – wie „New channel – Open“
       // im Kanalfenster. Das Spiel erlaubt immer mindestens 2 Kanäle; ab Ch 3 erst, wenn die offenen Kanäle zu ~90 %
       // voll sind (newChannelAllowed). Klappt es nicht, wird der Kanal nur 1 min gemieden und dann erneut versucht.
@@ -7510,7 +7728,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     R.i++; R.map = null;
     if (R.i >= list.length) {
       R.i = 0; R.back = true;
-      logEvent('map', `Runde fertig – zurück zur Start-Map ${list[0].name} (Digi-Phone)`);
+      if (list.length === 1) {
+        // nur eine Map: bis kurz vor dem frühesten Respawn (sonst 30 s) ruhen – sonst lief die Runde jeden Takt neu
+        // und füllte das Protokoll (3.1.30)
+        const now = Date.now(), b = list[0].boss;
+        R.restUntil = Math.min(...farmChannels().map((ch) => { const s = farmState(b, ch, now); return s.state === 'down' && s.readyAt - now > NAMED_WAIT_MS ? s.readyAt - NAMED_WAIT_MS : now + 30000; }), now + 30000 * 10);
+        logEvent('map', `Runde fertig – prüfe erneut in ${fmtClock(R.restUntil - now)}`);
+      } else logEvent('map', `Runde fertig – zurück zur Start-Map ${list[0].name} (Digi-Phone)`);
     }
     return `Runde: weiter zu ${list[R.i].name}…`;
   }
@@ -7528,6 +7752,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (tr === 'Keine Route' || tr === 'Portal nicht erreichbar') return namedNext(R, list, `nicht erreichbar (${tr})`);
       if (tr !== true) return `${label} · ${tr}`;
     }
+    // Runde mit einer Map fertig: warten statt neu prüfen – ein sichtbarer Named Elite beendet die Pause (3.1.30)
+    if (R.restUntil > now && st.world?.mapId === b.map && !farmBossMob(sc, b)) return `${label} · Runde fertig – prüfe erneut in ${fmtClock(R.restUntil - now)}`;
+    R.restUntil = 0;
     if (R.map !== b.map) {
       Object.assign(R, { map: b.map, skip: new Set(), back: false, zoneAt: 0, patrol: 0, logged: new Set() });
       logEvent('map', `Runde: ${label} – prüfe ${b.name}`);
@@ -7584,7 +7811,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       return `${tag} · laufe zur Zone (${Math.round(d)} px)`;
     }
     R.zoneAt ||= now;
-    if (s.state === 'down') return `${tag} · warte – Respawn in ${fmtClock(s.readyAt - now)}`;
+    // Suchzeit erst ab dem Ende des Wartens messen – sonst wurde der Kanal nach dem Respawn sofort abgehakt (3.1.30)
+    if (s.state === 'down') { R.zoneAt = now; return `${tag} · warte – Respawn in ${fmtClock(s.readyAt - now)}`; }
     if (s.state === 'up') {
       if (now - R.zoneAt > NAMED_SEARCH_MS) { R.skip.add(ch); logEvent('warn', `${tag}: lebt laut Timer, aber nicht zu finden – Kanal abgehakt`); return `${tag} · nicht gefunden`; }
       R.patrol++;
@@ -7648,8 +7876,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (s.state !== 'down') {
       farm.waitAt ||= now;
       if (now - farm.waitAt > 20000) {
-        farm.known.set(farmKey(b.map, b.index, o.ch), { up: false, readyAt: now + 120000, at: now });
-        logEvent('warn', `${b.name} (Ch ${o.ch}): nicht da, kein Timer – prüfe in 2 min erneut`);
+        farm.known.set(farmKey(b.map, b.index, o.ch), { up: false, readyAt: now + 120000, at: now, skipUntil: now + 120000 }); // skipUntil (3.1.30)
+        logEvent('warn', `${b.name} (Ch ${o.ch}): ${s.state === 'up' ? 'lebt laut Timer, aber nicht zu sehen' : 'nicht da, kein Timer'} – prüfe in 2 min erneut`);
         farm.waitAt = 0; farm.goal = null;
       }
     } else farm.waitAt = 0;
@@ -7669,13 +7897,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const DG_ALL_IN_MS = 60000;    // nach dem Betreten höchstens so lange warten, bis alle auf der Dungeon-Map sind (3.1.4)
   const DG_DOOR_NEAR = 90;       // so nah an der Tür gilt ein Mitglied als „da“
   const DG_ENTER_MS = 4000;      // Betreten frühestens so oft versuchen
+  const DG_ENTER_TRIES = 6;      // so oft betreten, ohne hineinzukommen (~24 s, auch über Portal-Runden): dann stoppen (3.1.30)
   const DG_TRIES = 3;            // gescheiterte Läufe so oft neu versuchen
   const DG_PULL_HP = 90;         // einen neuen Raum (Kampf beginnt beim Hineingehen) erst ab so viel HP betreten
   const dg = {
-    dps: 0, dpsTrack: null, hud: null, hudAt: 0, inside: false, insideAt: 0, enterAt: 0, doorAt: 0, fails: 0, cleared: false, logRoom: -1,
+    dps: 0, dpsTrack: null, hud: null, hudAt: 0, inside: false, insideAt: 0, enterAt: 0, enterTries: 0, doorAt: 0, fails: 0, cleared: false, logRoom: -1,
     herd: { low: false, lowAt: 0, back: false, backAt: 0, seen: new Set(), lastSpawn: 0, note: '' }, // Herden-Form (3.1.9)
     kite: { at: 0, done: false, best: Infinity, bestAt: 0, side: 0 }, // Armageddemon nach unten kiten, dann eine Seite (3.1.10/11)
-    reset() { this.hud = null; this.hudAt = 0; this.inside = false; this.insideAt = 0; this.enterAt = 0; this.doorAt = 0; this.fails = 0; this.cleared = false; this.logRoom = -1; this.herd = { low: false, lowAt: 0, back: false, backAt: 0, seen: new Set(), lastSpawn: 0, note: '' }; this.kite = { at: 0, done: false, best: Infinity, bestAt: 0, side: 0 }; },
+    reset() { this.hud = null; this.hudAt = 0; this.inside = false; this.insideAt = 0; this.enterAt = 0; this.enterTries = 0; this.doorAt = 0; this.fails = 0; this.cleared = false; this.logRoom = -1; this.herd = { low: false, lowAt: 0, back: false, backAt: 0, seen: new Set(), lastSpawn: 0, note: '' }; this.kite = { at: 0, done: false, best: Infinity, bestAt: 0, side: 0 }; },
   };
   function dgNote(ev) {
     dg.hud = { raid: ev.raid, room: ev.room ?? 0, rooms: ev.rooms ?? 0, roomId: ev.roomId, pulled: !!ev.pulled, deaths: ev.deaths ?? 0, deathLimit: ev.deathLimit ?? 0 };
@@ -7828,7 +8057,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const mapId = st.world?.mapId, raid = dgRaid(mapId);
     if (!raid && plainRaid(mapId)) return raidStep(st, now, plainRaid(mapId));
     if (!raid) return dungeonOutside(st, now);
-    if (!dg.inside) { dg.inside = true; dg.insideAt = now; dg.doorAt = 0; dg.herd = { low: false, lowAt: 0, back: false, backAt: 0, seen: new Set(), lastSpawn: 0, note: '' }; dg.kite = { at: 0, done: false, best: Infinity, bestAt: 0, side: 0 }; logEvent('bot', `Dungeon betreten: ${content()?.maps?.[mapId]?.name || mapId}`); }
+    if (!dg.inside) { dg.inside = true; dg.insideAt = now; dg.doorAt = 0; dg.enterTries = 0; dg.herd = { low: false, lowAt: 0, back: false, backAt: 0, seen: new Set(), lastSpawn: 0, note: '' }; dg.kite = { at: 0, done: false, best: Infinity, bestAt: 0, side: 0 }; logEvent('bot', `Dungeon betreten: ${content()?.maps?.[mapId]?.name || mapId}`); }
     const R = dgRoom(st, raid);
     if (!R.m || !R.me) return 'Lade Kartendaten…';
     const go = (x,y,what,portal=null) => (walkTo(st,x,y,now,{portal}) === 'stuck' ? `${what} – Weg blockiert` : what);
@@ -7887,11 +8116,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       for (const m of st.party?.members || []) { const e = m.partnerEntityId && ents?.get?.(m.partnerEntityId); if (e && !mine.has(e.id) && e.defId === 'imperialdramon_paladin' && e.hp > 0) other = true; }
       if (other || (group.active() && group.slot() !== 0)) return null;
     }
-    const zones = dangerZones(), pt = { x: bl.x, y: bl.y };
-    if (zones.some((z) => zoneDist(z, pt).d < DODGE_MARGIN)) return 'Klinge liegt im Warnbereich – warte';
-    if (!digibotDodgeZonePath(me, pt, zones)) return 'Klinge: Weg führt durch einen Warnbereich – warte';
+    // erst erfassen und die 20-s-Aufgabe prüfen, dann die Warnbereiche: solange Punkt oder Weg darin liegen, normal weiterkämpfen
+    // (Angriff, Seitenregel) statt stillzustehen – die Klinge wird im nächsten freien Takt geholt (3.1.30)
     if (!dg.blade || Math.hypot(dg.blade.x - bl.x, dg.blade.y - bl.y) > 24) { dg.blade = { x: bl.x, y: bl.y, at: now }; logEvent('bot', `Klinge am Boden (${Math.round(bl.x)}, ${Math.round(bl.y)}) – hole sie`); }
     if (now - dg.blade.at > DG_BLADE_GIVEUP_MS) return null;
+    const zones = dangerZones(), pt = { x: bl.x, y: bl.y };
+    if (zones.some((z) => zoneDist(z, pt).d < DODGE_MARGIN)) return null; // Klinge liegt im Warnbereich
+    if (!digibotDodgeZonePath(me, pt, zones)) return null; // Weg führt durch einen Warnbereich
     const d = Math.hypot(me.x - bl.x, me.y - bl.y), pe = ents?.get?.(p.entityId);
     // das Digimon mitnehmen (wer von beiden aufhebt, zeigt carrier – beide sollen drüberlaufen)
     if (pe && pe.id !== me.id && Math.hypot(pe.x - me.x, pe.y - me.y) > 40 && bot.can('bladeFollow', 1500, now)) { bot.lastPress.bladeFollow = now; commands()?.partnerFollow?.(); }
@@ -7917,16 +8148,25 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // Kein Kiten mehr (3.1.16, Nutzer 28.10.: die Hindernisse oben stören die Bewegung nicht; das Kiten kostete nur Zeit –
     // der Enrage-Timer läuft ab Betreten des Raums). Seite ein Mal festlegen, für alle Fenster gleich: zum Raumzentrum hin.
     const K = dg.kite, raid = dgRaid(mapId), R = raid && dgRoom(st, raid), z = R && R.cur >= 0 ? R.zone(R.cur) : null;
-    if (!K.side) { K.side = (z ? Math.sign(z.x + z.w / 2 - te.x) : 0) || 1; logEvent('bot', `Armageddemon ist da – Kampf, alle ${K.side > 0 ? 'rechts' : 'links'} von ihm`); }
+    // Bezug: fester Spawnpunkt des Bosses (in allen Fenstern gleich, auch nach Neuladen/Reset mitten im Kampf), sonst live (3.1.30)
+    const sp0 = R?.m?.spawns?.[b.at], bx = sp0 ? sp0.x : te.x;
+    if (!K.side) { K.side = (z ? Math.sign(z.x + z.w / 2 - bx) : 0) || 1; logEvent('bot', `Armageddemon ist da – Kampf, alle ${K.side > 0 ? 'rechts' : 'links'} von ihm`); }
     // 2) im Kampf alle auf EINER Seite von ihm (links oder rechts), niemand oben oder unten (Nutzer-Taktik 3.1.11) – nur solange
     //    der Boss mein Ziel ist (Kuramon-Haufen/Panzer-Phase: dorthin laufen dürfen)
-    if (st.target?.id !== te.id) return null;
+    if (st.target?.id !== te.id) { K.sideSince = 0; return null; }
     // Seitenregel ruht, solange Warnkreise stehen, und DG_SIDE_GRACE_MS danach: die Nahkampfposition außerhalb der Kreise liegt
     // oft auf der anderen Seite – zurückzulaufen kostete live 16,5 s je Bosskampf (3.1.19)
     if (dangerZones().some((z) => z.kind === 'circle' && !z.huge)) K.sideHold = now;
-    if (now - (K.sideHold || 0) < DG_SIDE_GRACE_MS) return null;
+    if (now - (K.sideHold || 0) < DG_SIDE_GRACE_MS) { K.sideSince = 0; return null; }
+    if (now < (K.sideOff || 0)) return null; // Umstellen gerade aufgegeben (3.1.30)
     const side = K.side || 1, dx = pe.x - te.x, dy = pe.y - te.y;
-    if (Math.sign(dx) === side && Math.abs(dy) <= 45) return null; // richtige Seite, auf Höhe
+    if (Math.sign(dx) === side && Math.abs(dy) <= 45) { K.sideSince = 0; return null; } // richtige Seite, auf Höhe
+    // höchstens DG_SIDE_GIVEUP_MS am Stück umstellen, dann DG_SIDE_OFF_MS normal kämpfen – kein Hängen ohne Skills/Heilung (3.1.30)
+    K.sideSince ||= now;
+    if (now - K.sideSince > DG_SIDE_GIVEUP_MS) { K.sideSince = 0; K.sideOff = now + DG_SIDE_OFF_MS; logEvent('bot', 'Armageddemon: Seite nicht erreicht – kämpfe erst einmal hier weiter'); return null; }
+    // Tamer-Steuerung: walkTo bewegt den Tamer, geprüft wird am Digimon – es mitnehmen wie bei der Klinge (3.1.30)
+    const me = controlled(st);
+    if (me && me.id !== pe.id && Math.hypot(pe.x - me.x, pe.y - me.y) > 40 && bot.can('sideFollow', 1500, now)) { bot.lastPress.sideFollow = now; commands()?.partnerFollow?.(); }
     if (!bot.can('sidePos', 800, now)) return `Armageddemon: auf die ${side > 0 ? 'rechte' : 'linke'} Seite…`;
     bot.lastPress.sidePos = now;
     const goal = { x: te.x + side * 52, y: te.y + (idx - (n - 1) / 2) * 18 };
@@ -8006,7 +8246,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function raidStep(st, now, raid) {
     const mapId = st.world?.mapId, m = world.maps[mapId], me = controlled(st);
     const name = content()?.maps?.[mapId]?.name || mapId;
-    if (!dg.inside) { dg.inside = true; dg.doorAt = 0; logEvent('bot', `Raid betreten: ${name}`); }
+    if (!dg.inside) { dg.inside = true; dg.doorAt = 0; dg.enterTries = 0; logEvent('bot', `Raid betreten: ${name}`); }
     if (!m || !me) return 'Lade Kartendaten…';
     const go = (x,y,what,portal=null) => (walkTo(st,x,y,now,{portal}) === 'stuck' ? `${what} – Weg blockiert` : what);
     if (st.raid?.cleared) { // geschafft -> hinaus (Portal zur Tür-Map, das mir am nächsten ist)
@@ -8070,10 +8310,23 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // sie allein hinein (live: Fenster als Mitläufer eingetragen, Leader gar nicht da – ewiges „warte auf den Leader“)
     const L = groupLeader(now);
     const lead = group.role() !== 'follower' || !(L && L.inWorld && L.bot && L.mapId === gate.mapId);
-    // Tür-Fenster des Spiels ist offen: Leader (oder allein) betritt den gewählten Modus, die Gruppe an der Tür kommt mit
+    // Tür-Fenster des Spiels ist offen: Leader (oder allein) betritt den gewählten Modus, die Gruppe an der Tür kommt mit.
+    // Ist der Leader schon drin (spätes Fenster), versucht auch ein Mitläufer es – vor Kampfbeginn darf er nachkommen, danach
+    // nur, wer schon drin war (raid_fight_on); der Zähler unten beendet die Versuche (3.1.30)
     if (st.raid && !st.raid.inside) {
       if (!lead) { commands()?.closeRaidGate?.(); return 'Warte, bis der Leader den Dungeon betritt…'; }
-      if (now - dg.enterAt > DG_ENTER_MS) { dg.enterAt = now; commands()?.raidEnter?.(pick.raid.id); logEvent('bot', `Dungeon: betrete ${label}`); }
+      if (now - dg.enterAt > DG_ENTER_MS) {
+        // Spiel lässt nicht hinein (Hard nicht frei, nicht Party-Leader, Gruppe/Level, Lauf schon begonnen …): nicht endlos neu senden (3.1.30)
+        if (dg.enterTries >= DG_ENTER_TRIES) {
+          commands()?.closeRaidGate?.();
+          logEvent('warn', `Dungeon: Spiel lässt nicht hinein (${group.role() === 'follower' && L?.mapId === pick.mapId ? 'Lauf des Leaders schon begonnen?' : 'Hard freigeschaltet? Party-Leader? Gruppengröße/Level?'}) – Bot gestoppt`);
+          notify('Dungeon: Spiel lässt nicht hinein – Bot gestoppt.');
+          bot.toggle(true);
+          return 'Spiel lässt nicht hinein – Bot gestoppt';
+        }
+        dg.enterAt = now; dg.enterTries++; commands()?.raidEnter?.(pick.raid.id);
+        if (dg.enterTries === 1) logEvent('bot', `Dungeon: betrete ${label}`);
+      }
       return `Betrete den Dungeon (${label})…`;
     }
     const me = controlled(st), door = { x: portal.x + portal.w / 2, y: portal.y + portal.h + 28 };
@@ -8143,7 +8396,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (assist) return assist;
     if (spread) { // Ziele verteilen: zuerst ein Monster, das noch kein anderes Gruppenmitglied angreift (Bosse gemeinsam)
       // Mitläufer nur in der Nähe des Leaders – sonst wandern sie Kill für Kill aus der Gruppe weg
-      const L = group.role() === 'follower' ? groupLeader() : null;
+      const L = spreadLeader(); // Leader woanders/aus: ohne Leine weiter unten wie allein jagen (3.1.30)
       const near = (m) => !L || L.x == null || Math.hypot(m.x - L.x, m.y - L.y) <= SPREAD_LEASH;
       const free = sc.mobs.find((m) => usable(m) && near(m) && (m.grpBy === null || m.cat === 'boss'));
       if (free) return free;
@@ -8282,12 +8535,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function lrBest(st) {
     const C = content(), p = st?.me?.partner; if (!C || !p) return null;
     const dps = lrDps(p); let best = null;
+    const now = Date.now(), here = st.world?.mapId, banned = (k) => (lr.ban?.get(k) || 0) > now;
     for (const [mapId, sp] of Object.entries(C.spawns || {})) {
       if (sp.raid || !sp.zones || !mapOpen(st, mapId)) continue;
       if (cfg.levelA2 && (C.maps?.[mapId]?.series || 1) !== 2) continue;
+      // Reise gescheitert (kein Portalweg / Portal nicht erreichbar): eine Weile auslassen, sonst wählte er sie immer wieder (3.1.30)
+      if (banned(mapId) || (world.maps[here] && mapId !== here && hops(here, mapId) === Infinity)) continue;
       const bt = lrBossTerms(mapId, p.level, dps);
       for (const [zn, z] of Object.entries(sp.zones)) {
         const rect = world.maps[mapId]?.zones?.[zn]; if (!rect?.w) continue;
+        if (banned(`${mapId}#${zn}`)) continue; // Zone nicht zu betreten (3.1.30)
         // Zone ganz über der Level-Grenze: mit ihren niedrigsten Monstern rechnen (bis LR_MAX_ABOVE) – oft besser als
         // die beste Zone innerhalb der Grenze (live: Lv 29, Harvest Hills ab +11 ≈ +30 % gegenüber +5…+8 im Tal)
         const ext = lrExt(z.entries, p.level);
@@ -8409,10 +8666,21 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const lb = lr.boss, st1 = farmState(lb.b, lb.ch, now);
     if (st1.state === 'down' && st1.readyAt - now > 60000 && (lb.expectedReadyAt==null || st1.readyAt>lb.expectedReadyAt+1000)) { lr.boss = null; return null; } // besiegt (Respawn-Timer gesetzt)
     const localBoss=here===lb.b.map && cur===lb.ch?lrBossEnt(lb.b):null;
-    if(!localBoss)lrBossIgnoreMobs(st,now);
+    // am Spawnpunkt unter Angriff: abwehren lassen, nicht alle 1,5 s zurückrufen (3.1.30)
+    const pos = lrBossPos(lb.b), me = controlled(st);
+    const atSpawn = here === lb.b.map && cur === lb.ch && pos && me && Math.hypot(me.x - pos.x, me.y - pos.y) <= LR_BOSS_NEAR;
+    if(!localBoss&&!(busy&&atSpawn))lrBossIgnoreMobs(st,now);
+    // Boss eine Weile aus der Runde nehmen (unerreichbar), statt für immer davor zu stehen (3.1.30)
+    const lrBossDrop = (why) => {
+      (lr.avoid ||= new Map()).set(`${lb.b.map}#${lb.b.species}`, now + 5 * 60000);
+      logEvent('warn', `Leveln: ${lb.b.name} – ${why} – 5 min aus der Boss-Runde`);
+      autopilot.nav = null; autopilot.route = null; lr.boss = null; return null;
+    };
     if (here !== lb.b.map) {
       if (!lb.trav) { const h = hops(here, lb.b.map); if (h !== Infinity && h > 0) lb.trav = { at: now, h }; }
-      const tr = travel(st, lb.b.map, now); return `${lb.b.name}: reise nach ${mapName(lb.b.map)} · ${tr === true ? 'angekommen' : tr}`;
+      const tr = travel(st, lb.b.map, now);
+      if (tr === 'Keine Route' || tr === 'Portal nicht erreichbar') return lrBossDrop(tr); // 3.1.30
+      return `${lb.b.name}: reise nach ${mapName(lb.b.map)} · ${tr === true ? 'angekommen' : tr}`;
     }
     if (lb.trav) { // angekommen: Reisezeit je Map-Wechsel messen
       const ms = Math.min(120000, Math.max(3000, (now - lb.trav.at) / lb.trav.h)); lb.trav = null;
@@ -8433,15 +8701,18 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         logEvent('warn', `Leveln: ${lb.b.name} nicht zu erreichen – 5 min aus der Boss-Runde`);
         lr.boss = null; return null;
       }
-      if (st.target?.id !== be.id && bot.can('select', SELECT_GAP_MS, now)) { bot.lastPress.select = now; worldScene()?.select?.(be.id); }
+      // Add/Greifarm zuerst: nicht auf den Boss zurückreißen, das Add nimmt bossAdd im Tick (sonst Ziel-Pingpong) (3.1.30)
+      if (st.target?.id !== be.id && !evAddFirst(st, sc, now) && bot.can('select', SELECT_GAP_MS, now)) { bot.lastPress.select = now; worldScene()?.select?.(be.id); }
       return null;
     }
-    const pos = lrBossPos(lb.b), me = controlled(st);
-    if (pos && me && Math.hypot(me.x - pos.x, me.y - pos.y) > LR_BOSS_NEAR) {
-      if (walkTo(st, pos.x, pos.y, now) === 'stuck') autopilot.nav = null;
+    if (pos && me && !atSpawn) {
+      // Spawnpunkt nicht erreichbar: zweimal „stuck“ oder viel länger als geschätzt unterwegs – Boss auslassen (3.1.30)
+      lb.walkAt ||= now;
+      if (walkTo(st, pos.x, pos.y, now) === 'stuck') { autopilot.nav = null; lb.stuck = (lb.stuck || 0) + 1; }
+      if (lb.stuck >= 2 || now - lb.walkAt > lrBossTripMs(st, lb.b, lb.ch) + 60000) return lrBossDrop('Spawnpunkt nicht erreichbar');
       return `${lb.b.name}: laufe zum Spawnpunkt (${Math.round(Math.hypot(me.x - pos.x, me.y - pos.y))} px)`;
     }
-    lb.near ||= now;
+    lb.near ||= now; lb.walkAt = 0; // angekommen: ein späterer Rückweg (Rückstoß, Kampf) misst neu (3.1.30)
     if (busy) return null; // beim Warten am Spawnpunkt Angreifer abwehren (live: HP 99 -> 55 %, ohne zurückzuschlagen)
     const soon = st1.state === 'down' && st1.readyAt > now;
     // Suchzeit erst ab dem Respawn zählen – sonst gab der Bot nach frühem Ankommen genau zum Respawn auf
@@ -8465,7 +8736,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (pk && lr.partner !== pk) {
       if (lr.partner != null) {
         lr.goal = null; lr.boss = null; lr.calcAt = 0; lr.since = 0; lr.scans = {}; lr.roam = null; lr.chainAt = 0;
-        autopilot.evoGiveUp = null; autopilot.evoTries = 0; autopilot.nav = null; bot.attackedId = null;
+        autopilot.evoGiveUp = null; autopilot.evoTries = 0; autopilot.devoGiveUp = null; autopilot.devoTries = 0; autopilot.nav = null; bot.attackedId = null; lr.enter = null; // 3.1.30
         logEvent('auto', `Leveln: Digimon gewechselt – plane neu für ${p.name || speciesName(p.species)} Lv ${p.level}`);
       }
       lr.partner = pk;
@@ -8508,7 +8779,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     // Digitation zuerst – auch auf dem Weg zum Boss und im Kampf (live: 12 min Angemon statt ClavisAngemon, weil zwischen
     // Bossen und Angreifern nie „zwischen den Kämpfen“ war). Im Kampf/unter Angriff nur den Befehl schicken, weiterkämpfen.
-    if (cfg.levelEvo) {
+    // nur auf der Lern-Map bzw. der Map des Boss-Ziels – nicht auf Durchgangs-Maps zwischen Armor- und Normalform wechseln (3.1.30)
+    const evoHere = st.world?.mapId === g.mapId || (lr.boss && lr.boss.b.map === st.world?.mapId);
+    if (cfg.levelEvo && evoHere) {
       const ev = lrEvolve(st, now);
       if (ev !== true && !attackers.length && !fighting) return `Digitation: ${ev}`;
     }
@@ -8524,7 +8797,17 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (attackers.length) return null; // erst Angreifer abwehren
     if (fighting) return null; // laufenden Kampf beenden
     const where = `${content()?.maps?.[g.mapId]?.name || g.mapId} / ${g.zone}`;
-    if (st.world?.mapId !== g.mapId) { const tr = travel(st, g.mapId, now); return tr === true ? `angekommen in ${where}` : `reise zu ${where} · ${tr}`; }
+    if (st.world?.mapId !== g.mapId) {
+      const tr = travel(st, g.mapId, now);
+      // kein Portalweg / Portal nicht erreichbar: Map eine Weile auslassen und neu planen, statt für immer zu stehen (3.1.30)
+      if (tr === 'Keine Route' || tr === 'Portal nicht erreichbar') {
+        (lr.ban ||= new Map()).set(g.mapId, now + TASK_BAN_MS);
+        autopilot.nav = null; autopilot.route = null; lr.goal = null; lr.calcAt = 0; lr.enter = null;
+        logEvent('warn', `Leveln: ${where} – ${tr} – ${Math.round(TASK_BAN_MS / 60000)} min ausgelassen`);
+        return null;
+      }
+      return tr === true ? `angekommen in ${where}` : `reise zu ${where} · ${tr}`;
+    }
     const me = controlled(st), r = g.rect;
     // auf der Lern-Map nur starke Angreifer: passende Monster in Sicht trotzdem bekämpfen (die starken sind aus der Zielwahl
     // genommen), sonst zum Zonenpunkt, der am weitesten von ihnen weg ist (sie lassen dann los)
@@ -8550,13 +8833,42 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // wieder hinaus), sonst nur bis an den nächsten Punkt der Zone laufen statt zur Mitte
     if (me && !(me.x >= r.x - 24 && me.x <= r.x + r.w + 24 && me.y >= r.y - 24 && me.y <= r.y + r.h + 24)) {
       if (sc && sc.mobs.some(usable)) { lr.roam = null; return null; }
-      const cx = Math.min(Math.max(me.x, r.x + Math.min(48, r.w / 2)), r.x + r.w - Math.min(48, r.w / 2));
-      const cy = Math.min(Math.max(me.y, r.y + Math.min(48, r.h / 2)), r.y + r.h - Math.min(48, r.h / 2));
-      if (walkTo(st, cx, cy, now) === 'stuck') autopilot.nav = null;
+      { const cc = channelCheck(st, sc, now); if (cc) { lr.roam = null; lr.enter = null; return cc; } } // volle Map: Checker auch hier (3.1.30)
+      // Randpunkt im Wasser/hinter einer Klippe: begehbaren Ersatzpunkt in der Zone nehmen und merken; kommt der Bot 30 s
+      // nicht näher oder zweimal „stuck“, die Zone eine Weile auslassen (3.1.30)
+      const zk = `${g.mapId}#${g.zone}`;
+      let en = lr.enter?.key === zk ? lr.enter : null;
+      if (!en || en.repick) {
+        const g0 = worldScene()?.map?.grid, T0 = g0?.tile || 16;
+        const okAt = (q) => (sc?.pf ? pathFree(sc.pf, q) : !g0?.blocked || g0.blocked[Math.floor(q.y / T0) * g0.w + Math.floor(q.x / T0)] !== 1);
+        const cx = Math.min(Math.max(me.x, r.x + Math.min(48, r.w / 2)), r.x + r.w - Math.min(48, r.w / 2));
+        const cy = Math.min(Math.max(me.y, r.y + Math.min(48, r.h / 2)), r.y + r.h - Math.min(48, r.h / 2));
+        const inR = (x, y) => ({ x: Math.min(Math.max(x, r.x + 24), r.x + Math.max(24, r.w - 24)), y: Math.min(Math.max(y, r.y + 24), r.y + Math.max(24, r.h - 24)) });
+        let q = !en?.repick && okAt({ x: cx, y: cy }) ? { x: cx, y: cy } : null;
+        for (let k = 0; k < 24 && !q; k++) { // erst nahe am Randpunkt, dann irgendwo in der Zone
+          const c = k < 12 ? inR(cx + (Math.random() - 0.5) * 192, cy + (Math.random() - 0.5) * 192) : inR(r.x + Math.random() * r.w, r.y + Math.random() * r.h);
+          if (okAt(c)) q = c;
+        }
+        q ||= { x: cx, y: cy };
+        en = lr.enter = { key: zk, x: q.x, y: q.y, stuck: en?.stuck || 0, best: Infinity, bestAt: now, last: now };
+      }
+      if (now - en.last > 3000) en.bestAt = now; // zwischendurch gekämpft o. Ä.: Fortschritt neu messen
+      en.last = now;
+      const dz = Math.hypot(me.x - en.x, me.y - en.y);
+      if (dz < en.best - 16) { en.best = dz; en.bestAt = now; }
+      if (walkTo(st, en.x, en.y, now) === 'stuck') { autopilot.nav = null; en.stuck++; en.repick = true; }
+      if (en.stuck >= 2 || now - en.bestAt > 30000) {
+        (lr.ban ||= new Map()).set(zk, now + TASK_BAN_MS);
+        autopilot.nav = null; lr.goal = null; lr.calcAt = 0; lr.enter = null;
+        logEvent('warn', `Leveln: ${where} nicht zu betreten – ${Math.round(TASK_BAN_MS / 60000)} min ausgelassen`);
+        return null;
+      }
       return `laufe in die Zone ${where} (~${Math.round(g.rate)} EXP/min)`;
     }
+    lr.enter = null;
     // in der Zone, aber nichts Passendes im Suchradius: einen anderen Punkt der Zone ansteuern statt zu warten
     if (me && sc && !sc.mobs.some(usable)) {
+      { const cc = channelCheck(st, sc, now); if (cc) { lr.roam = null; return cc; } } // leere Zone, volle Map: Checker (3.1.30)
       const rp = lr.roam;
       if (!rp || now - rp.at > 15000 || Math.hypot(me.x - rp.x, me.y - rp.y) < 40) {
         // zufälliger Punkt der Zone – aber einer, zu dem es einen Weg gibt (sonst lief der Bot ins Wasser und hing 15 s)
@@ -8615,6 +8927,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
 
   const TICK_MS = 250;
+  const QUEST_IDLE_RECHECK_MS = 10 * 60000; // Event-Bereitschaft: so oft prüfen, ob wieder Quests machbar sind (3.1.30)
   // Normale Monster, die gleich fallen, nicht mit Skills erschlagen (spart DS und DS-Tränke): Rest-HP höchstens so viele
   // Sekunden des eigenen Schadens (gemessen, je Form; enthält Skills – darum nur ein Teil davon)
   const OVERKILL_SHARE = 0.6;
@@ -8674,7 +8987,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     questIdle:false,
     waitForEvents(reason){
       if(!(cfg.hunt||cfg.wboss)||!this.on||!digibotCore.armed||digibotCore.latched)return false;
-      this.questIdle=true;autopilot.reset();this.engage=null;this.attackedId=null;
+      this.questIdle=true;this.questIdleAt=Date.now();autopilot.reset();this.engage=null;this.attackedId=null;
       commands()?.partnerStop?.();this.status=`${reason} – Event-Bereitschaft`;logEvent('auto',this.status);return true;
     },
 
@@ -8684,7 +8997,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     toggle(quiet = false) { // quiet: Start/Stopp nicht an die ganze Gruppe melden
       if(digibotAccountQueue.active&&!digibotQueueLaunching){digibotCore.stop('Quest-Runde manuell gestoppt',true);return;}
       const starting = !this.on;
-      this.questIdle=false;
+      this.questIdle=false;questBack.home=null; // alte Jagd-Stelle nicht in einen neuen Lauf mitnehmen (3.1.30)
       if (starting && !digibotCore.start(digibotManual)) return;
       if (!starting) digibotCore.stop('Bot gestoppt', false);
       this.on = starting;
@@ -8695,18 +9008,19 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       this.resting = false;
       autopilot.reset();
       farm.reset();
-      if (starting) food.reset(); // 3.1.29: neuer Food-Lauf mit neuem Startpunkt
+      if (starting && !digibotChallengeResume) food.reset(); // 3.1.29: neuer Food-Lauf mit neuem Startpunkt; nach der Anwesenheitskontrolle weiter (3.1.30)
       if (this.on) autopilot.newRun();
       // Map-für-Map-Runde: bei jedem Start an der eingestellten Start-Map beginnen (nicht beim gespeicherten Fortschritt,
       // sonst fehlt z. B. eine Map, die beim letzten Lauf noch nichts zu tun hatte, inzwischen aber schon)
       if (this.on && cfg.apOrder === 'sweep' && cfg.apSweepMap) { cfg.apSweepMap = ''; saveCfg(); }
       if (this.on && cfg.dungeon && !dg.inside) dg.reset(); // alter Lauf (geschafft/Fehlversuche/Raum-Stand) zählt nicht
-      if (this.on && (!quiet || digibotManual === true)) dgExit.manualAt = Date.now(); // Start von Hand hebt die Wiedereinstiegs-Sperre auf (3.1.20)
+      if (this.on && !digibotChallengeResume && (!quiet || digibotManual === true)) dgExit.manualAt = Date.now(); // Start von Hand hebt die Wiedereinstiegs-Sperre auf (3.1.20)
       if (this.on) loadWorld(); // Kartendaten (Portale, Zonen, Schutzzonen) für alle Modi
       if (this.on) this.timer = setInterval(() => this.tick(), TICK_MS);
       this.status = this.on ? 'Bot läuft' : 'Bot aus';
       logEvent('bot', this.on ? `Bot gestartet${cfg.farm ? ' (Boss-Rotation)' : cfg.autopilot ? ' (Quest-Autopilot)' : cfg.questMode ? ' (Quest-Modus)' : ''}` : 'Bot gestoppt');
-      if (group.role() === 'leader' && !quiet) {if(this.on)groupPush(true);if(this.on)digibotSend({type:'start',manual:digibotManual===true});else groupSend('stop','bot');}
+      // Food kaufen betrifft nur dieses Fenster: sonst liefen die Mitläufer im Autopilot los und das stille Food-Ende stoppte sie nie (3.1.30)
+      if (group.role() === 'leader' && !quiet && !(this.on && cfg.foodBuy)) {if(this.on)groupPush(true);if(this.on)digibotSend({type:'start',manual:digibotManual===true});else groupSend('stop','bot');}
       schedule();
     },
 
@@ -8715,7 +9029,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const st = getStore()?.getState?.();
       const now = Date.now();
       digibotResetContext(st);
-      if(!cfg.autopilot)this.questIdle=false;
+      if(!cfg.autopilot&&!cfg.questMode)this.questIdle=false; // Quest-Jagd: Event-Bereitschaft halten (3.1.30)
       const me = st?.me, p = me?.partner, t = st?.target;
       if (!p || st.screen !== 'world') { this.status = 'Warte auf Spielwelt…'; return; }
       // Das Spiel meldet „ui“-Fokus schon, wenn nur ein Dialog-Knopf fokussiert ist. Pausiert wird nur beim Tippen
@@ -8736,6 +9050,22 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           (lr.avoid ||= new Map()).set(`${lb.b.map}#${lb.b.species}`, now + LR_BOSS_FAINT_MS);
           logEvent('warn', `Leveln: ${lb.b.name} hat das Digimon umgehauen – ${LR_BOSS_FAINT_MS / 60000} min aus der Boss-Runde`);
           lr.boss = null; farm.fight = null;
+        }
+        // Boss-Kampf auch sonst verwerfen: farmUpdate buchte ihn nach dem Lager sonst bei ≤ 15 % als Sieg (3.1.30)
+        if (farm.fight) { farm.fight = null; farm.goal = null; }
+        // Autopilot: Quest-Boss haut das Digimon wiederholt um -> Aufgabe eine Weile auslassen (sonst endlos Ohnmacht,
+        // Lager, Rückkehr; der sichtbare Boss hob jede Sperre wieder auf) (3.1.30)
+        const at = autopilot.task;
+        if (this.status !== 'Digimon ist bewusstlos' && cfg.autopilot && !cfg.farm && at?.kind === 'hunt' && at.loc?.boss && !at.grind && st.world?.mapId === at.loc.mapId) {
+          const n = (autopilot.bossFaints.get(at.key) || 0) + 1;
+          autopilot.bossFaints.set(at.key, n);
+          if (n >= AP_BOSS_FAINTS) {
+            autopilot.bossFaints.delete(at.key);
+            autopilot.bossFaintBan.set(at.key, now + AP_BOSS_FAINT_MS); autopilot.failed.set(at.key, now + AP_BOSS_FAINT_MS);
+            if (at.loc.key) autopilot.avoidSpots.set(at.loc.key, now + AP_BOSS_FAINT_MS);
+            logEvent('warn', `${at.label}: Boss hat das Digimon ${n}× umgehauen – ${AP_BOSS_FAINT_MS / 60000} min ausgelassen`);
+            autopilot.reset();
+          }
         }
         // „Zurück zum Lager“, sobald das Spiel es erlaubt – statt auf die automatische Rückkehr zu warten
         const pr = st.prompt;
@@ -8794,14 +9124,15 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const dg = heldNow ? null : dodge(st, now);
       if (dg) { this.status = dg; this.attackedId = null; return; }
       // Food kaufen (3.1.8): reisen, kaufen, stoppen – kein Kampf
-      if (cfg.foodBuy) { const fsx = foodStep(st, now); this.status = fsx === true ? 'Food fertig – Bot gestoppt' : `Food: ${fsx}`; if (fsx === true) bot.toggle(true); return; }
+      if (cfg.foodBuy) { if (group.role() === 'leader') group.noFight = false; /* altes „nicht kämpfen“ nicht weitersenden (3.1.30) */ const fsx = foodStep(st, now); this.status = fsx === true ? 'Food fertig – Bot gestoppt' : `Food: ${fsx}`; if (fsx === true) bot.toggle(true); return; }
+      // Heilen vor Klinge/Seitenregel und vor dem Gruppen-/Autopilot-Zweig: beide kehren mit Status zurück (Umstellen, Klinge
+      // holen), Mitläufer („Gruppe: bei …“) ebenso – sonst wurde dabei nie geheilt (3.1.0/3.1.30). Beide drücken nur Skills.
+      healSkill(st, now); // Heil-Skill bei niedrigen HP (auch außerhalb des Kampfes)
+      groupHeal(st, now); // Dungeon/Raid: Gruppen-Heilskill reihum, sobald jemand in Reichweite Schaden hat (3.1.0)
       // Klinge am Boden (Armageddemon ab 20 %): der Paladin holt sie – nach dem Ausweichen, damit kein Weg durch Warnflächen führt (3.1.21)
       { const bl = dgBladeStep(st, now); if (bl) { this.status = bl; this.attackedId = null; return; } }
       // Armageddemon (3.1.7): in der unteren Raumhälfte kämpfen – wer oberhalb des Bosses steht, läuft erst unten herum
       if (sc) { const ss = dgSouthSide(st, now); if (ss) { this.status = ss; this.attackedId = null; return; } }
-      // Heilen vor dem Gruppen-/Autopilot-Zweig: Mitläufer („Gruppe: bei …“) kehren dort schon zurück und heilten sonst nie (3.1.0)
-      healSkill(st, now); // Heil-Skill bei niedrigen HP (auch außerhalb des Kampfes)
-      groupHeal(st, now); // Dungeon/Raid: Gruppen-Heilskill reihum, sobald jemand in Reichweite Schaden hat (3.1.0)
       const apEvolution=digibotAutopilotEvolveTick(st,now);
       if(apEvolution!==true){this.status=`Autopilot: ${apEvolution}`;return;}
       noteBosses(now);
@@ -8817,6 +9148,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const sharedMove=digibotSharedStep(st,sc,now);
       if(sharedMove){this.status=sharedMove;return;}
       let attackers = sc ? sc.attackers.map((m) => m.id) : [];
+      // Ruhemodus schon vor der Lern-Route setzen – sonst reiste sie im ersten Takt ohne Tränke weiter (3.1.30)
+      if (!this.resting && cfg.hpPot > 0 && hpPct < cfg.hpPot && !potionCount(me, 1)) {
+        this.resting = true;
+        logEvent('warn', `Ruhemodus: HP ${hpPct.toFixed(0)} % und kein Trank auf F1`);
+      }
       // 1c) Event (Mega-Jagd): hinreisen, warten, suchen – geht jedem Modus vor (nicht im Dungeon)
       if (!cfg.dungeon && world.state === 'ready') {
         const hv = huntStep(st, sc, now);
@@ -8827,24 +9163,35 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         const wv = !huntOn ? wbStep(st, sc, now) : null;
         const wbOn = !huntOn && !!(cfg.wboss && wb.goal);
         if ((huntOn || wbOn) && lr.boss) { lr.boss = null; lr.chainAt = 0; }
+        // Quest-Jagd: vor der Reise zur Event-/Weltboss-Map die Jagd-Stelle merken (3.1.30)
+        if ((hv || wv) && cfg.questMode && !cfg.autopilot && !questBack.home && st.world?.mapId !== (huntOn ? hunt.goal.mapId : wb.goal?.b?.map)) {
+          const me0 = controlled(st);
+          if (me0) questBack.home = { mapId: st.world?.mapId, x: me0.x, y: me0.y, backAt: 0 };
+        }
+        // Leader: ein altes „nicht kämpfen“ (Abgabe-Weg) nicht über Reise/Suche/Warten weitersenden (3.1.30)
+        if ((hv || wv || hunt.selAt === now) && group.role() === 'leader') group.noFight = false;
         if (hv) { this.status = `Event: ${hv}`; this.attackedId = null; return; }
         if (wv) { this.status = `Weltboss: ${wv}`; this.attackedId = null; return; }
         if (hunt.selAt === now) { this.status = 'Event: Jagd-Boss anvisiert'; this.attackedId = null; kickTick(); return; }
         // Jagd (Boss in Sicht oder Angreifer): die Lern-Route nicht dazwischen funken lassen – live zog sie den Bot bei
         // Regalecusmon im Wechsel zurück in seine Zone, während der Boss neben ihm kämpfte
         const qb=!huntOn && !wbOn?digibotQuestBossFocus(st,sc):null;
-        if(qb && (autopilot.task?.key!==qb.task.key || autopilot.task?.loc?.boss!==true || st.target?.id!==qb.mob.id)){
+        // Add/Greifarm im Ziel: nicht auf den Boss zurückreißen, das Add nimmt bossAdd unten (sonst Ziel-Pingpong) (3.1.30)
+        const qbAdd=!!qb && evAddFirst(st,sc,now);
+        if(qb && (autopilot.task?.key!==qb.task.key || autopilot.task?.loc?.boss!==true || (!qbAdd && st.target?.id!==qb.mob.id))){
           autopilot.failed.delete(qb.task.key);
           if(qb.task.loc.key)autopilot.avoidSpots.delete(qb.task.loc.key);
           autopilot.reset();autopilot.task=qb.task;autopilot.huntSpecies=qb.task.species;
           autopilot.route=null;autopilot.tp=null;
           this.questIdle=false;this.attackedId=null;this.engage=null;
-          if(this.can('select',SELECT_GAP_MS,now)){this.lastPress.select=now;worldScene()?.select?.(qb.mob.id);}
+          if(!qbAdd&&this.can('select',SELECT_GAP_MS,now)){this.lastPress.select=now;worldScene()?.select?.(qb.mob.id);}
           this.status=`Autopilot: ${qb.task.label}`;kickTick();return;
         }
         const daily = !huntOn && !wbOn ? digibotDailyStep(st,now) : null;
         if(daily){this.status=`Autopilot: ${daily}`;return;}
-        const lv = huntOn || wbOn || cfg.eventsOnly ? null : levelRouteStep(st, sc, now, attackers);
+        // Ruhemodus: keine Lern-Route (Boss-Abstecher, Reise, Roam) – Boss-Ziel und Roam-Punkt verwerfen, danach neu planen (3.1.30)
+        if (this.resting && lrOn()) { if (lr.boss) { lr.boss = null; lr.chainAt = 0; lr.scanPeace = false; } lr.roam = null; lr.enter = null; }
+        const lv = huntOn || wbOn || cfg.eventsOnly || this.resting ? null : levelRouteStep(st, sc, now, attackers);
         if (lv) { this.status = `Leveln: ${lv}`; this.attackedId = null; return; }
         attackers = sc ? sc.attackers.map((m) => m.id) : []; // die Lern-Route nimmt aussichtslose Angreifer heraus
       }
@@ -8869,14 +9216,20 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       // Event-Boss in Sicht: kämpfen – auch wenn der Autopilot gerade zur Abgabe will oder die Rotation woanders hin
       const huntNow = huntPresent(st, sc, now) || wbPresent(st, sc, now) || !!digibotSharedFocus(sc);
       if(this.questIdle&&cfg.autopilot&&autopilot.bountyReturn&&questTasks(st).some(t=>t.purpose==='turnin'))this.questIdle=false;
-      if(this.questIdle && !huntNow){
+      // Event-Bereitschaft: ohne fälliges Event/Weltboss alle QUEST_IDLE_RECHECK_MS neu planen – nach Level-Up durch den Boss
+      // oder dem Tageswechsel gibt es wieder machbare Quests (sonst Leerlauf bis zum Neustart von Hand) (3.1.30)
+      if(this.questIdle&&!huntNow&&!(cfg.hunt&&hunt.goal)&&!(cfg.wboss&&wb.goal)&&now-(this.questIdleAt||now)>QUEST_IDLE_RECHECK_MS){this.questIdle=false;logEvent('auto','Event-Bereitschaft: prüfe, ob wieder Quests machbar sind');}
+      // Warten auf Event/Weltboss mit Angreifern (huntStep/wbStep setzen defendOnly): nicht aussteigen, sondern abwehren (3.1.30)
+      const defending = this.defendOnly === now;
+      if (!defending && (this.questIdle || cfg.eventsOnly) && !huntNow && group.role() === 'leader') group.noFight = false; // 3.1.30
+      if(this.questIdle && !huntNow && !defending){
         if(!(cfg.hunt||cfg.wboss)){this.toggle();this.status='Quests fertig – Event-Funktionen ausgeschaltet';return;}
         if(this.attackedId || this.engage){commands()?.partnerStop?.();this.attackedId=null;this.engage=null;}
         { const it = digibotIdleTravel(st, now); if (it) { this.status = `Quests fertig – ${it}`; return; } }
         this.status='Quests fertig – warte auf aktivierte Events';return;
       }
       // Modus „Nur Event/Weltboss“: außer Event und Weltboss nichts tun (keine Monster suchen, nicht grinden)
-      if(cfg.eventsOnly && !huntNow){
+      if(cfg.eventsOnly && !huntNow && !defending){
         if(this.attackedId || this.engage){commands()?.partnerStop?.();this.attackedId=null;this.engage=null;}
         { const it = digibotIdleTravel(st, now); if (it) { this.status = `Nur Event/Weltboss: ${it}`; return; } }
         const where = cfg.eventsIdleMap && st.world?.mapId === cfg.eventsIdleMap ? ` am Warteplatz ${content()?.maps?.[cfg.eventsIdleMap]?.name || cfg.eventsIdleMap}` : '';
@@ -8884,18 +9237,17 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         return;
       }
       farm.leave = cfg.farm && !this.resting && !huntNow && farmGoalElsewhere(st, p, now, sc);
-      const noFight = !huntNow && ((cfg.autopilot && !cfg.farm && nextIsTurnin(st, now)) || farm.leave);
+      const noFight = !huntNow && !defending && ((cfg.autopilot && !cfg.farm && nextIsTurnin(st, now)) || farm.leave);
       if (group.role() === 'leader') group.noFight = noFight; // Mitläufer kämpfen dann auch nicht
       if (noFight) {
         const pe = window.dmo?.net?.state?.entities?.get?.(p.entityId);
-        if ((pe?.targetId || this.attackedId) && this.can('follow', 1500, now)) {
+        // Aufräumen vor dem Kanalwechsel (Taste 1 gegen den Angreifer) läuft: nicht zurückrufen, sonst pendelte der Partner (3.1.30)
+        const cl = digibotChannelCleanup;
+        const cleaning = !!cl && cl.map === st.world?.mapId && cl.channel === (st.world?.channel ?? 1) && now - cl.at < 2000 && (pe?.targetId || this.attackedId) === cl.id;
+        if (!cleaning && (pe?.targetId || this.attackedId) && this.can('follow', 1500, now)) {
           this.lastPress.follow = now;
           commands()?.partnerFollow?.();
         }
-      }
-      if (!this.resting && cfg.hpPot > 0 && hpPct < cfg.hpPot && !potionCount(me, 1)) {
-        this.resting = true;
-        logEvent('warn', `Ruhemodus: HP ${hpPct.toFixed(0)} % und kein Trank auf F1`);
       }
       if (this.resting && hpPct >= 100 && !attackers.length) this.resting = false;
 
@@ -8964,9 +9316,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           // Mitläufer: vor dem nächsten Kampf prüfen, ob ein Gespräch nachzumachen oder aufzuholen ist
           const folBusy = group.role() === 'follower' && autopilot.task && PASSIVE(autopilot.task) && !taskDone(st, autopilot.task);
           const next = noFight || folBusy ? null : pickTarget(sc, this.resting);
+          let questRet = null;
           if (next) {
             if (this.can('select', SELECT_GAP_MS, now)) { this.lastPress.select = now; scene.select(next.id); kickTick(); } // gleich angreifen, nicht erst im nächsten Takt
             this.status = `${next.attacker ? 'Angreifer' : 'Nächstes Ziel'}: Lv ${next.level} · ${Math.round(next.d)} px`;
+          } else if (defending) { // nicht zur alten Autopilot-Aufgabe weglaufen (3.1.30)
+            this.status = 'Warte auf Event/Weltboss – wehre Angreifer ab';
           } else if (huntNow && !this.resting) {
             this.status = `${wbPresent(st, sc, now) ? 'Weltboss' : 'Event: Jagd-Boss'} gerade nicht angreifbar – warte`;
           } else if (cfg.dungeon) {
@@ -8986,17 +9341,25 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
               logEvent('auto', `${why[0].toUpperCase()}${why.slice(1)} – Bot gestoppt`);
               notify('Autopilot fertig.');
             } else this.status = `Autopilot: ${noFight && attackers.length ? 'ignoriere Kämpfe · ' : ''}${s}`;
+          } else if (!cfg.autopilot && questBack.home && (questRet = questReturn(st, sc, now))) {
+            this.status = questRet; // Quest-Jagd nach Event/Weltboss: zurück zur Jagd-Stelle (3.1.30)
           } else if (!cfg.autopilot && sc.quest && !sc.quest.open.length && !attackers.length) {
-            // Quest-Modus: alle jagbaren Ziele auf dieser Map erledigt -> fertig
+            // Quest-Modus: alle jagbaren Ziele auf dieser Map erledigt -> fertig; mit 🎯/🌍 auf Events warten (3.1.30)
+            if (this.waitForEvents('Quest-Ziele auf dieser Map erledigt')) return;
             this.toggle();
             this.status = 'Quest-Ziele auf dieser Map erledigt – Bot gestoppt';
             logEvent('bot', 'Quest-Ziele auf dieser Map erledigt – Bot gestoppt');
             notify('Quest-Ziele auf dieser Map erledigt.');
           } else {
             const names = sc.quest ? [...sc.quest.species].map((sp) => content()?.digimon?.[sp]?.name || sp).join(', ') : '';
+            // Quest-Jagd: sichtbares Quest-Monster, das der Bot nicht angreifen darf – den Grund nennen (3.1.30)
+            const qm = !cfg.autopilot && sc.quest ? sc.mobs.find((m) => sc.quest.species.has(m.species) && !m.taken && !m.banned) : null;
+            const qWhy = !qm ? '' : !qm.inLvl ? ` – ${content()?.digimon?.[qm.species]?.name || qm.species} zu stark (Lv ${qm.level} > ${p.level + lvlLimit(sc.mapId)})`
+              : qm.reach === false ? ` – ${content()?.digimon?.[qm.species]?.name || qm.species} unerreichbar`
+              : (qm.pd ?? qm.d) > cfg.radius && !qm.mapBoss && qm.cat !== 'boss' ? ` – außerhalb des Radius (${Math.round(qm.pd ?? qm.d)} px > ${cfg.radius} px)` : '';
             this.status = this.resting
               ? `Ruhe: keine HP-Tränke – warte auf 100 % HP (${hpPct.toFixed(0)} %)`
-              : sc.quest ? `Warte auf Quest-Monster: ${names}`
+              : sc.quest ? `Warte auf Quest-Monster: ${names}${qWhy}`
               : `Kein passendes Monster im Radius (${cfg.radius} px) – warte…`;
           }
           return;
@@ -9435,6 +9798,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function digibotIdleTravel(st, now) {
     const mapId = cfg.eventsIdleMap;
     if (!mapId || !content()?.maps?.[mapId] || world.state !== 'ready' || st.world?.mapId === mapId) return null;
+    if ((cfg.hunt && hunt.goal) || (cfg.wboss && wb.goal)) return null; // Event/Weltboss fällig: nicht zum Warteplatz pendeln (3.1.30)
     if ((autopilot.failed.get(`idle:${mapId}`) || 0) > now) return null;
     const name = content()?.maps?.[mapId]?.name || mapId;
     const tr = travel(st, mapId, now);
@@ -9936,6 +10300,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         if (mode === 'food') { food.reset(); loadWorld(); }
         if (mode === 'events') { cfg.hunt = true; cfg.wboss = true; loadWorld(); } // ohne die beiden gäbe es nichts zu tun
         dg.reset();
+        hunt.goal = null; hunt.wp = null; hunt.seenAt = 0; wb.goal = null; wb.seenAt = 0; // altes Event-/Weltboss-Ziel verwerfen (3.1.30)
         saveCfg(); autopilot.reset(); farm.reset(); questSig = '';
         if (mode === 'auto' || mode === 'farm') loadWorld();
         logEvent('auto', `Modus: ${MODES[mode]}`);

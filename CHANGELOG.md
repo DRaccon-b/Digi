@@ -2,6 +2,31 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.30 – Alle Modi durchgeprüft: 62 Befunde behoben
+Alle Befunde aus der Modus-Prüfung vom 29.10. (docs/pruefung-modi-2026-10-29.md), von hoch bis niedrig. Jeder Bereich hat einen
+eigenen Test (tests/fix3130*test.js), der gegen 3.1.29 scheitert.
+- **Event & Weltboss:** Boss und Add-Regel (Hinukamuy, Greifarm) wählen sich nicht mehr gegenseitig ab. Beim Warten am Spawn wird
+  wieder abgewehrt, ohne Pendeln. Ist die Event-Map gesperrt oder ohne Route, wird das Event übersprungen statt alles zu blockieren.
+  Kein Stoppen des Digimon mehr durch alte Gesprächs-/Reiseaufgaben, kein Abbruch eines fast besiegten Feldbosses durch den Event-Vorlauf,
+  Event-Bereitschaft plant danach wieder neu.
+- **Dungeon:** „Gruppe starten“ hebt bei Mitläufern die Not-Aus-Sperre wieder auf und setzt einen laufenden Dungeon nicht zurück.
+  Heilen läuft vor Seitenregel und Klinge; bei Tamer-Steuerung kommt das Digimon auf die richtige Seite (mit Aufgabe nach 6 s).
+  Klinge wartet nicht mehr endlos am Warnbereich, Betreten hat ein Limit, späte Mitläufer halten sich nicht mehr für den Leader,
+  die Armageddemon-Seite bleibt nach Neuladen gleich.
+- **Boss-Mechaniken / Key of Hope:** Skills vom Kreisrand werden nicht mehr abgebrochen, kein Zickzack zum Tamer, veraltete oder
+  außer Reichweite liegende Sammel-Pläne werden ignoriert, Boss-Tod beendet Sammeln sofort, Davis-Burst nur mit eingeschalteten Skills,
+  kein Angriff in Spiegel/Schild aus dem Schutzkreis.
+- **Autopilot / Quest-Jagd:** Abgabe-Aufgabe flattert nicht mehr, Quest-Boss und Adds wechseln nicht mehr im Takt. Portal-, Grind- und
+  Quest-Boss-Hänger haben Ausstiege, Partnerwechsel wehrt sich im Kampf, Abgeben & Annehmen behält die Betriebsart. Leine misst nur
+  zum Leader auf derselben Map, richtige Meldung nach Event/Weltboss.
+- **Bosse (Rotation/Named):** kein endloses Hängen an unsichtbarem Boss, Respawn-Warten sucht die Zone ab, Kanalliste mit Timeout,
+  Mitläufer folgen dem Leader-Kanal, Ohnmacht zählt nicht mehr als Sieg.
+- **Grinden / Lern-Route:** Reisen und Laufwege geben auf, kein Zielwechsel mit Adds, kein Rückruf aus dem Abwehrkampf, Ruhemodus
+  wird beachtet, Umdigitieren nur auf der Ziel-Map.
+- **Gruppe / Food:** Gemeinsame Einstellungen überschreiben nicht mehr den Modus anderer Fenster, „Nur Event/WB“ wird beim Gruppenstart
+  gelöscht. Food bestätigt den Kauf, gibt auf dem Hinweg auf, startet Mitläufer nicht im Autopilot und läuft nach der
+  Anwesenheitskontrolle weiter. Der Leader wartet vor Map-Wechseln wieder korrekt und nicht auf gestoppte Mitläufer.
+
 ## 3.1.29 – Food kaufen: danach zurück zum Startpunkt
 - **Neu:** Nach dem erfolgreichen Kauf (oder wenn schon alles voll ist) reist der Bot zurück auf die Map und zur Stelle,
   an der der Food-Lauf gestartet wurde, und stoppt erst dort. Gibt es keinen Weg zurück, ist er blockiert oder dauert der
