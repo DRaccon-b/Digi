@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.31
+// @version      3.1.32
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1596,7 +1596,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.31'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.32'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -3332,6 +3332,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const e=ents?.get?.(m.id);
       return e?.kind===KIND.Mob&&e.hp>0&&!(e.flags&FLAG.Dead)&&!m.banned&&m.reach!==false;
     });
+    // angewähltes Ziel, das uns schlägt, aber (noch) nicht in der Angreiferliste steht, auch beenden (3.1.31)
+    if(st.target?.id&&!candidates.some(m=>m.id===st.target.id)&&digibotTargetAttacksMe(st)){const e=ents?.get?.(st.target.id);candidates.push({id:st.target.id,hp:e?.hp});}
     const current=candidates.find(m=>m.id===digibotChannelCleanup?.id) || candidates.find(m=>m.id===st.target?.id);
     const target=current||[...candidates].sort((a,b)=>(a.hp??Infinity)-(b.hp??Infinity)||(a.d??Infinity)-(b.d??Infinity))[0];
     if(!target){
@@ -7650,6 +7652,18 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Vor dem Kanalwechsel aufräumen (Angreifer nur mit Taste 1 besiegen): nur bei höchstens CHANNEL_CLEANUP_MAX Angreifern
   // und höchstens CHANNEL_CLEANUP_MS lang – sonst gleich wechseln (in dichten Zonen kamen ständig neue nach, der Bot wechselte nie)
   const CHANNEL_CLEANUP_MAX = 2, CHANNEL_CLEANUP_MS = 10000;
+  // Lehnt das Spiel den Wechsel ab („You can't change channel while fighting.“, code channel_in_combat), wird weiter
+  // aufgeräumt – ohne Zeit- und Anzahlgrenze. Sonst stand der Bot live vor einem Tortomon (41 000 HP), versuchte nur noch
+  // zu wechseln und ließ sich verprügeln (3.1.31).
+  const CHANNEL_REFUSED_MS = 6000;
+  function channelCombatRefused(st, now = Date.now()) {
+    const list = Array.isArray(st?.chat) ? st.chat : st?.chat?.messages || st?.chat?.lines || [];
+    for (let i = list.length - 1; i >= 0 && i >= list.length - 10; i--) {
+      const m = list[i];
+      if (m && (m.code === 'channel_in_combat' || /change channel while fighting/i.test(m.text || '')) && m.ts && Date.now() - m.ts < CHANNEL_REFUSED_MS) return true;
+    }
+    return (st?.toasts || []).some((to) => to?.code === 'channel_in_combat') && now - (farm.lastSwitch || 0) < CHANNEL_REFUSED_MS;
+  }
   function farmSwitch(st, sc, mapId, mapName, ch, now, leave = farm.leave, cleanup = true) {
     const curCh = st.world?.channel ?? 1;
     if (curCh === ch) {digibotChannelPeace=null;digibotChannelCleanup=null;farm.cleanAt=null; farm.switchTries = 0; farm.opening = null; return { done: true }; }
@@ -7659,7 +7673,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const cleanKey=`${mapId}#${ch}`;
       if(farm.cleanAt?.key!==cleanKey)farm.cleanAt={key:cleanKey,at:now};
       const n=(sc?.attackers||[]).filter(m=>!m.banned&&m.reach!==false).length;
-      if(cleanup&&n<=CHANNEL_CLEANUP_MAX&&now-farm.cleanAt.at<CHANNEL_CLEANUP_MS){
+      const refused=channelCombatRefused(st,now);
+      if(refused)farm.cleanAt.at=now; // Spiel lässt nicht wechseln: erst den Kampf beenden (3.1.31)
+      if(cleanup&&(refused||n<=CHANNEL_CLEANUP_MAX&&now-farm.cleanAt.at<CHANNEL_CLEANUP_MS)){
         const disengage=digibotChannelDisengage(st,sc,now);
         if(disengage)return {status:disengage};
       } else digibotChannelCleanup=null; // zu viele Angreifer / zu lange: trotz Angriff wechseln

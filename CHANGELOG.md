@@ -2,6 +2,12 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.32 – Kanalwechsel im Kampf: erst den Angreifer besiegen
+- **Fehler behoben (live, Tortomon auf Destiny Lake):** Vor einem Kanalwechsel räumt der Bot höchstens 10 s auf (Taste 1).
+  Bei einem zähen Angreifer versuchte er danach nur noch zu wechseln. Das Spiel lehnte ab („You can't change channel while
+  fighting.“), und der Bot ließ sich verprügeln, ohne zurückzuschlagen. Jetzt erkennt er die Ablehnung und besiegt den
+  Angreifer weiter, erst dann wird gewechselt. Ein angewähltes Ziel, das angreift, zählt dabei immer als Angreifer.
+
 ## 3.1.31 – Boss-Rotation: nicht mehr in der Schutzzone warten
 - **Fehler behoben (live, Mummymon auf Destiny Lake):** Mit „Gruppe: eigene Wege“ sucht sich jedes Fenster einen eigenen
   Warteplatz um den Spawnpunkt. Der konnte in einer Schutzzone liegen (Steininsel direkt über Mummymons Spawn). Beim Spawn
