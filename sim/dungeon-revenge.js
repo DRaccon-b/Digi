@@ -15,6 +15,15 @@
 //                                            Einschlag 300 ms nach dem Ende des Warnkreises (EINSCHLAG_MS, F_PAL, F_CLAV einzeln)
 //   SHARE_FOLGT=0 …                          geteilter Treffer bleibt liegen (ausweichbar) – Standard: folgt dem Ziel (live)
 //   SCHADEN=12000 HP=92660 TRAENKE=400 TRANK_HP=15000 TRANK_AB=50 BOSS_HIT=6000 DAUER=1400 …
+//   TEAM=piedmon …                           ein Spieler: Piedmon Lv 130, volles Kartentraining, Ausrüstung „fast perfekt“ (Rechnung
+//                                            piedmon-sim/dps.js): PDPS=low|mid|high (Standard mid) wählt die Schadensstufe,
+//                                            PIED_HP/PIED_DS/PIED_AT/PIED_EV/PIED_AS/PIED_REACH, PIED_BASIC/PIED_TRUMP/PIED_ENDING/PIED_CARD
+//                                            (Schaden je Treffer, Erwartungswert mit Krit), F_PIED (Totzeit, Standard LIVE 0,56),
+//                                            CLOWN=bot|auto|aus (Clown Trick: Bot drückt ihn / der Sim zündet ihn vor dem gefährlichsten
+//                                            Treffer / gar nicht), CLOWN_LEAD=500, CLOWN_ORT=1, CLOWN_EV_SOFORT=1, EV=0 (Boss-Grundtreffer
+//                                            trifft immer), PIED_TREFFER=30 / PIED_TREFFER_CLOWN=26 (%), PIED_BOSS_HIT_DIABO/_ARMA,
+//                                            SHARE_PCT (geteilter Treffer, % der Max-HP; Standard Piedmon 240), BR_DMG, FLARE_DMG.
+//                                            Am Ende eine Zeile „ERGEBNIS {json}“.
 //
 // Aus den Spieldaten (Okt. 2026): Positionen, Boss-HP (Diaboromon 3 542 376, Armageddemon 3 741 367 bei bis zu 3
 // Spielern, +45 % bzw. +50 % je weiterem), Uhr 6 min, Enrage Bucht 8 min, alle Attacken mit Ansage, Radius und
@@ -47,7 +56,8 @@ warp(global);
 const TEAM = process.env.TEAM || '';
 const CTRL_P = (process.env.STEUERUNG || 'digimon') !== 'tamer'; // Digimon-Steuerung: Klick = Digimon läuft hin, Tamer folgt
 const CLAVIS_N = Math.max(1, Math.min(4, Number(process.env.CLAVIS) || 4)), CLAVIS_LV = Number(process.env.CLAVIS_LV) || 99; // TEAM=clavis: Anzahl und Level
-const N = TEAM === 'clavis' ? 1 + CLAVIS_N : Math.max(1, Math.min(5, Number(process.env.GRUPPE) || 1));
+const PIED = TEAM === 'piedmon'; // ein Spieler: Piedmon Lv 130
+const N = TEAM === 'clavis' ? 1 + CLAVIS_N : PIED ? 1 : Math.max(1, Math.min(5, Number(process.env.GRUPPE) || 1));
 const SCHADEN = Number(process.env.SCHADEN) || 12000;
 const LIVE = !!Number(process.env.LIVE || 0);
 const EINSCHLAG_MS = Number(process.env.EINSCHLAG_MS ?? (LIVE ? 300 : 0)); // live: Treffer kommt nach dem Warnkreis
@@ -60,7 +70,8 @@ const BOSS_HIT = Number(process.env.BOSS_HIT) || 6000;
 // liegen (SHARE_FOLGT=0 – dann kann man ihm ausweichen)? Live (Okt. 2026): er folgt, kein Warnkreis am Boden, Einschlag
 // genau beim Digimon. Schaden laut Spieldaten 240 % × Gruppengröße/3 (baseParty 3, damagePerExtra 1/3): allein 80 %.
 const SHARE_FOLGT = !!Number(process.env.SHARE_FOLGT ?? 1);
-const sharePct = () => 2.4 * Math.max(1 / 3, 1 + (alivePlayers().length - 3) / 3);
+// SHARE_PCT (z. B. 80 oder 240) setzt den Anteil fest; TEAM=piedmon: Standard 240 (live: allein 240 %, tödlich ohne Schutz)
+const sharePct = () => (process.env.SHARE_PCT ? Number(process.env.SHARE_PCT) / 100 : PIED ? 2.4 : 2.4 * Math.max(1 / 3, 1 + (alivePlayers().length - 3) / 3));
 const DAUER = (Number(process.env.DAUER) || 1400) * 1000;
 const MAP = 'network_revenge';
 const script = fs.readFileSync(process.env.SKRIPT || path.join(__dirname, '..', 'digibot.user.js'), 'utf8');
@@ -135,6 +146,35 @@ const CSK = [
 const PALADIN = { species: 'imperialdramon_paladin', name: 'Imperialdramon Paladin Mode', level: 99, hp: HP, ds: 9365, as: AS, dmg: SCHADEN, at: 12806, psk: PSK, f: F_PAL };
 const CLAVIS = (() => { const L = CLAVIS_LV, hp = Math.round(lvHp(2863, 345.6, L) * 1.51), at = Math.round((586 + 82.3 * (L - 1)) * 1.32);
   return { species: 'clavisangemon', name: 'ClavisAngemon', level: L, hp, ds: Math.round(lvHp(1293, 77.6, L) * 1.5), as: 1450, dmg: Math.round(SCHADEN * at / 12806), at, psk: CSK, f: F_CLAV }; })();
+// TEAM=piedmon: Piedmon Lv 130 (piedmon_dm: Grundwert + Wachstum × 129) + volles Kartentraining + Ausrüstung T11 „Doodlebug“
+// Legendary (Variante B, HP-lastig) – Rechnung in piedmon-sim/dps.js. Schaden je Treffer = Erwartungswert am Boss (Verteidigung,
+// Krit 94 %, Level ×2) im mid-Fall; low/high skalieren mit dem Verhältnis der Schadensraten (39 434 / 54 586 / 69 575 je s).
+const envN = (k, d) => { const v = process.env[k]; return v != null && v !== '' && Number.isFinite(Number(v)) ? Number(v) : d; };
+const PDPS = ['low', 'mid', 'high'].includes(process.env.PDPS) ? process.env.PDPS : 'mid';
+const PIED_DPS = { low: 39434, mid: 54586, high: 69575 }, PIED_SCALE = PIED_DPS[PDPS] / PIED_DPS.mid;
+const PIED_HIT = { basic: envN('PIED_BASIC', Math.round(25179 * PIED_SCALE)), trump_sword: envN('PIED_TRUMP', Math.round(109387 * PIED_SCALE)),
+  ending_illusion: envN('PIED_ENDING', Math.round(50692 * PIED_SCALE)), card_slash: envN('PIED_CARD', Math.round(37352 * PIED_SCALE)) };
+const CLOWN = ['bot', 'auto', 'aus'].includes(process.env.CLOWN) ? process.env.CLOWN : 'bot';
+const CLOWN_LEAD = envN('CLOWN_LEAD', 500), CLOWN_ORT = !!Number(process.env.CLOWN_ORT || 0), CLOWN_EV_SOFORT = !!Number(process.env.CLOWN_EV_SOFORT || 0);
+const PIED_EV_ON = !!Number(process.env.EV ?? 1); // Trefferchance der Boss-Grundtreffer (EV); EV=0: trifft immer
+// Hotbar: Taste 2 Trump Sword, 3 Ending Illusion, 4 Card Slash, 5 Clown Trick (der Bot drückt den ersten bereiten Skill – Clown zuletzt)
+const pk = (id, name, cooldownMs, dsCost, range, castMs, power, element) => ({ id: `piedmon_dm.${id}`, name, cooldownMs, dsCost, range, mult: PIED_HIT[id] / PIED_HIT.basic,
+  def: { kind: 'damage', target: 'enemy', shape: 'single', power, castMs, element } });
+const PIED_SK = [
+  pk('trump_sword', 'Trump Sword', 11000, 500, 144, 1200, 656, 'steel'),
+  pk('ending_illusion', 'Ending Illusion', 9000, 420, 144, 600, 304, 'dark'),
+  pk('card_slash', 'Card Slash', 4000, 150, 128, 0, 224, 'steel'),
+  { id: 'piedmon_dm.clown_trick', name: 'Clown Trick', cooldownMs: 24000, dsCost: 300, range: 32, mult: 0, clown: true,
+    def: { kind: 'buff', target: 'self', shape: 'single', power: 0, castMs: 0, element: 'dark', protectionMs: 2000, effects: [{ stat: 'ev', pct: 40, durationMs: 8000 }] } },
+];
+const PIEDMON = { species: 'piedmon_dm', name: 'Piedmon', level: 130, piedmon: true, hp: envN('PIED_HP', 133214), ds: envN('PIED_DS', 19429), at: envN('PIED_AT', 18124),
+  ev: envN('PIED_EV', 1429), as: envN('PIED_AS', 755), reach: envN('PIED_REACH', 104), dmg: PIED_HIT.basic, psk: PIED_SK, f: envN('F_PIED', LIVE ? 0.56 : 1),
+  // Boss-Grundtreffer gegen Piedmon (DE 1 086, Block 1 327): Diaboromon 534, Armageddemon 582 (×Herdenstapel); Treffer ~30 %, mit Clown-EV ~26 %
+  bossHit: { diaboromon: envN('PIED_BOSS_HIT_DIABO', 534), armageddemon: envN('PIED_BOSS_HIT_ARMA', 582) },
+  pHit: envN('PIED_TREFFER', 30) / 100, pHitClown: envN('PIED_TREFFER_CLOWN', 26) / 100 };
+// Live-Werte der Boss-Attacken (nur TEAM=piedmon oder mit BR_DMG/FLARE_DMG): Black Rain 52 000–59 800, Flare 60 000–74 400 je nach Herdenstapel (0–15)
+const brDmg = () => (process.env.BR_DMG ? Number(process.env.BR_DMG) : PIED ? Math.round(52000 + 7800 * Math.min(15, run.herd.stacks || 0) / 15) : 40000);
+const flareDmg = () => (process.env.FLARE_DMG ? Number(process.env.FLARE_DMG) : PIED ? Math.round(60000 + 14400 * Math.min(15, run.herd.stacks || 0) / 15) : 60000);
 // FORM=1: Raum 4 – für die Herde zurück-digitieren (Shakkoumon mit Kachina Bombs r56, Dragon Mode mit Mega Crusher r56 + Positron Laser r80),
 // bei Welle 10 wieder hoch (Digitation je 2,5 s, Bot wartet). mult ≈ power/145 wie bei den anderen Skills.
 const FORM = Number(process.env.FORM || 0), EVO_MS = 2500;
@@ -161,9 +201,11 @@ function setForm(pl, M2, why) {
   setTimeout(() => { const s2 = pl.store.getState(); pl.store.setState({ me: { ...s2.me, partner: { ...s2.me.partner, evolving: false } } }); const e2 = partnerOf(pl); if (e2) e2.flags &= ~4; }, EVO_MS);
   say(`🔁 Char${pl.i + 1} → ${M2.name} (${why})`);
 }
-const MEMBERS = TEAM === 'clavis' ? [PALADIN, ...Array.from({ length: CLAVIS_N }, () => CLAVIS)] : Array.from({ length: N }, () => PALADIN);
-const protections = []; // Key of Hope: { at, x, y }
-const protectedAt = (p, now) => protections.some((pr) => now >= pr.at && now <= pr.at + 2000 && Math.hypot(p.x - pr.x, p.y - pr.y) <= 128);
+const MEMBERS = TEAM === 'clavis' ? [PALADIN, ...Array.from({ length: CLAVIS_N }, () => CLAVIS)] : PIED ? [PIEDMON] : Array.from({ length: N }, () => PALADIN);
+const protections = []; // Key of Hope: { at, x, y } · Clown Trick: { at, self: Partner-Id, clown } bzw. CLOWN_ORT=1 { at, x, y, r: 32, clown }
+const protectedAt = (p, now) => protections.some((pr) => now >= pr.at && now <= pr.at + 2000 && (pr.self ? pr.self === p.id : Math.hypot(p.x - pr.x, p.y - pr.y) <= (pr.r || 128)));
+const landing = new Set(); // Flächen nach dem Ende der Ansage bis zur Auswertung (EINSCHLAG_MS / after)
+const clownProtected = (p, now) => protections.some((pr) => pr.clown && now >= pr.at && now <= pr.at + 2000 && (pr.self ? pr.self === p.id : Math.hypot(p.x - pr.x, p.y - pr.y) <= pr.r));
 const DIABO_HP = Math.round(lvHp(226600, 27810, 99) * 1.5 * 0.8 * (1 + 0.45 * Math.max(0, N - 3)));
 const ARMA_HP = Math.round(lvHp(294600, 36150, 99) * 1.5 * 0.65 * (1 + 0.5 * Math.max(0, N - 3)));
 const RAID = { id: 'revenge', gate: { mapId: 'network', portal: 'network_wargame' }, party: { min: 1, max: 5, minLevel: 1 }, deathLimit: 3, landing: 'from_network',
@@ -177,8 +219,9 @@ const CONTENT = () => ({
     armageddemon: { name: 'Armageddemon', base: { hp: 294600, at: 475 }, growth: { hp: 36150, at: 66 }, skills: [] },
     tentacle_bug_arm: { name: 'Tentacle Bug', base: { hp: 60000, at: 0 } }, mail_server: { name: 'Mail Server', base: { hp: 120000, at: 0 } },
     kuramon: { name: 'Kuramon', base: { hp: 1208, at: 42 }, growth: { hp: 145.3, at: 6 } }, kuramon_cluster: { name: 'Kuramon Cluster', base: { hp: 90000, at: 0 } },
+    ...(PIED ? { piedmon_dm: { name: 'Piedmon', base: { ms: 115, as: 1200, at: 306 }, growth: { at: 42.93 }, basic: { range: 112, power: 151, element: 'dark' } } } : {}),
   },
-  skills: { ...SKILLS, ...Object.fromEntries([...PSK, ...CSK].map((k) => [k.id, { id: k.id, name: k.name, cooldownMs: k.cooldownMs, dsCost: k.dsCost, range: k.range, ...k.def }])) },
+  skills: { ...SKILLS, ...Object.fromEntries([...PSK, ...CSK, ...(PIED ? PIED_SK : [])].map((k) => [k.id, { id: k.id, name: k.name, cooldownMs: k.cooldownMs, dsCost: k.dsCost, range: k.range, ...k.def }])) },
   items: { hp_pot: { id: 'hp_pot', name: 'HP-Trank' } }, npcs: {}, quests: {}, dailyById: {},
   maps: { network: { name: 'Network' }, network_wargame: { name: 'Network: War Game' }, [MAP]: { name: 'Network: Revenge' } },
   spawns: {
@@ -262,9 +305,10 @@ function makeWindow(i) {
     if (!k || pl.fainted) return;
     const n = Number(k) - 2, sk = pl.M.psk[n], me = state.me, now = Date.now();
     if (!sk || (pl.skillCd[n] || 0) > now || me.partner.ds < sk.dsCost) return;
-    const selfCast = sk.koh || sk.healAll || sk.heal;
+    const selfCast = sk.koh || sk.healAll || sk.heal || sk.clown;
     const m = state.target && ents.get(state.target.id);
     if (!selfCast && (!m || m.hp <= 0 || m.map !== pl.map)) return;
+    if (sk.clown) clownFired(pl, now);
     if (sk.koh) { const pp = ents.get(`p:${i}`); protections.push({ at: now, x: pp.x, y: pp.y }); run.stats.koh = (run.stats.koh || 0) + 1; say(`🔑 Char${i + 1} zündet Key of Hope · fällig: ${run.zones.filter((z) => z.end - now < 4000).sort((x, y) => x.end - y.end).map((z) => `${SKILLS[z.skill]?.name || z.skill}${z.share ? ' (geteilt)' : ''} in ${((z.end - now) / 1000).toFixed(1)} s`).join(', ') || 'nichts'}`); }
     if (sk.healAll) { const pp = ents.get(`p:${i}`); run.stats.heals = (run.stats.heals || 0) + 1; for (const x of alivePlayers()) if (dist(partnerOf(x), pp) <= 96) { const s3 = x.store.getState(); const add = Math.min(x.M.hp, s3.me.partner.hp + x.M.hp * sk.healAll) - s3.me.partner.hp; run.stats.healed = (run.stats.healed || 0) + add; x.store.setState({ me: { ...s3.me, partner: { ...s3.me.partner, hp: s3.me.partner.hp + add } } }); } }
     pl.skillCd[n] = now + sk.cooldownMs;
@@ -284,20 +328,23 @@ function makeWindow(i) {
   ents.set(`p:${i}`, { id: `p:${i}`, kind: 1, map: 'network', x: sx + 10, y: sy, hp: 1, flags: 0, targetId: '' });
   store.setState({ screen: 'world', inputFocus: 'game', cooldowns: {}, windows: {}, raid: null,
     // Party wie im Spiel (Name, eigener Eintrag, Partner-Entity) – die Gruppenheilung liest daraus, wer Schaden hat
-    party: { id: 'party1', members: Array.from({ length: N }, (_, x) => ({ charId: `c${x}`, name: x === 0 && TEAM ? 'Bauzel' : `Char${x + 1}`, me: x === i, partnerEntityId: `p:${x}` })) },
-    session: { username: `u${i}`, characters: [{ id: `c${i}`, name: i === 0 && TEAM ? 'Bauzel' : `Char${i + 1}` }] },
+    party: { id: 'party1', members: Array.from({ length: N }, (_, x) => ({ charId: `c${x}`, name: x === 0 && TEAM && !PIED ? 'Bauzel' : `Char${x + 1}`, me: x === i, partnerEntityId: `p:${x}` })) },
+    session: { username: `u${i}`, characters: [{ id: `c${i}`, name: i === 0 && TEAM && !PIED ? 'Bauzel' : `Char${i + 1}` }] },
     me: { tamerEntityId: `t:${i}`, tamerDs: 300, tamerMaxDs: 360, hotbar: ['cmd:attack', 'skill:0', 'skill:1', 'skill:2', 'skill:3', null, null, null, 'item:hp_pot'],
       inventory: TRAENKE ? [{ itemId: 'hp_pot', qty: TRAENKE }] : [], quests: {},
       partner: { entityId: `p:${i}`, name: M.name, species: M.species, stage: 'mega', level: M.level, hp: M.hp, maxHp: M.hp, ds: M.ds, maxDs: M.ds, exp: 0, expNext: 0,
         stats: { at: M.at, as: M.as, ms: 120 }, skills: M.psk.map((k) => ({ id: k.id, name: k.name, dsCost: k.dsCost, cooldownMs: k.cooldownMs, range: k.range, unlocked: true })),
-        evolutions: M.species === 'imperialdramon_paladin' ? [{ species: 'imperialdramon_dragon', from: 'paildramon', stage: 'mega', unlocked: true, canEvolveNow: true, dsCost: 450 }, { species: 'imperialdramon_paladin', from: 'imperialdramon_dragon', stage: 'super', unlocked: true, canEvolveNow: true, dsCost: 450, isCurrent: true }]
+        evolutions: M.species === 'piedmon_dm' ? [{ species: 'piedmon_dm', from: 'phantomon_dm', stage: 'mega', unlocked: true, canEvolveNow: true, dsCost: 450, isCurrent: true }]
+          : M.species === 'imperialdramon_paladin' ? [{ species: 'imperialdramon_dragon', from: 'paildramon', stage: 'mega', unlocked: true, canEvolveNow: true, dsCost: 450 }, { species: 'imperialdramon_paladin', from: 'imperialdramon_dragon', stage: 'super', unlocked: true, canEvolveNow: true, dsCost: 450, isCurrent: true }]
           : [{ species: 'shakkoumon', from: 'angemon', stage: 'ultimate', unlocked: true, canEvolveNow: true, dsCost: 300 }, { species: 'clavisangemon', from: 'shakkoumon', stage: 'mega', unlocked: true, canEvolveNow: true, dsCost: 450, isCurrent: true }] } },
     world: { mapId: 'network', mapName: 'Network', channel: 1 }, target: null });
   // KOH_AUS=1: Key of Hope und alle Skill-Haken der Clavis aus – im Dungeon müssen Key of Hope und Gruppenheilung trotzdem laufen (3.1.0)
   w.localStorage.setItem('digibot.cfg', JSON.stringify({ dungeon: true, dgMode: 'hard', autopilot: false, farm: false, questMode: false, hpPot: TRANK_AB, dsPot: 0, tdsPot: 0, tab: 'data', lvlDiff: 100, radius: 400,
     ...(process.env.KOH_AUS ? { koh: false, skillSets: { clavisangemon: { skills: { 2: false, 3: false, 4: false, 5: false, 6: false }, heal: {} } } } : {}),
     ...(process.env.SERVER === '0' ? { dgBreak: false } : {}),
-    dgHerdForm: !!process.env.FORMBOT, apEvo: M.species === 'imperialdramon_paladin' ? 'imperialdramon_paladin' : 'clavisangemon' })); // FORMBOT=1: Herden-Form über den Bot (3.1.9) // SERVER=0: Mail Server ignorieren (Standard an seit 3.1.3)
+    // TEAM=piedmon, CLOWN=auto/aus: Clown Trick (Taste 5) für den Bot aus – CLOWN=auto zündet ihn der Sim (clownAuto)
+    ...(PIED && CLOWN !== 'bot' ? { skillSets: { piedmon_dm: { skills: { 2: true, 3: true, 4: true, 5: false, 6: true }, heal: {} } } } : {}),
+    dgHerdForm: !!process.env.FORMBOT, apEvo: M.species === 'piedmon_dm' ? 'piedmon_dm' : M.species === 'imperialdramon_paladin' ? 'imperialdramon_paladin' : 'clavisangemon' })); // FORMBOT=1: Herden-Form über den Bot (3.1.9) // SERVER=0: Mail Server ignorieren (Standard an seit 3.1.3)
   w.localStorage.setItem('digibot.accounts', JSON.stringify(accounts));
   w.eval(script);
   pl.status = () => w.document.querySelector('[data-f="status"]')?.textContent || '';
@@ -352,12 +399,14 @@ const alivePlayers = () => players.filter((pl) => pl.inside && !pl.fainted && pl
 const partnerOf = (pl) => ents.get(`p:${pl.i}`);
 function damagePlayer(pl, dmg, what) {
   if (pl.fainted) return;
+  if (pl.M.piedmon && clownProtected(partnerOf(pl), Date.now())) { clownBlock(what); return; } // Clown Trick: 2 s trifft nichts (auch Grundtreffer/Saugen)
   if (run.forwardMult > 1 && run.boss && run.boss.defId === 'diaboromon') dmg = Math.round(dmg * run.forwardMult); // stehende Mail-Server
   const st = pl.store.getState(), p = st.me.partner, hp = Math.max(0, p.hp - dmg);
   pl.store.setState({ me: { ...st.me, partner: { ...p, hp, fainted: hp <= 0 } } });
   if (hp <= 0) {
     pl.fainted = true; pl.atk = null; pl.reviveAt = Date.now() + 5000; pl.grab = null; partnerOf(pl).flags &= ~8192;
     run.deaths++; run.roomDeaths++;
+    (run.stats.falls ||= []).push({ raum: run.room + 3, s: Math.round((Date.now() - run.roomStart) / 1000), ursache: what, schaden: Math.round(dmg), char: pl.i + 1 });
     say(`💀 Char${pl.i + 1} fällt (${what}) – Stürze in Raum ${run.room + 3}: ${run.roomDeaths}/3`);
     for (const m of ents.values()) if (m.targetId === `p:${pl.i}`) m.targetId = '';
     if (run.roomDeaths > 3 || (N > 1 && !alivePlayers().length)) failRun(run.roomDeaths > 3 ? 'zu viele Stürze' : 'alle gefallen');
@@ -413,7 +462,7 @@ function stepPartners(now, dt) {
     }
     const m = pl.atk && ents.get(pl.atk);
     if (m && m.hp > 0 && m.map === pl.map) {
-      const d = dist(p, m), reach = 26;
+      const d = dist(p, m), reach = pl.M.reach || 26; // Fernkampf (TEAM=piedmon): bleibt auf Schussweite stehen
       p.targetId = m.id;
       if (d > reach && !pl.grab) { const step = P_SPEED * dt; p.x += (m.x - p.x) / d * Math.min(step, d - reach + 1); p.y += (m.y - p.y) / d * Math.min(step, d - reach + 1); }
       else if (now >= pl.hitAt && now >= (pl.castUntil || 0)) { pl.hitAt = now + pl.M.as; hitMob(pl, m, pl.M.dmg); }
@@ -440,7 +489,8 @@ function hitMob(pl, m, dmg) {
   if (m.flags & 256) return;
   // Spieldaten grab.selfPct 50: der Gepackte macht nur halben Schaden an seinem eigenen Arm
   const mult = (m.boss && Date.now() < run.exposeUntil ? 1.25 : 1) * (pl.M.f || 1) * (pl.grab && m.id === pl.grab.arm ? 0.5 : 1);
-  if (m.boss) { const by = run.stats.dmgBy ||= {}; by[pl.i] = (by[pl.i] || 0) + Math.min(m.hp, dmg * mult); run.stats.dmgT0 ||= Date.now(); run.stats.dmgT1 = Date.now(); }
+  if (m.boss) { const by = run.stats.dmgBy ||= {}; by[pl.i] = (by[pl.i] || 0) + Math.min(m.hp, dmg * mult); run.stats.dmgT0 ||= Date.now(); run.stats.dmgT1 = Date.now();
+    const r = (run.stats.dmgRoom ||= {})[run.room + 3] ||= { dmg: 0, t0: Date.now(), t1: 0 }; r.dmg += Math.min(m.hp, dmg * mult); r.t1 = Date.now(); }
   m.hp = Math.max(0, m.hp - dmg * mult);
   if (m.hp <= 0) killMob(m, pl);
 }
@@ -452,6 +502,7 @@ function killMob(m, pl) {
   if (m.defId === 'mail_server') { run.exposeUntil = Date.now() + 15000; say(`📧 Mail-Server zerschlagen von Char${pl.i + 1} – Diaboromon nimmt 15 s lang 25 % mehr Schaden`); return; }
   if (m.defId === 'tentacle_bug_arm') return;
   if (m.boss) {
+    (run.stats.kills ||= []).push({ raum: run.room + 3, s: Math.round((Date.now() - run.roomStart) / 1000), kampfS: Math.round((Date.now() - (run.room === 0 ? run.pullAt : run.armaAt || run.roomStart)) / 1000) });
     run.roomTime.push(Date.now() - run.roomStart); run.roomStart = Date.now();
     if (run.room === 0) {
       say(`🏆 Diaboromon besiegt (Uhr: ${Math.round((Date.now() - run.pullAt) / 1000)} s von 360)`);
@@ -487,11 +538,13 @@ function portals(pl, t, now) {
 }
 // Fläche ansagen, nach castMs auswerten. share: Schaden (240 % der Max-HP des Ziels) auf alle im Kreis um das Ziel verteilt.
 function castZone(src, skill, opt) {
-  const now = Date.now(), z = { src: src.id, skill, circles: opt.circles || [], line: opt.line || null, end: now + opt.castMs, follow: opt.follow || null };
+  const now = Date.now(), z = { src: src.id, skill, circles: opt.circles || [], line: opt.line || null, end: now + opt.castMs, follow: opt.follow || null, opt };
+  z.impact = z.end + (opt.after || 0) + EINSCHLAG_MS; // Zeitpunkt der Auswertung (für CLOWN=auto)
   run.zones.push(z);
+  if (opt.share) run.lastShareCast = now; // sichtbar: Ansage des geteilten Treffers (Reserve für Clown Trick)
   for (const pl of players) pl.handlers.evs?.([{ t: 'skill', src: src.id, skill, phase: 'cast', ...(z.line ? { x: z.line.tx, y: z.line.ty } : {}) }]);
   setTimeout(() => {
-    run.zones = run.zones.filter((x) => x !== z);
+    run.zones = run.zones.filter((x) => x !== z); landing.add(z); // Warnung weg, Einschlag steht noch aus (CLOWN=auto)
     for (const pl of players) pl.handlers.evs?.([{ t: 'skill', src: src.id, skill, phase: 'release', ...(z.line ? { x: z.line.tx, y: z.line.ty } : {}) }]);
     if (!ents.has(src.id) || run.failed) return;
     if (opt.after) { const o = { ...opt, after: 0, castMs: 0 }; return void setTimeout(() => evalZone(src, skill, z, o), opt.after + EINSCHLAG_MS); }
@@ -500,6 +553,7 @@ function castZone(src, skill, opt) {
   }, opt.castMs);
 }
 function evalZone(src, skill, z, opt) {
+  landing.delete(z);
   {
     if (!ents.has(src.id) || run.failed) return;
     const ps = run.perSkill[skill] ||= { casts: 0, hit: 0, dodged: 0 };
@@ -510,8 +564,9 @@ function evalZone(src, skill, z, opt) {
       if (!inn.length) { ps.dodged++; say(`${SKILLS[skill].name} (geteilt): niemand im Kreis – ausgewichen`); return; }
       const each = Math.round(tgt.M.hp * sharePct() / inn.length), now2 = Date.now();
       const open = inn.filter((pl) => !protectedAt(partnerOf(pl), now2));
+      for (const pl of inn) if (pl.M.piedmon && !open.includes(pl)) clownBlock(`${skName(skill)} (geteilt)`);
       ps.hit += open.length; ps.blocked = (ps.blocked || 0) + inn.length - open.length;
-      say(`💥 ${SKILLS[skill].name} (geteilt) auf Char${tgt.i + 1}: ${inn.length} im Kreis → je ${each}${inn.length > open.length ? ` · ${inn.length - open.length} von Key of Hope geschützt` : ''}`);
+      say(`💥 ${SKILLS[skill].name} (geteilt) auf Char${tgt.i + 1}: ${inn.length} im Kreis → je ${each}${inn.length > open.length ? ` · ${inn.length - open.length} von ${PIED ? 'Clown Trick' : 'Key of Hope'} geschützt` : ''}`);
       for (const pl of open) damagePlayer(pl, each, `${SKILLS[skill].name} (geteilt)`);
       return;
     }
@@ -521,7 +576,7 @@ function evalZone(src, skill, z, opt) {
       if (cov) ps.cover = (ps.cover || 0) + 1;
       const inside = z.circles.some((cc) => dist(p, cc) <= cc.r) || (z.line && inLine(p, z.line) && !cov);
       if (!inside) { ps.dodged++; continue; }
-      if (protectedAt(p, Date.now())) { ps.blocked = (ps.blocked || 0) + 1; continue; }
+      if (protectedAt(p, Date.now())) { ps.blocked = (ps.blocked || 0) + 1; if (pl.M.piedmon) clownBlock(skName(skill)); continue; }
       ps.hit++;
       damagePlayer(pl, opt.dmg, SKILLS[skill].name);
       opt.onHit?.(pl);
@@ -556,11 +611,67 @@ function bossMelee(b, now, every) {
   const tp = partnerOf(tank); b.targetId = `p:${tank.i}`;
   const d = dist(b, tp);
   if (d > 40 && b.ms) { b.x += (tp.x - b.x) / d * b.ms * 0.05; b.y += (tp.y - b.y) / d * b.ms * 0.05; }
-  else if (d <= 48 && now >= b.nextHit) { b.nextHit = now + every; damagePlayer(tank, BOSS_HIT * (1 + (run.herd.stacks || 0) * 0.03), b.name); }
+  else if (d <= 48 && now >= b.nextHit) { b.nextHit = now + every;
+    if (tank.M.bossHit) meleePied(tank, b, now); // TEAM=piedmon: eigener Grundtreffer mit Trefferchance (EV)
+    else damagePlayer(tank, BOSS_HIT * (1 + (run.herd.stacks || 0) * 0.03), b.name); }
   return tank;
 }
+// ---------- TEAM=piedmon: Boss-Grundtreffer mit EV, Clown Trick ----------
+const skName = (id) => ({ 'diaboromon.cannon_volley': 'Cannon Volley', 'diaboromon.copy_cannon': 'Kopien-Strahl', 'armageddemon.black_rain_shell': 'Black Rain Shell' })[id] || SKILLS[id]?.name || id;
+function meleePied(pl, b, now) {
+  const ms = run.stats.melee ||= { schlaege: 0, verfehlt: 0, getroffen: 0, schaden: 0, geblockt: 0 };
+  ms.schlaege++;
+  if (clownProtected(partnerOf(pl), now)) { ms.geblockt++; clownBlock('Grundtreffer'); return; }
+  const evUp = now >= (pl.evFrom || 0) && now <= (pl.evUntil || 0);
+  if (PIED_EV_ON && Math.random() >= (evUp ? pl.M.pHitClown : pl.M.pHit)) { ms.verfehlt++; return; }
+  const dmg = Math.round((pl.M.bossHit[b.defId] ?? BOSS_HIT) * (1 + (run.herd.stacks || 0) * 0.03));
+  ms.getroffen++; ms.schaden += dmg;
+  damagePlayer(pl, dmg, b.name);
+}
+function clownBlock(what) { const c = run.stats.clownBlocked ||= {}; c[what] = (c[what] || 0) + 1; }
+// Bedroht die Fläche z dieses Digimon zum Einschlag (geteilt auf ihn, oder er steht drin)?
+function zoneThreat(z, pl, p, pad = 6) {
+  if (z.opt.share) return z.opt.share === pl;
+  if (z.circles.some((c) => dist(p, c) <= c.r + pad)) return true;
+  return !!z.line && inLine(p, { ...z.line, r: z.line.r + pad }) && !behindCover(p, z);
+}
+function clownFired(pl, now) {
+  const pp = partnerOf(pl), by = pl.clownBy || 'bot'; pl.clownBy = null;
+  protections.push(CLOWN_ORT ? { at: now, x: pp.x, y: pp.y, r: 32, clown: true } : { at: now, self: pp.id, clown: true });
+  pl.evFrom = CLOWN_EV_SOFORT ? now : now + 2000; pl.evUntil = pl.evFrom + 8000;
+  const due = [...run.zones, ...landing].filter((z) => z.impact >= now && z.impact <= now + 2000 && zoneThreat(z, pl, pp)).map((z) => `${skName(z.skill)}${z.opt.share ? ' (geteilt)' : ''}`);
+  (run.stats.clown ||= []).push({ raum: run.room + 3, s: Math.round((now - run.roomStart) / 1000), von: by, gegen: due.length ? due : ['nichts'] });
+  say(`🃏 Char${pl.i + 1} zündet Clown Trick (${by}) · deckt: ${due.join(', ') || 'nichts'} · angesagt: ${[...run.zones, ...landing].filter((z) => z.impact >= now).map((z) => `${skName(z.skill)}${z.opt.share ? ' (geteilt)' : ''} in ${((z.impact - now) / 1000).toFixed(1)} s`).join(', ') || '–'}`);
+}
+// CLOWN=auto: kurz vor dem gefährlichsten Einschlag zünden (Schutz 2 s ab Druck). Geteilte Treffer auf ihn (allein tödlich) immer;
+// andere Treffer (Black Rain, Cannon Volley, Flare, Strahlen) nur, wenn er zum Zündzeitpunkt noch drinsteht UND Clown bis zum frühest
+// möglichen nächsten geteilten Treffer wieder bereit ist (aus Sichtbarem: letzte Ansage + 75 % der Abklingzeit) – oder der Treffer ihn sonst tötet.
+function clownAuto(now) {
+  if (!PIED || CLOWN !== 'auto') return;
+  for (const pl of players) {
+    if (!pl.M.piedmon || pl.fainted || pl.loading || !pl.inside || pl.map !== MAP) continue;
+    const n = pl.M.psk.findIndex((k) => k.clown), sk = pl.M.psk[n]; if (n < 0) continue;
+    const pe = pl.store.getState().me.partner;
+    if ((pl.skillCd[n] || 0) > now || pe.ds < sk.dsCost || pe.evolving) continue;
+    const p = partnerOf(pl), soon = [...run.zones, ...landing].filter((z) => z.impact >= now && zoneThreat(z, pl, p)).sort((a, b) => a.impact - b.impact);
+    if (!soon.length || soon[0].impact - now > CLOWN_LEAD) continue;
+    const covered = soon.filter((z) => z.impact <= now + 2000 - 100), later = soon.filter((z) => !covered.includes(z));
+    if (!covered.some((z) => z.opt.share)) {
+      if (later.some((z) => z.opt.share)) continue; // ein geteilter Treffer ist schon angesagt, kommt aber später: dafür aufheben
+      const b = run.boss, isD = b?.defId === 'diaboromon';
+      const shareCd = isD ? SKILLS['diaboromon.catastrophe_cannon'] : SKILLS['armageddemon.black_rain_storm'];
+      const nextShare = run.lastShareCast && run.lastShareCast >= run.roomStart ? run.lastShareCast + 0.75 * shareCd.cooldownMs + shareCd.castMs + EINSCHLAG_MS : now + shareCd.castMs + EINSCHLAG_MS;
+      const hit = covered.reduce((s, z) => s + (z.opt.dmg || 0), 0) * (isD && run.forwardMult > 1 ? run.forwardMult : 1);
+      const deadly = hit >= pe.hp;
+      if (!deadly && nextShare < now + sk.cooldownMs) continue; // Reserve für den nächsten geteilten Treffer
+    }
+    pl.clownBy = 'auto';
+    pl.w.dispatchEvent(new pl.w.KeyboardEvent('keydown', { code: `Digit${n + 2}` }));
+  }
+}
 const pickW = (opts) => { const tot = opts.reduce((s, o) => s + o.w, 0); let r = Math.random() * tot; for (const o of opts) { r -= o.w; if (r <= 0) return o.id; } return opts[0]?.id; };
-const jit = (ms) => ms * (0.75 + Math.random() * 0.5);
+// Boss-Abklingzeiten: feste Untergrenze, Streuung nur nach oben (Nutzer 29.10.: Catastrophe Cannon nie unter 32 s, Hülle nie unter 28 s)
+const jit = (ms) => ms * (1 + Math.random() * 0.25);
 // Raum 3: Diaboromon, 6 Minuten
 let shareRot = 0;
 function stepClock(now) {
@@ -651,9 +762,9 @@ function stepBay(now, dt) {
   if (id === 'armageddemon.ultimate_flare') {
     const l = lineTo(b, partnerOf(tank), 360, 20); l.sweep = 140; l.len = 360;
     say(`⚠ Ultimate Flare angesagt (2,5 s) – zielt auf Char${tank.i + 1}`);
-    castZone(b, id, { line: l, castMs: sk.castMs, dmg: 60000 });
+    castZone(b, id, { line: l, castMs: sk.castMs, dmg: flareDmg() });
   } else {
-    castZone(b, id, { circles: alive.map((pl) => ({ x: partnerOf(pl).x, y: partnerOf(pl).y, r: 48 })), castMs: sk.castMs, dmg: 40000 });
+    castZone(b, id, { circles: alive.map((pl) => ({ x: partnerOf(pl).x, y: partnerOf(pl).y, r: 48 })), castMs: sk.castMs, dmg: brDmg() });
     const tgt = alive[shareRot++ % alive.length], tp = partnerOf(tgt);
     b.cd['armageddemon.black_rain_shell'] = now + sk.cooldownMs;
     castZone(b, 'armageddemon.black_rain_shell', { circles: SHARE_FOLGT ? [] : [{ x: tp.x, y: tp.y, r: 40 }], castMs: sk.castMs, share: tgt });
@@ -679,6 +790,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const loop = setInterval(() => {
     const now = Date.now(), dt = (now - last) / 1000; last = now;
     stepPartners(now, dt);
+    clownAuto(now);
     if (run.inside && !run.failed) { if (run.room === 0) stepClock(now); else if (run.room === 1) stepBay(now, dt); }
     syncWindows();
   }, 50);
@@ -701,6 +813,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   if (process.env.DUMP) for (const e of ents.values()) if (e.map === MAP) console.log('DUMP', e.id, e.defId, Math.round(e.x), Math.round(e.y), e.hp, e.targetId || '', e.flags);
   if (process.env.DUMP) for (const pl of players) console.log('DUMP pl', pl.i, pl.atk, JSON.stringify(pl.store.getState().target), pl.grab);
   console.log(`\nDungeon-Probelauf Kera Hard (Revenge) – ${N} Bot${N > 1 ? 's' : ''} · Grundangriff ${SCHADEN}/${AS} ms + Skills · HP ${HP} · Diaboromon ${DIABO_HP} · Armageddemon ${ARMA_HP}${TEMPO > 1 ? ` · Zeitraffer ×${TEMPO}` : ''}\n`);
+  if (PIED) console.log(`Piedmon Lv 130 (PDPS=${PDPS}, CLOWN=${CLOWN}): HP ${PIEDMON.hp} · DS ${PIEDMON.ds} · EV ${PIEDMON.ev} · Angriff alle ${PIEDMON.as} ms, Reichweite ${PIEDMON.reach} · je Treffer ${Object.entries(PIED_HIT).map(([k, v]) => `${k} ${v}`).join(', ')} · Faktor ${PIEDMON.f} · geteilt ${Math.round(sharePct() * 100)} % · Boss-Grundtreffer ${PIEDMON.bossHit.diaboromon}/${PIEDMON.bossHit.armageddemon}${PIED_EV_ON ? ` (Trefferchance ${PIEDMON.pHit * 100} %, mit Clown ${PIEDMON.pHitClown * 100} %)` : ' (trifft immer)'}\n`);
   for (const l of log) console.log(l);
   const b = run.boss;
   console.log(`\nErgebnis: ${run.cleared ? '✅ geschafft' : run.failed ? `❌ gescheitert (${run.failed})` : '⏱ Zeit abgelaufen'}${!run.cleared && b ? ` – ${b.name} bei ${Math.round(b.hp / b.maxHp * 100)} %` : ''}`);
@@ -708,7 +821,26 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   console.log(`Attacken (Ansagen · getroffen · ausgewichen · geblockt): ${Object.entries(run.perSkill).map(([k, v]) => `${k} ${v.casts} · ${v.hit} · ${v.dodged} · ${v.blocked || 0}${v.cover ? ` (davon ${v.cover}× hinter Deckung)` : ''}`).join(' | ')}`);
   if (run.stats.forwardMax) console.log(`Mail-Server standen: Diaboromon bis ×${run.stats.forwardMax.toFixed(2)} verstärkt`);
   { const by = run.stats.dmgBy || {}, secs = ((run.stats.dmgT1 || 0) - (run.stats.dmgT0 || 0)) / 1000; if (secs > 0) console.log(`Schaden am Boss je Sekunde (Kampfzeit ${Math.round(secs)} s): ${players.map((pl) => `Char${pl.i + 1} ${Math.round((by[pl.i] || 0) / secs)}`).join(' · ')}`); }
-  if (TEAM) console.log(`Key of Hope gezündet: ${run.stats.koh || 0}× · Sacred Seal ${run.stats.heals || 0}× (${Math.round(run.stats.healed || 0)} HP) · Team: ${MEMBERS.map((m, i) => `Char${i + 1} ${m.name} Lv ${m.level} (${m.hp} HP)`).join(', ')}`);
+  if (PIED) console.log(`Clown Trick gezündet: ${(run.stats.clown || []).length}× · geblockt: ${Object.entries(run.stats.clownBlocked || {}).map(([k, v]) => `${k} ${v}×`).join(', ') || '–'}${run.stats.melee ? ` · Boss-Grundtreffer ${run.stats.melee.getroffen}/${run.stats.melee.schlaege} getroffen (${run.stats.melee.schaden} Schaden)` : ''}`);
+  if (TEAM && !PIED) console.log(`Key of Hope gezündet: ${run.stats.koh || 0}× · Sacred Seal ${run.stats.heals || 0}× (${Math.round(run.stats.healed || 0)} HP) · Team: ${MEMBERS.map((m, i) => `Char${i + 1} ${m.name} Lv ${m.level} (${m.hp} HP)`).join(', ')}`);
   console.log(`Status am Ende: ${players.map((pl) => `Char${pl.i + 1}: ${pl.status()}`).join(' | ')}`);
+  if (PIED) {
+    const st = run.stats, M = PIEDMON, by = st.dmgBy || {}, secs = ((st.dmgT1 || 0) - (st.dmgT0 || 0)) / 1000, cl = st.clown || [];
+    const now = Date.now(), kills = st.kills || [];
+    const raeume = [3, 4].filter((r) => r >= (process.env.START === '4' ? 4 : 3) && r <= run.room + 3 && run.inside !== false && (run.enteredAt || 0) > 0).map((r) => { const k = kills.find((x) => x.raum === r), dr = (st.dmgRoom || {})[r];
+      return { raum: r, geschafft: !!k, zeitS: k ? k.s : Math.round((now - run.roomStart) / 1000), kampfS: k ? k.kampfS : (r === 3 ? (run.pullAt ? Math.round((now - run.pullAt) / 1000) : 0) : (run.armaAt ? Math.round((now - run.armaAt) / 1000) : 0)),
+        stuerze: (st.falls || []).filter((f) => f.raum === r).length, schadenProS: dr && dr.t1 > dr.t0 ? Math.round(dr.dmg / ((dr.t1 - dr.t0) / 1000)) : 0 }; });
+    const gegen = {}; for (const c of cl) for (const g of c.gegen) gegen[g] = (gegen[g] || 0) + 1;
+    const out = { modus: 'piedmon', pdps: PDPS, clown: CLOWN, live: LIVE, tempo: TEMPO, start: process.env.START === '4' ? 4 : 3,
+      ergebnis: run.cleared ? 'geschafft' : run.failed ? 'gescheitert' : 'Zeit abgelaufen (DAUER)', grund: run.failed || '',
+      erreichterRaum: run.cleared ? 4 : run.room + 3, raeume,
+      bossEnde: b ? { name: b.name, hp: Math.round(b.hp), maxHp: b.maxHp, pct: Math.round(b.hp / b.maxHp * 1000) / 10, sichtbar: b.map === MAP } : null,
+      stuerze: st.falls || [], schadenProS: secs > 0 ? Math.round((by[0] || 0) / secs) : 0, kampfzeitS: Math.round(secs),
+      clownTrick: { einsaetze: cl.length, bot: cl.filter((c) => c.von === 'bot').length, auto: cl.filter((c) => c.von === 'auto').length, gegen, geblockt: st.clownBlocked || {}, liste: cl },
+      bossGrundtreffer: st.melee || null, traenke: st.pots, skills: st.skills,
+      attacken: Object.fromEntries(Object.entries(run.perSkill).map(([k, v]) => [skName(k) + (SKILLS[k]?.share ? ' (geteilt)' : ''), { ansagen: v.casts, getroffen: v.hit, ausgewichen: v.dodged, geblockt: v.blocked || 0, deckung: v.cover || 0 }])),
+      werte: { hp: M.hp, ds: M.ds, at: M.at, ev: M.ev, as: M.as, reach: M.reach, f: M.f, jeTreffer: PIED_HIT, sharePct: Math.round(sharePct() * 100), evAn: PIED_EV_ON, pHit: M.pHit, pHitClown: M.pHitClown, bossHit: M.bossHit } };
+    console.log('ERGEBNIS ' + JSON.stringify(out));
+  }
   process.exit(run.cleared ? 0 : 1);
 })();
