@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.25
+// @version      3.1.26
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -699,6 +699,17 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // Bosskampf in der Nähe zählt als Kampf, auch während Ausweichen/Sammeln/Seitenwechsel – sonst fiel „im Kampf“ bei den Clavis
     // ständig weg (der Boss zielt auf den mit den meisten Max-HP, Ausweichen setzt den eigenen Angriff zurück) (3.1.25)
     const bossFight=!!target&&target.hp>0&&(target.flags&FLAG.Boss)&&(target.flags&FLAG.InCombat)&&!!own&&Math.hypot(target.x-own.x,target.y-own.y)<=TAMER_BOSS_NEAR;
+    // Davis (Digi-Egg of Miracles, setzt alle Abklingzeiten zurück – auch Key of Hope) auf einem Clavis im Dungeon/Raid: nur als
+    // Notfall-Key – steht ein Block-Treffer an und hat niemand einen Key, setzt der Davis-Clavis mit dem längsten Key-Rest zurück
+    // (Gleichstand: kleinster Slot) und zündet danach Key of Hope (Nutzer-Idee 29.10., 3.1.26)
+    if(sk.resetCooldowns&&kohSlot(st)&&dungeonLike(st)&&group.active()){
+      const why=davisEmergency(st,now);
+      if(!why){digibotTamer.since=0;return;}
+      const cmd0=commands();if(typeof cmd0?.tamerSkill!=='function')return;
+      digibotTamer.retryAt=now+3000;digibotTamer.attempts++;cmd0.tamerSkill();digibotTamer.last=now;digibotTamer.cooldown=3000;digibotTamer.davisAt=now;groupPush(true);
+      logEvent('warn',`Davis-Reset für Key of Hope – ${why}`);
+      return;
+    }
     let reason=digibotTamerDecision({skill:sk,partner:p,allies,target,fighting:inCombat(st)||bossFight,incoming:dangerous||shareIncoming(now),debuffed,skillsOnCooldown});
     // die Wartezeit aufs Gate läuft weiter, wenn „im Kampf“ nur kurz wegfällt (3.1.25)
     if(!reason){digibotTamer.since=0;if(now-(digibotTamer.holdSeen||0)>TAMER_HOLD_GRACE_MS)digibotTamer.holdSince=0;return;}
@@ -1346,6 +1357,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     dgRetry: false,       // Nach einem gescheiterten Lauf (rausgeflogen) neu betreten, bis DG_TRIES Versuche – aus: Bot stoppt (3.1.5)
     dgFlareCover: false,  // Ultimate Flare: Platten als Deckung nutzen, wenn näher – aus: nur hinter Armageddemon, dort weiter angreifen (3.1.18)
     dgRing: false,        // Warnkreise: zur Nahkampfposition auf der freien Seite des Bosses ausweichen (3.1.19) – live 28.10. zwei Tote bei Cannon Volley → Standard aus (3.1.20)
+    kohMore: true,        // Key of Hope auch gegen Black Rain / Cannon Volley, wenn genug Keys bereit sind (Davis-Reset zählt mit); schaltet sich ab, wenn ein geblockter Treffer doch durchkommt (3.1.26)
     dgBlade: true,        // Armageddemons Klinge (ab 20 %) vom Boden aufheben – der Paladin läuft hin, wenn Punkt und Weg frei von Warnflächen sind (3.1.21)
     dgBreakMinPct: 8,     // Mail Server nicht mehr angreifen, sobald der Boss so wenig % HP hat – dann direkt auf ihn (3.1.7)
     dgHerdForm: false,    // Raum 4: für die Herde eine Stufe zurück (Clavis → Shakkoumon, Paladin → Dragon Mode: Flächenangriffe), am Ende von Welle 9 wieder hoch (3.1.9)
@@ -1534,7 +1546,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.25'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.26'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1697,6 +1709,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
             ${check('dgRetry', 'Nach einem gescheiterten Lauf automatisch neu betreten (bis 3 Versuche) – aus: Bot stoppt, Neustart über den Leader')}
             ${check('dgHerdForm', 'Raum 4: Herde in niedriger Form abwehren – nach Raum 3 eine Stufe zurück (Clavis → Shakkoumon mit Kachina Bombs, Paladin → Dragon Mode mit Mega Crusher), am Ende von Welle 9 wieder hoch. ACHTUNG, live 28.10.: Zurück-Digitieren geht im Spiel bis in die Grundform (Veemon/Patamon), der Aufstieg dauert ~10 s je Stufe – währenddessen fängt niemand Kuramon, und die Clavis waren beim Boss noch Shakkoumon. Nicht empfohlen')}
             ${slider('dgBreakMinPct', 'Mail Server ignorieren ab Boss-HP unter', 0, 50, (v) => `${v} %`)}
+            ${check('kohMore', 'Key of Hope auch gegen Black Rain (Armageddemon) und Cannon Volley (Diaboromon), wenn danach noch ein Key für den nächsten Pflicht-Treffer bleibt (Davis-Reset zählt mit) – die Gruppe bleibt im Schutzkreis am Boss statt auszuweichen. Kommt so ein Treffer trotz Key durch, schaltet es sich bis zum Neuladen ab')}
             ${check('dgBlade', 'Klinge aufheben: liegt Armageddemons Klinge am Boden (ab 20 % Boss-HP), läuft der Paladin hin und nimmt sie auf (drüberlaufen, 3,5 s doppelter Schlag) – nur, wenn Punkt und Weg frei von Warnflächen sind; Ausweichen und Key of Hope gehen vor')}
             ${check('dgRing', 'Warnkreise (Black Rain, Volley): statt hinauszulaufen zur Nahkampfposition auf der freien Seite des Bosses ausweichen und dort weiter angreifen. EXPERIMENTELL – live 28.10.: bei Cannon Volley (2,2 s) kamen zwei Clavis nicht rechtzeitig durch die Kreise und starben. Aus (Standard): wie bisher hinaus und draußen warten')}
             ${check('dgFlareCover', 'Ultimate Flare: Hindernisse (Platten) als Deckung nutzen, wenn sie näher liegen als der Weg hinter den Boss. Aus (Standard): immer hinter Armageddemon ausweichen – dort bleibt das Digimon in Schlagweite und greift weiter an (live 28.10.: ab 40 px hinter ihm kein Treffer; einmal wurden 26 px getroffen)')}
@@ -2538,7 +2551,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function dodge(st, now) {
     const walkSpeed=digibotDodgeSpeed(st);
     if (!cfg.dodge) return null;
-    const zones = dangerZones();
+    const zones = dangerZones().filter((z) => !kohCovered(z, st, now) && !kohZonePlanned(z, st, now)); // unter (geplantem) Key of Hope: nicht ausweichen (3.1.26)
     const ents = window.dmo?.net?.state?.entities;
     const tamer = controlled(st), partner = ents?.get?.(st?.me?.partner?.entityId);
     const me0 = tamer || partner;
@@ -2820,7 +2833,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         for (const ev of Array.isArray(list) ? list : [list]) {
           if (!ev) continue;
           if (cfg.expMess && (ev.t === 'dmg' || ev.t === 'die')) expmEvent(ev);
-          if (ev.t === 'dmg' || ev.t === 'die') { const me0 = getStore()?.getState?.()?.me; if (me0) { const mine = new Set([me0.tamerEntityId, me0.partner?.entityId]); dpsNote(ev, mine); mobExpEvent(ev, mine); } }
+          if (ev.t === 'dmg' || ev.t === 'die') { const me0 = getStore()?.getState?.()?.me; if (me0) { const mine = new Set([me0.tamerEntityId, me0.partner?.entityId]); dpsNote(ev, mine); mobExpEvent(ev, mine);
+            // 3.1.26: Zusatz-Treffer trotz gezündetem Key of Hope voll abbekommen → Zusatz-Blocken bis zum Neuladen aus
+            if (ev.t === 'dmg' && mine.has(ev.dst) && KOH_OPT.has(ev.skill) && (ev.amount || 0) >= 15000 && !kohState.moreOff) { const cl = kohState.claims.get(ev.src), dec = kohState.more.get(`${ev.src}|${ev.skill}`), st1 = getStore()?.getState?.();
+              const ents1 = window.dmo?.net?.state?.entities, meE = ents1?.get?.(ev.dst), aId = cl ? (cl.slot === group.slot() ? me0.partner?.entityId : group.peers.get(cl.slot)?.ents?.[1]) : null, aE = aId && ents1?.get?.(aId);
+              if (cl && dec?.ok && now - cl.at <= KOH_COVER_MS + 300 && st1 && meE && aE && Math.hypot(meE.x - aE.x, meE.y - aE.y) <= kohCircleR() - 12) { kohState.moreOff = true; logEvent('warn', `Key of Hope hat ${content()?.skills?.[ev.skill]?.name || ev.skill} nicht abgefangen (${ev.amount}) – Zusatz-Blocken aus, wieder ausweichen`); notify('Key of Hope blockt Black Rain/Volley nicht – Bot weicht wieder aus.'); } }
+          } }
           if (ev.t === 'die' && ev.id) { bossSkillLog.delete(ev.id); continue; }
           if (ev.t !== 'skill' || !ev.src || !ev.skill) continue;
           if (ev.skill === KOH_ID) kohState.seen.set(ev.src, now); // Bestätigung eines beanspruchten Key of Hope (3.1.6)
@@ -3440,6 +3458,89 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return h ? h.left : null;
   }
   const KOH_COVER_MS = 1700;  // Einschläge bis so lange nach dem Zünden gelten als abgedeckt
+  // Zusatz-Treffer (3.1.26, Nutzer-Idee): sonst ausgewichen – geblockt, wenn genug Keys da sind. Black Rain kostete live je ~3,5 s
+  // Angriff (12× je Bosskampf). Ultimate Flare bleibt beim Ausweichen hinter den Boss (dort wird ohnehin weiter geschlagen).
+  const KOH_OPT = new Set(['armageddemon.black_rain', 'diaboromon.cannon_volley']);
+  const KOH_OPT_LEAD_MS = 1500;     // Zusatz-Treffer: so früh zünden, dass die Bestätigung vor dem Rückfall da ist (Schutz 2 s deckt bis +0,5 s)
+  const KOH_OPT_FALLBACK_MS = 900;  // Zusatz-Treffer ohne bestätigten Key bis hierhin: ausweichen (reicht für ~110 px)
+  const KOH_DAVIS_LEAD_MS = 1600; // so lange vor dem Zünd-Zeitpunkt setzt ein Davis-Clavis zurück (Server-Antwort braucht Zeit)
+  // Keys, die bis 'at' bereit sind (eigener + Gruppe auf dieser Map, laufender Bot), und Davis-Resets, die bereitstehen
+  function kohBudget(st, at, now) {
+    let keys = 0; const own = kohReadyAt(st, now); if (own != null && own <= at) keys++;
+    else if (digibotTamer.davisAt && now - digibotTamer.davisAt < 3000 && ![...kohState.claims.values()].some((c) => c.slot === group.slot() && c.at > digibotTamer.davisAt)) keys++; // eigener Reset läuft gerade (Server-Antwort steht aus)
+    const davis = [];
+    if (group.active() && own != null && davisReady(st, now)) davis.push({ slot: group.slot(), kohAt: own });
+    if (group.active()) for (const [slot, m] of group.peers) {
+      if (!fresh(m, now) || !m.bot || !m.inWorld || m.mapId !== st.world?.mapId) continue;
+      if (m.kohAt != null && m.kohAt <= at) keys++;
+      else if (m.davisAt && now - m.davisAt < 3000) keys++; // dieser Clavis hat gerade per Davis zurückgesetzt
+      if (m.kohAt != null && m.davis === true) davis.push({ slot, kohAt: m.kohAt });
+    }
+    return { keys, davis };
+  }
+  function davisReady(st, now) {
+    const sk = content()?.tamers?.[st?.me?.tamerId]?.skill;
+    const o = kohSlot(st), pp = st?.me?.partner;
+    if (!sk?.resetCooldowns || !cfg.tamerAuto || !o || o.s.skill.unlocked === false || !pp || pp.fainted || pp.evolving || pp.ds < (o.s.skill.dsCost || 0)) return false;
+    return Math.max(0, (st.cooldowns?.tamer?.end || 0) - performance.now()) <= 0 && !(digibotTamer.last && now - digibotTamer.last < Math.min(300000, digibotTamer.cooldown || 0));
+  }
+  // Soll dieser Treffer geblockt werden? Pflicht-Treffer immer; Zusatz-Treffer nur mit Reserve: ein Key mehr als nötig bereit, oder
+  // ein Key + ein Davis-Reset. Die Entscheidung gilt für den ganzen Cast (kein Hin und Her, wenn sich die Bilanz ändert).
+  const kohPeersOff = (now) => group.active() && [...group.peers.values()].some((m) => fresh(m, now) && m.kohMoreOff === true);
+  function davisEmergency(st, now) {
+    if (!kohOn() || !group.active() || !davisReady(st, now)) return null;
+    const own = kohSlot(st); if (!own || kohReady(st, own)) return null; // eigener Key bereit: kein Reset nötig
+    const hit = kohUpcoming(st, now, true); // Davis nur für Pflicht-Treffer (3.1.26-Review)
+    if (!hit || hit.left > KOH_LEAD_MS + KOH_DAVIS_LEAD_MS) return null;
+    const b = kohBudget(st, hit.castEnd - KOH_LEAD_MS, now);
+    if (b.keys > 0) return null; // jemand hat einen Key
+    const best = [...b.davis].sort((x, y) => ((y.kohAt ?? Infinity) - (x.kohAt ?? Infinity)) || (x.slot - y.slot))[0];
+    if (!best || best.slot !== group.slot()) return null;
+    return `${content()?.skills?.[hit.sid]?.name || hit.sid} in ${(hit.left / 1000).toFixed(1)} s, kein Key bereit`;
+  }
+  function kohBlockable(sid, src, castEnd, st, now) {
+    if (KOH_BLOCK.has(sid)) return true;
+    if (!KOH_OPT.has(sid) || !cfg.kohMore || kohState.moreOff || !st || !group.active() || kohPeersOff(now)) return false;
+    const key = `${src}|${sid}`, old = kohState.more.get(key);
+    if (old && Math.abs(old.castEnd - castEnd) < 1500) return old.ok;
+    const b = kohBudget(st, castEnd - KOH_LEAD_MS, now);
+    const ok = b.keys >= 2 || (b.keys >= 1 && b.davis.length >= 1);
+    kohState.more.set(key, { castEnd, ok });
+    if (kohState.more.size > 40) kohState.more.delete(kohState.more.keys().next().value);
+    if (ok) logEvent('auto', `Key of Hope auch gegen ${content()?.skills?.[sid]?.name || sid} (${b.keys} Keys, ${b.davis.length} Davis bereit)`);
+    return ok;
+  }
+  // Kreis eines Zusatz-Treffers, der geblockt werden soll: bis zum Zünden kein Ausweichen (die Gruppe sammelt sich in den letzten
+  // KOH_GATHER_MS); fehlt beim Zünd-Zeitpunkt jeder Key, gilt er wieder als Gefahr
+  function kohZonePlanned(z, st, now) {
+    if (!z || z.kind !== 'circle' || !z.skillId || !z.src || !KOH_OPT.has(z.skillId)) return false;
+    let e = kohState.more.get(`${z.src}|${z.skillId}`); const left = zoneLeftMs(z);
+    // Entscheidung noch nicht getroffen (z. B. Fenster ohne Key of Hope): jetzt aus dem Boss-Protokoll treffen
+    if ((!e || left == null || Math.abs(now + left - e.castEnd) > 1500) && kohOn()) { const le = bossSkillLog.get(z.src)?.get(z.skillId); if (le?.phase === 'cast') { kohBlockable(z.skillId, z.src, le.castEnd, st, now); e = kohState.more.get(`${z.src}|${z.skillId}`); } }
+    if (!e?.ok || left == null || Math.abs(now + left - e.castEnd) > 1500) return false;
+    if (kohCovered(z, st, now)) return true;
+    if (left <= KOH_OPT_FALLBACK_MS) return false; // kein bestätigter Key bis hierhin: ausweichen, solange es noch reicht
+    // bis kurz vor dem Sammeln darf der Plan noch kommen (Anker-Wahl braucht bis ~0,7 s) – noch nicht hinauslaufen
+    // bis 1,8 s vor dem Einschlag darf der Plan noch kommen – danach bleibt genug Zeit zum Ausweichen, falls keiner kommt
+    if (left > KOH_GATHER_MS - 200) return kohBudget(st, e.castEnd - KOH_OPT_LEAD_MS, now).keys > 0;
+    // nur stehen bleiben, wenn jemand den Block wirklich führt: ich als Anker, oder ein frischer Plan eines anderen Clavis
+    if (kohState.anchor && kohState.anchor.src === z.src && kohState.anchor.end >= e.castEnd) return true;
+    for (const [, pl] of kohState.plans) if (pl.mapId === st.world?.mapId && pl.end >= e.castEnd && now - (pl.seen || 0) < 700 && (!pl.src || pl.src === z.src)) return true;
+    return false;
+  }
+  // Steht dieser Warnkreis unter einem schon gezündeten Key of Hope, in dessen Kreis ich stehe? Dann nicht ausweichen.
+  function kohCovered(z, st, now) {
+    if (!z || z.kind !== 'circle' || !z.skillId || !z.src) return false;
+    const optOn = cfg.kohMore && !kohState.moreOff && !kohPeersOff(now);
+    if (!(KOH_BLOCK.has(z.skillId) || (optOn && (KOH_OPT.has(z.skillId) || KOH_ALSO.has(z.skillId))))) return false;
+    const claim = kohState.claims.get(z.src);
+    if (!claim || !kohClaimValid(claim, now)) return false;
+    const left = zoneLeftMs(z); if (left == null || now + left > claim.at + KOH_COVER_MS + 400) return false;
+    const ents = window.dmo?.net?.state?.entities, me = ents?.get?.(st?.me?.partner?.entityId);
+    const anchorId = claim.slot === group.slot() ? st?.me?.partner?.entityId : group.peers.get(claim.slot)?.ents?.[1];
+    const a = anchorId && ents?.get?.(anchorId);
+    return !!me && !!a && Math.hypot(me.x - a.x, me.y - a.y) <= kohCircleR() - 12;
+  }
   const KOH_RANGE = 700;      // nur Angriffe von Bossen in dieser Entfernung (nicht für geteilte Treffer)
   const KOH_SHARED = new Set(['diaboromon.catastrophe_cannon', 'armageddemon.black_rain_shell']); // geteilt, auch ohne share in den Daten
   const KOH_GATHER_R = 80;     // so nah laufen die anderen ans Clavis-Digimon (Schutzkreis 128 px)
@@ -3448,10 +3549,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     seen: new Map(),   // Partner-Entity -> Zeitpunkt des letzten Key-of-Hope-Skill-Ereignisses im Spiel (Bestätigung)
     plans: new Map(),  // Slot -> { x, y, mapId, end }: dieser Clavis zündet gleich, hier sammeln
     anchor: null, sentAt: 0, // ich zünde gleich: { src, end }
+    more: new Map(), moreOff: false, optSeen: new Map(), // Zusatz-Treffer: Entscheidung je Cast; abgeschaltet nach einem Treffer trotz Key (3.1.26)
   };
   // Sagt gerade ein Boss einen Treffer an, gegen den Key of Hope zündet?
   function kohBlockPending(now) {
-    for (const [, log] of bossSkillLog) for (const [sid, e] of log) if (KOH_BLOCK.has(sid) && e.phase === 'cast' && e.castEnd > now - 300) return true;
+    const st0 = getStore()?.getState?.();
+    for (const [src, log] of bossSkillLog) for (const [sid, e] of log) if (e.phase === 'cast' && e.castEnd > now - 300 && kohBlockable(sid, src, e.castEnd, st0, now)) return true;
     return false;
   }
   const isKoh = (sk) => !!sk && (sk.id === KOH_ID || sk.name === 'Key of Hope');
@@ -3469,14 +3572,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return o.s.cdLeft > 0 ? now + o.s.cdLeft : now;
   }
   // Nächster großer, noch nicht abgedeckter Angriff eines Bosses in der Nähe (left = ms bis zum Einschlag)
-  function kohUpcoming(st, now) {
+  function kohUpcoming(st, now, onlyMandatory = false) {
     hookBossEvents();
     const ents = window.dmo?.net?.state?.entities;
     const me = ents?.get?.(st?.me?.partner?.entityId) || controlled(st);
     let hit = null;
     for (const [src, log] of bossSkillLog) {
       for (const [sid, e] of log) {
-        if (!KOH_BLOCK.has(sid) || e.phase !== 'cast') continue;
+        if (e.phase !== 'cast' || (onlyMandatory ? !KOH_BLOCK.has(sid) : !kohBlockable(sid, src, e.castEnd, st, now))) continue;
         const left = e.castEnd - now;
         if (left < -300) continue;
         // Geteilte Treffer (Black-Rain-Hülle, Catastrophe Cannon) folgen einem Spieler, egal wie weit der Boss weg ist –
@@ -3485,7 +3588,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         if (!shared && b && me && Math.hypot(b.x - me.x, b.y - me.y) > KOH_RANGE) continue;
         const claim = kohState.claims.get(src);
         if (claim && e.castEnd <= claim.at + KOH_COVER_MS && kohClaimValid(claim, now)) continue; // ein Clavis hat schon gezündet
-        if (!hit || left < hit.left) hit = { src, sid, left, castEnd: e.castEnd, main: e.castEnd };
+        if (!hit || left < hit.left) hit = { src, sid, left, castEnd: e.castEnd, main: e.castEnd, opt: !KOH_BLOCK.has(sid) };
       }
     }
     // Ausweich-Attacken, die kurz vor dem Block-Treffer einschlagen, gleich mit abdecken: früher zünden
@@ -3512,13 +3615,20 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function kohAnchor(st, now) {
     const own = kohOn() && group.active() && kohSlot(st);
     const hit = own && kohReady(st, own) ? kohUpcoming(st, now) : null;
-    if (!hit || kohRank(st, now) > 0) { kohState.anchor = null; return; }
-    kohState.anchor = { src: hit.src, end: hit.castEnd + 500 };
+    let rank = hit ? kohRank(st, now) : 0;
+    if (hit && rank > 0 && KOH_OPT.has(hit.sid)) { // Zusatz-Treffer: führt ein kleinerer Slot nicht (kein Plan), übernehme ich
+      const k = `${hit.src}|${hit.sid}`; if (!kohState.optSeen.has(k)) kohState.optSeen.set(k, now);
+      const lower = [...kohState.plans].some(([slot, pl]) => slot < group.slot() && now - (pl.seen || 0) < 700 && pl.end >= hit.castEnd);
+      if (!lower && now - kohState.optSeen.get(k) > 500) rank = 0;
+      if (kohState.optSeen.size > 20) kohState.optSeen.delete(kohState.optSeen.keys().next().value);
+    }
+    if (!hit || rank > 0) { kohState.anchor = null; return; }
+    kohState.anchor = { src: hit.src, end: hit.castEnd + 500, opt: !!hit.opt };
     if (now - kohState.sentAt < 200) return;
     const me = window.dmo?.net?.state?.entities?.get?.(st.me.partner.entityId) || controlled(st);
     if (!me) return;
     kohState.sentAt = now;
-    try { digibotSend({ type: 'kohplan', slot: group.slot(), x: me.x, y: me.y, mapId: st.world?.mapId, end: hit.castEnd + 500 }); } catch { /* ignore */ }
+    try { digibotSend({ type: 'kohplan', slot: group.slot(), x: me.x, y: me.y, mapId: st.world?.mapId, end: hit.castEnd + 500, src: hit.src, opt: !!hit.opt }); } catch { /* ignore */ }
   }
   // Beim Sammeln/Positionhalten weiter angreifen, solange das Ziel in Schlagweite steht – ohne hinzulaufen (das verließe den
   // Sammelpunkt). Live (28.10.): der Clavis, der als Nächster zündet, stand die ganzen 5 s der Ansage nur herum (3.1.6)
@@ -3547,9 +3657,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Der Clavis, der zündet, bleibt stehen (schlägt aber weiter zu, wenn das Ziel in Reichweite steht).
   function kohGather(st, now) {
     if (!kohOn() || !group.active()) return null;
+    // Zusatz-Treffer (Black Rain/Volley) auf mir, Rückfall-Zeit erreicht, kein bestätigter Key: nicht mehr festhalten – ausweichen
+    { const ents9 = window.dmo?.net?.state?.entities, me9 = ents9?.get?.(st?.me?.partner?.entityId);
+      if (me9 && dangerZones().some((z) => z.kind === 'circle' && KOH_OPT.has(z.skillId) && zoneDist(z, me9).d < DODGE_MARGIN && (zoneLeftMs(z) ?? Infinity) <= KOH_OPT_FALLBACK_MS && !kohCovered(z, st, now))) return null; }
     // Bis kurz vor dem Einschlag gilt Ausweichen (z. B. eine Volley davor): erst in den letzten KOH_GATHER_MS sammeln
     // before: nur Zonen, die vor diesem Zeitpunkt einschlagen (Restzeit unbekannt zählt mit)
-    const inDanger = (before = Infinity) => { const z = dangerZones(), ents0 = window.dmo?.net?.state?.entities, me0 = [controlled(st), ents0?.get?.(st?.me?.partner?.entityId)];
+    const inDanger = (before = Infinity) => { const z = dangerZones().filter((zz) => !kohZonePlanned(zz, st, now)), ents0 = window.dmo?.net?.state?.entities, me0 = [controlled(st), ents0?.get?.(st?.me?.partner?.entityId)];
       const pn = performance.now();
       const left = (zz) => (zz.kind === 'circle' ? zoneLeftMs(zz) : zz.end ? zz.end - pn : null);
       return me0.some((e) => e && z.some((zz) => { if (zoneDist(zz, e).d >= DODGE_MARGIN) return false; const l = left(zz); return l == null || now + l < before; })); };
@@ -3562,6 +3675,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     let plan = null;
     for (const [slot, pl] of kohState.plans) {
       if (pl.end <= now) { kohState.plans.delete(slot); continue; }
+      if (pl.opt && now - (pl.seen || 0) > 700) continue; // Zusatz-Treffer: nur frische Pläne (Anker sendet alle 200 ms)
       if (pl.mapId === st.world?.mapId && (!plan || slot < plan.slot)) plan = pl;
     }
     if (!plan) return null;
@@ -3593,14 +3707,15 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const own = kohSlot(st);
     if (!own) return null;
     const hit = kohUpcoming(st, now);
-    if (!hit || hit.left > KOH_LEAD_MS) return null;
+    if (!hit || hit.left > (hit.opt ? KOH_OPT_LEAD_MS : KOH_LEAD_MS)) return null;
     if (!kohReady(st, own)) return null;
     // Reihenfolge: bereite Clavis auf derselben Map mit kleinerer Slot-Nummer sind vor mir dran
     // Staffelung ab dem Moment, ab dem gezündet werden darf (der Zeitpunkt kann nach vorn springen, wenn eine Ausweich-
     // Attacke mit abgedeckt wird – sonst zünden zwei Clavis gleichzeitig)
     const dueKey = `${hit.src}|${hit.main}`;
     if (kohState.dueKey !== dueKey) { kohState.dueKey = dueKey; kohState.dueAt = now; }
-    if (now - kohState.dueAt < kohRank(st, now) * KOH_STEP_MS) return null;
+    const rank0 = hit.opt && kohState.anchor?.src === hit.src ? 0 : kohRank(st, now); // Zusatz-Treffer übernommen: sofort (3.1.26-Review)
+    if (now - kohState.dueAt < rank0 * KOH_STEP_MS) return null;
     if (!bot.can('Digit' + own.k, 300, now)) return null;
     // erst drücken, dann beanspruchen: wurde die Taste zurückgehalten (laufender Skill, Eingabesperre), bleibt der Treffer
     // offen und der nächste Clavis springt ein (live 28.10.: Beanspruchung ohne Cast → ganze Gruppe ungeschützt, 3.1.6)
@@ -4128,7 +4243,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   // Was ein anderes Fenster sofort wissen muss (Ziel, Aufgabe, Gespräche, Kampf, Map, Quests) – Position nicht
   const groupSig = (m) => JSON.stringify([m.targetId, m.task?.key, m.talks?.[m.talks.length - 1]?.key, m.busy, m.done?.[m.done.length - 1],
-    m.fight, m.mapId, m.channel, m.bot, m.noFight, m.inWorld, m.quests, m.objective, m.reservation,m.tamer,m.partyId]);
+    m.fight, m.mapId, m.channel, m.bot, m.noFight, m.inWorld, m.quests, m.objective, m.reservation,m.tamer,m.partyId, m.kohAt != null && m.kohAt <= Date.now(), m.davis, m.davisAt, m.kohMoreOff]);
   function groupPush(force = false) {
     if (!group.active() || !group.bus) return;
     const st = getStore()?.getState?.(), now = Date.now();
@@ -4166,7 +4281,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       fight: inCombat(st), farm: !!cfg.farm,
       partyId:st.party?.id||null,tamer:{skill:digibotTamer.skill,want:digibotTamer.want,last:digibotTamer.last,cooldown:digibotTamer.cooldown},
       objective: digibotObjective(st), reservation: digibotFormation.reservation,
-      kohAt: kohReadyAt(st, now),
+      kohAt: kohReadyAt(st, now), davis: davisReady(st, now), davisAt: digibotTamer.davisAt || 0, kohMoreOff: !!kohState.moreOff, // 3.1.26
       healAt: healReadyAt(st, now),
       serve: serveOn(),
     };

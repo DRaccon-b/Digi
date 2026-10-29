@@ -2,6 +2,22 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.26 – Key of Hope auch gegen Black Rain und Cannon Volley; Davis als Notfall-Key
+Nutzer-Idee 29.10.: Davis (Digi-Egg of Miracles) setzt auch Key of Hope zurück – damit reicht die Key-Bilanz, um mehr Treffer zu
+blocken statt auszuweichen. Black Rain kostete live je ~3,5 s Angriff (12× je Bosskampf, ~40 s).
+- **Neuer Haken „Key of Hope auch gegen Black Rain / Cannon Volley“ (Standard an):** Diese Treffer werden geblockt, wenn danach
+  noch ein Key übrig ist (zwei Keys bereit, oder ein Key und ein Davis-Reset). Die Gruppe sammelt sich im Schutzkreis am Boss
+  und bleibt dort, statt hinauszulaufen. Die Entscheidung gilt je Cast. Pflicht-Treffer (Catastrophe Cannon, Black Rain Shell)
+  haben weiter Vorrang. Ultimate Flare wird weiter hinter den Boss ausgewichen.
+- **Zeitplan bei Zusatz-Treffern:** Der Key zündet schon 1,5 s vor dem Einschlag (Schutz 2 s). Gesammelt wird nur, wenn ein
+  Clavis den Block wirklich führt (frischer Plan). Ist 0,9 s vor dem Einschlag kein Key bestätigt, weichen alle aus.
+- **Sicherung:** Bekommt jemand im Schutzkreis so einen Treffer trotz gezündetem Key voll ab, schaltet sich das Zusatz-Blocken
+  für die ganze Gruppe bis zum Neuladen ab (Meldung im Protokoll) – noch nicht live belegt, dass Key of Hope Black Rain abfängt.
+- **Davis auf einem Clavis (Dungeon/Raid): nur noch Notfall-Key.** Steht ein Block-Treffer an und hat niemand einen Key bereit,
+  setzt der Davis-Clavis mit dem längsten Key-Rest zurück (Gleichstand: kleinster Slot) und zündet danach Key of Hope. Sonst
+  bleibt das Crest liegen. Gilt nur im Dungeon/Raid in der Gruppe und nur für Pflicht-Treffer; Davis anderer Fenster wird über
+  das gemeldete Feld erkannt (Skill-ID im Spiel: tamer.miracles), ein laufender Reset zählt 3 s als kommender Key.
+
 ## 3.1.25 – Crests: Bosskampf zählt als Kampf, Wartezeit aufs Gate läuft weiter
 Die Clavis setzten ihr Crest selten: „im Kampf“ galt nur, wenn das eigene Fenster gerade selbst angriff oder ein Monster es
 anvisierte. Der Boss zielt aber auf den mit den meisten Max-HP, und Ausweichen/Sammeln setzt den eigenen Angriff zurück –
