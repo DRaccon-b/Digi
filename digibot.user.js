@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.27
+// @version      3.1.28
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -66,7 +66,7 @@ function createDigiBotCore({ now = Date.now, state, halt, network = () => null, 
     if (!allowed() || owner || (loginOnly && !['Gruppe','Account-Runde'].includes(mode))) return;
     const token = epoch, started = now(); owner = { mode, priority };
     try { return fn(); }
-    catch (e) { record('Fehler im Ablauf', { mode, action: e?.name || 'Error' }); stop(`Fehler in ${mode} – Diagnose exportieren`, true); }
+    catch (e) { record('Fehler im Ablauf', { mode, action: e?.name || 'Error' }); stop(`Fehler in ${mode} – Diagnose exportieren (Menü ⋯)`, true); }
     finally { if (token === epoch) owner = null; if (now() - started > 50) record('Langsamer Durchlauf', { mode, duration: now() - started }); }
   }
   function enablePassive(manual=false) {
@@ -1302,6 +1302,21 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     .digibot__loot [data-f] span{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .digibot__loot [data-f] em{font-style:normal;font-variant-numeric:tabular-nums;opacity:.85}
     .digibot__chk span{white-space:normal;line-height:1.3}
+    .digibot__chk .info{margin-left:4px;flex:0 0 auto}
+    .digibot__runrow{display:grid;grid-template-columns:1fr auto;gap:4px;margin-bottom:3px}
+    .digibot__runrow .digibot__run{margin:0}
+    .digibot__runrow.extra{grid-template-columns:1fr 1fr 30px}
+    .digibot__runrow .digibot__btn{padding:3px 6px}
+    .digibot__stop{background:#5a1f26;border-color:#a0404a;font-weight:700}
+    .digibot__stop:hover{background:#7a2a33}
+    .digibot__morebtn.on{background:#34407a;border-color:#3fa0ff}
+    .digibot__menu{display:none;flex-wrap:wrap;gap:4px;padding:5px;margin-bottom:3px;background:#161c33;border:1px solid #2a3355;border-radius:6px}
+    .digibot__menu.on{display:flex}
+    .digibot__menu .digibot__chk{flex-basis:100%}
+    .digibot [data-dgmode].hide{display:none}
+    .digibot__sub{margin-left:18px}
+    .digibot__exp{margin-top:6px;border:1px dashed #6b4a2a;border-radius:6px;padding:2px 6px}
+    .digibot__exp>summary{cursor:pointer;font-size:10.5px;color:#ffb86b;padding:2px 0}
     .digibot__qsum:empty{display:none}
     .digibot__btnrow{display:flex;gap:4px;justify-content:flex-end;margin-bottom:4px}
     .digibot__tabs button{font-size:11px}
@@ -1554,10 +1569,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       <summary><span>${title}</span>${info ? `<i class="info" title="${escAttr(info)}">ⓘ</i>` : ''}</summary>
       <div class="digibot__grpbody">${body}</div>
     </details>`;
-  const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
+  const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.27'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.28'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1574,14 +1589,21 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         events: 'Nichts anderes tun: nur auf das Event (Mega-Jagd) und die Weltbosse warten, hinreisen und kämpfen. Schaltet 🎯 Event und 🌍 Weltboss ein.',
         food: 'Zum Händler Tentomon im Lager von Dream Ruins reisen, das eingestellte Food nachkaufen (Reiter Food), dann stoppen',
       }[k])}">${l}</button>`).join('')}</div>
-      <button class="digibot__btn digibot__run" data-act="bot" title="Alt+B">▶ Start</button>
-      <button class="digibot__btn digibot__hunt" data-act="hunt" title="Event (Mega-Jagd): Sobald der Weltboss angekündigt ist (6 min vorher), reist der Bot zur Map, Kanal 1, wartet, sucht ihn und kämpft. Danach weiter wie vorher. Gilt in jedem Modus.">🎯 Event</button>
-      <button class="digibot__btn digibot__hunt" data-act="wboss" title="Weltboss (z. B. BlackWarGreymon): spawnt auf Kanal 1 und 2 mit eigenem Timer. Lebt er oder spawnt er in den nächsten 6 min, reist der Bot hin, wartet am Spawnpunkt und kämpft – zuerst der Kanal, der zuerst spawnt (gleichzeitig: Kanal 1), danach der andere. Danach weiter wie vorher. Das Event geht vor.">🌍 Weltboss</button>
-      <button class="digibot__btn" data-act="digibot-stop">■ NOT-AUS (Esc)</button>
-      <button class="digibot__btn" data-act="digibot-export">Diagnose exportieren</button>
-      <button class="digibot__btn" data-act="preset-save" title="Alle Bot-Einstellungen (Modus, Tränke, Skills, Quests, Bosse …) als .txt-Datei speichern. Accounts und Passwörter kommen nicht hinein.">💾 Preset speichern</button>
-      <button class="digibot__btn" data-act="preset-load" title="Bot-Einstellungen aus einer gespeicherten Preset-.txt laden. Accounts bleiben unverändert.">📂 Preset laden</button>
-      ${check('independentGroup', 'Gruppe: eigene Wege und feste Bossplätze je Fenster')}
+      <div class="digibot__runrow">
+        <button class="digibot__btn digibot__run" data-act="bot" title="Alt+B">▶ Start</button>
+        <button class="digibot__btn digibot__stop" data-act="digibot-stop" title="Alles sofort anhalten (Esc)">■ NOT-AUS</button>
+      </div>
+      <div class="digibot__runrow extra">
+        <button class="digibot__btn digibot__hunt" data-act="hunt" title="Event (Mega-Jagd): Sobald der Weltboss angekündigt ist (6 min vorher), reist der Bot zur Map, Kanal 1, wartet, sucht ihn und kämpft. Danach weiter wie vorher. Gilt in jedem Modus.">🎯 Event</button>
+        <button class="digibot__btn digibot__hunt" data-act="wboss" title="Weltboss (z. B. BlackWarGreymon): spawnt auf Kanal 1 und 2 mit eigenem Timer. Lebt er oder spawnt er in den nächsten 6 min, reist der Bot hin, wartet am Spawnpunkt und kämpft – zuerst der Kanal, der zuerst spawnt (gleichzeitig: Kanal 1), danach der andere. Danach weiter wie vorher. Das Event geht vor.">🌍 Weltboss</button>
+        <button class="digibot__btn digibot__morebtn" data-act="more" title="Diagnose, Presets, Gruppen-Option">⋯</button>
+      </div>
+      <div class="digibot__menu" data-f="menu">
+        <button class="digibot__btn" data-act="digibot-export">🩺 Diagnose exportieren</button>
+        <button class="digibot__btn" data-act="preset-save" title="Alle Bot-Einstellungen (Modus, Tränke, Skills, Quests, Bosse …) als .txt-Datei speichern. Accounts und Passwörter kommen nicht hinein.">💾 Preset speichern</button>
+        <button class="digibot__btn" data-act="preset-load" title="Bot-Einstellungen aus einer gespeicherten Preset-.txt laden. Accounts bleiben unverändert.">📂 Preset laden</button>
+        ${check('independentGroup', 'Gruppe: eigene Wege und feste Bossplätze je Fenster')}
+      </div>
       <div class="digibot__status" data-f="status">Bot aus</div>
       <div class="digibot__task" data-f="task"><span class="t"></span><span class="pb"><i></i></span></div>
       <div class="digibot__vitals">${bar('hp mini', 'HP').replace('data-bar="hp mini"', 'data-bar="mhp"')}${bar('ds mini', 'DS').replace('data-bar="ds mini"', 'data-bar="mds"')}${bar('tg mini', 'Ziel').replace('data-bar="tg mini"', 'data-bar="mtg"')}</div>
@@ -1645,7 +1667,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           ${slider('dsPot', 'Digimon DS (F2) unter', 0, 95, potLabel, 2)}
           ${slider('tdsPot', 'Tamer DS (F3) unter', 0, 95, potLabel, 3)}`, true,
           'Food/Tränke auf F1–F3 der Hotbar legen. Ist auf F1 nichts mehr da und die HP unter der Schwelle, beendet der Bot den Kampf und wartet auf 100 % HP (Ruhemodus).')}
-        ${grp('tamer', 'Tamer', bar('tds', 'DS'), false)}
+        ${grp('tamer', 'Tamer', `${bar('tds', 'DS')}${check('tamerAuto', 'Tamer-Skill (Crest) automatisch einsetzen', 'Heilung und Schutz nach Bedarf, Angriffsverstärkung in längeren Kämpfen: ein Angriffs-Crest wartet bis zu 10 s auf den stärksten Angriffsskill (z. B. Gate of Judgment). Davis setzt die Abklingzeiten zurück, wenn der stärkste Angriffsskill noch ≥ 10 s braucht; bei ClavisAngemon dient er als Notfall-Key. Gruppen-Buffs werden zwischen den DigiBot-Fenstern abgestimmt.')}`, true)}
       </section>
 
       <section data-page="attack">
@@ -1653,24 +1675,24 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           ${slider('lvlDiff', 'Max. Level über dem Digimon', 0, 100, (v) => `+${v}`)}
           ${slider('radius', 'Suchradius', 100, 800, (v) => `${v} px`, 0, 20)}
           ${check('skipTaken', 'Keine Gegner angreifen, die andere Spieler bekämpfen')}
-          ${check('levelRoute', 'Lern-Route: beim Grinden selbst zur Zone mit den meisten EXP/min fürs Level reisen (Wechsel ab +15 %, frühestens nach 3 min)')}
+          ${check('levelRoute', 'Lern-Route: selbst zur besten EXP-Zone reisen', 'Beim Grinden reist der Bot zur Zone mit den meisten EXP/min für das aktuelle Level. Wechsel erst ab +15 % besser, frühestens nach 3 min.')}
           ${check('levelA2', 'Lern-Route nur in Adventure 02')}
-          ${check('levelEvo', 'Lern-Route: zwischen den Kämpfen digitieren – Form je nach Map:')}
+          ${check('levelEvo', 'Lern-Route: je nach Map digitieren', 'Zwischen den Kämpfen die Form unten annehmen – je nachdem, ob die Map einen Dark Tower hat.')}
           <div class="digibot__apcfg">
             <label>Form ohne Dark Tower<select data-apsel="levelEvoForm"></select></label>
             <label>Form mit Dark Tower<select data-apsel="levelEvoDark"></select></label>
           </div>
-          ${check('levelBoss', 'Lern-Route: Feldbosse der Map ohne Enrage mitnehmen (Timer aller Kanäle aus Reiter Bosse → Kanäle)')}
-          ${check('expPrio', 'EXP-Priorität: zuerst Monster +5 bis +8, dann +4, +3 … (gemessen: +5 bis +8 gibt ×1,5 EXP)')}
+          ${check('levelBoss', 'Lern-Route: Feldbosse ohne Enrage mitnehmen', 'Feldbosse der Map ohne Enrage werden mitgenommen. Die Timer kommen aus allen Kanälen, die im Reiter Bosse → Kanäle angehakt sind.')}
+          ${check('expPrio', 'EXP-Priorität: zuerst Monster +5 bis +8', 'Erst Monster +5 bis +8 über dem Digimon, dann +4, +3 … Gemessen: +5 bis +8 gibt ×1,5 EXP.')}
           ${check('chCheck', 'Channel-Checker: auf den leersten Kanal wechseln')}`, true,
           'Schwächere Monster werden immer angegriffen, nur zu starke (über +Level) nicht. Angreifer werden immer abgewehrt. Channel-Checker: etwa jede Minute und nach jedem Map-Wechsel wechselt der Bot auf den Kanal mit den wenigsten Spielern (mind. 2 weniger) – nur außerhalb von Kämpfen, nicht in der Boss-Rotation; in der Gruppe entscheidet der Leader, die anderen folgen.')}
         ${grp('mech', 'Boss-Mechaniken', `
           ${check('dodge', 'Warnkreisen/-strahlen ausweichen')}
-          ${check('tank', 'Kleine Boss-Treffer tanken statt ausweichen (mehr Schaden, Tränke heilen)')}
-          ${check('koh', 'ClavisAngemon: große Raid-Angriffe mit Key of Hope blocken')}`, true,
+          ${check('tank', 'Kleine Boss-Treffer tanken statt ausweichen', 'Mehr Schaden, weil das Digimon stehen bleibt – die Tränke heilen.')}
+          ${check('koh', 'ClavisAngemon: große Raid-Angriffe mit Key of Hope blocken')}
+          <div class="digibot__sub">${check('kohMore', 'Auch Black Rain und Cannon Volley blocken (Hard)', 'Gilt im Hard-Dungeon: Black Rain (Armageddemon) und Cannon Volley (Diaboromon) werden mit Key of Hope geblockt, wenn danach noch ein Key für den nächsten Pflicht-Treffer bleibt (Davis-Reset zählt mit). Die Gruppe bleibt im Schutzkreis am Boss statt auszuweichen. Kommt so ein Treffer trotz Key durch, schaltet es sich bis zum Neuladen ab.')}</div>`, true,
           'Ausweichen: raus aus Kreisen, Strahlen und Fächern, möglichst nah am Boss. Immer aktiv: kein Angriff, solange das Ziel Schaden zurückwirft (Spiegel), und lange Casts nur, wenn eine mögliche Boss-Attacke noch Zeit zum Ausweichen lässt.')}
 
-        ${grp('tamer-skills', 'Tamer-Fähigkeit', `${check('tamerAuto', 'Tamer-Skill situationsabhängig automatisch einsetzen')}<div class="digibot__hint">Heilung und Schutz nach Bedarf, Angriffsverstärkung in längeren Kämpfen (ein Angriffs-Crest wartet bis zu 10 s auf den stärksten Angriffsskill, z. B. Gate of Judgment). Gruppen-Buffs werden zwischen DigiBot-Gruppenfenstern abgestimmt, Selbst-Buffs zündet jedes Fenster selbst. Das Spiel entscheidet über Reichweite und gemeinsame Abklingzeiten.</div>`, true)}
         ${grp('bskills', 'Attacken des Bosses', `<div class="digibot__bskills" data-f="bskills"><div class="digibot__none">Kein Boss im Kampf – Attacken erscheinen hier, sobald du einen Boss anvisierst.</div></div>`, true,
           'Form, Ansage und Cooldown jeder Attacke. Der Countdown läuft ab dem ersten beobachteten Einsatz; „bereit“ heißt „kann jederzeit kommen“.')}
         ${grp('mobs', '<span data-f="mapname">Monster auf dieser Map</span>', `
@@ -1691,7 +1713,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
             <label data-sweeponly>Richtung<select data-apsel="apSweepDir"><option value="down">von oben nach unten (höchste Map zuerst)</option><option value="up">von unten nach oben (niedrigste Map zuerst)</option></select></label>
             <label data-sweeponly>Start-Map<select data-apsel="apStartMap"></select></label>
           </div>
-          ${check('apNoTurnin', 'Quests nur erledigen, nicht abgeben (fertige bleiben stehen – Abgeben machst du selbst)')}
+          ${check('apNoTurnin', 'Quests nur erledigen, nicht abgeben', 'Fertige Quests bleiben stehen – Abgeben machst du selbst.')}
           ${check('apRepeat', 'Tägliche NPC-Quests (wiederholbar) mitnehmen')}
           ${check('apDailies', 'Daily-Board (ab Lv 11) mitnehmen')}
           ${check('apTeleport', 'Mit Digi-Phone schnellreisen (kostet Bits)')}`, false,
@@ -1715,17 +1737,23 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           <div class="digibot__title">Kanäle</div>
           <div class="digibot__farmch">${[1, 2, 3, 4].map((c) => `<label><input type="checkbox" data-farmch="${c}" ${(cfg.farmChannels || []).includes(c) ? 'checked' : ''}>Ch ${c}</label>`).join('')}</div>`, true,
           'Gilt für den Modus Bosse. Boss-Rotation: reist zum ausgewählten Boss, der als Nächstes da ist. Named-Elite-Runde: Maps von Start bis Ende ablaufen, je Kanal prüfen (lebt → kämpfen, Respawn unter 2 min → warten, sonst weiter), danach per Digi-Phone zurück. Kanalwechsel nur außerhalb des Kampfes; das Level-Limit gilt für diese Bosse nicht.', 'data-modes="farm"')}
-        ${grp('dungeon', 'Dungeon (Kera)', `
+        ${grp('dungeon', 'Dungeon', `
           <div class="digibot__apcfg">
-            ${check('dgRetry', 'Nach einem gescheiterten Lauf automatisch neu betreten (bis 3 Versuche) – aus: Bot stoppt, Neustart über den Leader')}
-            ${check('dgHerdForm', 'Raum 4: Herde in niedriger Form abwehren – nach Raum 3 eine Stufe zurück (Clavis → Shakkoumon mit Kachina Bombs, Paladin → Dragon Mode mit Mega Crusher), am Ende von Welle 9 wieder hoch. ACHTUNG, live 28.10.: Zurück-Digitieren geht im Spiel bis in die Grundform (Veemon/Patamon), der Aufstieg dauert ~10 s je Stufe – währenddessen fängt niemand Kuramon, und die Clavis waren beim Boss noch Shakkoumon. Nicht empfohlen')}
-            ${slider('dgBreakMinPct', 'Mail Server ignorieren ab Boss-HP unter', 0, 50, (v) => `${v} %`)}
-            ${check('kohMore', 'Key of Hope auch gegen Black Rain (Armageddemon) und Cannon Volley (Diaboromon), wenn danach noch ein Key für den nächsten Pflicht-Treffer bleibt (Davis-Reset zählt mit) – die Gruppe bleibt im Schutzkreis am Boss statt auszuweichen. Kommt so ein Treffer trotz Key durch, schaltet es sich bis zum Neuladen ab')}
-            ${check('dgBlade', 'Klinge aufheben: liegt Armageddemons Klinge am Boden (ab 20 % Boss-HP), läuft der Paladin hin und nimmt sie auf (drüberlaufen, 3,5 s doppelter Schlag) – nur, wenn Punkt und Weg frei von Warnflächen sind; Ausweichen und Key of Hope gehen vor')}
-            ${check('dgRing', 'Warnkreise (Black Rain, Volley): statt hinauszulaufen zur Nahkampfposition auf der freien Seite des Bosses ausweichen und dort weiter angreifen. EXPERIMENTELL – live 28.10.: bei Cannon Volley (2,2 s) kamen zwei Clavis nicht rechtzeitig durch die Kreise und starben. Aus (Standard): wie bisher hinaus und draußen warten')}
-            ${check('dgFlareCover', 'Ultimate Flare: Hindernisse (Platten) als Deckung nutzen, wenn sie näher liegen als der Weg hinter den Boss. Aus (Standard): immer hinter Armageddemon ausweichen – dort bleibt das Digimon in Schlagweite und greift weiter an (live 28.10.: ab 40 px hinter ihm kein Treffer; einmal wurden 26 px getroffen)')}
-            ${check('dgBreak', 'Mail Server zerstören (Diaboromon ab 30 %, drei Stück): alle dasselbe Ziel, danach zurück zum Boss. Aus: nur der Boss – dann verstärken die Support-Mails Diaboromon über die Server (bis ×2,5). Armageddemons Kuramon-Haufen werden immer zerschlagen')}
             <label>Modus<select data-apsel="dgMode"><option value="easy">Easy – War Game</option><option value="hard">Hard – Revenge (Gruppe)</option><option value="apocalymon">Apocalymon-Raid</option><option value="malomyotismon">MaloMyotismon-Raid</option></select></label>
+            ${check('dgRetry', 'Nach gescheitertem Lauf neu betreten (bis 3×)', 'Aus: Der Bot stoppt nach einem gescheiterten Lauf, Neustart über den Leader. Nach einem Rauswurf wartet er ohnehin 15 min (manueller Start hebt das auf).')}
+          </div>
+          <div data-dgmode="hard">
+            <div class="digibot__title">Hard – Diaboromon (Raum 3)</div>
+            ${check('dgBreak', 'Mail Server zerstören (ab 30 %)', 'Diaboromon ab 30 %: drei Mail Server – alle schlagen dasselbe, danach zurück zum Boss. Aus: nur der Boss, dann verstärken die Support-Mails Diaboromon über die Server (bis ×2,5).')}
+            ${slider('dgBreakMinPct', 'Mail Server ignorieren ab Boss-HP unter', 0, 50, (v) => `${v} %`)}
+            <div class="digibot__title">Hard – Armageddemon (Raum 4)</div>
+            ${check('dgBlade', 'Klinge aufheben (Paladin, ab 20 %)', 'Liegt Armageddemons Klinge am Boden, läuft der Paladin hin und nimmt sie auf (drüberlaufen, 3,5 s doppelter Schlag) – nur, wenn Punkt und Weg frei von Warnflächen sind. Ausweichen und Key of Hope gehen vor. Kuramon-Haufen werden immer zerschlagen.')}
+            ${check('dgFlareCover', 'Ultimate Flare: Platten als Deckung nutzen', 'An: Hindernisse (Platten) als Deckung, wenn sie näher liegen als der Weg hinter den Boss. Aus (empfohlen): immer hinter Armageddemon – dort bleibt das Digimon in Schlagweite und greift weiter an (live: ab 40 px hinter ihm kein Treffer).')}
+            <div class="digibot__hint">Key of Hope gegen Black Rain / Cannon Volley: Reiter Kampf → Boss-Mechaniken.</div>
+            <details class="digibot__exp" data-grp="dg-exp" ${cfg.open?.['dg-exp'] ? 'open' : ''}><summary>⚠ Experimentell – nicht empfohlen</summary>
+              ${check('dgRing', 'Warnkreise: zur Nahkampfposition statt hinaus', 'Bei Black Rain / Volley zur freien Seite des Bosses ausweichen und dort weiter angreifen. Live 28.10.: bei Cannon Volley (2,2 s) kamen zwei Clavis nicht rechtzeitig durch und starben.')}
+              ${check('dgHerdForm', 'Raum 4: Herde in niedriger Form abwehren', 'Nach Raum 3 eine Stufe zurück (Clavis → Shakkoumon, Paladin → Dragon Mode), am Ende von Welle 9 wieder hoch. Live 28.10.: Zurück-Digitieren geht bis in die Grundform, der Aufstieg dauert ~10 s je Stufe – die Clavis waren beim Boss noch Shakkoumon.')}
+            </details>
           </div>`, true,
           'Gilt für den Modus Dungeon: zur Tür auf der Map Network, betreten (in der Gruppe nur der Leader, die anderen kommen mit), Raum 1: Terminals schützen – Tsumemon, die zu einem Terminal laufen, zuerst; dann durchs Tor, Boss Keramon (Chrysalimon, Infermon) und zum Ausgang. Ausweichen, Spiegel und Skill-Timing wie bei Bossen. Hard (Revenge): Diaboromon mit Uhr, dann Armageddemon mit Kuramon-Herde – der geteilte Treffer (240 % der HP) ist allein tödlich, also nur in der Gruppe sinnvoll. Apocalymon-Raid: über Spiral Summit zur Tür, digitieren, betreten, Megadramon-Adds zuerst, dann Apocalymon; nach dem Sieg wieder hinaus. MaloMyotismon-Raid genauso über Myotismon Castle: Phantomon und Illusionstürme zuerst, dann MaloMyotismon.', 'data-modes="dungeon"')}
         ${grp('events', 'Event &amp; Weltboss', `
@@ -1752,27 +1780,28 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           'Betriebsart „Food kaufen“ (Schalter oben): Der Bot reist nach Dream Ruins, geht im Lager zu Händler Tentomon, kauft jede Sorte bis zur eingestellten Stückzahl nach (nur so viel, wie die Bits reichen) und stoppt danach. Vorhandene Stapel werden angerechnet. Danach Betriebsart wieder umstellen.')}
       </section>
       <section data-page="acc">
-        <div class="digibot__scope">👥 Alles in diesem Reiter gilt für alle Gruppenfenster – außer „Dieses Fenster ist“.</div>
+        <div class="digibot__scope">👥 Alles in diesem Reiter gilt für alle Gruppenfenster – außer „Dieses Fenster ist“. Fenster sichtbar lassen: im Hintergrund bremst der Browser stark.</div>
         <div class="digibot__seg">
           <button data-gmode="bots" title="Alle Fenster fahren ihren Bot: der Leader den Autopilot, die anderen folgen ihm und machen seine Quests mit.">📜 Quests</button><button data-gmode="boss" title="Alle Fenster fahren ihren Bot: der Leader die Boss-Rotation (Bosse im Tab Farmen auswählen), die anderen folgen ihm über Maps und Kanäle und kämpfen mit.">👑 Bosse</button><button data-gmode="dungeon" title="Alle Fenster fahren den Dungeon-Modus: an der Tür sammeln, der Leader betritt den Dungeon (die Gruppe kommt mit), dann räumt jeder mit – Terminal-Fresser zuerst, danach Boss und Ausgang.">🏰 Dungeon</button><button data-gmode="move" title="Du spielst den Leader selbst – die anderen Fenster (Bot aus) laufen ihm nach, auch über Maps und Kanäle.">👣 Spiegeln</button><button data-gmode="both" title="Wie Spiegeln, und die anderen greifen das Ziel des Leaders mit an – mit ihren Skills, Tränken und Ausweichen.">⚔️ + Angriff</button>
         </div>
         <label class="digibot__skill digibot__chk" title="Jedes Gruppenmitglied greift ein anderes Quest-Monster an (statt alle dasselbe). Ist keins mehr frei, hilft man mit. Bosse greifen alle gemeinsam an. Nicht beim Spiegeln und nicht in der Boss-Rotation."><input type="checkbox" data-accspread ${accounts.spread ? 'checked' : ''}><span>🎯 Ziele verteilen: jeder ein anderes Monster</span><em class="digibot__offnote" data-f="spreadoff"></em></label>
         <label class="digibot__skill digibot__chk" title="Der Leader kümmert sich nur um die Quests der Mitläufer (seine eigenen sind egal) und jagt, was ihnen fehlt. Die Mitläufer bleiben stehen und wehren nur Angreifer ab. Abgeben/Annehmen macht man bei ihnen selbst. Nur im Modus 📜 Quests."><input type="checkbox" data-accserve ${accounts.serve ? 'checked' : ''}><span>🤝 Leader erledigt die Quests der Mitläufer</span></label>
+        <div class="digibot__title">Alle Fenster</div>
         <div class="digibot__grpbtns three"><button class="digibot__btn" data-act="grp-login" title="Fehlende Gruppenfenster öffnen – dort selbst anmelden und Charakter wählen">⧉ Fenster öffnen</button><button class="digibot__btn" data-act="grp-start" title="Bots in allen Gruppenfenstern starten">▶ Starten</button><button class="digibot__btn" data-act="grp-stop" title="Bots in allen Gruppenfenstern stoppen">■ Stoppen</button></div>
         <div class="digibot__grpbtns"><button class="digibot__btn" data-act="grp-invite" title="Der Leader lädt sofort alle Gruppenmitglieder in die Party ein, die noch nicht drin sind (geht aus jedem Gruppenfenster). Die Mitläufer nehmen automatisch an.">👥 Party einladen</button><button class="digibot__btn" data-act="grp-maptalk" title="In allen Gruppenfenstern: alle fertigen Quests auf der aktuellen Map abgeben und alle hier verfügbaren annehmen – jeder für sich. Danach geht es weiter wie vorher (lief der Bot nicht, stoppt er wieder).">📜 Abgeben &amp; Annehmen (diese Map)</button></div>
-        <div class="digibot__grpbtns"><button class="digibot__btn" data-act="grp-desktop" title="Genau vier ausgewählte Accounts im 2×2-Desktoplayout: Leader lädt ein, danach gemeinsamer Autopilot-Start">▦ Vier Fenster + Party + Autopilot</button><button class="digibot__btn" data-act="grp-desktop-stop">Desktopstart abbrechen</button></div>
-        <div class="digibot__hint" data-f="desktop-launch">Vier Accounts auswählen, Leader markieren und Pop-ups erlauben. Falls nötig in jedem Fenster selbst anmelden; Start erfolgt erst mit vollständiger Party. Der Browser muss die Fensterpositionierung zulassen.</div>
-        <button class="digibot__btn" data-act="grp-desktop-resume" title="Manuelle Pause in diesem Fenster für den vorbereiteten Desktopstart aufheben">Desktopstart hier freigeben</button>
         <div class="digibot__gcards" data-f="gcards"></div>
         <label class="digibot__slotsel" title="Welcher Account läuft in diesem Fenster? Bestimmt, ob es Leader oder Mitläufer ist. Gilt nur für dieses Fenster.">Dieses Fenster ist
           <select data-accslot><option value="">– keine Gruppe –</option>${accounts.list.map((a, i) => `<option value="${i}">Account ${i + 1}${a.user ? ` (${escAttr(a.user)})` : ''}</option>`).join('')}</select></label>
         <div class="digibot__grpinfo" data-f="grpinfo">–</div>
+        ${grp('desktop', 'Desktopstart: vier Fenster + Party + Autopilot', `        <div class="digibot__grpbtns"><button class="digibot__btn" data-act="grp-desktop" title="Genau vier ausgewählte Accounts im 2×2-Desktoplayout: Leader lädt ein, danach gemeinsamer Autopilot-Start">▦ Vier Fenster + Party + Autopilot</button><button class="digibot__btn" data-act="grp-desktop-stop">Desktopstart abbrechen</button></div>
+        <div class="digibot__hint" data-f="desktop-launch">Vier Accounts auswählen, Leader markieren und Pop-ups erlauben. Falls nötig in jedem Fenster selbst anmelden; Start erfolgt erst mit vollständiger Party. Der Browser muss die Fensterpositionierung zulassen.</div>
+        <button class="digibot__btn" data-act="grp-desktop-resume" title="Manuelle Pause in diesem Fenster für den vorbereiteten Desktopstart aufheben">Desktopstart hier freigeben</button>
+`, false)}
         ${grp('account-queue', 'Accounts nacheinander: Quest-Runde', '<div class="digibot__hint">Ein Fenster, Account 1 → 5 mit Haken und Benutzername. Pro Account läuft der Autopilot bis zum normalen Abschluss. Keine Wiederholungsschleife. Das Fenster darf keiner laufenden Gruppe zugeordnet sein. Automatischer Account-Wechsel mit den unten eingegebenen Passwörtern. Passwörter gelten nur bis zum Neuladen dieses Fensters.</div><div class="digibot__grpbtns"><button class="digibot__btn" data-act="queue-start">▶ Quest-Runde starten</button><button class="digibot__btn" data-act="queue-resume">↪ Runde fortsetzen</button><button class="digibot__btn" data-act="queue-stop">■ Runde stoppen</button></div><div class="digibot__hint" data-f="account-queue">Bereit</div>', true)}
         ${grp('accounts', 'Accounts verwalten', `<div class="digibot__accwarn">Für die Quest-Runde: Passwörter einmal hier eingeben. Sie bleiben nur im Arbeitsspeicher dieses Fensters und werden beim Neuladen verworfen. <button class="digibot__btn" data-act="digibot-passwords">Alte gespeicherte Passwörter löschen</button></div>
           <div data-f="acclist">${accRows()}</div>
           <label class="digibot__skill digibot__chk"><input type="checkbox" data-accpopup ${accounts.popup ? 'checked' : ''}><span>Als eigene Fenster nebeneinander öffnen (empfohlen)</span></label>`, !accounts.list.some((a) => a.user),
           '☑ = in der Gruppe dabei · ◉ = Leader. Der Leader fährt den Autopilot und sucht die Monster aus. Die anderen folgen ihm, helfen beim Kämpfen und nehmen dieselben Quests an und geben sie mit ab. Der Charaktername wird beim Einloggen gemerkt.')}
-        <div class="digibot__hint">Fenster im Hintergrund oder minimiert bremst der Browser stark – Fenster nebeneinander sichtbar lassen.</div>
       </section>
 
       <section data-page="log">
@@ -9417,6 +9446,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const MODE_NAMES = { grind: 'Grinden', quest: 'Quest-Jagd', auto: 'Autopilot', farm: 'Bosse', dungeon: 'Dungeon', events: 'Nur Event/Weltboss' };
   function syncModeScope() {
     const m = modeOf();
+    for (const k of ['dgMode', 'foodHp', 'foodDs', 'foodTamer']) { // feste Selects: angezeigten Wert an cfg angleichen (Neuladen, andere Fenster)
+      const el = panel.querySelector(`[data-apsel="${k}"]`), v = cfg[k] ?? '';
+      if (el && panel.ownerDocument.activeElement !== el && el.value !== v) el.value = v;
+    }
+    panel.querySelectorAll('[data-dgmode]').forEach((el) => { const off = !el.dataset.dgmode.split(' ').includes(cfg.dgMode); if (el.classList.contains('hide') !== off) el.classList.toggle('hide', off); });
     panel.querySelectorAll('[data-modes]').forEach((el) => {
       const modes = el.dataset.modes.split(' '), off = !modes.includes(m);
       if (el.classList.contains('is-off') !== off) el.classList.toggle('is-off', off);
@@ -9799,12 +9833,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     } catch { /* ignore */ }
 
     makeDraggable(panel, panel.querySelector('.digibot__head'));
-    setTab(['data', 'mon', 'attack', 'quest', 'farm', 'acc', 'log'].includes(cfg.tab) ? cfg.tab : 'data');
+    setTab(['data', 'mon', 'attack', 'quest', 'farm', 'food', 'acc', 'log'].includes(cfg.tab) ? cfg.tab : 'data');
     // Tippen in die Account-Felder nicht ans Spiel weitergeben (sonst laufen/greifen Tasten im Spiel)
     for (const ev of ['keydown', 'keyup', 'keypress']) {
       panel.addEventListener(ev, (e) => { if (e.target.matches?.('input[type="text"],input[type="password"]')) e.stopPropagation(); });
     }
     // Gruppen auf/zu merken ("toggle" steigt nicht auf -> in der Capture-Phase abfangen)
+    // ⓘ an einem Haken: nur Erklärung (Tooltip), Klick darauf schaltet den Haken nicht um
+    panel.addEventListener('click', (e) => { if (e.target.closest?.('.digibot__chk .info')) e.preventDefault(); }, true);
     panel.addEventListener('toggle', (e) => {
       const k = e.target?.dataset?.grp;
       if (k) { cfg.open = { ...cfg.open, [k]: e.target.open }; saveCfg(); }
@@ -9822,6 +9858,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       }
       if (act === 'mobexp-reset') { mobExpReset(); mobExp.at = 0; schedule(); }
       if (act === 'compact') { cfg.compact = panel.classList.toggle('is-compact'); saveCfg(); }
+      if (act === 'more') { const on = panel.querySelector('[data-f="menu"]').classList.toggle('on'); e.target.closest('[data-act]').classList.toggle('on', on); }
       if (act === 'wboss') {
         cfg.wboss = !cfg.wboss; saveCfg(); wb.goal = null; farm.lastPins = 0;
         logEvent('auto', `Weltboss ${cfg.wboss ? `an – ${wbSel().map((b) => b.name).join(', ') || 'keine Weltbosse in den Spieldaten'}, Kanal 1 und 2 nach Spawnzeit` : 'aus'}`);

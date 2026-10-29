@@ -2,6 +2,19 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.28 – Übersichtlicheres Panel
+Nur die Oberfläche, keine Änderung an der Bot-Logik. Alle Einstellungen behalten ihre Namen und Werte.
+- **Startleiste:** vorne nur Modus, ▶ Start und ■ NOT-AUS, darunter 🎯 Event und 🌍 Weltboss. Diagnose, Presets und
+  „Gruppe: eigene Wege“ liegen im Menü **⋯**.
+- **Kurze Haken-Texte:** Erklärungen und Live-Notizen stehen jetzt im Tooltip (ⓘ, Maus über den Haken).
+- **Dungeon:** Modus-Auswahl zuerst. Die Hard-Optionen erscheinen nur bei „Hard“, nach Raum 3 (Diaboromon) und Raum 4
+  (Armageddemon) gegliedert. Ring-Ausweichen und Herden-Form liegen eingeklappt unter „⚠ Experimentell“.
+- **Key of Hope an einer Stelle:** „Auch Black Rain und Cannon Volley blocken“ steht jetzt direkt unter dem Key-of-Hope-Haken
+  (Kampf → Boss-Mechaniken).
+- **Tamer an einer Stelle:** Tamer-DS und Tamer-Skill-Automatik im Reiter Digimon → Tamer.
+- **Gruppe:** Knöpfe für alle Fenster unter einer Überschrift, der Desktopstart (vier Fenster) eingeklappt in eigenem Block.
+- **Fehler behoben:** Der Reiter Food wurde nach dem Neuladen nicht wieder geöffnet.
+
 ## 3.1.27 – Davis ohne Key of Hope: erst nach dem stärksten Skill
 Bisher zündete Davis (setzt alle Abklingzeiten zurück), sobald irgendwelche zwei Skills auf Abklingzeit waren – beim Paladin oft
 Invincible Sword und Paladin Guard, während Omega Blade gerade bereit war. Der Reset war dann größtenteils verschenkt.
