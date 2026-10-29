@@ -2,6 +2,13 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.27 – Davis ohne Key of Hope: erst nach dem stärksten Skill
+Bisher zündete Davis (setzt alle Abklingzeiten zurück), sobald irgendwelche zwei Skills auf Abklingzeit waren – beim Paladin oft
+Invincible Sword und Paladin Guard, während Omega Blade gerade bereit war. Der Reset war dann größtenteils verschenkt.
+- **Neu:** Davis zündet erst, wenn der stärkste Angriffsskill (Paladin: Omega Blade) noch mindestens 10 s Abklingzeit hat und
+  mindestens ein weiterer Angriffsskill wartet. Dann gibt es direkt ein zweites Omega Blade. Clavis mit Key of Hope behalten die
+  Notfall-Regel aus 3.1.26.
+
 ## 3.1.26 – Key of Hope auch gegen Black Rain und Cannon Volley; Davis als Notfall-Key
 Nutzer-Idee 29.10.: Davis (Digi-Egg of Miracles) setzt auch Key of Hope zurück – damit reicht die Key-Bilanz, um mehr Treffer zu
 blocken statt auszuweichen. Black Rain kostete live je ~3,5 s Angriff (12× je Bosskampf, ~40 s).

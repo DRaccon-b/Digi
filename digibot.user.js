@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.26
+// @version      3.1.27
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -662,7 +662,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
 
   const digibotTamer={skill:'',want:false,since:0,last:0,cooldown:0,retryAt:0,attempts:0,holdSince:0,holdSeen:0};
-  const TAMER_BOSS_NEAR=320, TAMER_HOLD_GRACE_MS=6000; // Bosskampf: so nah am Boss zählt als Kampf; so lange darf „im Kampf“ wegfallen, ohne dass die Gate-Wartezeit neu beginnt (3.1.25)
+  const TAMER_BOSS_NEAR=320, TAMER_HOLD_GRACE_MS=6000, DAVIS_BURST_LEFT_MS=10000; // Davis erst, wenn der stärkste Skill noch ≥ 10 s Abklingzeit hat (3.1.27) // Bosskampf: so nah am Boss zählt als Kampf; so lange darf „im Kampf“ wegfallen, ohne dass die Gate-Wartezeit neu beginnt (3.1.25)
   // Stärkster Angriffsskill auf der Leiste – Gate of Judgment hat Vorrang (Nutzer 28.10.: Crest „immer vor einem Gate of Judgment“)
   function digibotBurstSkill(st){
     const C=content();let best=null;
@@ -713,6 +713,17 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     let reason=digibotTamerDecision({skill:sk,partner:p,allies,target,fighting:inCombat(st)||bossFight,incoming:dangerous||shareIncoming(now),debuffed,skillsOnCooldown});
     // die Wartezeit aufs Gate läuft weiter, wenn „im Kampf“ nur kurz wegfällt (3.1.25)
     if(!reason){digibotTamer.since=0;if(now-(digibotTamer.holdSeen||0)>TAMER_HOLD_GRACE_MS)digibotTamer.holdSince=0;return;}
+    // Davis (setzt alle Abklingzeiten zurück) ohne Key of Hope: erst, wenn der stärkste Angriffsskill (Paladin: Omega Blade) gerade
+    // benutzt wurde (noch ≥ DAVIS_BURST_LEFT_MS Abklingzeit) und noch ein weiterer Angriffsskill wartet – sonst setzt er nur Kleinkram
+    // wie Invincible Sword und Paladin Guard zurück (Nutzer 29.10., 3.1.27)
+    if(sk.resetCooldowns){
+      const burst=digibotBurstSkill(st);
+      if(!burst||burst.cdLeft<DAVIS_BURST_LEFT_MS)return;
+      const Cs=content()?.skills||{};
+      const dmgWaiting=SKILL_KEYS.map(k=>skillOnKey(st,k)).filter(x=>x&&x.skill.unlocked!==false&&x.cdLeft>1000&&(Cs[x.skill.id]?.kind==='damage'||(Cs[x.skill.id]?.power>0&&Cs[x.skill.id]?.kind!=='heal'))).length;
+      if(dmgWaiting<2)return;
+      reason=`${burst.skill.name} und ${dmgWaiting-1} weitere${dmgWaiting>2?'':'r'} Angriffsskill auf Abklingzeit`;
+    }
     // Angriffs-Crest (Tai/Izzy/Ken …) erst, wenn der stärkste Angriffsskill (Gate of Judgment) gleich bereit ist – so liegt er
     // sicher im 15-s-Buff; höchstens 10 s warten (3.1.17)
     if(/^Angriffsverstärkung/.test(reason)){
@@ -1546,7 +1557,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span></label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.26'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.27'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Modus, Skills, Bosse, Quests …) gehören zu diesem Account. Panel-Ansicht und Gruppe gelten für alle Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
