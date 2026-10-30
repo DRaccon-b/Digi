@@ -2,6 +2,13 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.36 – Kampfzeit und EXP pro Minute je Monster
+- **Übersicht → „Sitzung: EXP je Monster“** hat zwei neue Spalten und eine Kopfzeile: **Ø Kampf** (Zeit vom ersten
+  eigenen Treffer bis zum Tod des Monsters) und **EXP/Min** (EXP pro Kampfminute, ohne Lauf- und Suchzeit). So sieht man,
+  welches Monster sich wirklich lohnt. Maus über eine Zeile zeigt zusätzlich die Kampfzeit zusammen. Kämpfe über 10 Minuten
+  (angekratzt, liegen gelassen, viel später erledigt) zählen nicht zur Zeit; unter 0,5 s Kampfzeit gesamt steht „–“.
+- Test: `tests/mobexptest.js` erweitert.
+
 ## 3.1.35 – Quests ab dem Level der mitgeführten Digimon annehmen
 - **Ausrufezeichen-Quests wurden ausgelassen (live 30.10., Shinjuku Bio-Emergence):** Für die Level-Grenze einer Quest
   zählt das Spiel das höchste Level der mitgeführten Digimon. Der Bot rechnete bei neuen Quests nur mit dem aktiven

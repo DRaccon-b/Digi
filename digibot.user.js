@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.35
+// @version      3.1.36
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1314,10 +1314,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     .digibot__for{font-style:normal;font-weight:500;opacity:.7;font-size:10.5px}
     .digibot__lootsum{font-size:11px;margin-bottom:5px;line-height:1.5}
     .digibot__mobexp{margin-top:4px;max-height:160px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#3a4670 #0b1020}
-    .digibot__mobexp div{display:flex;gap:6px;font-size:10.5px;padding:1px 0}
-    .digibot__mobexp span{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .digibot__mobexp em{font-style:normal;opacity:.7;font-variant-numeric:tabular-nums;min-width:30px;text-align:right}
-    .digibot__mobexp b{font-variant-numeric:tabular-nums;min-width:56px;text-align:right}
+    .digibot__mobexp div{display:flex;gap:4px;font-size:10.5px;padding:1px 0}
+    .digibot__mobexp span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .digibot__mobexp em,.digibot__mobexp b{flex:0 0 28px;white-space:nowrap;font-variant-numeric:tabular-nums;text-align:right}
+    .digibot__mobexp em{font-style:normal;opacity:.7}
+    .digibot__mobexp .k{flex-basis:24px}.digibot__mobexp b{flex-basis:46px}.digibot__mobexp .d{flex-basis:36px}.digibot__mobexp .r{flex-basis:44px}
+    .digibot__mobexp div.digibot__mobhead{position:sticky;top:0;background:#0f1428;font-size:9.5px;opacity:.75}
+    .digibot__mobexp .digibot__mobhead *{font-weight:normal;opacity:1}
     .digibot__lootsum b{font-variant-numeric:tabular-nums}
     .digibot__lootsum .in{color:#7ee2a8}.digibot__lootsum .out{color:#ff8a8a}
     .digibot__loot{display:grid;grid-template-columns:1fr 1fr;gap:6px}
@@ -1604,7 +1607,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.35'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.36'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1667,7 +1670,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           </div>`, true, 'Alles seit Sitzungsbeginn (↺ oben setzt zurück): Items, die ins Inventar kamen (Drops, Belohnungen) und die weniger wurden (Tränke, abgegebene Quest-Items). EXP aus allen Quellen (Kämpfe, Quests) und Bits rein/raus.')}
         ${grp('mobexp', 'Sitzung: EXP je Monster', `
           <div class="digibot__sesshead"><span>Nur Monster, die schon EXP gebracht haben</span><button class="digibot__btn" data-act="mobexp-reset" title="EXP je Monster zurücksetzen">↺</button></div>
-          <div class="digibot__mobexp" data-f="mobexp"><i class="digibot__none">noch keine EXP von Monstern</i></div>`, true, 'Eigene Kills seit Sitzungsbeginn, über alle Maps: Anzahl, EXP zusammen und Anteil. Maus über eine Zeile: Ø EXP je Kill und die Maps. ↺ hier setzt nur diese Liste zurück (↺ bei den Sitzungswerten setzt sie mit zurück).')}
+          <div class="digibot__mobexp" data-f="mobexp"><i class="digibot__none">noch keine EXP von Monstern</i></div>`, true, 'Eigene Kills seit Sitzungsbeginn, über alle Maps: Anzahl, EXP zusammen, Ø Kampfzeit (erster eigener Treffer bis zum Tod), EXP pro Kampfminute (ohne Lauf- und Suchzeit) und Anteil. Eine Kampfpause über 20 s am selben Monster startet die Zeit neu. Maus über eine Zeile: Ø EXP je Kill, Kampfzeit zusammen und die Maps. ↺ hier setzt nur diese Liste zurück (↺ bei den Sitzungswerten setzt sie mit zurück).')}
         ${grp('queue', 'Als Nächstes', `<div class="digibot__queue" data-f="queue"><div class="digibot__none">–</div></div>`, true, 'Aktuelle Aufgabe (gelb) und die nächsten Schritte des Autopiloten.')}
         ${grp('radar', '<span data-f="radar">Radar</span>', `
           <canvas class="digibot__radar" width="476" height="320"></canvas>
@@ -1977,18 +1980,23 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // EXP je Monsterart in dieser Sitzung (Übersicht): eigene Kills vormerken, EXP aus der Chat-Meldung „+341 EXP“ zuordnen.
   // Unabhängig von der EXP-Messung, immer an. Über alle Maps der Sitzung; Schlüssel: Name (Varianten wie *_ring zählen zusammen).
   const MOBEXP_WAIT_MS = 3000;
+  const MOBEXP_MAX_FIGHT_MS = 600000; // längere „Kämpfe“ zählen nicht zur Zeit
+  const MOBEXP_GAP_MS = 20000;        // so lange ohne eigenen Treffer: neuer Kampf (liegen gelassen, Entity-Id neu vergeben)
   const mobExp = { hit: new Map(), pending: [], used: new WeakSet(), by: new Map(), sig: '', at: 0 };
   function mobExpEvent(ev, mine) {
     if (ev.t === 'dmg' && mine.has(ev.src)) {
-      if (mobExp.hit.has(ev.dst)) return;
+      const now = Date.now(), h = mobExp.hit.get(ev.dst);
+      if (h && now - h.tl <= MOBEXP_GAP_MS) { h.tl = now; return; }
       const m = window.dmo?.net?.state?.entities?.get?.(ev.dst);
       if (!m || m.kind !== KIND.Mob) return;
-      mobExp.hit.set(ev.dst, { sp: m.defId, map: getStore()?.getState?.()?.world?.mapId });
+      mobExp.hit.delete(ev.dst); // neu einreihen, damit die Verdrängung ab 200 die ältesten trifft
+      mobExp.hit.set(ev.dst, { sp: m.defId, map: getStore()?.getState?.()?.world?.mapId, t0: now, tl: now });
       if (mobExp.hit.size > 200) mobExp.hit.delete(mobExp.hit.keys().next().value);
     } else if (ev.t === 'die' && ev.id && mobExp.hit.has(ev.id)) {
       const r = mobExp.hit.get(ev.id); mobExp.hit.delete(ev.id);
       if (ev.killer && !mine.has(ev.killer)) return; // ein anderer hat ihn erledigt
-      mobExp.pending.push({ ...r, t: Date.now() });
+      const t = Date.now();
+      mobExp.pending.push({ ...r, t, dur: t - r.t0 <= MOBEXP_MAX_FIGHT_MS ? t - r.t0 : null }); // Kampfzeit: erster eigener Treffer bis Tod
     }
   }
   function mobExpTick(st, now) {
@@ -1999,8 +2007,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (m) {
         mobExp.used.add(m);
         const name = content()?.digimon?.[k.sp]?.name || k.sp;
-        const e = mobExp.by.get(name) || { name, exp: 0, kills: 0, maps: new Set() };
-        e.exp += Number(m.params?.exp) || 0; e.kills++; if (k.map) e.maps.add(k.map); mobExp.by.set(name, e);
+        const e = mobExp.by.get(name) || { name, exp: 0, kills: 0, maps: new Set(), ms: 0, tExp: 0, timed: 0 };
+        const x = Number(m.params?.exp) || 0;
+        e.exp += x; e.kills++; if (k.map) e.maps.add(k.map); mobExp.by.set(name, e);
+        if (k.dur != null) { e.ms += k.dur; e.tExp += x; e.timed++; }
         k.done = true;
       } else if (now - k.t > MOBEXP_WAIT_MS) k.done = true; // keine Meldung (z. B. 0 EXP): verwerfen
     }
@@ -2014,8 +2024,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const rows = [...mobExp.by.values()].filter((e) => e.exp > 0).sort((a, b) => b.exp - a.exp);
     const tot = rows.reduce((n, e) => n + e.exp, 0);
     const esc = (x) => String(x ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    const secs = (ms) => { const t = Math.round(ms / 100) / 10; return t < 60 ? `${t.toFixed(1).replace('.', ',')} s` : `${Math.round(t)} s`; };
     const html = rows.length
-      ? rows.map((e) => `<div title="${fmt(e.kills)} Kills · Ø ${fmt(e.exp / e.kills)} EXP je Kill · ${esc([...e.maps].map((id) => content()?.maps?.[id]?.name || id).join(', '))}"><span>${esc(e.name)}</span><em>${fmt(e.kills)}×</em><b>${fmt(e.exp)}</b><em>${Math.round(e.exp / tot * 100)} %</em></div>`).join('')
+      ? '<div class="digibot__mobhead"><span>Monster</span><em class="k">Kills</em><b>EXP</b><em class="d">Ø Kampf</em><em class="r">EXP/Min</em><em>Anteil</em></div>' + rows.map((e) => {
+        const avg = e.timed ? e.ms / e.timed : null, rate = e.ms >= 500 ? e.tExp / e.ms * 60000 : null;
+        const timeTip = e.timed ? ` · Kampfzeit zusammen ${fmtDur(e.ms)}${e.timed < e.kills ? ` (aus ${fmt(e.timed)} von ${fmt(e.kills)} Kills)` : ''}${rate == null ? ' · EXP/Min erst ab 0,5 s Kampfzeit' : ''}` : '';
+        return `<div title="${fmt(e.kills)} Kills · Ø ${fmt(e.exp / e.kills)} EXP je Kill${timeTip} · ${esc([...e.maps].map((id) => content()?.maps?.[id]?.name || id).join(', '))}"><span>${esc(e.name)}</span><em class="k">${fmt(e.kills)}×</em><b>${fmt(e.exp)}</b><em class="d">${avg == null ? '–' : secs(avg)}</em><em class="r">${rate == null ? '–' : fmt(rate)}</em><em>${Math.round(e.exp / tot * 100)} %</em></div>`;
+      }).join('')
       : '<i class="digibot__none">noch keine EXP von Monstern</i>';
     if (html === mobExp.sig) return;
     mobExp.sig = html; el.innerHTML = html;
