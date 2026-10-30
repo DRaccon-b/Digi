@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.36
+// @version      3.1.37
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1607,7 +1607,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.36'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.37'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1667,7 +1667,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           <div class="digibot__loot">
             <div><b>Erhalten</b><div data-f="lootin"><i class="digibot__none">noch nichts</i></div></div>
             <div><b>Verbraucht</b><div data-f="lootout"><i class="digibot__none">noch nichts</i></div></div>
-          </div>`, true, 'Alles seit Sitzungsbeginn (↺ oben setzt zurück): Items, die ins Inventar kamen (Drops, Belohnungen) und die weniger wurden (Tränke, abgegebene Quest-Items). EXP aus allen Quellen (Kämpfe, Quests) und Bits rein/raus.')}
+          </div>`, true, 'Alles seit Sitzungsbeginn (↺ oben setzt zurück): Items, die ins Inventar kamen (Drops, Belohnungen) und die weniger wurden (Tränke, abgegebene Quest-Items). EXP aus allen Quellen (Kämpfe, Quests) und Bits rein/raus. Tränke &amp; Food werden zum Ladenpreis bewertet: so siehst du, was der Verbrauch kostet, auch wenn du aus dem Vorrat nimmst, und die Bilanz in Bits.')}
         ${grp('mobexp', 'Sitzung: EXP je Monster', `
           <div class="digibot__sesshead"><span>Nur Monster, die schon EXP gebracht haben</span><button class="digibot__btn" data-act="mobexp-reset" title="EXP je Monster zurücksetzen">↺</button></div>
           <div class="digibot__mobexp" data-f="mobexp"><i class="digibot__none">noch keine EXP von Monstern</i></div>`, true, 'Eigene Kills seit Sitzungsbeginn, über alle Maps: Anzahl, EXP zusammen, Ø Kampfzeit (erster eigener Treffer bis zum Tod), EXP pro Kampfminute (ohne Lauf- und Suchzeit) und Anteil. Eine Kampfpause über 20 s am selben Monster startet die Zeit neu. Maus über eine Zeile: Ø EXP je Kill, Kampfzeit zusammen und die Maps. ↺ hier setzt nur diese Liste zurück (↺ bei den Sitzungswerten setzt sie mit zurück).')}
@@ -2072,12 +2072,17 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const watchPrev = { map: null, level: null, quests: null, target: null, toasts: new Set() };
   const sess = { kills: 0, turnins: 0, faints: 0, wasFainted: false }; // Sitzungswerte für die Übersicht
   // Beute & Verbrauch: Inventar laufend vergleichen – mehr = erhalten (Drops, Belohnungen), weniger = verbraucht
-  const loot = { inv: null, gained: new Map(), used: new Map(), bitsIn: 0, bitsOut: 0, lastBits: null, sig: '', at: 0 };
+  const loot = { inv: null, char: null, wh: null, gained: new Map(), used: new Map(), bitsIn: 0, bitsOut: 0, lastBits: null, sig: '', at: 0 };
   function trackLoot(st) {
     const me = st?.me;
     if (!me || st.screen !== 'world' || !Array.isArray(me.inventory)) return;
+    // Neuer Charakter (Account-Runde, Relog): neue Basis statt das alte Inventar als verbraucht zu buchen. Lager zählt mit
+    // (Einlagern ist kein Verbrauch); taucht es erst auf oder verschwindet, nur neue Basis (3.1.37)
+    const wh = Array.isArray(me.warehouse);
+    if (loot.char !== me.charId) { loot.char = me.charId; loot.inv = null; loot.lastBits = null; }
+    if (loot.wh !== wh) { loot.wh = wh; loot.inv = null; }
     const cur = new Map();
-    for (const it of me.inventory) if (it?.itemId) cur.set(it.itemId, (cur.get(it.itemId) || 0) + (it.qty || 1));
+    for (const it of [...me.inventory, ...(wh ? me.warehouse : [])]) if (it?.itemId) cur.set(it.itemId, (cur.get(it.itemId) || 0) + (it.qty || 1));
     const add = (m, id, n) => m.set(id, (m.get(id) || 0) + n);
     if (loot.inv) {
       for (const id of new Set([...cur.keys(), ...loot.inv.keys()])) {
@@ -2097,9 +2102,17 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (now - loot.at < 1000) return;
     loot.at = now;
     const C = content(), esc = (x) => String(x ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    // Tränke & Food zum Ladenpreis (items[id].price): Verbrauch kostet Bits, auch wenn sie aus dem Vorrat kommen (3.1.37)
+    // ohne Ladenpreis (Oolong Tea, Yuuko's Cake: nur Tausch/Drop) zum Verkaufswert
+    const shopPrice = (id) => { const it = C?.items?.[id]; return it?.kind === 'consumable' && it.use ? (it.price > 0 ? it.price : it.sell > 0 ? it.sell : 0) : 0; };
+    const noShop = (id) => !(C?.items?.[id]?.price > 0);
+    const worth = (m) => [...m].reduce((v, [id, n]) => v + n * shopPrice(id), 0);
     const list = (m) => [...m.entries()].sort((a, b) => b[1] - a[1])
-      .map(([id, n]) => `<div><span title="${esc(C?.items?.[id]?.name || id)}">${esc(C?.items?.[id]?.name || id)}</span><em>×${fmt(n)}</em></div>`).join('');
-    const sum = `EXP gesamt: <b>${fmt(exp.total)}</b> · Bits: <b class="in">+${fmt(loot.bitsIn)}</b> / <b class="out">−${fmt(loot.bitsOut)}</b> (netto ${loot.bitsIn - loot.bitsOut >= 0 ? '+' : '−'}${fmt(Math.abs(loot.bitsIn - loot.bitsOut))})`;
+      .map(([id, n]) => { const name = esc(C?.items?.[id]?.name || id), p = shopPrice(id); return `<div><span title="${name}${p ? ` · ${fmt(n)} × ${fmt(p)} = ${fmt(n * p)} Bits ${noShop(id) ? 'Verkaufswert (nicht im Laden)' : 'Ladenpreis'}` : ''}">${name}</span><em>×${fmt(n)}</em></div>`; }).join('');
+    const signed = (v) => `${v >= 0 ? '+' : '−'}${fmt(Math.abs(v))}`;
+    const usedV = worth(loot.used), gainV = worth(loot.gained), bal = loot.bitsIn - loot.bitsOut + gainV - usedV;
+    const sum = `EXP gesamt: <b>${fmt(exp.total)}</b> · Bits: <b class="in">+${fmt(loot.bitsIn)}</b> / <b class="out">−${fmt(loot.bitsOut)}</b> (netto ${signed(loot.bitsIn - loot.bitsOut)})`
+      + (usedV || gainV ? `<br><span title="Tränke und Food zum Kaufpreis im Laden. Bilanz = Bits netto + erhaltene − verbrauchte Tränke/Food; Gekauftes hebt sich so auf (Bits weg, Vorrat da). Ohne Ladenpreis zählt der Verkaufswert; das Lager zählt zum Vorrat.">Tränke &amp; Food (Ladenpreis): verbraucht <b class="out">−${fmt(usedV)}</b>${gainV ? ` · erhalten <b class="in">+${fmt(gainV)}</b>` : ''} · Bilanz <b class="${bal >= 0 ? 'in' : 'out'}">${signed(bal)}</b> Bits</span>` : '');
     const sig = sum + [...loot.gained].join() + '|' + [...loot.used].join();
     if (sig === loot.sig) return;
     loot.sig = sig;

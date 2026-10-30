@@ -2,6 +2,18 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.37 – Tränke & Food zum Ladenpreis in der Sitzungsbilanz
+- **„Bits −0“ trotz Tränken (Nutzer 30.10.):** Der Verbrauch aus dem Vorrat kostet keine Bits, darum stand der Abgang auf 0.
+  „Sitzung: Beute & Verbrauch“ bewertet Tränke und Food jetzt zum Kaufpreis im Laden (Spieldaten `items[id].price`, z. B.
+  Feast 1.200, DS Drive 780): neue Zeile „Tränke & Food (Ladenpreis): verbraucht −… · erhalten +… · Bilanz … Bits“.
+  Bilanz = Bits netto + erhaltene − verbrauchte Tränke/Food, damit sich Gekauftes aufhebt (Bits weg, Vorrat da). Andere
+  Items (Material, Quest-Items) bleiben ohne Wert. Maus über einen Eintrag unter „Verbraucht“: Menge × Preis.
+- Tränke ohne Ladenpreis (Oolong Tea, Yuuko's Cake – nur Tausch/Drop) zählen zum Verkaufswert.
+- **Korrekturen der Zählung (auch für die Listen Erhalten/Verbraucht):** Das Lager zählt zum Vorrat, Einlagern ist also
+  kein Verbrauch mehr. Ein Charakterwechsel (Account-Runde, Relog) beginnt eine neue Basis, statt das Inventar und die
+  Bits des vorigen Charakters als verbraucht zu buchen.
+- Test: `tests/loottest.js` erweitert.
+
 ## 3.1.36 – Kampfzeit und EXP pro Minute je Monster
 - **Übersicht → „Sitzung: EXP je Monster“** hat zwei neue Spalten und eine Kopfzeile: **Ø Kampf** (Zeit vom ersten
   eigenen Treffer bis zum Tod des Monsters) und **EXP/Min** (EXP pro Kampfminute, ohne Lauf- und Suchzeit). So sieht man,
