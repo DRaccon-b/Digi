@@ -2,6 +2,28 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.33 – Lade-Angriffe der Tamers-Bosse, Spielregeln aus den neuen Spieldaten
+- **Megidramon „Megiddo Flame“** (12 s Ladung, 90 % der Max-HP, Schaden bricht sie nicht): Der Bot hält die HP gegen
+  Megidramon mit F1 dauerhaft über 95 %, auch wenn die eigene Trank-Grenze niedriger steht. Bei der Ladung bleibt er
+  drin und schlägt weiter. Ausgewichen wird nur, wenn die HP trotzdem nicht über 93 % liegen (z. B. keine Tränke mehr).
+  Ein Boss-Treffer während der Ladung lässt ihn nicht mehr hin- und herpendeln.
+- **Orochimon „Spirytus Breath“** (8 s Ladung, Stärke 5000, Kreis 640 px, bricht nicht): Der Bot läuft aus dem Kreis.
+  Das klappt auch, wenn das Spiel keinen Warnkreis zeichnet: Der Kreis kommt dann aus der Ansage und den Spieldaten.
+- **Geteilter Treffer in der Gruppe** (Tamers-Bosse, auch ohne Key of Hope): Wer getroffen wird, bleibt stehen. Die
+  anderen laufen in seinen Kreis, damit sich der Schaden verteilt, statt vor dem Kreis wegzulaufen. Führt der Weg durch
+  eine andere Warnfläche, warten sie davor.
+- **Ablehnungen des Spiels kommen wieder an:** „Digimon kommt nicht hin“, „zu weit weg“, „Schutzzone“ und „ungültiges Ziel“
+  stehen im Spiel als Systemzeile im Chat und nicht als Hinweis. Der Bot las bisher nur die Hinweise und bekam darum nie
+  einen Code. Jetzt wechselt er die Position, sperrt das Ziel oder läuft heraus wie vorgesehen.
+- **Tamers-Story (a3) gilt als Story-Quest:** abgeschlossene A3-Quests werden nicht mehr als „täglich wiederholbar“ geführt.
+- **Map-Freischaltung wie im Spiel:** Für Weltboss-Liste, Map-Runde, Lern-Route und Reisen gilt die Fußweg-Regel. Ein
+  Tamers-Gebiet ohne Schutzzone zählt erst als offen, wenn die Einstiegsquest erledigt ist, oder schon nach dem Annehmen,
+  wenn das Spiel es so vorsieht. Die Map, auf der man steht, gilt immer als offen.
+- **Warp-Digitation:** Das Spiel verlangt 10 % mehr Tamer-DS als die Kosten. Der Bot trinkt jetzt rechtzeitig F3, statt
+  einen Warp zu versuchen, der abgelehnt wird.
+- **Digi-Phone:** Gesperrte Ziele in der Liste werden übersprungen (kein „teleport_locked“ mehr).
+- Test: `tests/reverse3133test.js` (je Punkt ein Teil). Vorher unabhängig geprüft, 9 Befunde der Prüfung eingearbeitet.
+
 ## 3.1.32 – Kanalwechsel im Kampf: erst den Angreifer besiegen
 - **Fehler behoben (live, Tortomon auf Destiny Lake):** Vor einem Kanalwechsel räumt der Bot höchstens 10 s auf (Taste 1).
   Bei einem zähen Angreifer versuchte er danach nur noch zu wechseln. Das Spiel lehnte ab („You can't change channel while

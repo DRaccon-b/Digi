@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.32
+// @version      3.1.33
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1596,7 +1596,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.32'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.33'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2245,12 +2245,97 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const holes=skill.islands?(scene?.telegraphs?.islands||[]).filter(i=>i.skill===skill.id && raw?.src!=null && i.src===raw.src && (!i.end||i.end>=performance.now())).map(i=>({x:i.x,y:i.y,r:i.r})):[];
     return {kind:'circle',x:c.x,y:c.y,r:c.r,skillId:skill.id||c.skill,src:raw?.src,end:raw?.end||0,innerRadius:skill.innerRadius||0,holes,chargeRing:!!skill.chargeRing,hpDamagePct:skill.hpDamagePct||0};
   }
+  // Lade-Angriffe der Bosse aus den Spieldaten: charge = { skill, atHp, breakAtHp, interruptStat } am Boss-Eintrag
+  // (Orochimon „Spirytus Breath“, Megidramon „Megiddo Flame“: breakAtHp 0 = Schaden bricht die Ladung NICHT, 3.1.33)
+  const chargeCache = { c: null, list: [] };
+  function chargeSpecs() {
+    const C = content();
+    if (!C) return [];
+    if (chargeCache.c === C) return chargeCache.list;
+    const list = [], seen = new Set();
+    const walk = (x, depth) => {
+      if (!x || typeof x !== 'object' || depth > 7 || seen.has(x)) return;
+      if (Array.isArray(x) && x.length && typeof x[0] !== 'object') return; // Kachel-/Zahlenlisten überspringen
+      seen.add(x);
+      if (x.charge && typeof x.charge.skill === 'string') list.push({ ...x.charge, species: x.species || x.id || null });
+      for (const v of Array.isArray(x) ? x : Object.values(x)) walk(v, depth + 1);
+    };
+    try { walk(C, 0); } catch { return list; } // halb gelesen: nicht merken, beim nächsten Mal neu
+    if (list.length) { chargeCache.c = C; chargeCache.list = list; } // leer (Daten evtl. noch nicht geladen): nicht merken
+    return list;
+  }
+  const chargeFor = (skillId) => (skillId ? chargeSpecs().find((c) => c.skill === skillId) : null) || null;
+  const chargeUnbreakable = (skillId) => { const c = chargeFor(skillId); return !!c && !(c.breakAtHp > 0); };
   // Lade-Ring (Corona Sanctions, 400 px, 10 s): die Ladung bricht durch Schaden – drinbleiben und draufhauen statt
   // hinauszulaufen (3.0.5; vorher 10 s Flucht, 0× gebrochen). Nur, solange die HP den Treffer (hpDamagePct) überstehen.
+  // Bricht die Ladung nicht durch Schaden (breakAtHp 0, 3.1.33): mit Prozent-Treffer (Megiddo Flame, 90 % der Max-HP)
+  // drinbleiben, solange die HP über hpDamagePct + CHARGE_KEEP_PAD liegen – F1 hält sie dort (chargeTopup); ohne
+  // Prozent-Treffer (Spirytus Breath, Stärke 5000) immer herauslaufen.
+  // Einmal drin geblieben, gilt bis zum Einschlag die niedrigere Grenze CHARGE_LEAVE_PAD – sonst pendelte das Digimon bei
+  // jedem Boss-Treffer zwischen Ausweichen und Angriff
+  const CHARGE_KEEP_PAD = 3, CHARGE_LEAVE_PAD = 0.5, chargeStayMemo = new Map();
   function digibotChargeRingStay(z){
     if(!z?.chargeRing)return false;
     const p=getStore()?.getState?.()?.me?.partner;
-    return !!p?.maxHp && p.hp/p.maxHp*100 > (z.hpDamagePct||60)+10;
+    if(!p?.maxHp)return false;
+    const hp=p.hp/p.maxHp*100;
+    if(chargeUnbreakable(z.skillId)){
+      if(!(z.hpDamagePct>0))return false;
+      const key=`${z.src??`${Math.round(z.x)},${Math.round(z.y)}`}|${z.skillId}`,now=Date.now();
+      for(const [k,t] of chargeStayMemo)if(t<now)chargeStayMemo.delete(k);
+      const stay=hp>z.hpDamagePct+(chargeStayMemo.has(key)?CHARGE_LEAVE_PAD:CHARGE_KEEP_PAD);
+      if(stay)chargeStayMemo.set(key,now+15000);else chargeStayMemo.delete(key);
+      return stay;
+    }
+    return hp > (z.hpDamagePct||60)+10;
+  }
+  // Lade-Ringe um den Boss aus den Kampf-Ereignissen, wenn das Spiel keinen Warnkreis zeichnet (raumweite Kreise stehen
+  // oft nicht in telegraphs.active): Kreis um den Boss mit dem Radius aus den Spieldaten bis zum Ende der Ansage (3.1.33)
+  function chargeZones() {
+    const out = [], now = Date.now(), pn = performance.now();
+    try {
+      const ents = window.dmo?.net?.state?.entities, act = worldScene()?.telegraphs?.active || [];
+      for (const [src, log] of bossSkillLog) {
+        const be = ents?.get?.(src);
+        if (!be || be.kind !== KIND.Mob || !(be.hp > 0) || !isFinite(be.x) || !isFinite(be.y)) continue;
+        for (const [id, e] of log) {
+          if (e.phase !== 'cast' || !(e.castEnd > now)) continue;
+          const sk = content()?.skills?.[id];
+          if (!sk?.chargeRing || sk.origin !== 'caster' || !(sk.radius > 0)) continue;
+          if (act.some((c) => c && (c.skill === id || c.skill?.id === id))) continue; // zeichnet das Spiel selbst
+          out.push({ kind: 'circle', x: be.x, y: be.y, r: sk.radius, skillId: id, src, end: pn + (e.castEnd - now), innerRadius: 0, holes: [], chargeRing: true, hpDamagePct: sk.hpDamagePct || 0 });
+        }
+      }
+    } catch { /* ignore */ }
+    return out;
+  }
+  // F1-Grenze vor einem Prozent-Lade-Treffer, der nicht bricht (Megiddo Flame): während der Ansage und schon vorher, solange
+  // der Boss in der Nähe ist und die Ladung noch kommen kann (nicht in ihrer Abklingzeit) – damit die HP beim Einschlag
+  // immer über hpDamagePct liegen. Ergebnis: Mindest-HP in % (0 = keine)
+  const CHARGE_TOPUP_PAD = 5, CHARGE_NEAR = 900;
+  function chargeTopup(st, now) {
+    let need = 0;
+    const ents = window.dmo?.net?.state?.entities, me = controlled(st);
+    for (const [src, log] of bossSkillLog) for (const [id, e] of log) {
+      const sk = content()?.skills?.[id], se = ents?.get?.(src);
+      if (!sk?.chargeRing || !(sk.hpDamagePct > 0) || !chargeUnbreakable(id) || e.phase !== 'cast' || !(e.castEnd > now - 300)) continue;
+      if (!se || se.kind !== KIND.Mob || !me || Math.hypot(se.x - me.x, se.y - me.y) > (sk.radius || 0) + 200) continue; // fremder Boss weit weg
+      need = Math.max(need, sk.hpDamagePct + CHARGE_TOPUP_PAD);
+    }
+    const boss = currentBoss(st), be = boss?.id ? ents?.get?.(boss.id) : null;
+    if (boss?.species && be && be.hp > 0 && me && Math.hypot(be.x - me.x, be.y - me.y) <= CHARGE_NEAR) {
+      for (const c of chargeSpecs()) {
+        if (c.breakAtHp > 0 || !(c.species === boss.species || c.skill.startsWith(`${boss.species}.`))) continue;
+        const sk = content()?.skills?.[c.skill];
+        if (!(sk?.hpDamagePct > 0)) continue;
+        const e = bossSkillLog.get(boss.id)?.get?.(c.skill);
+        // schon eingeschlagen (auch ohne gesehenes „release“: Ansage längst vorbei)
+        const hitAt = e?.phase === 'release' ? (e.relAt || e.used || 0) : e?.phase === 'cast' && e.castEnd && e.castEnd < now - 1000 ? e.castEnd : e?.phase === 'break' ? (e.used || 0) : 0;
+        if (hitAt && now - hitAt < (sk.cooldownMs || 0)) continue;
+        need = Math.max(need, sk.hpDamagePct + CHARGE_TOPUP_PAD);
+      }
+    }
+    return Math.min(99, need);
   }
   function digibotDodgeReset(){Object.assign(dodgeState,{active:false,lastTap:0,lastFollow:0,goal:null,late:false,basicTarget:null,lastStop:0,approachTarget:null,approachStopped:false,approachGoal:null});lineMemo.clear();}
   function digibotDodgeSpeed(st) {
@@ -2283,8 +2368,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       for (const c of sc?.telegraphs?.active || []) {
         // Raumweite Kreise (z. B. Apocalymons „Total Annihilation“, 640 px) kann man nicht verlassen – nur den Boss vorher
         // erledigen: nicht ausweichen, weiter angreifen (live: 20 s stillgestanden, Boss heilte sich von 5 auf 8 %)
-        if (c && c.r > 0 && c.r < ZONE_HUGE_R && isFinite(c.x) && isFinite(c.y)) { const z = digibotCircleZone(c,sc); if (!digibotChargeRingStay(z)) zones.push(z); }
+        if (c && c.r > 0 && c.r < ZONE_HUGE_R && isFinite(c.x) && isFinite(c.y)) { const z = digibotCircleZone(c,sc); if (!digibotChargeRingStay(z) && !shareGatherSkip(z)) zones.push(z); }
       }
+      for (const z of chargeZones()) if (z.r < ZONE_HUGE_R && !digibotChargeRingStay(z)) zones.push(z);
     } catch { /* ignore */ }
     if (!tank) try {
       const t = performance.now();
@@ -2330,7 +2416,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (tankNow(Date.now())) return [];
     try {
       return (worldScene()?.telegraphs?.active || []).filter((c) => c && c.r >= ZONE_HUGE_R && isFinite(c.x) && isFinite(c.y))
-        .map((c) => ({...digibotCircleZone(c,worldScene()),huge:true})).filter((z) => !digibotChargeRingStay(z));
+        .map((c) => ({...digibotCircleZone(c,worldScene()),huge:true}))
+        .concat(chargeZones().filter((z) => z.r >= ZONE_HUGE_R).map((z) => ({ ...z, huge: true })))
+        .filter((z) => !digibotChargeRingStay(z));
     } catch { return []; }
   }
   const DODGE_SEARCH_R = 328;     // so weit sucht das Ausweichen nach einem freien Punkt
@@ -2620,7 +2708,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const ents = window.dmo?.net?.state?.entities;
     const tamer = controlled(st), partner = ents?.get?.(st?.me?.partner?.entityId);
     const me0 = tamer || partner;
-    if (me0) for (const h of hugeZones()) if ([tamer,partner].some(p=>p && hugeCounts(h,p,walkSpeed))) zones.push(h);
+    // Lade-Treffer ohne Prozentwert, der nicht bricht (Spirytus Breath): auch wenn es knapp wird, nicht wieder hinein (3.1.33)
+    if (me0) for (const h of hugeZones()) if ([tamer,partner].some(p=>p && hugeCounts(h,p,walkSpeed)) || (h.chargeRing && !(h.hpDamagePct>0) && chargeUnbreakable(h.skillId))) zones.push(h);
     // Hinter einer Deckung (Platte bei der Ultimate Flare) gilt man in deren Zone als sicher
     const cmap = st?.world?.mapId;
     const tEnt = st?.target?.id ? ents?.get?.(st.target.id) : null;
@@ -2919,7 +3008,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           const log = bossSkillLog.get(ev.src);
           const def = content()?.skills?.[ev.skill];
           const e = log.get(ev.skill) || {};
-          if (ev.phase === 'cast') Object.assign(e, { used: now, phase: 'cast', castEnd: now + (def?.castMs || 0) });
+          if (ev.phase === 'cast') Object.assign(e, { used: now, phase: 'cast', castEnd: now + (def?.castMs || 0), dst: ev.dst || null });
           else if (ev.phase === 'release') {
             e.relAt = now; if (!(e.phase === 'cast' && now - e.used < (def?.castMs || 0) + 3000)) e.used = now; e.phase = 'release'; e.castEnd = 0; }
           else if (ev.phase === 'break') { e.phase = 'break'; e.castEnd = 0; }
@@ -3093,7 +3182,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     logEvent('warn', `${name || 'Ziel'}: steht an der Schutzzone, hin und her bringt nichts – ${SAFE_HOLD_MS / 1000} s in Ruhe lassen`);
     return true;
   }
-  // Lehnt das Spiel einen Angriff/Skill ab, kommt ein Fehler-Hinweis mit Code (st.toasts: { kind: 'error', code }).
+  // Lehnt das Spiel einen Angriff/Skill ab, kommt ein Fehler-Hinweis mit Code (Systemzeile in st.chat, siehe refusalNotices).
   //  unreachable    -> Digimon kommt nicht hin: Ziel sofort 1 min sperren (statt 12 s auf HP-Verlust zu warten)
   //  not_in_range   -> zu weit weg: ein Stück auf das Ziel zugehen
   //  safe_zone      -> Schutzzone: herauslaufen (auch wenn die Zone nicht in den Kartendaten steht)
@@ -3168,11 +3257,31 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     return turninPeek.val;
   }
-  function checkRefusals(st, t, now) {
+  // Ablehnungen stehen als Systemzeile im Chat (st.chat: { channel: 'system', notice: true, code, params, ts }), die
+  // Toasts tragen keinen Code (3.1.33: vorher wurde nur st.toasts gelesen – kein Code kam je an). Ältere Zeilen (vor dem
+  // Start oder älter als REFUSAL_FRESH_MS) zählen nicht.
+  const REFUSAL_FRESH_MS = 5000;
+  function refusalNotices(st, now) {
+    const out = [];
+    const chat = Array.isArray(st?.chat) ? st.chat : st?.chat?.messages || st?.chat?.lines || [];
+    if (!refusal.primed) { refusal.primed = true; for (const m of chat) if (m && typeof m === 'object' && !m.ts) refusal.seen.add(m); } // Altes ohne Zeitstempel beim Start überspringen
+    for (let i = Math.max(0, chat.length - 15); i < chat.length; i++) {
+      const m = chat[i];
+      if (!m || typeof m !== 'object' || refusal.seen.has(m)) continue;
+      refusal.seen.add(m);
+      if (!m.code || !(m.notice || m.channel === 'system')) continue;
+      if (m.ts && Math.abs(Date.now() - m.ts) > REFUSAL_FRESH_MS) continue;
+      out.push({ kind: 'error', code: m.code });
+    }
     for (const to of st?.toasts || []) {
       if (!to || typeof to !== 'object' || refusal.seen.has(to)) continue;
       refusal.seen.add(to);
-      if (to.kind !== 'error' || !to.code) continue;
+      if (to.kind === 'error' && to.code) out.push(to);
+    }
+    return out;
+  }
+  function checkRefusals(st, t, now) {
+    for (const to of refusalNotices(st, now)) {
       if (to.code === 'safe_zone') refusal.safeAt = now;
       else if (to.code === 'not_in_range') refusal.rangeAt = now;
       else if (to.code === 'unreachable' && t?.id && t.kind === 'mob') {
@@ -4871,6 +4980,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (kh) return { text: kh, hold: true };
     const kg = digibotCore.priority(100,()=>kohGather(st, now));
     if (kg) { group.mirrorTap = null; return { text: kg, hold: true }; }
+    const sg = digibotCore.priority(100,()=>shareGather(st, now));
+    if (sg) { group.mirrorTap = null; return { text: sg, hold: true }; }
     const dg = digibotCore.priority(100,()=>dodge(st, now));
     if (dg) { group.mirrorTap = null; return { text: dg, hold: true }; }
     const ents = window.dmo?.net?.state?.entities;
@@ -5077,7 +5188,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Eine erledigte wiederholbare Quest ist wieder annehmbar, sobald ihr Erledigt-Tag (hinter den Zählern gespeichert)
   // vor „heute“ liegt. Der Tag wechselt um 7:00 UTC.
   const RESET_UTC_HOUR = 7;
-  const isStory = (id) => /^q(\d\d[a-z]?)?_/.test(id) || /^a2(_\d\d[a-z]?|q)_/.test(id);
+  const isStory = (id) => /^q(\d\d[a-z]?)?_/.test(id) || /^a[23](_\d\d[a-z]?|q)_/.test(id); // wie im Spiel: auch Tamers (a3, 3.1.33)
   const gameDay = (t = Date.now()) => Math.floor((t - RESET_UTC_HOUR * 3600000) / 86400000);
   // Eigene Merkliste „heute erledigt“ – je Account (sonst überspringt Account B eine Tagesquest, nur weil A sie heute hatte)
   const DONE_KEY = 'digibot.doneToday';
@@ -5101,11 +5212,22 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Map freigeschaltet? Jede Map mit entryQuest (alle A02-/Tamers-Maps) ist erst betretbar, wenn diese Quest angenommen
   // oder erledigt ist (3.0.7). Sonst zogen Weltboss-Knopf, Named-Runde, Lern-Route und Map-Runde die Tamers-Maps
   // (Megidramon Lv 120, Jeri Agent Lv 128) heran, obwohl das Tor noch zu ist.
+  // Wie im Spiel (3.1.33): entryQuestState 'accepted' = angenommen reicht, sonst muss die Quest erledigt sein (Status 3).
+  // Die Map, auf der man steht, gilt immer als offen (Rückweg).
   function mapOpen(st, mapId) {
-    const q = content()?.maps?.[mapId]?.entryQuest;
+    const m = content()?.maps?.[mapId], q = m?.entryQuest;
     if (!q) return true;
     const s = st || getStore()?.getState?.();
-    return (s?.me?.quests?.[q]?.state ?? 0) >= 1;
+    if (s?.world?.mapId === mapId) return true;
+    const state = s?.me?.quests?.[q]?.state ?? 0;
+    return m.entryQuestState === 'accepted' ? state >= 1 : state === 3;
+  }
+  // Zu Fuß durchs Portal (Spielregel Br): ohne erledigte Quest ist nur ein Tamers-Gebiet ohne Schutzzone zu. Für die Reise
+  // reicht darum auch eine angenommene Einstiegsquest außerhalb solcher Gebiete (wie bis 3.1.32)
+  function mapWalkable(st, mapId) {
+    if (mapOpen(st, mapId)) return true;
+    const m = content()?.maps?.[mapId], s = st || getStore()?.getState?.();
+    return (s?.me?.quests?.[m?.entryQuest]?.state ?? 0) >= 1 && !(m?.series === 3 && !m?.safe);
   }
   // Für wiederholte Quests zählt im Spiel das höchste Level im Team
   const teamLevel = (st) => (st?.archive?.partners || []).reduce((m, p) => (p.carried ? Math.max(m, p.level || 0) : m), st?.me?.partner?.level ?? 1);
@@ -5227,15 +5349,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // An existing fusion can evolve further even while its partner is locked/absent.
     const withPartner = warp ? undefined : step.jogress?.partner?.partnerId;
     if (evoCooldownLeft(st) > 0) return true;            // Abklingzeit: erst mal in aktueller Form weiter
-    const cost=warp?target.warp.dsCost:step.dsCost;
-    const ready=warp?!target.warp.blocker && (st.me.tamerDs??0)>=cost:step.canEvolveNow;
+    // Das Spiel verlangt 10 % Tamer-DS mehr als die Kosten (ceil(dsCost·1,1), 3.1.33)
+    const cost=warp?target.warp.dsCost:step.dsCost, need=Math.ceil((cost??0)*1.1);
+    const ready=warp?!target.warp.blocker && (st.me.tamerDs??0)>=need:step.canEvolveNow;
     if (!ready) {
-      if ((st.me.tamerDs ?? 0) < (cost ?? 0) && potionCount(st.me, 3) > 0 && bot.can('F3', POT_COOLDOWN_MS, now)) {
+      if ((st.me.tamerDs ?? 0) < need && (st.me.tamerDs ?? 0) < (st.me.tamerMaxDs ?? Infinity) && potionCount(st.me, 3) > 0 && bot.can('F3', POT_COOLDOWN_MS, now)) { // volles DS: kein F3 in Schleife
         bot.hit('F3', now);
         logEvent('potion', 'F3: Tamer-DS für die Digitation aufgefüllt');
         return 'Fülle Tamer-DS für die Digitation auf…';
       }
-      return note(target.warp?.blocker && cfg.evoWarp ? `Warp: ${target.warp.blocker}` : (st.me.tamerDs??0)<(cost??0)?'zu wenig Tamer-DS':'momentan nicht bereit');
+      return note(target.warp?.blocker && cfg.evoWarp ? `Warp: ${target.warp.blocker}` : (st.me.tamerDs??0)<need?'zu wenig Tamer-DS':'momentan nicht bereit');
     }
     if (now - autopilot.lastEvolve > 4000) {
       if (++autopilot.evoTries > 5) { autopilot.evoGiveUp = species; logEvent('warn', `Digitation zu ${speciesName(species)} klappt nicht`); return true; }
@@ -5395,7 +5518,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // wie das Digi-Phone: zuerst nach Serie (Feld series, fehlt = Adventure), dann nach Level – sonst landet z. B.
     // Spiral Mountain (Adventure, Lv 53–56) mitten zwischen den Adventure-02-Maps
     const list = Object.values(content()?.maps || {})
-      .filter((m) => world.maps[m.id] && !isRaidMap(m.id) && !/^sandbox/.test(m.id) && mapOpen(null, m.id))
+      .filter((m) => world.maps[m.id] && !isRaidMap(m.id) && !/^sandbox/.test(m.id) && mapWalkable(null, m.id))
       .sort((a, b) => (b.series ?? 1) - (a.series ?? 1) || (b.levelRange?.[0] ?? 0) - (a.levelRange?.[0] ?? 0) || (b.levelRange?.[1] ?? 0) - (a.levelRange?.[1] ?? 0)
         || a.name.localeCompare(b.name));
     return cfg.apSweepDir === 'up' ? list.reverse() : list;
@@ -5650,7 +5773,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         if(!M)return true;if(t.grind)return false;
         return t.purpose==='daily'?t.loc.mapId===M:questOnMap(t.def,M);
       })
-      .filter((t) => (autopilot.failed.get(t.key) || 0) < now && hops(mapId, t.loc.mapId) < Infinity && mapOpen(st, t.loc.mapId));
+      .filter((t) => (autopilot.failed.get(t.key) || 0) < now && hops(mapId, t.loc.mapId) < Infinity && mapWalkable(st, t.loc.mapId));
     // Cache ETA once per planning pass; all boss objectives use confirmed timers,
     // independent of quest-log order or how far away the NPC list places them.
     available=available.map(t=>({...t,bossEta:digibotQuestBossETA(st,t,now),bossIdle:digibotQuestBossIdle(st,t,now)}));
@@ -6087,6 +6210,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const walk = (x, depth) => {
       if (x == null || depth > 5) return;
       if (typeof x === 'string') { if (C?.maps?.[x]) ids.add(x); return; }
+      if (typeof x === 'object' && x.unlocked === false) return; // gesperrtes Ziel (teleport_locked, 3.1.33)
       if (typeof x === 'object') for (const v of Object.values(x)) walk(v, depth + 1);
     };
     walk(tp.maps, 0);
@@ -6158,7 +6282,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function travel(st, mapId, now, viaPhone = false) {
     const cur = st.world?.mapId;
     if (cur === mapId) { autopilot.tp = null; return true; }
-    if (!mapOpen(st, mapId)) { // Tor noch zu (Einstiegsquest nicht angenommen): wie „keine Route“ behandeln
+    if (!mapWalkable(st, mapId)) { // Tor noch zu (Einstiegsquest fehlt): wie „keine Route“ behandeln
       if (travel.lockedNote !== mapId) { travel.lockedNote = mapId; logEvent('warn', `${content()?.maps?.[mapId]?.name || mapId}: noch nicht freigeschaltet (Einstiegsquest fehlt) – keine Reise`); }
       return 'Keine Route';
     }
@@ -7265,7 +7389,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Weltbosse: nur auf freigeschalteten Maps und höchstens WB_LEVEL_ABOVE über dem Digimon (3.0.7) – sonst zog der Knopf
   // nach einer BlackWarGreymon-Warnung Megidramon (Tamers, Lv 120) heran
   const WB_LEVEL_ABOVE = 15;
-  const wbSel = () => { const st = getStore()?.getState?.(), pl = st?.me?.partner?.level; return farmBossList().filter((b) => b.kind === 'world' && mapOpen(st, b.map) && (pl == null || b.level <= pl + Math.max(WB_LEVEL_ABOVE, cfg.lvlDiff || 0))); };
+  const wbSel = () => { const st = getStore()?.getState?.(), pl = st?.me?.partner?.level; return farmBossList().filter((b) => b.kind === 'world' && mapWalkable(st, b.map) && (pl == null || b.level <= pl + Math.max(WB_LEVEL_ABOVE, cfg.lvlDiff || 0))); };
   // Unterwegs zum Event/Weltboss angegriffen: nicht kämpfen – Digimon zurückrufen und weiterlaufen (wie die Rotation)
   function wayRecall(st, sc, now) {
     if (!sc?.attackers?.length) return;
@@ -7428,7 +7552,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function routeMaps() {
     const C = content();
     const named = new Map();
-    for (const b of farmBossList()) if (b.kind === 'named' && !named.has(b.map) && mapOpen(null, b.map)) named.set(b.map, b);
+    for (const b of farmBossList()) if (b.kind === 'named' && !named.has(b.map) && mapWalkable(null, b.map)) named.set(b.map, b);
     return [...named.values()].map((b) => ({ id: b.map, name: b.mapName, range: C?.maps?.[b.map]?.levelRange || [b.level, b.level], boss: b }))
       .filter((r) => !C?.maps?.[r.id]?.safe)
       .sort((a, b) => (a.range[0] ?? 0) - (b.range[0] ?? 0) || (a.range[1] ?? 0) - (b.range[1] ?? 0) || a.name.localeCompare(b.name));
@@ -8559,7 +8683,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const dps = lrDps(p); let best = null;
     const now = Date.now(), here = st.world?.mapId, banned = (k) => (lr.ban?.get(k) || 0) > now;
     for (const [mapId, sp] of Object.entries(C.spawns || {})) {
-      if (sp.raid || !sp.zones || !mapOpen(st, mapId)) continue;
+      if (sp.raid || !sp.zones || !mapWalkable(st, mapId)) continue;
       if (cfg.levelA2 && (C.maps?.[mapId]?.series || 1) !== 2) continue;
       // Reise gescheitert (kein Portalweg / Portal nicht erreichbar): eine Weile auslassen, sonst wählte er sie immer wieder (3.1.30)
       if (banned(mapId) || (world.maps[here] && mapId !== here && hops(here, mapId) === Infinity)) continue;
@@ -8593,7 +8717,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const C = content(), lo0 = lrMapLow(mapId); if (!C?.spawns || !isFinite(lo0)) return null;
     const ser = C.maps?.[mapId]?.series || 1; let best = null, bl = -Infinity;
     for (const [id, sp] of Object.entries(C.spawns)) {
-      if (sp.raid || id === mapId || (C.maps?.[id]?.series || 1) !== ser || !mapOpen(null, id)) continue;
+      if (sp.raid || id === mapId || (C.maps?.[id]?.series || 1) !== ser || !mapWalkable(null, id)) continue;
       const lo = lrMapLow(id); if (isFinite(lo) && lo < lo0 && lo > bl) { bl = lo; best = id; }
     }
     return best;
@@ -8990,6 +9114,54 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     return false;
   }
+  // Geteilter Treffer allgemein (3.1.33, nicht nur mit Key of Hope): der Schaden verteilt sich auf alle Digimon im Kreis
+  // um den Getroffenen (Tamers-Bosse: share.minPartners 3). In der Gruppe darum NICHT aus dem Kreis laufen, sondern zum
+  // Ziel des Treffers (ev.dst) – höchstens Radius − SHARE_IN_PAD entfernt. Bin ich das Ziel: stehen bleiben.
+  const SHARE_IN_PAD = 10;
+  function shareCast(now) {
+    let best = null;
+    for (const [src, log] of bossSkillLog) for (const [id, e] of log) {
+      const sk = content()?.skills?.[id];
+      if (!sk?.share || e.phase !== 'cast' || !(e.castEnd > now - 300) || !e.dst) continue; // bis zum Einschlag (release)
+      if (!best || e.castEnd < best.castEnd) best = { src, sid: id, dst: e.dst, castEnd: e.castEnd, r: sk.radius || 64 };
+    }
+    return best;
+  }
+  const shareGatherOn = () => !!group.active?.();
+  // Warnkreis eines geteilten Treffers: in der Gruppe kein Ausweichen davor (dangerZones)
+  function shareGatherSkip(z) {
+    if (!z?.skillId || !shareGatherOn()) return false;
+    return !!content()?.skills?.[z.skillId]?.share;
+  }
+  const shareState = { lastTap: 0, lastFollow: 0, logged: null };
+  function shareGather(st, now) {
+    if (!shareGatherOn()) return null;
+    const sc0 = shareCast(now);
+    if (!sc0) { shareState.logged = null; return null; }
+    const ents = window.dmo?.net?.state?.entities, tamer = controlled(st), partner = ents?.get?.(st?.me?.partner?.entityId);
+    if (!tamer || !partner || st.me?.partner?.fainted) return null;
+    // andere Warnflächen (keine geteilten) unter mir: erst ausweichen
+    const others = dangerZones().filter((z) => !z.skillId || !content()?.skills?.[z.skillId]?.share);
+    if (others.some((z) => [tamer, partner].some((e) => zoneDist(z, e).d < DODGE_MARGIN))) return null;
+    const name = content()?.skills?.[sc0.sid]?.name || 'Geteilter Treffer';
+    const key = `${sc0.src}|${sc0.sid}|${sc0.castEnd}`;
+    const mine = sc0.dst === tamer.id || sc0.dst === partner.id || sc0.dst === st.me?.tamerEntityId;
+    if (shareState.logged !== key) { shareState.logged = key; logEvent('auto', `${name}: geteilter Treffer – ${mine ? 'auf mir, halte Position' : 'sammle mich beim Ziel'}`); }
+    if (mine) return `${name}: auf mir – halte Position, Gruppe sammelt sich` + kohAttackInPlace(st, now);
+    const d0 = ents?.get?.(sc0.dst);
+    if (!d0 || !isFinite(d0.x) || !isFinite(d0.y)) return null;
+    // Partner-Ziel: Tamer des Treffers zählt mit seinem Digimon – gemessen wird immer am Digimon
+    const inR = sc0.r - SHARE_IN_PAD;
+    if (Math.hypot(partner.x - d0.x, partner.y - d0.y) <= inR) return `${name}: im geteilten Kreis` + kohAttackInPlace(st, now);
+    // Weg zum Kreis führt durch eine andere Warnfläche: draußen warten
+    if (others.length && !digibotDodgeZonePath(tamer, d0, others, DODGE_MARGIN)) return `${name}: Weg zum geteilten Kreis führt durch eine Warnzone – warte`;
+    if (Math.hypot(tamer.x - d0.x, tamer.y - d0.y) > 8 && now - shareState.lastTap > DODGE_RETAP_MS) {
+      shareState.lastTap = now; autopilot.nav = null; autopilot.route = null; worldScene()?.tapGround?.(d0.x, d0.y);
+    }
+    // bei Digimon-Steuerung reicht der Klick (partnerFollow zöge es zum Tamer zurück)
+    if (partner.id !== tamer.id && now - shareState.lastFollow > 1500) { shareState.lastFollow = now; commands()?.partnerFollow?.(); }
+    return `${name}: laufe in den geteilten Kreis`;
+  }
   const TAB_COOLDOWN_MS = 600;   // Pause zwischen zwei Tab-Drücken
   const ATTACK_REPEAT_MS = 1500; // Taste 1 erneut drücken, solange das Ziel lebt
   const SKILL_GAP_MS = 800;      // Abstand zwischen zwei Skills (bis der Server den Cooldown meldet)
@@ -9110,8 +9282,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       // geteilter Treffer angesagt (Catastrophe Cannon, Black-Rain-Hülle): bis zum Einschlag möglichst volle HP
       // Lern-Route auf dem Weg zum Feldboss / am Spawnpunkt: vorher auffüllen (im Kampf gelten die normalen Schwellen)
       const prep = lrOn() && !!lr.boss && !(t?.kind === 'mob' && t.hp > 0 && this.attackedId === t.id && lrBossEnt(lr.boss.b)?.id === t.id);
+      // Prozent-Lade-Treffer, der nicht bricht (Megiddo Flame, 90 %): HP immer darüber halten (3.1.33)
+      const chargeNeed = chargeTopup(st, now);
       potion(1, (cfg.hpPot > 0 && pct(p.hp, p.maxHp) < cfg.hpPot) || (shareIncoming(now) && pct(p.hp, p.maxHp) < SHARE_TOPUP)
-        || (prep && pct(p.hp, p.maxHp) < LR_BOSS_PREP_HP));
+        || (prep && pct(p.hp, p.maxHp) < LR_BOSS_PREP_HP) || (chargeNeed > 0 && pct(p.hp, p.maxHp) < chargeNeed));
       potion(2, (cfg.dsPot > 0 && pct(p.ds, p.maxDs) < cfg.dsPot) || (prep && pct(p.ds, p.maxDs) < LR_BOSS_PREP_DS));
       potion(3, tamerFoodNeeded(me, now));
 
@@ -9143,6 +9317,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (kh) { this.status = kh; return; }
       const kg = heldNow ? null : kohGather(st, now);
       if (kg) { this.status = kg; return; }
+      const sg = heldNow ? null : shareGather(st, now); // geteilter Treffer: in der Gruppe zusammenstehen (3.1.33)
+      if (sg) { this.status = sg; return; }
       const dg = heldNow ? null : dodge(st, now);
       if (dg) { this.status = dg; this.attackedId = null; return; }
       // Food kaufen (3.1.8): reisen, kaufen, stoppen – kein Kampf
@@ -9453,9 +9629,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       } else if (rp && (rp.id !== t.id || now >= rp.until)) refusal.repos = null;
       if (now - refusal.rangeAt < 2500) {
         const te = ents?.get?.(t.id), me2 = controlled(st);
-        if (te && me2 && now - refusal.lastTap > 700) {
+        const go = te && me2 ? { x: me2.x + (te.x - me2.x) * 0.6, y: me2.y + (te.y - me2.y) * 0.6 } : null;
+        // nicht durch eine Warnfläche nähern (seit 3.1.33 kommt die Ablehnung wirklich an)
+        if (go && now - refusal.lastTap > 700 && digibotDodgeZonePath(me2, go, dangerZones(), DODGE_MARGIN)) {
           refusal.lastTap = now;
-          worldScene()?.tapGround?.(me2.x + (te.x - me2.x) * 0.6, me2.y + (te.y - me2.y) * 0.6);
+          worldScene()?.tapGround?.(go.x, go.y);
         }
         this.status = `Zu weit weg – gehe näher an ${t.name} heran…`;
       }
@@ -9811,7 +9989,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         `${seriesTag(m.series)} · ${m.name} (${m.levelRange?.join('–')})${hops(st?.world?.mapId, m.id) === Infinity ? ' – nicht erreichbar' : ''}`])]
       : [['', 'Weltkarte lädt…']]);
     fillSelect('eventsIdleMap', world.state === 'ready'
-      ? [['', 'stehen bleiben'], ...Object.values(content()?.maps || {}).filter((m) => world.maps[m.id] && !isRaidMap(m.id) && !/^sandbox/.test(m.id) && mapOpen(st, m.id))
+      ? [['', 'stehen bleiben'], ...Object.values(content()?.maps || {}).filter((m) => world.maps[m.id] && !isRaidMap(m.id) && !/^sandbox/.test(m.id) && mapWalkable(st, m.id))
         .sort((a, b) => a.name.localeCompare(b.name)).map((m) => [m.id, `${m.name}${hops(st?.world?.mapId, m.id) === Infinity ? ' – nicht erreichbar' : ''}`])]
       : [['', 'Weltkarte lädt…']]);
   }
