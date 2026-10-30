@@ -2,6 +2,17 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.38 – Regler Gruppenabstand
+- **Reiter Kampf → Zielwahl, unter Suchradius:** neuer Regler „Gruppenabstand“ (60–1.500 px, Standard 110 wie bisher fest).
+  So weit dürfen Mitläufer vom Leader weg sein, bevor sie zurücklaufen. Das Spiel teilt EXP und Quest-Fortschritt auf
+  derselben Map im selben Kanal (Client: `inRange` = gleiche Map + Kanal), der Abstand spielt dafür laut Spielcode keine
+  Rolle. Mit wachsendem Regler wachsen auch die Grenze „erst hinlaufen, nicht mitkämpfen“ (mindestens 350, sonst Abstand +
+  240 px) und die Leine bei „Ziele verteilen“ (mindestens 250 px, sonst der Abstand). Eigene Monster jagen die Mitläufer
+  nur mit „Ziele verteilen“, sonst greifen sie weiter das Ziel des Leaders an. Damit das auch auf Abstand klappt, wachsen
+  die Reichweite fürs Mithelfen am Leader-Ziel (Suchradius × 1,5 oder Abstand + Suchradius) und die Reichweite für
+  Angreifer auf Gruppenmitglieder (Abstand + 100 px) mit.
+- Test: `tests/grpdist3138test.js`.
+
 ## 3.1.37 – Tränke & Food zum Ladenpreis in der Sitzungsbilanz
 - **„Bits −0“ trotz Tränken (Nutzer 30.10.):** Der Verbrauch aus dem Vorrat kostet keine Bits, darum stand der Abgang auf 0.
   „Sitzung: Beute & Verbrauch“ bewertet Tränke und Food jetzt zum Kaufpreis im Laden (Spieldaten `items[id].price`, z. B.

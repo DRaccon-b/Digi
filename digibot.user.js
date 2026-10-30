@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.37
+// @version      3.1.38
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -159,7 +159,7 @@ function digibotClean(v, depth=0) {
 function digibotConfig(saved, defaults) {
   const out=JSON.parse(JSON.stringify(defaults)), issues=[];
   if(!digibotRecord(saved))return {value:out,issues:['Ungültiges Einstellungsformat']};
-  const bounds={width:[300,900],radius:[80,2000],lvlDiff:[-100,100],hpPot:[0,100],dsPot:[0,100],tdsPot:[0,100]};
+  const bounds={width:[300,900],radius:[80,2000],grpDist:[60,1500],lvlDiff:[-100,100],hpPot:[0,100],dsPot:[0,100],tdsPot:[0,100]};
   const boolMap=v=>Object.fromEntries(Object.entries(digibotRecord(v)?digibotClean(v):{}).filter(([,x])=>typeof x==='boolean'));
   const skills=v=>Object.fromEntries(Object.entries(boolMap(v)).filter(([k])=>/^[2-6]$/.test(k)));
   const heals=v=>Object.fromEntries(Object.entries(digibotRecord(v)?digibotClean(v):{}).filter(([k,x])=>/^[2-6]$/.test(k)&&typeof x==='number').map(([k,x])=>[k,Math.max(0,Math.min(100,x))]));
@@ -1366,7 +1366,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const SKILL_KEYS = [2, 3, 4, 5, 6]; // Tasten, deren Skills automatisch gewirkt werden dürfen
   const cfg = {
     tamerAuto: true, evoWarp: false, apMapEvo: true, independentGroup: true, width: 320, compact: false, min: false,
-    tab: 'data', lvlDiff: 5, radius: 300, hpPot: 40, dsPot: 20, tdsPot: 20,
+    tab: 'data', lvlDiff: 5, radius: 300, grpDist: 110, hpPot: 40, dsPot: 20, tdsPot: 20,
     skills: { 2: true, 3: true, 4: true, 5: true, 6: true },
     heal: {},       // alt (vor 2.12): Heil-Skills je Taste – wird beim ersten Start in skillSets übernommen
     skillSets: {},  // { [Digimon-Art]: { skills: { [Taste]: an/aus }, heal: { [Taste]: HP-% } } } – je Digitationsform
@@ -1560,8 +1560,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const GROUP_STALE_MS = 6000;           // so lange gilt die letzte Meldung eines Fensters
   const GROUP_WAIT_MS = 180000;          // Leader wartet höchstens so lange auf die anderen (Annehmen/Abgeben)
   const GROUP_TALK_KEEP_MS = 20 * 60000; // so lange können Mitläufer verpasste Gespräche nachholen
-  const FOLLOW_DIST = 110;               // Mitläufer bleiben so nah am Leader
-  const FOLLOW_FAR = 350;                // weiter weg: erst hinlaufen, nicht kämpfen
+  // Mitläufer bleiben so nah am Leader (Regler Gruppenabstand, Standard 110; 3.1.38). Weiter als followFar(): erst
+  // hinlaufen, nicht kämpfen – wächst mit dem Regler, sonst lägen Mitläufer zwischen Abstand und 350 px untätig herum
+  const followDist = () => Math.max(60, Number(cfg.grpDist) || 110);
+  const followFar = () => Math.max(350, followDist() + 240);
   const GROUP_BLOCK_MAX_MS = 300000;     // so lange hält der Leader eine Abgabe zurück, bis Mitläufer Reise-/Gesprächsziele haben
   const group = {
     bus: null, peers: new Map(), // Slot -> letzte Meldung
@@ -1607,7 +1609,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.37'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.38'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1709,6 +1711,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         ${grp('targeting', 'Zielwahl', `
           ${slider('lvlDiff', 'Max. Level über dem Digimon', 0, 100, (v) => `+${v}`)}
           ${slider('radius', 'Suchradius', 100, 800, (v) => `${v} px`, 0, 20)}
+          <div title="Gruppe: so weit dürfen Mitläufer vom Leader weg sein, bevor sie zurücklaufen. EXP und Quest-Fortschritt teilt das Spiel auf derselben Map im selben Kanal, unabhängig vom Abstand. Eigene Monster jagen die Mitläufer nur mit „Ziele verteilen“ (Reiter Gruppe) – sonst greifen sie das Ziel des Leaders an.">${slider('grpDist', 'Gruppenabstand', 60, 1500, (v) => `${v} px`, 0, 10)}</div>
           ${check('skipTaken', 'Keine Gegner angreifen, die andere Spieler bekämpfen')}
           ${check('levelRoute', 'Lern-Route: selbst zur besten EXP-Zone reisen', 'Beim Grinden reist der Bot zur Zone mit den meisten EXP/min für das aktuelle Level. Wechsel erst ab +15 % besser, frühestens nach 3 min.')}
           ${check('levelA2', 'Lern-Route nur in Adventure 02')}
@@ -3282,7 +3285,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (!L?.inWorld) return false;
       if (L.noFight || st.world?.mapId !== L.mapId) return true;
       const me = controlled(st);
-      return !!me && L.x != null && Math.hypot(me.x - L.x, me.y - L.y) > FOLLOW_FAR;
+      return !!me && L.x != null && Math.hypot(me.x - L.x, me.y - L.y) > followFar();
     }
     const tk = autopilot.task;
     if (tk && !taskDone(st, tk)) return PASSIVE(tk) || digibotQuestBossTravel(st, tk);
@@ -4214,12 +4217,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // Leader erledigt meine Quests: ich bleibe stehen – nur, was mich selbst angreift, ist ein Angreifer
     // „Ziele verteilen“: das Monster eines anderen ist sein Kampf, kein Angreifer für alle – sonst gehen wieder alle darauf
     const guardParty = !(group.role() === 'follower' && groupLeader()?.serve) && !spreadOn();
+    // Mitläufer dürfen bis zum Gruppenabstand vom Leader weg stehen – Angreifer auf ihn so weit mitzählen (3.1.38)
+    const partyR = group.role() === 'follower' ? Math.max(cfg.radius, followDist() + 100) : cfg.radius;
     const dgZone = dgHereZone(st, self); // Dungeon: nur Monster im Raum, in dem ich stehe (Reste früherer Räume ignorieren)
     ents.forEach((e) => {
       if (e.kind !== KIND.Mob || e.hp <= 0 || (e.flags & (FLAG.Dead | FLAG.Hidden | FLAG.Untargetable))) return;
       if (dgZone && !inRect(dgZone, e, 24)) return;
       // Angreifer: greift mich an – oder ein Gruppenmitglied in meiner Nähe
-      const attacker = mine.has(e.targetId) || (guardParty && party.has(e.targetId) && Math.hypot(e.x - self.x, e.y - self.y) <= cfg.radius);
+      const attacker = mine.has(e.targetId) || (guardParty && party.has(e.targetId) && Math.hypot(e.x - self.x, e.y - self.y) <= partyR);
       const cat = catOf(e.flags), key = `${e.defId}|${cat}`;
       const aggressive = !!(e.flags & FLAG.Aggressive);
       const s = seenHere.get(key);
@@ -4586,10 +4591,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (!L || cfg.autopilot) return L;
     const st = getStore()?.getState?.(), me = controlled(st);
     return L.bot && L.inWorld && L.x != null && me && L.mapId === st?.world?.mapId && (L.channel ?? 1) === (st?.world?.channel ?? 1)
-      && Math.hypot(L.x - me.x, L.y - me.y) <= SPREAD_LEASH * 2 ? L : null;
+      && Math.hypot(L.x - me.x, L.y - me.y) <= spreadLeash() * 2 ? L : null;
   };
-  const spreadNear = (m) => { const L = spreadLeader(); return !L || L.x == null || Math.hypot(m.x - L.x, m.y - L.y) <= SPREAD_LEASH; };
-  const SPREAD_LEASH = 250; // Ziele verteilen: Mitläufer greifen nur Monster in diesem Umkreis um den Leader an
+  const spreadNear = (m) => { const L = spreadLeader(); return !L || L.x == null || Math.hypot(m.x - L.x, m.y - L.y) <= spreadLeash(); };
+  // Ziele verteilen: Mitläufer greifen nur Monster in diesem Umkreis um den Leader an (mindestens der Gruppenabstand)
+  const spreadLeash = () => Math.max(250, followDist());
   const spreadOn = () => group.active() && accounts.spread && !accounts.mirror && !cfg.farm;
   function groupTargets() {
     const out = new Map(), now = Date.now(), ents = window.dmo?.net?.state?.entities;
@@ -4819,7 +4825,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     autopilot.huntSpecies = new Set(L.hunt || []);
     const me = controlled(st);
     const d = me && L.x != null ? Math.hypot(me.x - L.x, me.y - L.y) : 0;
-    if (d > FOLLOW_DIST) {
+    if (d > followDist()) {
       if (walkTo(st, L.x, L.y, now) === 'stuck') autopilot.nav = null;
       return `Gruppe: folge ${name} (${Math.round(d)} px)`;
     }
@@ -4842,7 +4848,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Ziel des Leaders mit angreifen – das Level-Limit des Mitläufers gilt dabei nicht (der Leader entscheidet)
   function groupAssist(sc) {
     const id = leaderTargetId();
-    return id ? sc.mobs.find((m) => m.id === id && !m.banned && m.d <= cfg.radius * 1.5) || null : null;
+    // Reichweite wächst mit dem Gruppenabstand – sonst half ein weit stehender Mitläufer dem Leader nicht mehr (3.1.38)
+    return id ? sc.mobs.find((m) => m.id === id && !m.banned && m.d <= Math.max(cfg.radius * 1.5, followDist() + cfg.radius)) || null : null;
   }
   // Gemeinsamer Fokus (ohne „Ziele verteilen“): Mitläufer bleiben auf dem Ziel des Leaders, auch wenn sie selbst
   // angegriffen werden – nur bei weniger als FOCUS_MIN_HP % HP wehren sie sich zuerst selbst
@@ -8623,7 +8630,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (spread) { // Ziele verteilen: zuerst ein Monster, das noch kein anderes Gruppenmitglied angreift (Bosse gemeinsam)
       // Mitläufer nur in der Nähe des Leaders – sonst wandern sie Kill für Kill aus der Gruppe weg
       const L = spreadLeader(); // Leader woanders/aus: ohne Leine weiter unten wie allein jagen (3.1.30)
-      const near = (m) => !L || L.x == null || Math.hypot(m.x - L.x, m.y - L.y) <= SPREAD_LEASH;
+      const near = (m) => !L || L.x == null || Math.hypot(m.x - L.x, m.y - L.y) <= spreadLeash();
       const free = sc.mobs.find((m) => usable(m) && near(m) && (m.grpBy === null || m.cat === 'boss'));
       if (free) return free;
       if (L) return groupAssist(sc) || sc.mobs.find((m) => usable(m) && near(m)) || null;
