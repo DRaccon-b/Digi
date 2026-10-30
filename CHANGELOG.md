@@ -2,6 +2,18 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.34 – Kuramon-Herde: Flächenskills frei, Zähler; Not-Aus ohne rotes Fenster
+- **Herde besser abfangen (live 30.10., Hard Raum 2):** Im Dungeon hielt der Bot Flächenskills wie Invincible Sword und
+  Sacred Seal zurück („würde möglicherweise weitere Gegner anlocken“). Die Bremse ist fürs Grinden draußen gedacht, in
+  einem Dungeon-Raum ist aber jedes Monster ohnehin ein Ziel. Jetzt setzt der Bot sie dort frei ein. Simulation
+  (Bauzel + 4 Clavis, Live-Werte): **34 statt 13 von 60** Kuramon abgefangen, Armageddemon bekommt 6 statt 11 Stapel.
+- **Herden-Zähler:** Nach der Herde steht im Protokoll, wie viele Kuramon abgefangen wurden, wie viele am Ei ankamen und
+  wie viele Stapel der Boss dadurch bekommt, z. B. „Herde: 34/60 abgefangen, 26 am Ei – Boss +6 Stapel (+18 % AT/DE)“.
+- **Not-Aus ohne rotes Fenster:** Nach Esc oder dem Not-Aus-Knopf erscheint oben links kein Fenster mehr, das Spiel und
+  Panel verdeckt. Bei echten Problemen (Anwesenheitskontrolle, Verbindung, Fehler) erscheint ein kleiner Hinweis unten
+  in der Mitte. Er lässt alle Klicks durch und verschwindet beim nächsten Start.
+- Test: `tests/herd3134test.js`.
+
 ## 3.1.33 – Lade-Angriffe der Tamers-Bosse, Spielregeln aus den neuen Spieldaten
 - **Megidramon „Megiddo Flame“** (12 s Ladung, 90 % der Max-HP, Schaden bricht sie nicht): Der Bot hält die HP gegen
   Megidramon mit F1 dauerhaft über 95 %, auch wenn die eigene Trank-Grenze niedriger steht. Bei der Ladung bleibt er

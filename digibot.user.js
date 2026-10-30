@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.33
+// @version      3.1.34
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -447,13 +447,21 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     };
   }
   function digibotRawScene() { try { return window.dmo?.game?.scene?.getScene?.('world'); } catch { return null; } }
+  // Hinweis bei einem Stopp mit Sperre. Den eigenen Not-Aus (Esc/Knopf) kennt man – dafür kein Fenster (3.1.34, Nutzer:
+  // „blockiert die GUI und die UI des Spiels“). Sonst klein unten in der Mitte, Klicks gehen durch, nach 8 s weg.
+  const NOTICE_MS = 8000;
+  let digibotNoticeTimer = 0;
   function digibotSignal(text) {
+    if (/Not-Aus/.test(String(text))) return;
     if (!digibotNotice) {
       digibotNotice = document.createElement('aside'); digibotNotice.id='digibot-notice'; digibotNotice.setAttribute('role','alert');
-      digibotNotice.style.cssText='position:fixed;top:12px;left:12px;z-index:2147483647;background:#581b20;color:#fff;padding:14px;max-width:400px;font:14px system-ui;border:2px solid #ffb86b;border-radius:8px';
+      digibotNotice.style.cssText='position:fixed;bottom:96px;left:50%;transform:translateX(-50%);z-index:2147483647;pointer-events:none;background:rgba(88,27,32,.88);color:#fff;padding:6px 12px;max-width:420px;font:12px system-ui;border:1px solid #ffb86b;border-radius:6px;text-align:center';
       document.body.append(digibotNotice);
     }
-    digibotNotice.textContent=`DigiBot pausiert: ${text}. Nach dem Beheben über Start manuell fortsetzen.`;
+    digibotNotice.textContent=`DigiBot pausiert: ${text}. Weiter über Start.`;
+    // solange die Sperre gilt (Anwesenheitskontrolle, Verbindung, Fehler) stehen lassen – bis Start; sonst nach NOTICE_MS weg
+    clearTimeout(digibotNoticeTimer);
+    if (!digibotCore?.latched) digibotNoticeTimer = setTimeout(() => { digibotNotice?.remove(); digibotNotice = null; }, NOTICE_MS);
     notify(text);
   }
   function digibotHalt(reason,{locked=true}={}) {
@@ -1596,7 +1604,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.33'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.34'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2996,7 +3004,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
               const ents1 = window.dmo?.net?.state?.entities, meE = ents1?.get?.(ev.dst), aId = cl ? (cl.slot === group.slot() ? me0.partner?.entityId : group.peers.get(cl.slot)?.ents?.[1]) : null, aE = aId && ents1?.get?.(aId);
               if (cl && dec?.ok && now - cl.at <= KOH_COVER_MS + 300 && st1 && meE && aE && Math.hypot(meE.x - aE.x, meE.y - aE.y) <= kohCircleR() - 12) { kohState.moreOff = true; logEvent('warn', `Key of Hope hat ${content()?.skills?.[ev.skill]?.name || ev.skill} nicht abgefangen (${ev.amount}) – Zusatz-Blocken aus, wieder ausweichen`); notify('Key of Hope blockt Black Rain/Volley nicht – Bot weicht wieder aus.'); } }
           } }
-          if (ev.t === 'die' && ev.id) { bossSkillLog.delete(ev.id);
+          if (ev.t === 'die' && ev.id) { bossSkillLog.delete(ev.id); if (herdCount.key) { herdCount.dead.add(ev.id); if (herdCount.dead.size > 400) herdCount.dead.delete(herdCount.dead.values().next().value); }
             // Boss stirbt während der Ansage: Anker und Sammel-Pläne zu ihm sofort verwerfen, nicht bis castEnd+500 halten (3.1.30)
             if (kohState.anchor?.src === ev.id) kohState.anchor = null;
             for (const [s, pl] of kohState.plans) if (pl.src === ev.id) kohState.plans.delete(s);
@@ -3397,6 +3405,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if(!bot.on || !skill)return null;
     const def=content()?.skills?.[skill.id]||{},sk={...def,...skill};
     if(!digibotOffensiveSkill(sk))return null;
+    // Dungeon: jedes Monster im Raum ist ohnehin ein Ziel – Flächenskills nie zurückhalten (Kuramon-Herde, 3.1.34)
+    if(dgRaid(st?.world?.mapId))return null;
     const multi=sk.shape==='circle'||sk.shape==='line'||sk.sweep||sk.scatter||sk.chain||sk.chainCount>1||sk.bounces>0;
     if(!multi)return null;
     const ents=window.dmo?.net?.state?.entities,own=ents?.get?.(st.me?.partner?.entityId),dst=ents?.get?.(target?.id)||target;
@@ -8366,6 +8376,46 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (target && p.species !== target && !p.evolving) { const r = ensureEvolution(st, target, now); if (r !== true) H.note = String(r); }
     return null;
   }
+  // Herden-Zähler (3.1.34): jedes Kuramon der Herde merken; stirbt es („die“-Ereignis oder HP 0), ist es abgefangen, verschwindet
+  // es am Ei (≤ arriveRadius + HERD_EGG_PAD), kam es durch. Ergebnis ins Protokoll, sobald der Boss angreifbar ist oder
+  // nach HERD_DONE_MS ohne neues Kuramon – je 4 am Ei gibt dem Boss einen Stapel (+3 % AT/DE).
+  const HERD_EGG_PAD = 24, HERD_DONE_MS = 20000, HERD_GRACE_MS = 600;
+  const herdCount = { key: '', ids: new Map(), dead: new Set(), done: new Map(), killed: 0, arrived: 0, lost: 0, last: 0, logged: false };
+  function dgHerdCount(st, now) {
+    const mapId = st.world?.mapId, here = dgHerdBossHere(st, mapId), H = herdCount;
+    if (!here) return;
+    const { b, R } = here, egg = R.m?.spawns?.[b.herd.to], ents = window.dmo?.net?.state?.entities;
+    const key = `${mapId}|${dg.insideAt}`;
+    if (H.key !== key) Object.assign(H, { key, ids: new Map(), dead: new Set(), done: new Map(), killed: 0, arrived: 0, lost: 0, last: 0, logged: false });
+    let bossUp = false;
+    ents?.forEach?.((e) => {
+      if (e.kind !== KIND.Mob) return;
+      if (e.defId === b.species && e.hp > 0 && !(e.flags & (FLAG.Hidden | FLAG.Untargetable))) bossUp = true;
+      if (e.defId !== b.herd.species) return;
+      if (H.done.has(e.id)) { // schon abgeschlossen: tote Entität bleibt kurz sichtbar – nur ein „unklar“ (aus der Sicht) lebt wieder auf
+        if (e.hp > 0 && H.done.get(e.id) === 'lost') { H.done.delete(e.id); H.lost--; } else return;
+      }
+      if (!H.ids.has(e.id)) { if (!(e.hp > 0)) { H.done.set(e.id, 'killed'); H.killed++; return; } H.last = now; } // zwischen zwei Takten gestorben
+      H.ids.set(e.id, { x: e.x, y: e.y, hp: e.hp, seen: now, gone: 0 });
+    });
+    for (const [id, m] of H.ids) {
+      const e = ents?.get?.(id);
+      if (e && e.hp > 0) continue;
+      // verschwunden ohne „die“: kurz warten, das Ereignis kommt evtl. nach dem Entfernen der Entität
+      if (!e && !H.dead.has(id) && m.hp > 0 && !m.gone) { m.gone = now; continue; }
+      if (!e && !H.dead.has(id) && m.hp > 0 && now - m.gone < HERD_GRACE_MS) continue;
+      H.ids.delete(id);
+      const how = H.dead.has(id) || (e && e.hp <= 0) || m.hp <= 0 ? 'killed'
+        : egg && Math.hypot(m.x - egg.x, m.y - egg.y) <= (b.herd.arriveRadius || 24) + HERD_EGG_PAD ? 'arrived' : 'lost';
+      H.done.set(id, how); H[how]++;
+    }
+    const total = H.killed + H.arrived + H.lost;
+    if (!H.logged && total && !H.ids.size && (bossUp || now - H.last > HERD_DONE_MS)) {
+      H.logged = true;
+      const stacks = Math.min(15, Math.floor(H.arrived / (b.herd.perStack || 4)));
+      logEvent(H.arrived ? 'warn' : 'bot', `Herde: ${H.killed}/${total} abgefangen, ${H.arrived} am Ei${H.lost ? `, ${H.lost} unklar` : ''} – Boss +${stacks} Stapel (+${stacks * 3} % AT/DE)`);
+    }
+  }
   function dgHerdPost(st, R, z, mapId, now) {
     const sp = content()?.spawns?.[mapId], ents = window.dmo?.net?.state?.entities;
     const inRect0 = (q) => q && q.x >= z.x && q.x <= z.x + z.w && q.y >= z.y && q.y <= z.y + z.h;
@@ -9304,6 +9354,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           this.lastPress.select = now; worldScene()?.select?.(mech.id); this.attackedId = null; this.engage = null;
           logEvent('bot', `Dungeon: ${mech.name || mech.species} anvisiert (vor dem Ausweichen)`);
         }
+        try { dgHerdCount(st, now); } catch { /* nur Zählung */ }
         const hf = dgHerdFormStep(st, sc, now); // Raum 4: Formwechsel für die Herde (3.1.9)
         if (hf) { this.status = `Dungeon: ${hf}`; return; }
         const me0 = controlled(st);
