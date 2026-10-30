@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.34
+// @version      3.1.35
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1604,7 +1604,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.34'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.35'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -4681,7 +4681,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (lt.purpose === 'accept') {
       // nur nachmachen, wenn der NPC sie mir auch anbietet: Vorquests erledigt, Level reicht (sonst ~15 s Dialog-Versuche)
       const mine = st.me?.quests || {};
-      if (!def || (def.prereq || []).some((p) => mine[p]?.state !== 3) || (def.minLevel ?? 1) > (st.me?.partner?.level ?? 1)) return null;
+      if (!def || (def.prereq || []).some((p) => mine[p]?.state !== 3) || (def.minLevel ?? 1) > teamLevel(st)) return null;
       return (q?.state ?? 0) === 0 || (q.state === 3 && repeatAvailable(def, q)) ? base : null;
     }
     if (lt.purpose === 'turnin') return q?.state === 2 && !cfg.apNoTurnin ? base : null;
@@ -5541,17 +5541,17 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   // Warum hat eine Map der Runde gerade keine Aufgaben? (fürs Log)
   function sweepSkipReasons(st, M) {
-    const C = content(), quests = st?.me?.quests || {}, lvl = st?.me?.partner?.level ?? 1;
+    const C = content(), quests = st?.me?.quests || {};
     const r = { level: 0, prereq: 0, series: 0, today: 0, stuck: 0, off: 0 };
     for (const def of Object.values(C?.quests || {})) {
       if (!def.giver || def.autoAssign || !questOnMap(def, M)) continue;
-      const q = quests[def.id], fresh = (q?.state ?? 0) === 0;
+      const q = quests[def.id];
       if (q?.state === 1 || q?.state === 2) { r.stuck++; continue; }
       if (q?.state === 3) { if (!isStory(def.id) && !(cfg.apRepeat && repeatAvailable(def, q))) r.today++; continue; }
       if (cfg.questOff[def.id]) { r.off++; continue; }
       if (questSeries(def.id) > worldSeries(st)) { r.series++; continue; }
       if ((def.prereq || []).some((p) => quests[p]?.state !== 3)) { r.prereq++; continue; }
-      if ((def.minLevel ?? 1) > (fresh ? lvl : teamLevel(st))) r.level++;
+      if ((def.minLevel ?? 1) > teamLevel(st)) r.level++;
     }
     const parts = [
       r.today && `${r.today}× heute schon erledigt`, r.level && `${r.level}× Level zu niedrig`,
@@ -5747,7 +5747,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (cfg.questOff[def.id] || def.autoAssign || !def.giver) continue;
       if (questSeries(def.id) > worldSeries(st)) continue; // andere Serie: bietet das Spiel hier nicht an
       if ((def.prereq || []).some((p) => quests[p]?.state !== 3)) continue;
-      if ((def.minLevel ?? 1) > (fresh ? lvl : teamLevel(st))) { if (npcLoc(def.giver, def.giverMap)) grindTo = Math.min(grindTo, def.minLevel); continue; }
+      // Level-Grenze wie im Spiel: höchstes Level der mitgeführten Digimon, nicht nur des aktiven (3.1.35, live: Veemon Lv 99
+      // mitgeführt, Mugendramon Lv 90 aktiv – Henrys „Because We Are Partners“ ab Lv 99 blieb liegen)
+      if ((def.minLevel ?? 1) > teamLevel(st)) { if (npcLoc(def.giver, def.giverMap)) grindTo = Math.min(grindTo, def.minLevel); continue; }
       const loc = npcLoc(def.giver, def.giverMap || (cfg.apOrder === 'sweep' ? autopilot.sweepAt : null));
       if (loc) tasks.push({ key: `accept:${def.id}`, kind: 'talk', purpose: 'accept', questId: def.id, npcId: def.giver, loc, prio: 2, def,
         label: `„${def.name}“ ${fresh ? '' : '(täglich) '}annehmen bei ${npcName(def.giver)}` });

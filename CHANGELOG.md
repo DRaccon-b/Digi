@@ -2,6 +2,14 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.35 – Quests ab dem Level der mitgeführten Digimon annehmen
+- **Ausrufezeichen-Quests wurden ausgelassen (live 30.10., Shinjuku Bio-Emergence):** Für die Level-Grenze einer Quest
+  zählt das Spiel das höchste Level der mitgeführten Digimon. Der Bot rechnete bei neuen Quests nur mit dem aktiven
+  Partner. Mit Mugendramon Lv 90 aktiv und Veemon Lv 99 mitgeführt blieb Henrys „Because We Are Partners“ (ab Lv 99)
+  liegen, und der Bot jagte stattdessen. Jetzt rechnet er wie das Spiel. Das gilt auch für den Mitläufer, wenn er eine
+  Annahme des Leaders nachmacht, und für die Begründung „Level zu niedrig“ im Protokoll.
+- Test: `tests/teamlvl3135test.js`.
+
 ## 3.1.34 – Kuramon-Herde: Flächenskills frei, Zähler; Not-Aus ohne rotes Fenster
 - **Herde besser abfangen (live 30.10., Hard Raum 2):** Im Dungeon hielt der Bot Flächenskills wie Invincible Sword und
   Sacred Seal zurück („würde möglicherweise weitere Gegner anlocken“). Die Bremse ist fürs Grinden draußen gedacht, in
