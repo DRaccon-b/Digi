@@ -2,6 +2,14 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.41 – Kartenrotation: Elites zuerst
+- **Elites zuerst:** Elites droppen die Common-Karte zu 80 % statt 40 % (und die Rare-Karte zu 10 % statt 4 %), haben
+  aber kaum mehr HP (live: Whamon Lv 120 97.836 HP, Elite Lv 123 100.165 HP). In der Kartenrotation greift der Bot
+  deshalb zuerst die nächste freie Elite einer Karten-Art an, auch bis 400 px außerhalb des Radius, und läuft beim Suchen
+  zuerst zu sichtbaren Elites. Von anderen bekämpfte Elites, Named und Bosse bleiben wie bisher tabu.
+- **Restzeit mit echtem Elite-Anteil:** die Kampfzeit-Messung merkt sich je Art auch, wie viele Kills Elites waren; ab 5
+  Kills rechnet die Restzeit mit diesem Anteil statt mit festen 12 %.
+
 ## 3.1.40 – Kartenrotation
 - **Kartenrotation (Reiter Bosse → Art):** neue dritte Art neben Boss-Rotation und Named-Elite-Runde. Liste aller
   Common-Trainingskarten mit Fortschritt (benutzt + Kartentasche / Limit), Map, 🛡 gepanzert / 💨 weicht aus, Suchfeld.

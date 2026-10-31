@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.40
+// @version      3.1.41
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1619,7 +1619,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.40'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.41'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2008,14 +2008,15 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const m = window.dmo?.net?.state?.entities?.get?.(ev.dst);
       if (!m || m.kind !== KIND.Mob) return;
       mobExp.hit.delete(ev.dst); // neu einreihen, damit die Verdrängung ab 200 die ältesten trifft
-      mobExp.hit.set(ev.dst, { sp: m.defId, map: getStore()?.getState?.()?.world?.mapId, t0: now, tl: now });
+      mobExp.hit.set(ev.dst, { sp: m.defId, el: !!(m.flags & FLAG.Elite) && !(m.flags & FLAG.Boss), map: getStore()?.getState?.()?.world?.mapId, t0: now, tl: now });
       if (mobExp.hit.size > 200) mobExp.hit.delete(mobExp.hit.keys().next().value);
     } else if (ev.t === 'die' && ev.id && mobExp.hit.has(ev.id)) {
       const r = mobExp.hit.get(ev.id); mobExp.hit.delete(ev.id);
       if (ev.killer && !mine.has(ev.killer)) return; // ein anderer hat ihn erledigt
       const t = Date.now();
-      mobExp.pending.push({ ...r, t, dur: t - r.t0 <= MOBEXP_MAX_FIGHT_MS ? t - r.t0 : null }); // Kampfzeit: erster eigener Treffer bis Tod
-      if (t - r.t0 <= MOBEXP_MAX_FIGHT_MS) cardKillNote(r.sp, t - r.t0); // Kartenrotation: Ø-Kampfzeit je Art für die Restzeit (3.1.40)
+      const { el, ...rr } = r;
+      mobExp.pending.push({ ...rr, t, dur: t - r.t0 <= MOBEXP_MAX_FIGHT_MS ? t - r.t0 : null }); // Kampfzeit: erster eigener Treffer bis Tod
+      if (t - r.t0 <= MOBEXP_MAX_FIGHT_MS) cardKillNote(r.sp, t - r.t0, el); // Kartenrotation: Ø-Kampfzeit je Art für die Restzeit (3.1.40)
     }
   }
   function mobExpTick(st, now) {
@@ -4265,7 +4266,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       });
     });
     // Weglänge des Digimons zu jedem Monster (pd), unerreichbare (reach = false) ans Ende
-    const pf = pathField(st, self, Math.max(cfg.radius * 1.6, 480) + 64);
+    const pf = pathField(st, self, Math.max(cfg.radius * 1.6, 480) + 64 + (cfg.farm && cfg.farmMode === 'cards' ? CARD_ELITE_DETOUR : 0)); // Kartenrotation: Weglänge auch zu Elites jenseits des Radius
     for (const m of mobs) {
       if (!pf) { m.pd = m.d; continue; }
       const r = pathTo(pf, m);
@@ -7669,7 +7670,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // ---------- Kartenrotation (3.1.40) ----------
   // Common-Trainingskarten (items[].training.rarity 0) mit ihren Quellen: Feld-Spawns und Named-Gegner (12 Karten je Kill).
   // Fortschritt = benutzt (me.training, gilt für den Tamer) + Kartentasche (me.cards), höchstens das Limit der Karte.
-  const CARD_DROP_AVG = 0.448;  // 12 % Elites (Spielcode): 0,88 × 40 % + 0,12 × 80 %
+  const CARD_DROP = { normal: 0.4, elite: 0.8 }; // Common-Karte je Kill (Spielcode, Wiki)
+  const CARD_ELITE_SHARE = 0.12; // Elite-Anteil der Kills, bis genug gemessen ist (Spielcode: 12 % Elites)
+  const CARD_ELITE_MIN_N = 5;    // ab so vielen gemessenen Kills zählt der gemessene Elite-Anteil
+  const CARD_ELITE_DETOUR = 400; // Elites (doppelte Karte, kaum mehr HP) auch so weit außerhalb des Radius vorziehen (3.1.41)
   const CARD_NAMED_DROP = 12;   // Named-Gegner: feste 12 Common-Karten je Kill
   const CARD_EXTRA_MS = 4000;   // Laufen/Suchen je Kill
   const CARD_GUESS_MS = { evasive: 6000, normal: 8000, armored: 14000 }; // ohne eigene Messung
@@ -7724,13 +7728,19 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     try { const v = JSON.parse(localStorage.getItem(CARD_KILL_KEY) || '{}'); cardKill = digibotRecord(v) ? v : {}; } catch { cardKill = {}; }
     return cardKill;
   }
-  // gleitender Mittelwert der Kampfzeit je Art (höchstens 20 Kämpfe Gewicht), dauerhaft gespeichert
-  function cardKillNote(sp, ms) {
+  // gleitender Mittelwert der Kampfzeit und des Elite-Anteils je Art (höchstens 20 Kämpfe Gewicht), dauerhaft gespeichert
+  function cardKillNote(sp, ms, elite) {
     if (!sp || !(ms > 0)) return;
     const K = cardKillLoad(), e = digibotRecord(K[sp]) ? K[sp] : { ms: 0, n: 0 };
-    const n = Math.min(20, (Number(e.n) || 0) + 1);
-    K[sp] = { ms: Math.round(((Number(e.ms) || 0) * (n - 1) + ms) / n), n };
+    const n = Math.min(20, (Number(e.n) || 0) + 1), e0 = Number.isFinite(Number(e.e)) && e.e !== null ? Number(e.e) : CARD_ELITE_SHARE;
+    K[sp] = { ms: Math.round(((Number(e.ms) || 0) * (n - 1) + ms) / n), n, e: Math.round((e0 * (n - 1) + (elite ? 1 : 0)) / n * 1000) / 1000 };
     try { localStorage.setItem(CARD_KILL_KEY, JSON.stringify(K)); } catch { /* voll/gesperrt: nur im Speicher */ }
+  }
+  // Ø Common-Karten je Kill: 40 % normal, 80 % Elite – mit dem gemessenen Elite-Anteil (der Bot zieht Elites vor)
+  function cardDropAvg(sp) {
+    const e = cardKillLoad()[sp], x = Number(e?.e);
+    const share = Number(e?.n) >= CARD_ELITE_MIN_N && e?.e !== null && Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : CARD_ELITE_SHARE;
+    return CARD_DROP.normal + (CARD_DROP.elite - CARD_DROP.normal) * share;
   }
   function cardKillMs(sp, tags) {
     const e = cardKillLoad()[sp];
@@ -7744,7 +7754,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function cardEtaMs(st, def) {
     const open = cardOpen(st, def); if (!open) return 0;
     const f = cardField(st, def);
-    if (f && mapOpen(st, f.mapId)) return open / CARD_DROP_AVG * cardKillMs(f.species, f.tags);
+    if (f && mapOpen(st, f.mapId)) return open / cardDropAvg(f.species) * cardKillMs(f.species, f.tags);
     const nm = cardNamedSrc(st, def);
     return nm ? Math.ceil(open / CARD_NAMED_DROP) * nm.respawnMs : Infinity;
   }
@@ -7856,7 +7866,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       return `${label} · ${tr}`;
     }
     // sichtbare Beute: hinlaufen (angreifen übernimmt die Zielwahl, sobald sie im Radius ist)
-    const prey = (sc?.mobs || []).find((m) => m.enabled && plan.species.has(m.species) && !m.taken && !m.banned && m.reach !== false);
+    const preys = (sc?.mobs || []).filter((m) => m.enabled && plan.species.has(m.species) && !m.taken && !m.banned && m.reach !== false);
+    const prey = preys.find((m) => m.cat === 'elite') || preys[0]; // Elites zuerst: doppelte Karte (3.1.41)
     if (prey) {
       if (walkTo(st, Math.round(prey.x / 16) * 16, Math.round(prey.y / 16) * 16, now) === 'stuck') blacklist.set(prey.id, now + BAN_MS);
       return `${label} · laufe zu ${speciesName(prey.species)} (${Math.round(prey.d)} px)`;
@@ -8886,7 +8897,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (free) return free;
       if (L) return groupAssist(sc) || sc.mobs.find((m) => usable(m) && near(m)) || null;
     }
+    if (cfg.farm && cfg.farmMode === 'cards') { const el = cardElitePick(sc); if (el) return el; }
     return expPick(sc.mobs.filter(usable)) || null;
+  }
+  // Kartenrotation: die nächste freie Elite einer Karten-Art (Radius plus Umweg) vor normalen Monstern – 80 % statt 40 % Karte
+  // bei kaum mehr HP (live Whamon Lv 120 97.836, Elite Lv 123 100.165). Named/Bosse sind über cardOk ohnehin nicht freigegeben.
+  function cardElitePick(sc) {
+    return sc.mobs.find((m) => m.cat === 'elite' && m.enabled && m.inLvl && !m.taken && !m.banned && m.reach !== false && !safeHeld(m.id)
+      && Number.isFinite(m.pd) && m.pd <= cfg.radius + CARD_ELITE_DETOUR) || null; // Weg länger als die Wegekarte (hinter Wasser/Klippe): zu weit
   }
   // EXP-Priorität (gemessen, EXP-Messung 2.40): Faktor je Level-Abstand zum Monster: −15 %/Level darunter, +10 %/Level
   // darüber, +5 bis +8 = ×1,5, darüber wieder weniger. Stufen: +5…+8, dann +4, +3, … 0, −1, … und erst zuletzt über +8;
