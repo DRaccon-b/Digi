@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.38
+// @version      3.1.39
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1609,7 +1609,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.38'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.39'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -4739,7 +4739,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const at = followerAssign(st, L, now);
     if (at) return at;
     // Ohne eigenes Gespräch: liegengebliebene Dialoge/Daily-Board sofort schließen (z. B. nach einer Abgabe)
-    if (st.dialog && !(st.dialog.npc === 'digiphone' && autopilot.tp)) commands()?.closeDialog?.();
+    if (st.dialog && !(PHONE_NPCS.includes(st.dialog.npc) && autopilot.tp)) commands()?.closeDialog?.();
     if (st.dailies?.board) commands()?.closeDailyBoard?.();
     return followLeader(st, sc, L, now);
   }
@@ -5280,7 +5280,21 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (!def || isStory(def.id) || q?.state !== 3) return false;
     if (doneToday()[def.id] === gameDay()) return false; // heute schon abgeschlossen (eigene Merkliste)
     const day = (q.counters || [])[(def.objectives || []).length];
-    return day === undefined || day < gameDay();
+    return (day === undefined || day < gameDay()) && a3sChainOk(def);
+  }
+  // Wie im Spiel (3.1.39): A3-Nebenquests (a3s_…) gehen nur in Kettenreihenfolge erneut – jede Vorquest muss an einem
+  // späteren Tag wiederholt sein als diese, und alle Folgequests müssen mindestens so weit sein. Sonst lehnt der Server
+  // mit „You already took …“ ab (live: „Behind the Bakery“, solange „The Walk Home“ noch lief).
+  function a3sChainOk(def) {
+    if (!def?.id?.startsWith('a3s_')) return true;
+    const C = content()?.quests || {}, Q = getStore()?.getState?.()?.me?.quests || {};
+    const last = (id) => { const s = Q[id]; return s?.state === 3 ? ((s.counters || [])[C[id]?.objectives?.length ?? 0] ?? -1) : undefined; };
+    const own = Q[def.id] ? ((Q[def.id].counters || [])[(def.objectives || []).length] ?? -1) : -1;
+    if (!(def.prereq || []).every((p) => { if (isStory(p)) return true; const l = last(p); return l !== undefined && l > own; })) return false;
+    const kids = (id) => Object.values(C).filter((x) => x.id?.startsWith('a3s_') && (x.prereq || []).includes(id)).map((x) => x.id);
+    const seen = new Set();
+    const ok = (id) => kids(id).every((k) => { if (seen.has(k)) return true; seen.add(k); const l = last(k); return l !== undefined && l >= own && ok(k); });
+    return ok(def.id);
   }
 
   // ---------- Team (Partner-Wechsel) und Digitation ----------
@@ -6233,6 +6247,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // freigeschalteten Map, die ihm am nächsten liegt. Liefert Statustext, oder null = zu Fuß weiter.
   const TELEPORT_MIN_HOPS = 2;
   const DIGIPHONE_CD_MS=10000,DIGIPHONE_CD_PAD_MS=300;
+  // A3-Maps (Tamers) haben statt der Telefonzelle das „Camp Digi-Phone“ – gleiche Reise-Auswahl (3.1.39)
+  const PHONE_NPCS=['digiphone','tamers_support_terminal'];
   const digibotPhoneCooldowns=new Map();
   const digibotPhoneAccount=st=>String(st?.session?.username||'__session').trim().toLowerCase();
   function digibotPhoneCooldownLeft(st,now){return Math.max(0,(digibotPhoneCooldowns.get(digibotPhoneAccount(st))||0)-now);}
@@ -6269,7 +6285,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (autopilot.tp?.map && (autopilot.tp.map !== cur || autopilot.tp.to !== mapId)) autopilot.tp = null;
     const h = hops(cur, mapId);
     if (h < TELEPORT_MIN_HOPS || (autopilot.tpBlock.get(mapId) || 0) > now) return null;
-    const phone = (world.maps[cur]?.npcs || []).find((n) => n.npcId === 'digiphone');
+    const phone = (world.maps[cur]?.npcs || []).find((n) => PHONE_NPCS.includes(n.npcId));
     if (!phone) return null;
     const left=digibotPhoneCooldownLeft(st,now);
     if(left>0)return `Digi-Phone: Abklingzeit – warte ${Math.ceil(left/1000)} s`;
@@ -6297,7 +6313,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       return `Digi-Phone: Schnellreise nach ${mapName(best)}…`;
     }
     autopilot.tp ||= { tries: 0, at: 0, asked: 0, map: cur, to: mapId };
-    if (st.dialog?.npc === 'digiphone') {
+    if (PHONE_NPCS.includes(st.dialog?.npc)) {
       if (now - autopilot.dialogAt > 1200) {
         autopilot.dialogAt = now;
         commands()?.chooseDialog?.('travel');
@@ -6320,7 +6336,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (now - autopilot.lastTalk > 3000) {
       if ((autopilot.tp.talkTries=(autopilot.tp.talkTries||0)+1) > 4) return block('Digi-Phone antwortet nicht');
       autopilot.lastTalk = now;
-      commands()?.talk?.('digiphone');
+      commands()?.talk?.(phone.npcId);
     }
     return 'Digi-Phone: rufe an…';
   }
@@ -6651,7 +6667,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const gl = autopilot.mapTalk ? null : groupLeaveWait(st, t, now);
     if (gl) { autopilot.nav = null; return gl; }
     // offener Dialog mit einem anderen NPC stört nur -> schließen
-    if (st.dialog && st.dialog.npc !== t.npcId && !(st.dialog.npc === 'digiphone' && autopilot.tp)) commands()?.closeDialog?.();
+    if (st.dialog && st.dialog.npc !== t.npcId && !(PHONE_NPCS.includes(st.dialog.npc) && autopilot.tp)) commands()?.closeDialog?.();
 
     autopilot.huntSpecies = t.kind === 'hunt' && st.world?.mapId === t.loc.mapId ? t.species : new Set();
     // Quest-Digimon (in der gewählten Digitation) für Annehmen und Erledigen. In der Map-für-Map-Runde wird schon
@@ -7368,7 +7384,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (hunt.goal?.key !== g.key) {
       hunt.seenAt=0; hunt.goal = g; hunt.visited = new Set(); hunt.wp = null; hunt.stuckAt = 0; // neues Ziel: Zähler neu (3.1.30)
       autopilot.nav=null;autopilot.route=null;autopilot.tp=null;
-      if(st.dialog?.npc==='digiphone')commands()?.closeDialog?.();
+      if(PHONE_NPCS.includes(st.dialog?.npc))commands()?.closeDialog?.();
       logEvent('auto', `Event: ${name} – ${where} (Kanal ${g.ch})${g.up ? ' – ist da, suche ihn' : ` – erscheint in ${Math.max(0, Math.round((g.at - now) / 60000))} min`}`);
     }
     hunt.goal.up = g.up; hunt.goal.overAt = 0;
@@ -7498,7 +7514,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const b = o.b, label = `${b.name} (${b.mapName} Ch ${o.ch})`;
     if (wb.goal?.key !== o.key) {
       autopilot.nav=null;autopilot.route=null;autopilot.tp=null;
-      if(st.dialog?.npc==='digiphone')commands()?.closeDialog?.();
+      if(PHONE_NPCS.includes(st.dialog?.npc))commands()?.closeDialog?.();
       wb.goal = { key: o.key, b, ch: o.ch }; wb.arrAt = 0; wb.seenAt=0;
       logEvent('auto', `Weltboss: ${label} – ${o.at <= now ? 'lebt / ist fällig' : `spawnt in ${fmtClock(o.at - now)}`}`);
     }
@@ -9495,7 +9511,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       // Liegengebliebener NPC-Dialog (z. B. die Folgeseite nach Annehmen/Abgeben), während der Bot schon etwas anderes
       // macht (oft gleich ein Kampf): nach kurzer Zeit schließen
       const talking = !!st.dialog && autopilot.task?.npcId === st.dialog.npc && !taskDone(st, autopilot.task);
-      if (cfg.autopilot && st.dialog && !talking && !(st.dialog.npc === 'digiphone' && autopilot.tp)) {
+      if (cfg.autopilot && st.dialog && !talking && !(PHONE_NPCS.includes(st.dialog.npc) && autopilot.tp)) {
         autopilot.dlgIdleAt ||= now;
         if (now - autopilot.dlgIdleAt > 1500) { commands()?.closeDialog?.(); autopilot.dlgIdleAt = 0; }
       } else autopilot.dlgIdleAt = 0;

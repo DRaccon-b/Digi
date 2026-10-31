@@ -2,6 +2,15 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.39 – Camp Digi-Phone auf A3-Maps, A3-Nebenquests in Kettenreihenfolge
+- **Digi-Phone auf A3-Maps:** Auf den Tamers-Maps steht statt der Telefonzelle das „Camp Digi-Phone“ (Spiel-ID
+  `tamers_support_terminal`, gleiche Reise-Auswahl). Der Bot suchte nur nach `digiphone` und lief dort immer zu Fuß. Jetzt
+  nutzt er beide für die Schnellreise (Einstellung „Mit Digi-Phone schnellreisen“).
+- **A3-Nebenquests wiederholen:** Das Spiel gibt die Ketten (a3s_…_1 bis _4) nur der Reihe nach erneut aus – jede Vorquest
+  muss an einem späteren Tag wiederholt sein als die Quest selbst, und alle Folgequests müssen mindestens so weit sein.
+  Der Bot kannte die Regel nicht: live nahm er „The Walk Home“ an und versuchte gleich „Behind the Bakery“ und „One Safe
+  Delivery“, der Server lehnte mit „You already took …“ ab. Jetzt prüft er die Kette wie das Spiel (Funktion `wi`).
+
 ## 3.1.38 – Regler Gruppenabstand
 - **Reiter Kampf → Zielwahl, unter Suchradius:** neuer Regler „Gruppenabstand“ (60–1.500 px, Standard 110 wie bisher fest).
   So weit dürfen Mitläufer vom Leader weg sein, bevor sie zurücklaufen. Das Spiel teilt EXP und Quest-Fortschritt auf
