@@ -164,7 +164,7 @@ function digibotConfig(saved, defaults) {
   const skills=v=>Object.fromEntries(Object.entries(boolMap(v)).filter(([k])=>/^[2-6]$/.test(k)));
   const heals=v=>Object.fromEntries(Object.entries(digibotRecord(v)?digibotClean(v):{}).filter(([k,x])=>/^[2-6]$/.test(k)&&typeof x==='number').map(([k,x])=>[k,Math.max(0,Math.min(100,x))]));
   for(const [k,d]of Object.entries(defaults)) {
-    if(!Object.hasOwn(saved,k))continue;const v=saved[k];
+    if(!Object.hasOwn(saved,k)||k==='cardSel'||k==='cardNamed')continue;const v=saved[k];
     if(Array.isArray(d)) {if(Array.isArray(v)&&v.every(x=>typeof x===typeof d[0]))out[k]=digibotClean(v);else issues.push(k);}
     else if(digibotRecord(d)) {if(digibotRecord(v))out[k]=digibotClean(v);else issues.push(k);}
     else if(typeof v===typeof d&&(typeof v!=='number'||Number.isFinite(v)))out[k]=v;else issues.push(k);
@@ -175,7 +175,8 @@ function digibotConfig(saved, defaults) {
   for(const k of ['open','questOff'])out[k]=boolMap(out[k]);
   out.mobs=Object.fromEntries(Object.entries(out.mobs||{}).filter(([,v])=>digibotRecord(v)).map(([k,v])=>[k,boolMap(v)]));
   out.farmChannels=[...new Set((out.farmChannels||[]).filter(x=>Number.isInteger(x)&&x>=1&&x<=100))];
-  const enums={farmMode:['boss','named'],apOrder:['near','sweep'],apSweepDir:['up','down'],dgMode:['easy','hard','apocalymon','malomyotismon']};
+  for(const k of ['cardSel','cardNamed'])if(Object.hasOwn(saved,k)){if(Array.isArray(saved[k]))out[k]=[...new Set(saved[k].filter(x=>typeof x==='string'&&x.length<200))].slice(0,300);else issues.push(k);}
+  const enums={farmMode:['boss','named','cards'],apOrder:['near','sweep'],apSweepDir:['up','down'],dgMode:['easy','hard','apocalymon','malomyotismon']};
   for(const [k,vals]of Object.entries(enums))if(!vals.includes(out[k])){out[k]=defaults[k];issues.push(k);}
   return {value:out,issues};
 }
@@ -1183,6 +1184,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       border-radius:5px;font:11px system-ui;padding:3px 6px;user-select:text}
     .digibot__search:focus{outline:none;border-color:#3fa0ff}
     .digibot__bosspick label.hide{display:none}
+    .digibot__cardpick .digibot__cardrow{display:grid;grid-template-columns:auto 1fr auto auto auto;gap:5px;align-items:center;padding:2px 5px;border-radius:4px}
+    .digibot__cardpick .digibot__cardrow.hide{display:none}
+    .digibot__cardpick .digibot__cardrow.off{opacity:.45}
+    .digibot__cardpick .digibot__cardrow span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .digibot__cardpick .digibot__cardrow em{font-style:normal;opacity:.7;font-variant-numeric:tabular-nums}
+    .digibot__cardpick .digibot__cardrow button{background:none;border:0;color:inherit;cursor:pointer;padding:0 2px;opacity:.7}
+    .digibot__cardpick .digibot__cardrow label{display:inline-flex;gap:2px;align-items:center;padding:0;cursor:pointer}
     .digibot__bosspick,.digibot__timers,.digibot__quests,.digibot__mobs,.digibot__log,.digibot__body{scrollbar-width:thin;scrollbar-color:#3a4670 #0b1020}
     .digibot ::-webkit-scrollbar{width:8px}
     .digibot ::-webkit-scrollbar-track{background:#0b1020;border-radius:4px}
@@ -1405,7 +1413,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     farm: false,          // Boss-Rotation: ausgewählte Feldbosse reihum besiegen (Digi-Eier farmen)
     farmBosses: ['tower_forest#arukenimon', 'kaiser_canyon#metalgreymon_spiral'], // "map#art"
     farmChannels: [1, 2], // nur diese Kanäle
-    farmMode: 'boss',     // 'boss' = Boss-Rotation, 'named' = Named-Elite-Runde (Map für Map)
+    farmMode: 'boss',     // 'boss' = Boss-Rotation, 'named' = Named-Elite-Runde (Map für Map), 'cards' = Kartenrotation (3.1.40)
+    cardSel: [],          // Kartenrotation: ausgewählte Common-Karten in Prioritäts-Reihenfolge (Item-IDs)
+    cardNamed: [],        // Kartenrotation: Karten, deren Named-Gegner mitgenommen werden dürfen (standardmäßig keiner)
     dungeon: false,       // Dungeon-Modus (Kera): betreten, Räume räumen, Boss, raus
     dgMode: 'easy',       // 'easy' = War Game, 'hard' = Revenge (allein kaum zu schaffen), 'apocalymon' / 'malomyotismon' = Raid
     dgBreak: true,        // Optionales Brechbares (Mail Server bei Diaboromon) zerstören – alle dasselbe Ziel; aus = nur der Boss (3.1.1).
@@ -1767,7 +1777,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           <div class="digibot__apcfg">
             <label>Art<select data-apsel="farmMode">
               <option value="boss">Boss-Rotation (ausgewählte Bosse)</option>
-              <option value="named">Named-Elite-Runde (Map für Map)</option></select></label>
+              <option value="named">Named-Elite-Runde (Map für Map)</option>
+              <option value="cards">Kartenrotation (Karten farmen)</option></select></label>
             <label data-farmmode="named">Start-Map<select data-apsel="routeStart"></select></label>
             <label data-farmmode="named">End-Map<select data-apsel="routeEnd"></select></label>
           </div>
@@ -1803,6 +1814,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           'Aus dem Boss-Fenster des Spiels, der Map-Info deines Kanals und eigenen Siegen. ★ = aktuelles Ziel, „hier“ = dein Standort.', 'data-modes="farm"')}
         ${grp('bosspick', 'Bosse auswählen', `<input class="digibot__search" type="text" data-bosssearch placeholder="🔍 Boss oder Map suchen…" autocomplete="off" spellcheck="false">
           <div class="digibot__bosspick" data-f="bosspick"><div class="digibot__none">warte auf Spielwelt…</div></div>`, false, 'Suchfeld filtert nach Boss- oder Map-Namen. Die Liste hat eine feste Höhe – mit dem Balken rechts scrollen.', 'data-farmmode="boss" data-modes="farm"')}
+        ${grp('cardpick', 'Karten auswählen', `<div class="digibot__routeinfo" data-f="cardeta">–</div>
+          <input class="digibot__search" type="text" data-cardsearch placeholder="🔍 Karte, Stat oder Map suchen…" autocomplete="off" spellcheck="false">
+          <div class="digibot__bosspick digibot__cardpick" data-f="cardpick"><div class="digibot__none">warte auf Spieldaten…</div></div>`, true,
+          'Kartenrotation: der Bot farmt die angehakten Common-Karten in dieser Reihenfolge (↑/↓). Auf derselben Map nimmt er alle anderen angehakten Karten gleich mit und wählt selbst die beste Digitation. Fortschritt = benutzt + Kartentasche. 👑 = Named-Gegner (12 Karten je Kill, sehr stark) mitnehmen – standardmäßig aus. Restzeit aus deinen gemessenen Kampfzeiten (sonst Schätzwerte) und 44,8 % Dropchance.', 'data-farmmode="cards" data-modes="farm"')}
       </section>
 
       <section data-page="food">
@@ -2000,6 +2015,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (ev.killer && !mine.has(ev.killer)) return; // ein anderer hat ihn erledigt
       const t = Date.now();
       mobExp.pending.push({ ...r, t, dur: t - r.t0 <= MOBEXP_MAX_FIGHT_MS ? t - r.t0 : null }); // Kampfzeit: erster eigener Treffer bis Tod
+      if (t - r.t0 <= MOBEXP_MAX_FIGHT_MS) cardKillNote(r.sp, t - r.t0); // Kartenrotation: Ø-Kampfzeit je Art für die Restzeit (3.1.40)
     }
   }
   function mobExpTick(st, now) {
@@ -7639,6 +7655,95 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Monster e (Entity) ist ein gewählter Farm-Boss? Wie bossEntityMatch: Boss-Flag, bei Named Elites die erhöhten HP –
   // sonst galt jeder normale Tyrannomon gleichen Levels in Harvest Hills als Ziel der Rotation/Named-Runde
   const isFarmMob = (ft, e) => { const b = ft?.get?.(e?.defId); return !!b && bossEntityMatch(b, e); };
+
+  // ---------- Kartenrotation (3.1.40) ----------
+  // Common-Trainingskarten (items[].training.rarity 0) mit ihren Quellen: Feld-Spawns und Named-Gegner (12 Karten je Kill).
+  // Fortschritt = benutzt (me.training, gilt für den Tamer) + Kartentasche (me.cards), höchstens das Limit der Karte.
+  const CARD_DROP_AVG = 0.448;  // 12 % Elites (Spielcode): 0,88 × 40 % + 0,12 × 80 %
+  const CARD_NAMED_DROP = 12;   // Named-Gegner: feste 12 Common-Karten je Kill
+  const CARD_EXTRA_MS = 4000;   // Laufen/Suchen je Kill
+  const CARD_GUESS_MS = { evasive: 6000, normal: 8000, armored: 14000 }; // ohne eigene Messung
+  const CARD_KILL_KEY = 'digibot.cardKillMs';
+  let cardCache = { C: null, n: -1, list: [] };
+  function cardDefs() {
+    const C = content(); if (!C?.items || !C?.spawns) return [];
+    const n = Object.keys(C.items).length + Object.keys(C.spawns).length;
+    if (cardCache.C === C && cardCache.n === n) return cardCache.list;
+    const by = new Map();
+    for (const it of Object.values(C.items)) {
+      const t = it?.training;
+      if (!t || t.rarity !== 0 || !/^card_/.test(it.id || '')) continue;
+      const limit = (t.baseUses || 0) + (t.masteryPoints || 0) * (t.masteryCopiesPerPoint || 34);
+      const sp = it.id.slice(5);
+      if (limit > 0) by.set(it.id, { id: it.id, species: sp, name: C.digimon?.[sp]?.name || it.name || sp, stat: String(t.stat || '').toUpperCase(), limit, named: false, sources: [] });
+    }
+    const bosses = farmBossList();
+    for (const [mapId, sp] of Object.entries(C.spawns)) {
+      if (sp.raid) continue;
+      const mapName = C.maps?.[mapId]?.name || mapId;
+      for (const [zone, z] of Object.entries(sp.zones || {})) for (const e of z.entries || []) for (const d of e.drops || []) {
+        const c = by.get(d.itemId); if (!c) continue;
+        const lv = [].concat(e.level ?? 1);
+        let src = c.sources.find((x) => x.kind === 'field' && x.mapId === mapId);
+        if (!src) c.sources.push(src = { mapId, mapName, kind: 'field', species: e.species, zones: [], levels: [lv[0], lv[lv.length - 1]],
+          tags: [...(e.identity?.tags || C.digimon?.[e.species]?.mob?.identity?.tags || [])] });
+        else src.levels = [Math.min(src.levels[0], lv[0]), Math.max(src.levels[1], lv[lv.length - 1])];
+        if (!src.zones.includes(zone)) src.zones.push(zone);
+      }
+      for (const b of sp.bosses || []) for (const d of b.drops || []) {
+        const c = by.get(d.itemId); if (!c || c.sources.some((x) => x.kind === 'named' && x.mapId === mapId)) continue;
+        c.named = true;
+        c.sources.push({ mapId, mapName, kind: 'named', species: b.species, zones: [], levels: [b.level, b.level], tags: [...(b.identity?.tags || [])],
+          boss: bosses.find((x) => x.map === mapId && x.species === b.species) || null, respawnMs: b.respawnMs || 300000 });
+      }
+    }
+    const lo = (c) => Math.min(...c.sources.map((x) => x.levels[0]));
+    const list = [...by.values()].filter((c) => c.sources.length).sort((a, b) => lo(a) - lo(b) || a.name.localeCompare(b.name));
+    cardCache = { C, n, list };
+    return list;
+  }
+  function cardHave(st, def) {
+    const used = Number(st?.me?.training?.[def.id]) || 0;
+    const bag = (st?.me?.cards || []).reduce((n, x) => n + (x?.itemId === def.id ? Number(x.qty) || 0 : 0), 0);
+    return Math.min(def.limit, used + bag);
+  }
+  const cardOpen = (st, def) => Math.max(0, def.limit - cardHave(st, def));
+  // Map betretbar: ohne Eingangs-Quest immer, sonst wenn sie abgeschlossen ist
+  function mapOpen(st, mapId) {
+    const q = content()?.maps?.[mapId]?.entryQuest;
+    return !q || st?.me?.quests?.[q]?.state === 3;
+  }
+  let cardKill = null;
+  function cardKillLoad() {
+    if (cardKill) return cardKill;
+    try { const v = JSON.parse(localStorage.getItem(CARD_KILL_KEY) || '{}'); cardKill = digibotRecord(v) ? v : {}; } catch { cardKill = {}; }
+    return cardKill;
+  }
+  // gleitender Mittelwert der Kampfzeit je Art (höchstens 20 Kämpfe Gewicht), dauerhaft gespeichert
+  function cardKillNote(sp, ms) {
+    if (!sp || !(ms > 0)) return;
+    const K = cardKillLoad(), e = digibotRecord(K[sp]) ? K[sp] : { ms: 0, n: 0 };
+    const n = Math.min(20, (Number(e.n) || 0) + 1);
+    K[sp] = { ms: Math.round(((Number(e.ms) || 0) * (n - 1) + ms) / n), n };
+    try { localStorage.setItem(CARD_KILL_KEY, JSON.stringify(K)); } catch { /* voll/gesperrt: nur im Speicher */ }
+  }
+  function cardKillMs(sp, tags) {
+    const e = cardKillLoad()[sp];
+    const base = e?.ms > 0 ? e.ms : (tags || []).includes('armored') ? CARD_GUESS_MS.armored : (tags || []).includes('evasive') ? CARD_GUESS_MS.evasive : CARD_GUESS_MS.normal;
+    return base + CARD_EXTRA_MS;
+  }
+  // Feld-Quelle der Karte (offene Map zuerst) und erlaubte Named-Quelle
+  const cardField = (st, def) => def.sources.filter((x) => x.kind === 'field').sort((a, b) => Number(mapOpen(st, b.mapId)) - Number(mapOpen(st, a.mapId)) || a.levels[0] - b.levels[0])[0] || null;
+  const cardNamedSrc = (st, def) => (cfg.cardNamed || []).includes(def.id) ? def.sources.find((x) => x.kind === 'named' && mapOpen(st, x.mapId)) || null : null;
+  // Restzeit einer Karte (ms): Feld = offen / Ø-Dropchance × Kampfzeit; nur Named = Kills × Respawn; Infinity = nicht farmbar
+  function cardEtaMs(st, def) {
+    const open = cardOpen(st, def); if (!open) return 0;
+    const f = cardField(st, def);
+    if (f && mapOpen(st, f.mapId)) return open / CARD_DROP_AVG * cardKillMs(f.species, f.tags);
+    const nm = cardNamedSrc(st, def);
+    return nm ? Math.ceil(open / CARD_NAMED_DROP) * nm.respawnMs : Infinity;
+  }
+  const fmtCardDur = (ms) => { const m = Math.round(ms / 60000); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`; };
   // Sichtbarer Boss b in der Monsterliste (Entity für den Werte-Abgleich aus der Spielwelt)
   const farmBossMob = (sc, b) => {
     const ents = window.dmo?.net?.state?.entities;
@@ -10160,9 +10265,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     hookBossEvents();
     if (pageOn('attack')) renderBossSkills(st); // Boss-Attacken stehen im Kampf-Reiter
     if (!pageOn('farm')) return;
-    const mode = cfg.farmMode === 'named' ? 'named' : 'boss';
+    const mode = cfg.farmMode === 'named' || cfg.farmMode === 'cards' ? cfg.farmMode : 'boss';
     panel.querySelectorAll('[data-farmmode]').forEach((el) => el.classList.toggle('hide', el.dataset.farmmode !== mode));
-    fillSelect('farmMode', [['boss', 'Boss-Rotation (ausgewählte Bosse)'], ['named', 'Named-Elite-Runde (Map für Map)']]);
+    fillSelect('farmMode', [['boss', 'Boss-Rotation (ausgewählte Bosse)'], ['named', 'Named-Elite-Runde (Map für Map)'], ['cards', 'Kartenrotation (Karten farmen)']]);
+    if (mode === 'cards') renderCards(st);
     const rm = routeMaps().map((r) => [r.id, `${r.name} (${r.range.join('–')}) · ${r.boss.name}`]);
     fillSelect('routeStart', [['', 'niedrigste'], ...rm]);
     fillSelect('routeEnd', [['', 'höchste'], ...rm]);
@@ -10200,6 +10306,45 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       }).join('');
       return `<div class="digibot__timer${goal ? ' goal' : ''}"><b>${esc(b.name)} Lv ${b.level} · ${esc(b.mapName)}</b>${rows}</div>`;
     }).join('') : '<div class="digibot__none">Keine Bosse ausgewählt.</div>';
+  }
+
+  // Kartenrotation (3.1.40): Liste mit Fortschritt, Auswahl, Reihenfolge, Named-Häkchen und Restzeit
+  let cardPickSig = '';
+  function renderCards(st) {
+    const defs = cardDefs(), sel = cfg.cardSel || [], nm = new Set(cfg.cardNamed || []);
+    const esc = (v) => String(v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+    const pos = (d) => { const i = sel.indexOf(d.id); return i < 0 ? Infinity : i; };
+    const rows = defs.map((d, i) => ({ d, i, have: cardHave(st, d), eta: cardEtaMs(st, d) })).sort((a, b) => pos(a.d) - pos(b.d) || a.i - b.i);
+    const picked = rows.filter((r) => sel.includes(r.d.id) && r.have < r.d.limit);
+    const tot = picked.reduce((n, r) => n + (isFinite(r.eta) ? r.eta : 0), 0), stuck = picked.filter((r) => !isFinite(r.eta)).length;
+    const eta = panel.querySelector('[data-f="cardeta"]');
+    const etaTxt = !defs.length ? 'Keine Trainingskarten in den Spieldaten.' : !sel.length ? 'Keine Karten ausgewählt.'
+      : !picked.length ? 'Alle ausgewählten Karten sind voll.'
+      : `noch ca. ${fmtCardDur(tot)} für ${picked.length} Karte${picked.length > 1 ? 'n' : ''}${stuck ? ` · ${stuck} gerade nicht farmbar` : ''}`;
+    if (eta && eta.textContent !== etaTxt) eta.textContent = etaTxt;
+    const sig = rows.map((r) => `${r.d.id}:${r.have}:${isFinite(r.eta) ? Math.round(r.eta / 60000) : 'x'}`).join(',') + '|' + sel.join(',') + '|' + [...nm].join(',');
+    if (sig === cardPickSig) return;
+    cardPickSig = sig;
+    const box = panel.querySelector('[data-f="cardpick"]');
+    if (!box) return;
+    box.innerHTML = rows.length ? rows.map(({ d, have, eta: ms }) => {
+      const on = sel.includes(d.id), src = cardField(st, d) || d.sources[0];
+      const locked = !d.sources.some((x) => mapOpen(st, x.mapId));
+      const tags = src?.tags || [];
+      const mark = (tags.includes('armored') ? ' 🛡' : '') + (tags.includes('evasive') ? ' 💨' : '');
+      const maps = [...new Set(d.sources.map((x) => x.mapName))].join(', ');
+      const left = have >= d.limit ? '✓' : locked ? 'Map gesperrt' : isFinite(ms) ? fmtCardDur(ms) : 'nur Named';
+      return `<div class="digibot__cardrow${locked || have >= d.limit ? ' off' : ''}" data-cardrow="${esc(d.id)}" data-q="${esc(`${d.name} ${d.stat} ${maps}`.toLowerCase())}">
+        <input type="checkbox" data-card="${esc(d.id)}" ${on ? 'checked' : ''}>
+        <span title="${esc(maps)}">${esc(d.name)} · ${esc(d.stat)}${mark} · ${esc(maps)}</span><em>${have}/${d.limit} · ${left}</em>
+        ${d.named ? `<label title="Named-Gegner mitnehmen (12 Karten je Kill, sehr stark)"><input type="checkbox" data-cardnamed="${esc(d.id)}" ${nm.has(d.id) ? 'checked' : ''}>👑</label>` : '<span></span>'}
+        <span>${on ? '<button data-cardmove="up" title="früher farmen">↑</button><button data-cardmove="down" title="später farmen">↓</button>' : ''}</span></div>`;
+    }).join('') : '<div class="digibot__none">Keine Trainingskarten in den Spieldaten.</div>';
+    filterCardPick();
+  }
+  function filterCardPick() {
+    const q = (panel.querySelector('[data-cardsearch]')?.value || '').trim().toLowerCase();
+    panel.querySelectorAll('[data-f="cardpick"] [data-cardrow]').forEach((l) => l.classList.toggle('hide', !!q && !l.dataset.q.includes(q)));
   }
 
   // Suchfeld über der Boss-Liste: Einträge ausblenden, deren Boss-/Map-Name den Suchtext nicht enthält
@@ -10552,6 +10697,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         schedule();
       }
       if (act === 'mobexp-reset') { mobExpReset(); mobExp.at = 0; schedule(); }
+      const mv = e.target.closest?.('[data-cardmove]');
+      if (mv) { // Kartenrotation: Reihenfolge der ausgewählten Karten (3.1.40)
+        const id = mv.closest('[data-cardrow]')?.dataset.cardrow, list = [...(cfg.cardSel || [])], i = list.indexOf(id), j = i + (mv.dataset.cardmove === 'up' ? -1 : 1);
+        if (i >= 0 && j >= 0 && j < list.length) { [list[i], list[j]] = [list[j], list[i]]; cfg.cardSel = list; saveCfg(); farm.reset(); cardPickSig = ''; schedule(); }
+      }
       if (act === 'compact') { cfg.compact = panel.classList.toggle('is-compact'); saveCfg(); }
       if (act === 'more') { const on = panel.querySelector('[data-f="menu"]').classList.toggle('on'); e.target.closest('[data-act]').classList.toggle('on', on); }
       if (act === 'wboss') {
@@ -10687,6 +10837,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         cfg.farmChannels = [...set].sort((a, b) => a - b); saveCfg(); e.target.blur(); farm.reset(); lr.calcAt = 0; schedule();
         return;
       }
+      const cid = e.target.dataset.card, cnm = e.target.dataset.cardnamed;
+      if (cid || cnm) { // Kartenrotation: Auswahl (hinten anhängen) und Named-Häkchen (3.1.40)
+        const key = cid ? 'cardSel' : 'cardNamed', id = cid || cnm, list = (cfg[key] || []).filter((x) => x !== id);
+        if (e.target.checked) list.push(id);
+        cfg[key] = list; saveCfg(); e.target.blur(); farm.reset(); cardPickSig = ''; schedule();
+        return;
+      }
       const fb = e.target.dataset.farmboss;
       if (fb) {
         const set = new Set(cfg.farmBosses || []);
@@ -10741,6 +10898,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         return;
       }
       if (e.target.matches('[data-bosssearch]')) { filterBossPick(); return; }
+      if (e.target.matches('[data-cardsearch]')) { filterCardPick(); return; }
       const hk = e.target.dataset.healcfg;
       if (hk) {
         const st = getStore()?.getState?.(), v = Number(e.target.value) || 0, set = editSkillSet(st);

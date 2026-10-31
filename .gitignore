@@ -6,3 +6,6 @@ tests/.times.json
 
 # Lokale Sicherungen des Skripts
 backups/
+
+# Arbeitsordner der Umsetzungspläne
+.superpowers/
