@@ -20,7 +20,8 @@ function world({ cards, locked, onSelect } = {}) {
       const card = (sp, base) => ({ id: `card_${sp}`, name: sp, training: { stat: 'de', points: 1, rarity: 0, baseUses: base, copiesPerPoint: 10 } });
       Object.assign(content.items, { card_kunemon: card('kunemon', 8), card_tsunomon: card('tsunomon', 30), card_tanemon: card('tanemon', 4) });
       content.spawns.native_forest.zones.meadow.entries = ['kunemon', 'tsunomon', 'tanemon'].map((sp) => ({ species: sp, level: [1, 3], drops: [{ itemId: `card_${sp}`, chance: 0.4 }] }));
-      if (locked) content.maps.native_forest.entryQuest = 'q99_x';
+      // gesperrt: die Karten-Mobs stehen auf einer anderen, noch gesperrten Map (die aktuelle Map gilt immer als offen)
+      if (locked) { content.spawns.primary_village.zones = { plaza: { entries: content.spawns.native_forest.zones.meadow.entries } }; content.spawns.native_forest.zones.meadow.entries = []; content.maps.primary_village.entryQuest = 'q99_x'; }
     } });
   const st = G.store.getState();
   G.store.setState({ me: { ...st.me, training: { card_kunemon: 5, card_tanemon: 4 }, cards: cards || [{ itemId: '', qty: 0 }, { itemId: '', qty: 0 }] } });

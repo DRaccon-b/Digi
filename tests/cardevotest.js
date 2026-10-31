@@ -5,7 +5,7 @@ const makeWorld = require('./gw');
 const script = fs.readFileSync(process.argv[2], 'utf8');
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function run(cards) {
+async function run(cards, start = 'veemon') {
   const G = makeWorld({ slot: 0, tag: 'E', noHash: true, accounts: { leader: 0, list: [{ user: 'solo' }] },
     mobs: [[900, 300, 'knightmon'], [950, 340, 'devimon']],
     quests: { q00_meet_gennai: { state: 3, counters: [] } },
@@ -26,25 +26,27 @@ async function run(cards) {
   const evos = ['veemon', 'flamedramon', 'raidramon', 'magnamon'].map((sp) => ({ species: sp, from: sp === 'veemon' ? '' : 'veemon', stage: sp === 'veemon' ? 'rookie' : 'armor',
     level: sp === 'veemon' ? 1 : 25, unlocked: true, canEvolveNow: sp !== 'veemon', dsCost: 10 }));
   G.store.setState({ me: { ...st.me, tamerDs: 300, training: {}, cards: [{ itemId: '', qty: 0 }],
-    partner: { ...st.me.partner, species: 'veemon', level: 116, evolutions: evos } } });
+    partner: { ...st.me.partner, species: start, stage: start === 'veemon' ? 'rookie' : 'armor', level: 116, evolutions: evos.map((e) => ({ ...e, canEvolveNow: e.from === start })) } } });
   const evolved = [];
   const cmds = G.w.dmo.game.scene.getScene('world').deps.commands;
   cmds.evolve = (sp) => { evolved.push(sp); const s = G.store.getState();
     G.store.setState({ me: { ...s.me, partner: { ...s.me.partner, species: sp, evolutions: s.me.partner.evolutions.map((e) => ({ ...e, canEvolveNow: e.from === sp })) } } }); };
+  cmds.devolve = () => { evolved.push('<veemon'); const s = G.store.getState();
+    G.store.setState({ me: { ...s.me, partner: { ...s.me.partner, species: 'veemon', stage: 'rookie', evolutions: s.me.partner.evolutions.map((e) => ({ ...e, canEvolveNow: e.from === 'veemon' })) } } }); };
   G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, farm: true, farmMode: 'cards', cardSel: cards, farmChannels: [1],
     hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log' }));
   G.w.eval(script);
   await wait(1500);
   G.w.document.querySelector('[data-act="bot"]').click();
-  await wait(6000);
+  await wait(start === 'veemon' ? 6000 : 12000);
   const r = { cards, evolved, species: G.store.getState().me.partner.species };
   G.w.close();
   return r;
 }
 (async () => {
-  const a = await run(['card_knightmon']), b = await run(['card_devimon']), c = await run(['card_knightmon', 'card_devimon']);
-  console.log({ a, b, c });
-  const ok = a.species === 'raidramon' && b.species === 'magnamon' && c.species === 'magnamon';
+  const a = await run(['card_knightmon']), b = await run(['card_devimon']), c = await run(['card_knightmon', 'card_devimon']), d = await run(['card_devimon'], 'raidramon');
+  console.log({ a, b, c, d });
+  const ok = a.species === 'raidramon' && b.species === 'magnamon' && c.species === 'magnamon' && d.species === 'magnamon'; // D: Raidramon -> zurück -> Magnamon
   console.log(ok ? 'OK – Kartenrotation wählt die beste Form' : 'FEHLER');
   process.exit(ok ? 0 : 1);
 })();

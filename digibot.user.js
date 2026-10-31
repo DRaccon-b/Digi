@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.39
+// @version      3.1.40
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1619,7 +1619,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.39'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.40'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -4221,6 +4221,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const pLvl = me.partner?.level ?? 0;
     const farmSp = cfg.farm ? farmTargets(mapId) : null;
     const cardSp = cfg.farm && cfg.farmMode === 'cards' ? cardHuntSet(st, mapId) : null; // Kartenrotation (3.1.40)
+    // Named Elites tragen oft dieselbe Art wie die Feld-Mobs: sie nur über ihr 👑-Häkchen (farmSp), nie über die Kartenart
+    const cardNm = cardSp ? farmBossList().filter((b) => b.map === mapId) : [];
+    const cardOk = (e) => !!cardSp?.has(e.defId) && !(e.flags & FLAG.Boss) && !cardNm.some((b) => b.species === e.defId && bossEntityMatch(b, e));
     // Boss-Quest im Autopilot: der Feldboss ist ein Gruppenkampf – auch angreifen, wenn andere ihn schon bekämpfen
     const qbSp = cfg.autopilot && !cfg.farm && autopilot.task?.loc?.boss ? new Map(questBossSel(autopilot.task).map((b) => [b.species, b])) : null;
     const assistId = group.role() === 'follower' ? leaderTargetId(now) : null;
@@ -4254,8 +4257,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         taken: cfg.skipTaken && !attacker && !isFarmMob(farmSp, e) && !isFarmMob(qbSp, e)
           && (takenByOthers.has(e.id) || (!!e.targetId && !ours.has(e.targetId))),
         // nur zu starke Monster sind tabu, schwächere immer erlaubt; Farm-Bosse immer
-        inLvl: e.level <= pLvl + lvlLimit(mapId) || isFarmMob(farmSp, e) || !!cardSp?.has(e.defId),
-        enabled: farmSp ? isFarmMob(farmSp, e) || !!cardSp?.has(e.defId) : quest ? quest.species.has(e.defId) || e.id === assistId : mobOn(mapId, key, cat),
+        inLvl: e.level <= pLvl + lvlLimit(mapId) || isFarmMob(farmSp, e) || cardOk(e),
+        enabled: farmSp ? isFarmMob(farmSp, e) || cardOk(e) : quest ? quest.species.has(e.defId) || e.id === assistId : mobOn(mapId, key, cat),
         aggressive,
         banned: (blacklist.get(e.id) || 0) > now,
         grpBy: grpTgt?.get(e.id) ?? null, // Slot des Gruppenmitglieds, das es schon angreift (Ziele verteilen)
@@ -5482,6 +5485,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       sp=lrDarkMap(st)?maxArmor(p):(maxEvolution(p)||p.species);
     }
     if (!sp) return digibotEvoReason(st,'für diese Map ist keine Zielform eingestellt');
+    return evolveVia(st, sp, now);
+  }
+  // Zielform sp ansteuern, auch auf einem anderen Ast (z. B. Raidramon -> Magnamon): erst zurück in die Grundform
+  function evolveVia(st, sp, now) {
+    const p = st?.me?.partner; if (!p) return true;
     if (sp === p.species || p.evolving) return true;
     // Ziel auf einem anderen Ast (z. B. Mega -> Armor): erst zurück in die Grundform
     const evos = p.evolutions || [], tgt = evos.find((e) => e.species === sp);
@@ -7250,7 +7258,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return true;
   }
   // Rotation: a selected reachable boss anywhere on this map has priority.
-  const farmBossNear = (sc) => (cfg.farm && sc ? sc.mobs.find((m) => m.enabled && (m.mapBoss||m.cat!=='normal') && !m.banned && m.reach!==false) || null : null);
+  const farmBossNear = (sc) => (cfg.farm && sc ? sc.mobs.find((m) => m.enabled && (m.mapBoss || (cfg.farmMode !== 'cards' && m.cat !== 'normal')) && !m.banned && m.reach!==false) || null : null);
 
   // ---------- Event: Mega-Jagd ----------
   // Alle 2 h erscheint ein Mega-Weltboss (…_hunt) an einer zufälligen Stelle einer Feld-Map, nur auf Kanal 1; er greift
@@ -7710,11 +7718,6 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return Math.min(def.limit, used + bag);
   }
   const cardOpen = (st, def) => Math.max(0, def.limit - cardHave(st, def));
-  // Map betretbar: ohne Eingangs-Quest immer, sonst wenn sie abgeschlossen ist
-  function mapOpen(st, mapId) {
-    const q = content()?.maps?.[mapId]?.entryQuest;
-    return !q || st?.me?.quests?.[q]?.state === 3;
-  }
   let cardKill = null;
   function cardKillLoad() {
     if (cardKill) return cardKill;
@@ -7768,7 +7771,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const species = new Set(), zones = [], named = [];
       for (const o of open) for (const x of cardSrcs(st, o)) {
         if (x.mapId !== mapId) continue;
-        if (x.kind === 'named') { if (x.boss) named.push(x.boss); continue; }
+        if (x.kind === 'named') { if (x.boss) { named.push(x.boss); const p = farmSpot(x.boss); if (p) zones.push({ z: `named:${x.boss.id}`, x: p.x, y: p.y }); } continue; }
         species.add(x.species);
         for (const z of x.zones) { const r = world.maps[mapId]?.zones?.[z]; if (r && !zones.some((q) => q.z === z)) zones.push({ z, x: r.x + r.w / 2, y: r.y + r.h / 2 }); }
       }
@@ -7823,7 +7826,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       K.formKey = key; K.form = cardBestForm(st, plan);
       if (K.form && K.form !== st.me?.partner?.species) logEvent('auto', `Kartenrotation: beste Form für ${[...plan.species].map(speciesName).join(', ')} – ${speciesName(K.form)}`);
     }
-    return K.form ? ensureEvolution(st, K.form, now) : true;
+    return K.form ? evolveVia(st, K.form, now) : true;
   }
   const CARD_BAG_WARN_MS = 60000;
   function cardStep(st, sc, now) {
@@ -7853,7 +7856,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       return `${label} · ${tr}`;
     }
     // sichtbare Beute: hinlaufen (angreifen übernimmt die Zielwahl, sobald sie im Radius ist)
-    const prey = (sc?.mobs || []).find((m) => plan.species.has(m.species) && !m.taken && !m.banned && m.reach !== false);
+    const prey = (sc?.mobs || []).find((m) => m.enabled && plan.species.has(m.species) && !m.taken && !m.banned && m.reach !== false);
     if (prey) {
       if (walkTo(st, Math.round(prey.x / 16) * 16, Math.round(prey.y / 16) * 16, now) === 'stuck') blacklist.set(prey.id, now + BAN_MS);
       return `${label} · laufe zu ${speciesName(prey.species)} (${Math.round(prey.d)} px)`;

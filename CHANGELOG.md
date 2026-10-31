@@ -2,6 +2,19 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.40 – Kartenrotation
+- **Kartenrotation (Reiter Bosse → Art):** neue dritte Art neben Boss-Rotation und Named-Elite-Runde. Liste aller
+  Common-Trainingskarten mit Fortschritt (benutzt + Kartentasche / Limit), Map, 🛡 gepanzert / 💨 weicht aus, Suchfeld.
+  Anhaken = farmen, ↑/↓ = Reihenfolge (Priorität). Oben steht die Restzeit („noch ca. 23 h 40 min“) aus den eigenen
+  gemessenen Kampfzeiten je Art (dauerhaft gespeichert, sonst Schätzwerte) und 44,8 % Dropchance (12 % Elites laut
+  Spielcode).
+- **Farmen nach Priorität:** der Bot reist zur Map der obersten offenen Karte, jagt dort alle angehakten Karten-Mobs
+  (ohne Level-Grenze), lässt volle Karten aus und stoppt, wenn alle voll sind. Gesperrte Maps werden übersprungen, eine
+  volle Kartentasche wird gemeldet. Named-Gegner (12 Karten je Kill) nur mit 👑-Häkchen – standardmäßig aus.
+- **Beste Form automatisch:** bei Map-Wechsel oder wenn eine Art fertig ist, wählt der Bot die Digitation mit dem
+  höchsten Schaden gegen die offenen Arten (AT × Element × Attribut, gewichtet nach offenen Karten), nur ab 5 % Vorteil
+  und auf Dark-Tower-Maps nur Armor-Formen.
+
 ## 3.1.39 – Camp Digi-Phone auf A3-Maps, A3-Nebenquests in Kettenreihenfolge
 - **Digi-Phone auf A3-Maps:** Auf den Tamers-Maps steht statt der Telefonzelle das „Camp Digi-Phone“ (Spiel-ID
   `tamers_support_terminal`, gleiche Reise-Auswahl). Der Bot suchte nur nach `digiphone` und lief dort immer zu Fuß. Jetzt
