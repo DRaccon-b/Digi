@@ -4220,6 +4220,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       : cfg.questMode ? questTargets(st, null) : null;
     const pLvl = me.partner?.level ?? 0;
     const farmSp = cfg.farm ? farmTargets(mapId) : null;
+    const cardSp = cfg.farm && cfg.farmMode === 'cards' ? cardHuntSet(st, mapId) : null; // Kartenrotation (3.1.40)
     // Boss-Quest im Autopilot: der Feldboss ist ein Gruppenkampf – auch angreifen, wenn andere ihn schon bekämpfen
     const qbSp = cfg.autopilot && !cfg.farm && autopilot.task?.loc?.boss ? new Map(questBossSel(autopilot.task).map((b) => [b.species, b])) : null;
     const assistId = group.role() === 'follower' ? leaderTargetId(now) : null;
@@ -4253,8 +4254,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         taken: cfg.skipTaken && !attacker && !isFarmMob(farmSp, e) && !isFarmMob(qbSp, e)
           && (takenByOthers.has(e.id) || (!!e.targetId && !ours.has(e.targetId))),
         // nur zu starke Monster sind tabu, schwächere immer erlaubt; Farm-Bosse immer
-        inLvl: e.level <= pLvl + lvlLimit(mapId) || isFarmMob(farmSp, e),
-        enabled: farmSp ? isFarmMob(farmSp, e) : quest ? quest.species.has(e.defId) || e.id === assistId : mobOn(mapId, key, cat),
+        inLvl: e.level <= pLvl + lvlLimit(mapId) || isFarmMob(farmSp, e) || !!cardSp?.has(e.defId),
+        enabled: farmSp ? isFarmMob(farmSp, e) || !!cardSp?.has(e.defId) : quest ? quest.species.has(e.defId) || e.id === assistId : mobOn(mapId, key, cat),
         aggressive,
         banned: (blacklist.get(e.id) || 0) > now,
         grpBy: grpTgt?.get(e.id) ?? null, // Slot des Gruppenmitglieds, das es schon angreift (Ziele verteilen)
@@ -7234,7 +7235,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   const FARM_DEPART = 350;         // … und erst so weit weg wieder als unterwegs (sonst pendelt er an der Grenze: Kampf – zurück – Kampf)
   function farmGoalElsewhere(st, p, now, sc) {
-    if (cfg.farmMode === 'named' || world.state !== 'ready' || !farmChannels().length || !farmSelected().length) return false;
+    if (cfg.farmMode === 'named' || cfg.farmMode === 'cards' || world.state !== 'ready' || !farmChannels().length || !farmSelected().length) return false;
     if (p.maxHp > 0 && p.hp / p.maxHp < 0.5) return false;
     const o = farmPlan(st, now);
     if (!o) return false;
@@ -7624,6 +7625,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   const farmSelected = () => {
     if (cfg.farmMode === 'named') return routeList().map((r) => r.boss);
+    if (cfg.farmMode === 'cards') return cardNamedBosses();
     const on = new Set(cfg.farmBosses || []);
     return farmBossList().filter((b) => on.has(b.id));
   };
@@ -7742,6 +7744,130 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (f && mapOpen(st, f.mapId)) return open / CARD_DROP_AVG * cardKillMs(f.species, f.tags);
     const nm = cardNamedSrc(st, def);
     return nm ? Math.ceil(open / CARD_NAMED_DROP) * nm.respawnMs : Infinity;
+  }
+  // Ausgewählte, noch offene Karten in Prioritäts-Reihenfolge
+  function cardOpenSel(st) {
+    const by = new Map(cardDefs().map((d) => [d.id, d]));
+    return (cfg.cardSel || []).map((id) => by.get(id)).filter((d) => d && cardOpen(st, d) > 0);
+  }
+  // Nutzbare Quellen einer Karte: Feld (Map betretbar) oder erlaubter Named
+  const cardSrcs = (st, d) => d.sources.filter((x) => mapOpen(st, x.mapId) && (x.kind === 'field' || cardNamedSrc(st, d) === x));
+  // Plan: oberste offene Karte mit erreichbarer Quelle. Bei mehreren Maps die mit den meisten weiteren offenen
+  // ausgewählten Karten, bei Gleichstand die niedrigere. Gejagt werden dort alle offenen ausgewählten Feld-Arten.
+  function cardPlan(st, now) {
+    const open = cardOpenSel(st);
+    if (!open.length) return { done: true };
+    const cur = st.world?.mapId, C = content();
+    const reach = (m) => (farm.cardBan?.get(m) || 0) <= now && (m === cur || hops(cur, m) < Infinity);
+    for (const d of open) {
+      const maps = [...new Set(cardSrcs(st, d).map((x) => x.mapId))].filter(reach);
+      if (!maps.length) continue;
+      const score = (m) => open.filter((o) => o !== d && cardSrcs(st, o).some((x) => x.mapId === m)).length;
+      const lo = (m) => C?.maps?.[m]?.levelRange?.[0] ?? 0;
+      const mapId = maps.sort((a, b) => score(b) - score(a) || lo(a) - lo(b))[0];
+      const species = new Set(), zones = [], named = [];
+      for (const o of open) for (const x of cardSrcs(st, o)) {
+        if (x.mapId !== mapId) continue;
+        if (x.kind === 'named') { if (x.boss) named.push(x.boss); continue; }
+        species.add(x.species);
+        for (const z of x.zones) { const r = world.maps[mapId]?.zones?.[z]; if (r && !zones.some((q) => q.z === z)) zones.push({ z, x: r.x + r.w / 2, y: r.y + r.h / 2 }); }
+      }
+      return { def: d, mapId, species, zones, named };
+    }
+    return null;
+  }
+  // Arten, die der Szenen-Filter freigibt: offene ausgewählte Feld-Karten der Map, auf der die Rotation gerade jagt
+  function cardHuntSet(st, mapId) {
+    if (farm.card?.plan?.mapId !== mapId) return null;
+    const out = new Set();
+    for (const d of cardOpenSel(st)) for (const x of d.sources) if (x.kind === 'field' && x.mapId === mapId) out.add(x.species);
+    return out;
+  }
+  // Named-Gegner, die die Kartenrotation mitnehmen darf (Häkchen 👑 und Karte ausgewählt und offen)
+  function cardNamedBosses() {
+    const st = getStore()?.getState?.(), out = [];
+    for (const d of cardOpenSel(st)) { const x = cardNamedSrc(st, d); if (x?.boss && !out.includes(x.boss)) out.push(x.boss); }
+    return out;
+  }
+  // Element/Attribut wie im Spiel: stark ×1,2 / schwach ×0,9 (Licht↔Dunkel beidseitig stark), Attribut ×1,25 / ×0,85
+  const ELEM_BEATS = { fire: ['wood', 'ice'], water: ['fire', 'land'], thunder: ['water', 'steel'], wood: ['land', 'water'], land: ['thunder', 'fire'],
+    ice: ['wind', 'wood'], wind: ['thunder', 'land'], steel: ['ice', 'wind'], light: ['dark'], dark: ['light'] };
+  const ATTR_BEATS = { vaccine: 'virus', virus: 'data', data: 'vaccine' };
+  const elemFac = (a, d) => (ELEM_BEATS[a]?.includes(d) ? 1.2 : ELEM_BEATS[d]?.includes(a) && a !== 'light' && a !== 'dark' ? 0.9 : 1);
+  const attrFac = (a, d) => (a === 'unknown' ? (d === 'unknown' ? 1 : 1.25) : ATTR_BEATS[a] === d ? 1.25 : ATTR_BEATS[d] === a ? 0.85 : 1);
+  const CARD_FORM_GAIN = 1.05; // Formwechsel erst ab 5 % Vorteil (ein Wechsel kostet ~20 s)
+  // Beste Form für die Arten des Plans: AT der Form auf dem eigenen Level × Element × Attribut, gewichtet nach offenen Karten
+  function cardBestForm(st, plan) {
+    const p = st?.me?.partner, C = content(); if (!p || !C) return null;
+    const w = new Map();
+    for (const d of cardOpenSel(st)) for (const x of d.sources) if (x.kind === 'field' && x.mapId === plan.mapId && plan.species.has(x.species)) w.set(x.species, (w.get(x.species) || 0) + cardOpen(st, d));
+    const tot = [...w.values()].reduce((a, b) => a + b, 0); if (!tot) return null;
+    const dark = lrDarkMap(st);
+    const value = (sp) => {
+      const D = C.digimon?.[sp], at = D?.base?.at; if (!(at > 0)) return 0;
+      const a = at + (D.growth?.at || 0) * Math.max(0, (p.level || 1) - 1);
+      let f = 0; for (const [m, n] of w) { const M = C.digimon?.[m] || {}; f += n * elemFac(D.element, M.element) * attrFac(D.attribute, M.attribute); }
+      return a * f / tot;
+    };
+    const cand = new Set([p.species]);
+    for (const e of p.evolutions || []) if (e.unlocked !== false && !e.blocked && (!dark || e.stage === 'armor')) cand.add(e.species);
+    let best = p.species, bv = value(p.species);
+    for (const sp of cand) { const v = value(sp); if (v > bv) { best = sp; bv = v; } }
+    return best !== p.species && bv < value(p.species) * CARD_FORM_GAIN ? p.species : best;
+  }
+  // Zielform nur neu bestimmen, wenn Map oder Arten wechseln – sonst die gemerkte (kein Hin und Her)
+  function cardEvolution(st, now) {
+    const K = farm.card, plan = K?.plan; if (!plan) return true;
+    const key = `${plan.mapId}|${[...plan.species].sort().join(',')}`;
+    if (K.formKey !== key) {
+      K.formKey = key; K.form = cardBestForm(st, plan);
+      if (K.form && K.form !== st.me?.partner?.species) logEvent('auto', `Kartenrotation: beste Form für ${[...plan.species].map(speciesName).join(', ')} – ${speciesName(K.form)}`);
+    }
+    return K.form ? ensureEvolution(st, K.form, now) : true;
+  }
+  const CARD_BAG_WARN_MS = 60000;
+  function cardStep(st, sc, now) {
+    const K = farm.card ||= { plan: null, key: '', zi: 0, bagAt: 0 };
+    if (!(cfg.cardSel || []).length) { K.plan = null; return 'Keine Karten ausgewählt (Reiter Bosse)'; }
+    const plan = cardPlan(st, now);
+    if (plan?.done) {
+      K.plan = null;
+      logEvent('bot', 'Kartenrotation fertig – alle ausgewählten Karten sind voll');
+      notify('Kartenrotation fertig.');
+      if (bot.on) bot.toggle();
+      return 'Kartenrotation fertig – Bot gestoppt';
+    }
+    if (!plan) { K.plan = null; return 'Kartenrotation: keine erreichbare Karte (Map gesperrt oder kein Weg)'; }
+    K.plan = plan;
+    const names = [...plan.species].map(speciesName).join(', ') || plan.named.map((b) => b.name).join(', ');
+    const key = `${plan.mapId}|${[...plan.species].sort().join(',')}|${plan.named.map((b) => b.id).join(',')}`;
+    if (key !== K.key) { K.key = key; K.zi = 0; logEvent('map', `Kartenrotation: ${plan.def.name} – ${content()?.maps?.[plan.mapId]?.name || plan.mapId} (${names})`); }
+    const label = `Karten: ${plan.def.name} ${cardHave(st, plan.def)}/${plan.def.limit}`;
+    // Kartentasche voll: neue Karten ohne vorhandenen Stapel gehen verloren – melden, weiterfarmen (der Spieler entscheidet)
+    const bag = st.me?.cards;
+    if (Array.isArray(bag) && bag.length && !bag.some((x) => !x?.itemId) && cardOpenSel(st).some((d) => !bag.some((x) => x?.itemId === d.id))
+      && now - K.bagAt > CARD_BAG_WARN_MS) { K.bagAt = now; logEvent('warn', 'Kartentasche voll – neue Karten ohne Stapel gehen verloren'); }
+    const tr = travel(st, plan.mapId, now);
+    if (tr !== true) {
+      if (tr === 'Keine Route' || tr === 'Portal nicht erreichbar') (farm.cardBan ||= new Map()).set(plan.mapId, now + TASK_BAN_MS);
+      return `${label} · ${tr}`;
+    }
+    // sichtbare Beute: hinlaufen (angreifen übernimmt die Zielwahl, sobald sie im Radius ist)
+    const prey = (sc?.mobs || []).find((m) => plan.species.has(m.species) && !m.taken && !m.banned && m.reach !== false);
+    if (prey) {
+      if (walkTo(st, Math.round(prey.x / 16) * 16, Math.round(prey.y / 16) * 16, now) === 'stuck') blacklist.set(prey.id, now + BAN_MS);
+      return `${label} · laufe zu ${speciesName(prey.species)} (${Math.round(prey.d)} px)`;
+    }
+    if (!plan.zones.length) return `${label} · warte auf ${names}`;
+    // sonst die Gebiete der Arten reihum ablaufen
+    const z = plan.zones[K.zi % plan.zones.length], me = controlled(st);
+    const d = me ? Math.hypot(me.x - z.x, me.y - z.y) : 0;
+    if (d > 48) {
+      if (walkTo(st, z.x, z.y, now) === 'stuck') K.zi++;
+      return `${label} · laufe ins Gebiet von ${names} (${Math.round(d)} px)`;
+    }
+    if (plan.zones.length > 1) K.zi++;
+    return `${label} · suche ${names}…`;
   }
   const fmtCardDur = (ms) => { const m = Math.round(ms / 60000); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`; };
   // Sichtbarer Boss b in der Monsterliste (Entity für den Werte-Abgleich aus der Spielwelt)
@@ -8139,6 +8265,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (world.state !== 'ready') { loadWorld(); return `Lade Weltkarte… ${world.loaded}/${world.total || '?'}`; }
     if (!farmChannels().length) return 'Keine Kanäle ausgewählt (Reiter Bosse)';
     if (cfg.farmMode === 'named') return namedStep(st, sc, now);
+    if (cfg.farmMode === 'cards') return cardStep(st, sc, now);
     if (!farmSelected().length) return 'Keine Bosse ausgewählt (Reiter Bosse)';
     const o = farmPlan(st, now);
     if (!o) return 'Kein ausgewählter Boss erreichbar';
@@ -9420,7 +9547,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (this.on) loadWorld(); // Kartendaten (Portale, Zonen, Schutzzonen) für alle Modi
       if (this.on) this.timer = setInterval(() => this.tick(), TICK_MS);
       this.status = this.on ? 'Bot läuft' : 'Bot aus';
-      logEvent('bot', this.on ? `Bot gestartet${cfg.farm ? ' (Boss-Rotation)' : cfg.autopilot ? ' (Quest-Autopilot)' : cfg.questMode ? ' (Quest-Modus)' : ''}` : 'Bot gestoppt');
+      logEvent('bot', this.on ? `Bot gestartet${cfg.farm ? (cfg.farmMode === 'cards' ? ' (Kartenrotation)' : ' (Boss-Rotation)') : cfg.autopilot ? ' (Quest-Autopilot)' : cfg.questMode ? ' (Quest-Modus)' : ''}` : 'Bot gestoppt');
       // Food kaufen betrifft nur dieses Fenster: sonst liefen die Mitläufer im Autopilot los und das stille Food-Ende stoppte sie nie (3.1.30)
       if (group.role() === 'leader' && !quiet && !(this.on && cfg.foodBuy)) {if(this.on)groupPush(true);if(this.on)digibotSend({type:'start',manual:digibotManual===true});else groupSend('stop','bot');}
       schedule();
@@ -9716,7 +9843,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           // keine Jagd-Aufgabe hat (das Event setzt sie zurück: vorher kämpfte er beim Event in der Grundform)
           const eventEvo = (huntNow || (cfg.hunt && hunt.goal) || (cfg.wboss && wb.goal) || cfg.eventsOnly) && questMon && !cfg.dungeon;
           if (!attackers.length && (eventEvo || farmEvo || (cfg.dungeon && questMon && !dgHerdLow()) || (!cfg.farm && cfg.autopilot && (folIdle || (at?.kind === 'hunt' && st.world?.mapId === at.loc.mapId && questMon))))) {
-            const ev = eventEvo ? digibotEventEvolve(st, sc, now) : autopilotEvolution(st, now);
+            const ev = eventEvo ? digibotEventEvolve(st, sc, now) : farmEvo && cfg.farmMode === 'cards' ? cardEvolution(st, now) : autopilotEvolution(st, now);
             if (ev !== true) { this.status = `${eventEvo ? 'Event/Weltboss' : cfg.farm ? 'Bosse' : cfg.dungeon ? 'Dungeon' : 'Autopilot'}: ${ev}`; return; }
           }
           // Direkt das beste Ziel anvisieren
@@ -10038,7 +10165,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const run = panel.querySelector('[data-act="bot"]');
     run.classList.toggle('on', bot.on);
     const mode = modeOf();
-    run.textContent = `${bot.on ? '■ Stopp' : '▶ Start'} · ${mode === 'farm' ? (cfg.farmMode === 'named' ? 'Named-Elite-Runde' : 'Boss-Rotation') : MODES[mode]}`;
+    run.textContent = `${bot.on ? '■ Stopp' : '▶ Start'} · ${mode === 'farm' ? (cfg.farmMode === 'named' ? 'Named-Elite-Runde' : cfg.farmMode === 'cards' ? 'Kartenrotation' : 'Boss-Rotation') : MODES[mode]}`;
     if(digibotAccountQueue.active)run.textContent='■ Quest-Runde stoppen';
     panel.querySelectorAll('[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
     panel.querySelector('[data-act="hunt"]')?.classList.toggle('on', !!cfg.hunt);
