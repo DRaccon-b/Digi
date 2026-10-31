@@ -2,6 +2,19 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.42 – Spiel-Update: wiederholbare A3-Nebenquests
+- **Wiederholungen mit eigenen Zielen:** Seit dem Spiel-Update vom 31.10. haben die A3-Nebenquests (a3s_…) für die
+  tägliche Wiederholung eigene Ziele (z. B. 16 Gesomon statt der Story-Schritte). Das Spiel führt sie hinter den schon
+  vollen Original-Zielen und dem Tageszähler. Der Bot las bisher nur die Original-Ziele, hielt jede Wiederholung darum für
+  fertig und blieb stehen. Jetzt jagt, sammelt und reist er für die Wiederholungsziele – auch in Gruppe, Panel und Log.
+- **Kettenregel wie im Spiel:** Eine a3s-Quest geht wieder, sobald jede Quest ihrer Kette schon einmal fertig war (erledigt
+  oder gerade als Wiederholung angenommen). Die strengere Tagesreihenfolge von 3.1.39 verlangt das Spiel nicht mehr.
+  Ebenso zählt eine a3s-Vorquest, die gerade wiederholt wird, beim Annehmen der Folgequest als erfüllt.
+- **Gruppe mit gemischten Phasen:** Läuft der Leader eine Quest zum ersten Mal und ein Mitläufer wiederholt sie (oder
+  umgekehrt), übernimmt der Mitläufer keine Reise- oder Gesprächsziele mehr, die er gar nicht hat. Und „Leader erledigt
+  die Quests der Mitläufer“ hält eine Quest nicht mehr für fertig, nur weil ein Mitläufer den Erstlauf schon abgeben kann,
+  während ein anderer in der Wiederholung noch offene Ziele hat.
+
 ## 3.1.41 – Kartenrotation: Elites zuerst
 - **Elites zuerst:** Elites droppen die Common-Karte zu 80 % statt 40 % (und die Rare-Karte zu 10 % statt 4 %), haben
   aber kaum mehr HP (live: Whamon Lv 120 97.836 HP, Elite Lv 123 100.165 HP). In der Kartenrotation greift der Bot

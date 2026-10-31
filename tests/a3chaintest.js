@@ -1,7 +1,7 @@
-// 3.1.39: A3-Nebenquests (a3s_…) gehen im Spiel nur in Kettenreihenfolge erneut. Live: „The Walk Home“ (_1) lief noch,
-// der Bot wollte trotzdem „Behind the Bakery“ (_3) und „One Safe Delivery“ (_4) wieder annehmen – der Server lehnte mit
-// „You already took …“ ab. Erwartung: A) _1 wird angenommen, _2/_3 nicht gleich mit; B) ist _1 heute erledigt, kommt _2
-// dran, _3 aber noch nicht.
+// 3.1.39/3.1.42: A3-Nebenquests (a3s_…) wiederholen. Seit dem Spiel-Update 2026-10-31 (Spiel: ea/ta) geht eine a3s-Quest
+// wieder, sobald jede Quest ihrer Kette schon einmal fertig war (erledigt oder als Wiederholung angenommen) – die
+// Tages-Reihenfolge von 3.1.39 gilt nicht mehr. Erwartung: A) alle gestern wiederholt -> alle drei werden angenommen,
+// keine abgelehnt; B) ist _1 heute schon erledigt, kommen _2 und _3 dran, _1 nicht.
 const fs = require('fs');
 const makeWorld = require('./gw');
 const script = fs.readFileSync(process.argv[2], 'utf8');
@@ -24,9 +24,9 @@ function run(start) {
   const cmds = G.w.dmo.game.scene.getScene('world').deps.commands;
   const tries = [];
   const Q = () => G.store.getState().me.quests;
-  const day = (id) => { const s = Q()[id]; return s?.state === 3 ? s.counters[1] : undefined; };
-  // Server wie im Spiel: Wiederholung nur, wenn die Vorquest an einem späteren Tag erledigt ist als diese
-  const allowed = (id) => { const i = IDS.indexOf(id), own = Q()[id]?.counters?.[1] ?? -1; return i === 0 || (day(IDS[i - 1]) ?? -Infinity) > own; };
+  // Server wie im Spiel: heute noch nicht erledigt und jede Kettenquest schon einmal fertig (Tageszähler vorhanden)
+  const once = (id) => { const s = Q()[id]; return !!s && (s.state === 3 || (s.counters?.length ?? 0) > 1); };
+  const allowed = (id) => (Q()[id]?.counters?.[1] ?? -1) < today && IDS.every(once);
   const accept = (id) => {
     tries.push(id);
     const s = Q()[id];
@@ -58,11 +58,13 @@ function run(start) {
   await wait(800);
   B.G.w.document.querySelector('[data-act="bot"]').click();
   const t0 = Date.now();
-  while (Date.now() - t0 < 25000 && !B.tries.includes('a3s_x_2')) await wait(200);
+  while (Date.now() - t0 < 25000 && !(B.tries.includes('a3s_x_2') && B.tries.includes('a3s_x_3'))) await wait(200);
   await wait(8000);
   const triesB = B.tries.slice();
   console.log({ triesA, triesB, statusB: B.G.w.document.querySelector('[data-f="status"]')?.textContent });
-  const ok = triesA.includes('a3s_x_1') && !triesA.some((id) => id !== 'a3s_x_1') && triesB.includes('a3s_x_2') && !triesB.includes('a3s_x_3') && !triesB.includes('a3s_x_1');
-  console.log(ok ? 'OK – A3-Nebenquests nur in Kettenreihenfolge wiederholt' : 'FEHLER');
+  const rejected = (G) => G.log.filter((l) => String(l).startsWith('abgelehnt'));
+  const ok = IDS.every((id) => triesA.filter((x) => x === id).length === 1) && !rejected(A.G).length
+    && triesB.includes('a3s_x_2') && triesB.includes('a3s_x_3') && !triesB.includes('a3s_x_1') && !rejected(B.G).length;
+  console.log(ok ? 'OK – A3-Nebenquests nach der Kettenregel des Spiels wiederholt' : 'FEHLER');
   process.exit(ok ? 0 : 1);
 })();

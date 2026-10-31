@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.41
+// @version      3.1.42
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1619,7 +1619,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.41'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.42'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2171,8 +2171,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           if (q.state === 3) sess.turnins++;
           if (what) logEvent('quest', `Quest „${name}“ ${what}`);
         } else if (q.state === 1 && JSON.stringify(prev.counters) !== JSON.stringify(q.counters)) {
-          (def?.objectives || []).forEach((o, i) => {
-            if ((q.counters?.[i] ?? 0) !== (prev.counters?.[i] ?? 0)) logEvent('quest', `„${name}“: ${q.counters[i]}/${o.count || 1}`);
+          questPhase(def, q).objs.forEach((o, i) => {
+            const c = questCount(def, q, i);
+            if (c !== questCount(def, prev, i)) logEvent('quest', `„${name}“: ${c}/${o.count || 1}`);
           });
         }
       }
@@ -4295,6 +4296,28 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return C.quests?.[id] || C.dailyById?.[id] || C.dailyById?.[String(id).split(/[:@#|]/)[0]]
       || Object.values(C.dailyById || {}).find((d) => String(id).startsWith(d.id)) || null;
   }
+  // Spiel-Update 2026-10-31 (3.1.42): Quests mit eigenem Block `repeat` (A3-Nebenquests) laufen nach dem ersten Abschluss
+  // mit dessen Zielen. Die Original-Ziele stehen dann schon voll, dahinter der Tageszähler, danach die Zähler der
+  // Wiederholung (Spiel: aa – offset = objectives.length + 1)
+  function questPhase(def, q) {
+    const n = (def?.objectives || []).length;
+    return def?.repeat && (q?.counters?.length ?? 0) > n ? { objs: def.repeat.objectives || [], off: n + 1 } : { objs: def?.objectives || [], off: 0 };
+  }
+  const questCount = (def, q, i) => q?.counters?.[questPhase(def, q).off + i] ?? 0;
+  // Zähler der laufenden Phase zurück an ihre Stelle im Zählerfeld des Spiels (Gruppenplanung)
+  function phaseCounters(def, q, vals) {
+    const off = questPhase(def, q).off, c = [...(q?.counters || [])];
+    vals.forEach((v, i) => { c[off + i] = v; });
+    return c;
+  }
+  // a3s-Quest schon einmal fertig gewesen: erledigt oder läuft als Wiederholung (Tageszähler steht; Spiel: ta)
+  function a3sOnce(id, quests) {
+    const s = quests?.[id];
+    return !!s && (s.state === 3 || (s.counters?.length ?? 0) > (content()?.quests?.[id]?.objectives?.length ?? 0));
+  }
+  // Vorquests wie im Spiel (na): erledigt – bei a3s -> a3s reicht „schon einmal fertig gewesen“
+  const prereqOk = (def, quests) => (def?.prereq || []).every((p) => quests?.[p]?.state === 3
+    || (String(def.id).startsWith('a3s_') && p.startsWith('a3s_') && a3sOnce(p, quests)));
 
   // Drops eines Spawn-Eintrags: eigene Drops plus die Drops der Monsterart (digimon[art].mob.drops) –
   // Quest-Items wie „Sleepy Spore“ (Mushroomon) stehen nur dort.
@@ -4329,8 +4352,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (q.state !== 1 && q.state !== 2) continue;
       const def = questDef(C, id);
       if (!def) continue;
-      const objectives = (def.objectives || []).map((o, i) => {
-        const need = o.count || 1, cur = Math.min(q.counters?.[i] ?? 0, need);
+      const objectives = questPhase(def, q).objs.map((o, i) => {
+        const need = o.count || 1, cur = Math.min(questCount(def, q, i), need);
         const done = q.state === 2 || cur >= need;
         let label, species = [], maps = [];
         if (o.kind === 'kill') {
@@ -4645,13 +4668,15 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     for (const m of groupMembers().filter((x) => x.inWorld && x.quests)) {
       for (const [id, q] of Object.entries(m.quests)) {
         if (q.state !== 1 && q.state !== 2) continue;
-        const objs = questDef(C, id)?.objectives || [];
-        const full = (x) => (x.state === 2 ? objs.map((o) => o.count || 1) : objs.map((o, i) => x.counters?.[i] ?? 0));
+        const def = questDef(C, id), objs = questPhase(def, q).objs;
+        const full = (x) => (x.state === 2 ? objs.map((o) => o.count || 1) : objs.map((o, i) => questCount(def, x, i)));
         const cur = out[id];
-        if (!cur) { out[id] = { state: q.state, counters: full(q), serve: true }; continue; }
+        if (!cur) { out[id] = { state: q.state, counters: phaseCounters(def, q, full(q)), serve: true }; continue; }
         if (cur.state === 2 && q.state === 2) continue;
+        // einer wiederholt, einer zum ersten Mal: andere Ziele – offene Ziele gehen vor (sonst galt die Quest als fertig)
+        if (questPhase(def, cur).off !== questPhase(def, q).off) { if (cur.state === 2 && q.state === 1) out[id] = { state: 1, counters: phaseCounters(def, q, full(q)), serve: true }; continue; }
         const a = full(cur), b = full(q);
-        out[id] = { state: 1, counters: a.map((v, i) => Math.min(v, b[i])), serve: true };
+        out[id] = { state: 1, counters: phaseCounters(def, cur, a.map((v, i) => Math.min(v, b[i]))), serve: true };
       }
     }
     return out;
@@ -4666,17 +4691,18 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     let out = null;
     for (const [id, q] of Object.entries(own)) {
       if (q.state !== 1 && q.state !== 2) continue;
-      const lag = mem.map((m) => m.quests[id]).filter((x) => x && x.state === 1);
+      const def = questDef(C, id), ph = questPhase(def, q);
+      // nur Mitläufer in derselben Phase (Erstlauf oder Wiederholung) – sonst sind es andere Ziele
+      const lag = mem.map((m) => m.quests[id]).filter((x) => x && x.state === 1 && questPhase(def, x).off === ph.off);
       if (!lag.length) continue;
-      const objs = questDef(C, id)?.objectives || [];
       let open = false, blocked = false;
-      const counters = objs.map((o, i) => {
-        const need = o.count || 1, mine = q.state === 2 ? need : q.counters?.[i] ?? 0;
+      const vals = ph.objs.map((o, i) => {
+        const need = o.count || 1, mine = q.state === 2 ? need : questCount(def, q, i);
         if (o.kind !== 'kill' && o.kind !== 'collect') { // dabei kann der Leader nicht helfen – nur warten
-          if ((o.kind === 'reach' || o.kind === 'talk') && lag.some((x) => (x.counters?.[i] ?? 0) < need)) blocked = true;
+          if ((o.kind === 'reach' || o.kind === 'talk') && lag.some((x) => questCount(def, x, i) < need)) blocked = true;
           return mine;
         }
-        const v = Math.min(mine, ...lag.map((x) => x.counters?.[i] ?? 0));
+        const v = Math.min(mine, ...lag.map((x) => questCount(def, x, i)));
         if (v < need) open = true;
         return v;
       });
@@ -4685,7 +4711,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         group.blockSince.set(id, since);
         if (Date.now() - since > GROUP_BLOCK_MAX_MS) blocked = false;
       } else group.blockSince.delete(id);
-      if (open || blocked) (out ||= { ...own })[id] = { ...q, state: 1, counters, group: true };
+      if (open || blocked) (out ||= { ...own })[id] = { ...q, state: 1, counters: phaseCounters(def, q, vals), group: true };
     }
     return out || own;
   }
@@ -4693,6 +4719,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function groupNoteTalk(t, now) {
     if (group.role() !== 'leader' || (t.kind !== 'talk' && t.kind !== 'reach')) return;
     const e = { key: `${t.key}@${now}`, tkey: t.key, kind: t.kind, at: now, purpose: t.purpose, questId: t.questId || null, objIndex: t.objIndex ?? null,
+      // Phase mitschicken: objIndex gilt nur für Mitläufer in derselben Phase (Erstlauf oder Wiederholung, 3.1.42)
+      off: t.questId && t.objIndex != null ? questPhase(t.def, getStore()?.getState?.()?.me?.quests?.[t.questId]).off : null,
       need: t.need ?? null, npcId: t.npcId, pool: t.def?.pool || null, loc: { mapId: t.loc.mapId, x: t.loc.x, y: t.loc.y }, label: t.label };
     group.talks = [...group.talks.filter((x) => now - x.at < GROUP_TALK_KEEP_MS), e].slice(-12);
   }
@@ -4727,8 +4755,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function mirrorTask(st, lt) {
     const q = lt.questId ? st.me?.quests?.[lt.questId] : null;
     const def = lt.questId ? questDef(content(), lt.questId) : null;
+    // Ziel des Leaders aus einer anderen Phase (er wiederholt, ich zum ersten Mal – oder umgekehrt): anderes Ziel, nicht nachmachen
+    const samePhase = (lt.off ?? 0) === questPhase(def, q).off;
     if (lt.kind === 'reach') { // „reise nach … / in die Zone …“
-      return q?.state === 1 && (q.counters?.[lt.objIndex] ?? 0) < (lt.need || 1)
+      return q?.state === 1 && samePhase && questCount(def, q, lt.objIndex) < (lt.need || 1)
         ? { ...lt, key: lt.tkey, kind: 'reach', loc: { ...lt.loc }, def, mirror: lt.key } : null;
     }
     const sta = npcStation(lt.npcId, st.me?.quests || {});
@@ -4736,11 +4766,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (lt.purpose === 'accept') {
       // nur nachmachen, wenn der NPC sie mir auch anbietet: Vorquests erledigt, Level reicht (sonst ~15 s Dialog-Versuche)
       const mine = st.me?.quests || {};
-      if (!def || (def.prereq || []).some((p) => mine[p]?.state !== 3) || (def.minLevel ?? 1) > teamLevel(st)) return null;
+      if (!def || !prereqOk(def, mine) || (def.minLevel ?? 1) > teamLevel(st)) return null;
       return (q?.state ?? 0) === 0 || (q.state === 3 && repeatAvailable(def, q)) ? base : null;
     }
     if (lt.purpose === 'turnin') return q?.state === 2 && !cfg.apNoTurnin ? base : null;
-    if (lt.purpose === 'objective') return q?.state === 1 && (q.counters?.[lt.objIndex] ?? 0) < lt.need ? base : null;
+    if (lt.purpose === 'objective') return q?.state === 1 && samePhase && questCount(def, q, lt.objIndex) < lt.need ? base : null;
     if (lt.purpose === 'daily' && lt.pool) {
       const visitKey = `${lt.pool}|${activePartner(st)?.partnerId || 'p'}`;
       return autopilot.dailyVisited.has(visitKey) ? null : { ...base, visitKey, def: { pool: lt.pool } };
@@ -4814,7 +4844,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (!(q?.state === 1 || q?.state === 2)) return false;
       // Leader hat die Quest nicht aktiv: nur aufholen, wenn er sie abgeschlossen hat – nicht, wenn er sie erst noch annimmt
       if (!l) return (L.fin || []).includes(t.questId) && !(L.talks || []).some((x) => x.questId === t.questId && x.purpose === 'accept' && now - x.at < 600000);
-      if (t.purpose === 'objective') return l.state === 2 || (l.counters?.[t.objIndex] ?? 0) >= (t.need || 1); // Leader hat dieses Ziel schon
+      if (questPhase(t.def, l).off !== questPhase(t.def, q).off) return false; // Leader in der anderen Phase: sein Stand zählt nicht
+      if (t.purpose === 'objective') return l.state === 2 || questCount(t.def, l, t.objIndex) >= (t.need || 1); // Leader hat dieses Ziel schon
       return false;
     }) || null;
   }
@@ -5303,18 +5334,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const day = (q.counters || [])[(def.objectives || []).length];
     return (day === undefined || day < gameDay()) && a3sChainOk(def);
   }
-  // Wie im Spiel (3.1.39): A3-Nebenquests (a3s_…) gehen nur in Kettenreihenfolge erneut – jede Vorquest muss an einem
-  // späteren Tag wiederholt sein als diese, und alle Folgequests müssen mindestens so weit sein. Sonst lehnt der Server
-  // mit „You already took …“ ab (live: „Behind the Bakery“, solange „The Walk Home“ noch lief).
+  // Wie im Spiel (Update 2026-10-31, Spiel: ea): eine A3-Nebenquest (a3s_…) geht erst wieder, wenn jede Quest ihrer Kette
+  // (Folge- und a3s-Vorquests, rekursiv) schon einmal fertig war – erledigt oder gerade als Wiederholung angenommen.
+  // Die Tages-Reihenfolge von 3.1.39 (Vorquest an einem späteren Tag wiederholt) verlangt das Spiel nicht mehr.
   function a3sChainOk(def) {
     if (!def?.id?.startsWith('a3s_')) return true;
     const C = content()?.quests || {}, Q = getStore()?.getState?.()?.me?.quests || {};
-    const last = (id) => { const s = Q[id]; return s?.state === 3 ? ((s.counters || [])[C[id]?.objectives?.length ?? 0] ?? -1) : undefined; };
-    const own = Q[def.id] ? ((Q[def.id].counters || [])[(def.objectives || []).length] ?? -1) : -1;
-    if (!(def.prereq || []).every((p) => { if (isStory(p)) return true; const l = last(p); return l !== undefined && l > own; })) return false;
-    const kids = (id) => Object.values(C).filter((x) => x.id?.startsWith('a3s_') && (x.prereq || []).includes(id)).map((x) => x.id);
-    const seen = new Set();
-    const ok = (id) => kids(id).every((k) => { if (seen.has(k)) return true; seen.add(k); const l = last(k); return l !== undefined && l >= own && ok(k); });
+    const near = (id) => [...Object.values(C).filter((x) => x.id?.startsWith('a3s_') && (x.prereq || []).includes(id)).map((x) => x.id),
+      ...(C[id]?.prereq || []).filter((p) => p.startsWith('a3s_'))];
+    const seen = new Set([def.id]);
+    const ok = (id) => near(id).every((k) => { if (seen.has(k)) return true; seen.add(k); return a3sOnce(k, Q) && ok(k); });
     return ok(def.id);
   }
 
@@ -5625,7 +5654,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (q?.state === 3) { if (!isStory(def.id) && !(cfg.apRepeat && repeatAvailable(def, q))) r.today++; continue; }
       if (cfg.questOff[def.id]) { r.off++; continue; }
       if (questSeries(def.id) > worldSeries(st)) { r.series++; continue; }
-      if ((def.prereq || []).some((p) => quests[p]?.state !== 3)) { r.prereq++; continue; }
+      if (!prereqOk(def, quests)) { r.prereq++; continue; }
       if ((def.minLevel ?? 1) > teamLevel(st)) r.level++;
     }
     const parts = [
@@ -5789,8 +5818,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         continue;
       }
       if (q.state !== 1) continue;
-      (def.objectives || []).forEach((o, i) => {
-        const need = o.count || 1, cur = q.counters?.[i] ?? 0;
+      questPhase(def, q).objs.forEach((o, i) => {
+        const need = o.count || 1, cur = questCount(def, q, i);
         if (cur >= need) return;
         const base = { questId: id, objIndex: i, need, def };
         if (o.kind === 'talk') {
@@ -5814,14 +5843,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     let grindTo = Infinity; // nächstes Level, ab dem es wieder etwas zu tun gibt
     for (const [id, q] of Object.entries(quests)) { // Level-Ziele aktiver Quests
       if (q.state !== 1 || cfg.questOff[id]) continue;
-      for (const o of questDef(C, id)?.objectives || []) if (o.kind === 'level' && o.level > lvl) grindTo = Math.min(grindTo, o.level);
+      for (const o of questPhase(questDef(C, id), q).objs) if (o.kind === 'level' && o.level > lvl) grindTo = Math.min(grindTo, o.level);
     }
     for (const def of Object.values(C.quests || {})) { // annehmbare Quests (neu oder tägliche, heute wieder offen)
       const fresh = (quests[def.id]?.state ?? 0) === 0;
       if (!fresh && !(cfg.apRepeat && repeatAvailable(def, quests[def.id]))) continue;
       if (cfg.questOff[def.id] || def.autoAssign || !def.giver) continue;
       if (questSeries(def.id) > worldSeries(st)) continue; // andere Serie: bietet das Spiel hier nicht an
-      if ((def.prereq || []).some((p) => quests[p]?.state !== 3)) continue;
+      if (!prereqOk(def, quests)) continue;
       // Level-Grenze wie im Spiel: höchstes Level der mitgeführten Digimon, nicht nur des aktiven (3.1.35, live: Veemon Lv 99
       // mitgeführt, Mugendramon Lv 90 aktiv – Henrys „Because We Are Partners“ ab Lv 99 blieb liegen)
       if ((def.minLevel ?? 1) > teamLevel(st)) { if (npcLoc(def.giver, def.giverMap)) grindTo = Math.min(grindTo, def.minLevel); continue; }
@@ -5978,7 +6007,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const q = planQuests(st)[t.questId];
     if (t.purpose === 'turnin') return q?.state !== 2;
     if (t.purpose === 'accept') return q?.state === 1 || q?.state === 2;
-    return !q || q.state !== 1 || (q.counters?.[t.objIndex] ?? 0) >= t.need;
+    return !q || q.state !== 1 || questCount(t.def || questDef(content(), t.questId), q, t.objIndex) >= t.need;
   }
 
   // Prefer one native movement order. Portals, hazards or a stalled native
@@ -6483,8 +6512,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     for(const [id,q]of Object.entries(planQuests(st))){
       const def=questDef(C,id);
       if(q.state!==1 || !def || def.pool || cfg.questOff[id])continue;
-      for(const [i,o]of (def.objectives||[]).entries()){
-        if(o.kind!=='kill' || (q.counters?.[i]??0)>=(o.count||1))continue;
+      for(const [i,o]of questPhase(def,q).objs.entries()){
+        if(o.kind!=='kill' || questCount(def,q,i)>=(o.count||1))continue;
         if((autopilot.bossFaintBan.get(`hunt:${id}:${i}`)||0)>Date.now())continue; // haut das Digimon um: ausgelassen (3.1.30)
         const species=[].concat(o.species||[]);
         // Nur echte Bosse (Boss-Flag): ein named Boss teilt oft die Art mit normalen Monstern (Divermon Captain / Divermon)
@@ -6529,7 +6558,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if(!digibotYoungBountyAllowed(st,t,now)){autopilot.reset();autopilot.route=null;autopilot.tp=null;return;}
     if (t.parts) {
       const pq = planQuests(st);
-      const open = t.parts.filter((p) => pq[p.questId]?.state === 1 && (pq[p.questId].counters?.[p.objIndex] ?? 0) < p.need && digibotYoungBountyAllowed(st,{...t,questId:p.questId,def:questDef(content(),p.questId)},now));
+      const open = t.parts.filter((p) => pq[p.questId]?.state === 1 && questCount(questDef(content(), p.questId), pq[p.questId], p.objIndex) < p.need && digibotYoungBountyAllowed(st,{...t,questId:p.questId,def:questDef(content(),p.questId)},now));
       const sp = new Set(open.flatMap((p) => [...p.species]));
       if (open.length && (sp.size !== t.species.size||[...sp].some(id=>!t.species.has(id)))) {
         t.species = sp; t.names = [...new Set(open.flatMap((p) => String(p.names).split(', ')))].join(', '); // je Art einmal (vorher „Guardromon, Mekanorimon, Guardromon, …“)
@@ -6541,7 +6570,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     {
       const pq = planQuests(st);
       const parts = t.parts || [{ questId: t.questId, objIndex: t.objIndex }];
-      const prog = parts.reduce((n, p) => n + (pq[p.questId]?.counters?.[p.objIndex] ?? 0) + (pq[p.questId]?.state === 2 ? 1000 : 0), 0);
+      const prog = parts.reduce((n, p) => n + questCount(questDef(content(), p.questId), pq[p.questId], p.objIndex) + (pq[p.questId]?.state === 2 ? 1000 : 0), 0);
       if (t.prog !== undefined && prog > t.prog) autopilot.bossFaints.delete(t.key); // Kill geschafft: Ohnmachten neu zählen (3.1.30)
       if (t.prog === undefined || prog > t.prog) { t.prog = prog; t.progAt = now; }
       else if (now - t.progAt > HUNT_STALL_MS && !t.loc.boss) { // Boss-Quests warten bewusst auf den Respawn
@@ -6838,7 +6867,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const species=new Set(),C=content();
     for(const [id,q]of Object.entries(planQuests(st))){
       const def=questDef(C,id);if(q.state!==1||!def||def.pool||cfg.questOff[id])continue;
-      for(const [i,o]of (def.objectives||[]).entries())if(o.kind==='kill'&&(q.counters?.[i]??0)<(o.count||1))for(const sp of [].concat(o.species||[]))species.add(sp);
+      for(const [i,o]of questPhase(def,q).objs.entries())if(o.kind==='kill'&&questCount(def,q,i)<(o.count||1))for(const sp of [].concat(o.species||[]))species.add(sp);
     }
     return farmBossList().filter(b=>species.has(b.species));
   }
@@ -10691,7 +10720,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (bot.on && cfg.autopilot && !cfg.farm && at && st?.me) {
       tl = at.label;
       if (at.questId && at.objIndex != null && at.need) {
-        const q = planQuests(st)[at.questId], c = Math.min(q?.counters?.[at.objIndex] ?? 0, at.need);
+        const q = planQuests(st)[at.questId], c = Math.min(questCount(at.def || questDef(content(), at.questId), q, at.objIndex), at.need);
         tl += ` · ${c}/${at.need}`; prog = c / at.need;
       }
     }
