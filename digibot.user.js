@@ -722,7 +722,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // nur Skills, die der Bot auch wirkt – ein abgehakter stärkster Skill hielt Davis sonst für immer zurück (3.1.30)
   function digibotBurstSkill(st){
     const C=content();let best=null;
-    for(const k of SKILL_KEYS){const s=skillOnKey(st,k);if(!s||s.skill.unlocked===false||!skillOn(st,k)||healAt(st,k))continue;const def=C?.skills?.[s.skill.id];
+    for(const k of SKILL_KEYS){const s=skillOnKey(st,k);if(!s||s.skill.unlocked===false||!skillOn(st,k)||!isAttackRole(st,k))continue;const def=C?.skills?.[s.skill.id];
       if(!def||!(def.kind==='damage'||def.power>0))continue;const gate=/gate_of_judgment$/.test(s.skill.id),power=def.power||0;
       if(!best||(gate&&!best.gate)||(gate===best.gate&&power>best.power))best={...s,gate,power};}
     return best;
@@ -751,7 +751,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if(!sk.healPct && !sk.resetCooldowns && !sk.cleanse && affected.some(id=>effectsFor(id).some(e=>e.id===sk.id||e.id===`${sk.id}:damageReduction`)))return;
     const target=ents?.get?.(st.target?.id);
     const dangerous=!!own&&dangerZones().some(z=>zoneDist(z,own).d<24&&(zoneLeftMs(z)==null||zoneLeftMs(z)<2000));
-    const skillsOnCooldown=SKILL_KEYS.filter(k=>skillOn(st,k)&&!healAt(st,k)).map(k=>skillOnKey(st,k)).filter(s=>s?.skill?.unlocked!==false&&s?.cdLeft>1000).length;
+    const skillsOnCooldown=SKILL_KEYS.filter(k=>skillOn(st,k)&&isAttackRole(st,k)).map(k=>skillOnKey(st,k)).filter(s=>s?.skill?.unlocked!==false&&s?.cdLeft>1000).length;
     // Bosskampf in der Nähe zählt als Kampf, auch während Ausweichen/Sammeln/Seitenwechsel – sonst fiel „im Kampf“ bei den Clavis
     // ständig weg (der Boss zielt auf den mit den meisten Max-HP, Ausweichen setzt den eigenen Angriff zurück) (3.1.25)
     const bossFight=!!target&&target.hp>0&&(target.flags&FLAG.Boss)&&(target.flags&FLAG.InCombat)&&!!own&&Math.hypot(target.x-own.x,target.y-own.y)<=TAMER_BOSS_NEAR;
@@ -776,7 +776,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const burst=digibotBurstSkill(st);
       if(!burst||burst.cdLeft<DAVIS_BURST_LEFT_MS)return;
       const Cs=content()?.skills||{};
-      const dmgWaiting=SKILL_KEYS.filter(k=>skillOn(st,k)&&!healAt(st,k)).map(k=>skillOnKey(st,k)).filter(x=>x&&x.skill.unlocked!==false&&x.cdLeft>1000&&(Cs[x.skill.id]?.kind==='damage'||(Cs[x.skill.id]?.power>0&&Cs[x.skill.id]?.kind!=='heal'))).length;
+      const dmgWaiting=SKILL_KEYS.filter(k=>skillOn(st,k)&&isAttackRole(st,k)).map(k=>skillOnKey(st,k)).filter(x=>x&&x.skill.unlocked!==false&&x.cdLeft>1000&&(Cs[x.skill.id]?.kind==='damage'||(Cs[x.skill.id]?.power>0&&Cs[x.skill.id]?.kind!=='heal'))).length;
       if(dmgWaiting<2)return;
       reason=`${burst.skill.name} und ${dmgWaiting-1} weitere${dmgWaiting>2?'':'r'} Angriffsskill auf Abklingzeit`;
     }
@@ -2657,23 +2657,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const p = st?.me?.partner;
     if (!p || p.evolving || p.fainted || st.target?.id !== target.id || (bot.engage?.id===target.id && bot.engage.noDmg) || noFightEarly(st,now)) return null;
     if (!bot.can('skill', SKILL_GAP_MS, now) || farmShielded(target, now) || (cfg.mirror && mirrorActive(target.id))) return null;
-    const d = Math.hypot(target.x - partner.x, target.y - partner.y), C = content();
-    for (const k of SKILL_KEYS) {
-      if (!skillOn(st, k) || healAt(st, k)) continue;
-      const s = skillOnKey(st, k);
-      if (!s || isKoh(s.skill) || s.cdLeft > 0 || s.skill.unlocked === false || p.ds < (s.skill.dsCost || 0)) continue;
-      const def = (s.skill.id && C?.skills?.[s.skill.id]) || {};
-      if(digibotSkillAggroReason(st,target,s.skill)||digibotBossPeace(st))continue;
-      { const soon = kohSoon(st, now); if (soon != null && soon < KOH_LEAD_MS + 800 + (s.skill.castMs ?? def.castMs ?? 600)) return null; } // Key of Hope gleich fällig (3.1.6)
-      const range = s.skill.range ?? def.range ?? 0, tgt = s.skill.target ?? def.target;
-      if (range < RANGED_MIN || d > range || (tgt && tgt !== 'enemy') || s.skill.dash || def.dash) continue;
-      if (!bot.can('Digit' + k, SKILL_GAP_MS * 2, now)) continue;
-      bot.lastPress.skill = now;
-      bot.hit('Digit' + k, now);
-      dodgeState.rangedUntil = now + (s.skill.castMs ?? def.castMs ?? 600) + 300; // Cast nicht durch partnerStop abbrechen
-      return s.skill.name || `Skill ${k}`;
-    }
-    return null;
+    // Skill-Planer (3.1.43): nur Gegner-Skills ab RANGED_MIN Reichweite ohne Ansturm, Selbst-Buffs im Stand
+    const pk = skillPick(st, now, 'ranged', target);
+    if (!pk?.k || bot.hit('Digit' + pk.k, now) === false) return null;
+    bot.lastPress.skill = now; skillPressed(st, pk, target, now);
+    dodgeState.rangedUntil = now + (pk.s.skill.castMs ?? pk.def.castMs ?? 600) + 300; // Cast nicht durch partnerStop abbrechen
+    return pk.s.skill.name || `Skill ${pk.k}`;
   }
   // Angriffsposition am Kreisrand („Außerhalb der Warnzone · normaler Angriff“): bisher nur Taste 1 – Skills blieben liegen,
   // solange Kreise aktiv waren (live Diaboromon: Paladin fast ohne Omega Blade, Fumiko die halbe Kampfzeit). Jetzt die
@@ -2683,24 +2672,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const p = st?.me?.partner;
     if (!p || p.evolving || p.fainted || st.target?.id !== target.id || (bot.engage?.id === target.id && bot.engage.noDmg) || noFightEarly(st, now)) return null;
     if (!bot.can('skill', SKILL_GAP_MS, now) || farmShielded(target, now) || (cfg.mirror && mirrorActive(target.id))) return null;
-    const d = Math.hypot(target.x - partner.x, target.y - partner.y), C = content();
-    const basicRange = C?.digimon?.[p.species]?.basic?.range, reach = (Number.isFinite(basicRange) ? basicRange : 33) + 12;
-    for (const k of SKILL_KEYS) {
-      if (!skillOn(st, k) || healAt(st, k)) continue;
-      const s = skillOnKey(st, k);
-      if (!s || isKoh(s.skill) || isAllyHeal(s.skill) || s.cdLeft > 0 || s.skill.unlocked === false || p.ds < (s.skill.dsCost || 0)) continue;
-      const def = (s.skill.id && C?.skills?.[s.skill.id]) || {};
-      const tgt = s.skill.target ?? def.target, range = s.skill.range ?? def.range ?? 0;
-      if ((tgt && tgt !== 'enemy') || s.skill.dash || def.dash || d > Math.max(range, reach)) continue;
-      if (!bot.can('Digit' + k, SKILL_GAP_MS * 2, now)) continue;
-      if (skillUnsafe(st, target, s.skill, now, Number(String(s.ref).slice(6)))) continue;
-      { const soon = kohSoon(st, now); if (soon != null && soon < KOH_LEAD_MS + 800 + (s.skill.castMs ?? def.castMs ?? 600)) return null; } // Key of Hope gleich fällig
-      if (bot.hit('Digit' + k, now) === false) return null;
-      bot.lastPress.skill = now;
-      dodgeState.rangedUntil = now + (s.skill.castMs ?? def.castMs ?? 600) + 300; // Cast nicht durch partnerStop abbrechen
-      return s.skill.name || `Skill ${k}`;
-    }
-    return null;
+    // Skill-Planer (3.1.43): in Reichweite vom Stand aus, kein Ansturm; Selbst-Buffs im Stand erlaubt
+    const pk = skillPick(st, now, 'edge', target);
+    if (!pk?.k || bot.hit('Digit' + pk.k, now) === false) return null;
+    bot.lastPress.skill = now; skillPressed(st, pk, target, now);
+    dodgeState.rangedUntil = now + (pk.s.skill.castMs ?? pk.def.castMs ?? 600) + 300; // Cast nicht durch partnerStop abbrechen
+    return pk.s.skill.name || `Skill ${pk.k}`;
   }
   // fromStart: der Abstand zu blockierten Feldern wächst erst vom Startpunkt aus auf radius an – wer dicht an einer Wand
   // steht, darf von ihr weggehen (sonst fiel jede Strecke schon am Start durch: alles „nicht erreichbar“, 3.0.2)
@@ -3482,6 +3459,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function digibotOffensiveSkill(sk){return !!sk && sk.kind!=='heal' && sk.kind!=='buff' && !isKoh(sk);}
   function digibotSkillAggroReason(st,target,skill){
     if(!bot.on || !skill)return null;
+    if(SKILL_KEYS.some(k=>skillOnKey(st,k)?.skill?.id===skill.id&&skillRole(st,k).role==='aoe'))return null; // „AoE ab N“ soll mehrere treffen (3.1.43)
     const def=content()?.skills?.[skill.id]||{},sk={...def,...skill};
     if(!digibotOffensiveSkill(sk))return null;
     // Dungeon: jedes Monster im Raum ist ohnehin ein Ziel – Flächenskills nie zurückhalten (Kuramon-Herde, 3.1.34)
@@ -3695,6 +3673,108 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     set.rolesV = 1;
     return true;
+  }
+
+  // ---------- Skill-Planer (3.1.43): gegnerseitige Rollen ----------
+  const ATKBUFF_DELAY_MS = 3000, ATKBUFF_HOLD_MS = 2000, KEEP_LEFT_MS = 1000;
+  const skillDef = (sk) => (sk ? { ...(content()?.skills?.[sk.id] || {}), ...sk } : {});
+  // Kampfbeginn je Ziel: erster Planer-Aufruf für diese Ziel-ID (alle Pfade fragen erst nach ihrer Taste 1); 30 s ohne Aufruf = neuer Kampf
+  const fightMarks = new Map();
+  function fightStart(t, now) {
+    let m = fightMarks.get(t.id);
+    if (!m || now - m.seen > 30000) { m = { at: now, buffed: false, seen: now }; fightMarks.set(t.id, m); if (fightMarks.size > 8) fightMarks.delete(fightMarks.keys().next().value); }
+    m.seen = now;
+    return m;
+  }
+  // eigene Laufzeit je Cast, falls das Spiel den Effekt (z. B. auf einem Gegner) nicht meldet; zählt nur, wenn danach die
+  // Abklingzeit lief (sonst kam der Tastendruck nicht an), und nicht mehr, sobald das Spiel den Effekt einmal gezeigt hat
+  const ownCasts = new Map();
+  function noteOwnCast(st, sk, def, t) {
+    const dur = Math.max(0, ...(def.effects || []).map((e) => e.durationMs || 0), def.damageReduction?.durationMs || 0);
+    const id = def.target === 'enemy' ? t?.id : st?.me?.partner?.entityId;
+    if (!dur || !id || !def.id) return;
+    const at = performance.now();
+    ownCasts.set(`${id}|${def.id}`, { at, end: at + (def.castMs || 0) + dur, ref: sk.ref, seen: false });
+    if (ownCasts.size > 64) ownCasts.delete(ownCasts.keys().next().value);
+  }
+  function effectLeft(entityId, skillId) {
+    const st = getStore()?.getState?.(), t = performance.now(), own = ownCasts.get(`${entityId}|${skillId}`);
+    let left = 0;
+    for (const e of st?.effects?.[entityId] || []) if (e.id === skillId) { left = Math.max(left, e.end ? e.end - t : Infinity); if (own) own.seen = true; }
+    if (own && !own.seen && (st?.cooldowns?.[own.ref]?.end ?? 0) > own.at) left = Math.max(left, own.end - t);
+    return Math.max(0, left);
+  }
+  function enemiesNear(x, y, r) {
+    let n = 0;
+    window.dmo?.net?.state?.entities?.forEach?.((e) => { if (e.kind === KIND.Mob && e.hp > 0 && !(e.flags & (FLAG.Dead | FLAG.Hidden | FLAG.Untargetable)) && Math.hypot(e.x - x, e.y - y) <= r) n++; });
+    return n;
+  }
+  // Sperren je Pfad: true = still überspringen, Text = zurückgehalten (Grund), { stop } = Schleife beenden (Key of Hope gleich fällig)
+  function pickBlock(st, now, path, t, k, s, def, role, d, reach) {
+    const p = st.me.partner;
+    if (s.cdLeft > 0 || s.skill.unlocked === false || p.ds < (s.skill.dsCost || 0)) return true;
+    if (!bot.can('Digit' + k, SKILL_GAP_MS * 2, now)) return true; // Server-Cooldown noch nicht angekommen
+    const cast = s.skill.castMs ?? def.castMs ?? 600, soon = kohSoon(st, now);
+    if (soon != null && soon < KOH_LEAD_MS + 800 + cast) return { stop: 'Key of Hope gleich fällig – Skills warten' };
+    const selfCast = def.target === 'self' || role === 'atkbuff'; // bewegt das Digimon nicht: auch am Kreisrand und von außen
+    if (path === 'edge' || path === 'ranged') {
+      if (s.skill.dash || def.dash) return true; // ein Ansturm führte in den Kreis
+      if (!selfCast) {
+        const range = s.skill.range ?? def.range ?? 0;
+        if (def.target && def.target !== 'enemy') return true;
+        if (path === 'ranged' ? range < RANGED_MIN || d > range : d > Math.max(range, reach)) return true;
+      }
+    }
+    if (path === 'ranged') return !selfCast && (digibotSkillAggroReason(st, t, s.skill) || digibotBossPeace(st)) ? true : null;
+    const why = skillUnsafe(st, t, s.skill, now, Number(String(s.ref).slice(6))); // zu langer Cast vor einer möglichen Boss-Attacke
+    return why ? `${s.skill.name} zurückgehalten: ${why}` : null;
+  }
+  const PICK_ROLES = new Set(['attack', 'aoe', 'atkbuff', 'atksup', 'defsup']);
+  // Welcher Skill ist gegen das Ziel t dran? path: 'main' | 'mirror' | 'edge' | 'ranged'.
+  // Liefert { k, s, def, role } zum Drücken, { held } (Grund fürs Warten) oder null.
+  function skillPick(st, now, path, t) {
+    const p = st?.me?.partner;
+    if (!p || !t?.id) return null;
+    const ents = window.dmo?.net?.state?.entities, te = ents?.get?.(t.id) || t, own = ents?.get?.(p.entityId);
+    const boss = !!((te.flags ?? 0) & FLAG.Boss), fm = fightStart(t, now), since = now - fm.at;
+    const mirror = mirrorActive(t.id) || (boss && !!st.boss?.mirror);
+    const d = own && Number.isFinite(te.x) ? Math.hypot(te.x - own.x, te.y - own.y) : 0;
+    const basicRange = content()?.digimon?.[p.species]?.basic?.range, reach = (Number.isFinite(basicRange) ? basicRange : 33) + 12;
+    let held = null, buffWait = false, pick = null;
+    for (const k of SKILL_KEYS) {
+      const ro = skillRole(st, k);
+      if (!PICK_ROLES.has(ro.role) || !skillOn(st, k)) continue;
+      const s = skillOnKey(st, k);
+      if (!s || isKoh(s.skill)) continue;
+      const def = skillDef(s.skill);
+      const sup = ro.role === 'atksup' || ro.role === 'defsup';
+      if (sup && def.target !== 'enemy') continue; // Selbst-/Gruppen-Support: skillCare
+      if (ro.role === 'atkbuff') {
+        if (!boss) continue; // nur bei Bossen (Spieler, 01.11.)
+        if (effectLeft(p.entityId, def.id) >= KEEP_LEFT_MS) { fm.buffed = true; continue; }
+        // Angriffe warten auf den Buff, wenn er rechtzeitig bereit ist – höchstens ATKBUFF_HOLD_MS über die 3 s hinaus
+        if (!fm.buffed && s.cdLeft <= Math.max(0, ATKBUFF_DELAY_MS - since) && since < ATKBUFF_DELAY_MS + ATKBUFF_HOLD_MS) buffWait = true;
+        if (since < ATKBUFF_DELAY_MS) { held ||= `Angriffs-Buff in ${Math.ceil((ATKBUFF_DELAY_MS - since) / 1000)} s`; continue; }
+        if (mirror) { held ||= 'Spiegel – Angriffs-Buff wartet'; continue; }
+      }
+      if (ro.role === 'aoe' && !boss) { // gegen einen Boss zählt er wie ein Angriff
+        const c = def.origin === 'caster' ? own : te;
+        if (!c || enemiesNear(c.x, c.y, (Number(def.radius) || 32) + 24) < ro.n) continue;
+      }
+      if (sup && effectLeft(t.id, def.id) >= KEEP_LEFT_MS) continue; // wirkt noch auf dem Gegner
+      const why = pickBlock(st, now, path, t, k, s, def, ro.role, d, reach);
+      if (why === true) continue;
+      if (why?.stop) return { held: why.stop };
+      if (why) { held ||= why; continue; }
+      if (ro.role === 'atkbuff') return { k, s, def, role: ro.role }; // der Buff geht vor
+      pick ||= { k, s, def, role: ro.role };
+    }
+    if (pick && buffWait && (pick.role === 'attack' || pick.role === 'aoe')) return { held: held || 'Angriffs-Buff zuerst' };
+    return pick || (held ? { held } : null);
+  }
+  function skillPressed(st, pk, t, now) {
+    if (pk.role === 'atkbuff') fightStart(t, now).buffed = true;
+    noteOwnCast(st, pk.s, pk.def, t);
   }
   function editSkillSet(st) {
     const sp = st?.me?.partner?.species || '_';
@@ -5156,17 +5236,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     let text = `greife ${name} an`;
     if (farmShielded(m, now)) text += ' · Spawn-Schutz – Skills warten';
     else if (!p.evolving && bot.can('skill', SKILL_GAP_MS, now)) {
-      for (const k of SKILL_KEYS) {
-        if (!skillOn(st, k) || healAt(st, k)) continue; // Heil-Skills nur über healSkill
-        const sk = skillOnKey(st, k);
-        if (sk && isKoh(sk.skill) && kohOn()) continue; // nur gegen große Raid-Angriffe
-        if (!sk || sk.cdLeft > 0 || sk.skill.unlocked === false || p.ds < (sk.skill.dsCost || 0)) continue;
-        if (!bot.can('Digit' + k, SKILL_GAP_MS * 2, now)) continue;
-        if (skillUnsafe(st, st.target, sk.skill, now, Number(String(sk.ref).slice(6)))) continue;
-        bot.lastPress.skill = now;
-        bot.hit('Digit' + k, now);
-        text += ` · Skill ${k}`;
-        break;
+      const pk = skillPick(st, now, 'mirror', st.target);
+      if (pk?.k && bot.hit('Digit' + pk.k, now) !== false) {
+        bot.lastPress.skill = now; skillPressed(st, pk, st.target, now);
+        text += ` · Skill ${pk.k}`;
       }
     }
     return { text };
@@ -10113,24 +10186,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (this.engage?.noDmg) { this.status += ' · nimmt keinen Schaden – Skills warten'; return; }
       if (farmShielded(t, now)) { this.status += ' · Spawn-Schutz – Skills warten'; return; }
       if (info?.cat === 'normal' && t.maxHp > 0 && t.hp <= lrDps(p) * OVERKILL_SHARE) return; // fällt gleich: DS sparen
+      // Skill-Planer (3.1.43): Rolle je Taste – Heals, Dauer-Buffs und Gruppen-Support laufen über skillCare
       let held = null;
-      for (const k of SKILL_KEYS) {
-        if (!skillOn(st, k) || healAt(st, k)) continue; // Heil-Skills nur über healSkill
-        const s = skillOnKey(st, k);
-        if (s && isKoh(s.skill) && kohOn()) continue; // nur gegen große Raid-Angriffe
-        if (s && isAllyHeal(s.skill) && dungeonLike(st)) continue; // Dungeon/Raid: Gruppenheilung nur über groupHeal (3.1.0)
-        if (!s || s.cdLeft > 0 || s.skill.unlocked === false || p.ds < (s.skill.dsCost || 0)) continue;
-        if (!this.can('Digit' + k, SKILL_GAP_MS * 2, now)) continue; // Server-Cooldown noch nicht angekommen
-        { const soon = kohSoon(st, now), cast = s.skill.castMs ?? content()?.skills?.[s.skill.id]?.castMs ?? 600;
-          if (soon != null && soon < KOH_LEAD_MS + 800 + cast) { held ||= 'Key of Hope gleich fällig – Skills warten'; break; } }
-        const why = skillUnsafe(st, t, s.skill, now, Number(String(s.ref).slice(6))); // zu langer Cast vor einer möglichen Boss-Attacke -> nächster Skill
-        if (why) { held ||= `${s.skill.name} zurückgehalten: ${why}`; continue; }
-        if(this.hit('Digit'+k,now)===false){held=digibotLastInputBlock?.reason||'Kampfeingabe zurückgehalten';break;}
-        this.lastPress.skill=now;
-        this.status += ` · Skill ${k}: ${s.skill.name}`;
-        held = null;
-        break;
-      }
+      const pk = skillPick(st, now, 'main', t);
+      if (pk?.k) {
+        if (this.hit('Digit' + pk.k, now) === false) held = digibotLastInputBlock?.reason || 'Kampfeingabe zurückgehalten';
+        else { this.lastPress.skill = now; skillPressed(st, pk, t, now); this.status += ` · Skill ${pk.k}: ${pk.s.skill.name}`; }
+      } else if (pk?.held) held = pk.held;
       if(held && held!==inputBlocked)this.status+=` · ${held}`;
     },
   };
