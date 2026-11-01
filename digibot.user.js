@@ -100,7 +100,7 @@ function createDigiBotCore({ now = Date.now, state, halt, network = () => null, 
   function accept(m, slot, leader, enabled) {
     if (!m || m.protocol !== 'digibot/1' || !Number.isInteger(m.slot) || m.slot < 0 || m.slot >= 5 || m.slot === slot || !enabled(m.slot)) return false;
     if (m.leader !== leader || typeof m.session !== 'string' || m.session.length > 80 || !Number.isSafeInteger(m.seq) || !Number.isFinite(m.sentAt) || Math.abs(now() - m.sentAt) > 6000) return false;
-    if (!['state','pos','start','stop','invite','maptalk','koh','kohplan','heal'].includes(m.type)) return false;
+    if (!['state','pos','start','stop','invite','maptalk','koh','kohplan','gskill'].includes(m.type)) return false;
     if (['start','maptalk','pos'].includes(m.type) && m.slot !== leader) return false;
     // Nach einem Not-Aus (latch) startet nur ein bewusster Klick auf „Start“ im Leader-Fenster alle wieder (manual) –
     // kein automatischer Start, keine Abgeben-&-Annehmen-Folge (3.0.5)
@@ -3767,6 +3767,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (why?.stop) return { held: why.stop };
       if (why) { held ||= why; continue; }
       if (ro.role === 'atkbuff') return { k, s, def, role: ro.role }; // der Buff geht vor
+      if (sup && !gskOk(st, skillClass(ro.role, def), now)) continue; // Gruppe: nur ein Fenster legt ihn auf den Gegner
       pick ||= { k, s, def, role: ro.role };
     }
     if (pick && buffWait && (pick.role === 'attack' || pick.role === 'aoe')) return { held: held || 'Angriffs-Buff zuerst' };
@@ -3775,7 +3776,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function skillPressed(st, pk, t, now) {
     if (pk.role === 'atkbuff') fightStart(t, now).buffed = true;
     noteOwnCast(st, pk.s, pk.def, t);
+    gskClaim(st, skillClass(pk.role, pk.def), now);
   }
+  const skillRefused = (pk, now) => gskRefused(skillClass(pk.role, pk.def), now);
 
   // ---------- Skill-Planer (3.1.43): eigene und Gruppen-Rollen (Heal, Gruppen-Heal, Dauer-Buffs, Support, Cleanse) ----------
   // Debuff wie im Spiel: Spiel-Status der Art „debuff“ oder ein Skill-Effekt mit negativem Wert
@@ -3838,7 +3841,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const soon = kohSoon(st, now), cast = c.s.skill.castMs ?? c.def.castMs ?? 600;
       if (soon != null && soon < KOH_LEAD_MS + 800 + cast) return null; // Key of Hope gleich fällig: nichts mit Cast davor
       if (!careGroupOk(st, c, now)) continue;
-      if (bot.hit('Digit' + c.k, now) === false) return null;
+      if (bot.hit('Digit' + c.k, now) === false) { gskRefused(skillClass(c.role, c.def), now); return null; }
       bot.lastPress.skill = now;
       noteOwnCast(st, c.s, c.def, null);
       careGroupClaim(st, c, now);
@@ -3847,32 +3850,51 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     return null;
   }
-  // Gruppenwahl (Task 5): bis dahin zündet jedes Fenster selbst
-  function careGroupOk() { return true; }
-  function careGroupClaim() {}
+  // ---------- Gruppenwahl für Gruppen-Skills (3.1.43) ----------
+  // Abgestimmt wird nach Wirkungsklasse (zwei verschiedene Digimon mit gleichem Gruppen-Schutz stimmen sich auch ab): wer zünden
+  // will, meldet es und wartet 600 + Slot×150 ms; ein Fenster mit kleinerer Slot-Nummer, das ebenfalls will, hat Vorrang. Nach dem
+  // Tastendruck beansprucht der Zünder die Klasse (Nachricht 'gskill'), die anderen warten GSK_COVER_MS. Ein abgelehnter
+  // Tastendruck beansprucht nichts und meldet 3 s lang keinen Wunsch (sonst warteten alle auf ihn).
+  const GSK_COVER_MS = 2500, GSK_WANT_MS = 2000, GSK_KEEP_MS = 4000, GSK_REFUSED_MS = 3000; // Wunsch melden / behalten (Takt kann unter Last stocken)
+  const gskWant = new Map(), gskClaims = new Map();
+  function skillClass(role, def) {
+    if (role === 'grpheal') return 'heal';
+    if (role === 'utilsup') return 'cleanse';
+    if (role !== 'defsup' && role !== 'atksup') return null;
+    const stats = [...new Set((def.effects || []).map((e) => e.stat))].sort().join('+') || (def.damageReduction ? 'dr' : def.id);
+    return `${role === 'defsup' ? 'def' : 'atk'}:${stats}${def.target === 'enemy' ? '@enemy' : ''}`;
+  }
+  function gskOk(st, cls, now) {
+    if (!cls || !group.active()) return true;
+    const c = gskClaims.get(cls);
+    if (c && now - c.at < GSK_COVER_MS) return false;
+    let w = gskWant.get(cls);
+    if (!w || now - w.seen > GSK_KEEP_MS) { w = { since: now, seen: now, refused: w?.refused || 0 }; gskWant.set(cls, w); groupPush(true); return false; }
+    w.seen = now;
+    if (now - w.since < 600 + group.slot() * 150) return false;
+    const mapId = st.world?.mapId;
+    return ![...group.peers.values()].some((m) => m.slot < group.slot() && fresh(m, now) && (m.bot || accounts.mirror) && m.inWorld && m.mapId === mapId && m.gsk?.[cls]);
+  }
+  function gskClaim(st, cls, now) {
+    if (!cls || !group.active()) return;
+    gskClaims.set(cls, { at: now, slot: group.slot() });
+    gskWant.delete(cls);
+    digibotSend({ type: 'gskill', slot: group.slot(), cls, mapId: st.world?.mapId || '' });
+    groupPush(true);
+  }
+  function gskRefused(cls, now) { const w = cls && gskWant.get(cls); if (w) w.refused = now; }
+  function gskState(now) {
+    const out = {};
+    for (const [cls, w] of gskWant) if (now - w.seen <= GSK_WANT_MS && now - (w.refused || 0) > GSK_REFUSED_MS) out[cls] = 1;
+    return out;
+  }
+  const careGroupOk = (st, c, now) => gskOk(st, skillClass(c.role, c.def), now);
+  const careGroupClaim = (st, c, now) => gskClaim(st, skillClass(c.role, c.def), now);
   function editSkillSet(st) {
     const sp = st?.me?.partner?.species || '_';
     cfg.skillSets ||= {};
     return (cfg.skillSets[sp] ||= { skills: { ...cfg.skills }, heal: {}, role: {}, aoeN: {}, grpHeal: {}, rolesV: 1 });
   }
-  function healSkill(st, now) {
-    const p = st?.me?.partner;
-    if (!p || p.fainted || p.evolving) return null;
-    const hp = pct(p.hp, p.maxHp);
-    for (const k of SKILL_KEYS) {
-      const lim = healAt(st, k);
-      if (!lim || hp >= lim) continue;
-      const s = skillOnKey(st, k);
-      if (!s || s.cdLeft > 0 || s.skill.unlocked === false || p.ds < (s.skill.dsCost || 0)) continue;
-      if (!bot.can('Digit' + k, SKILL_GAP_MS * 2, now) || !bot.can('skill', SKILL_GAP_MS, now)) continue;
-      bot.lastPress.skill = now;
-      bot.hit('Digit' + k, now);
-      logEvent('potion', `Heal: ${s.skill.name} (HP ${Math.round(hp)} %)`);
-      return s.skill.name;
-    }
-    return null;
-  }
-
   // ---------- Key of Hope: große Raid-Angriffe blocken ----------
   // ClavisAngemons „Key of Hope“ schützt 2 s lang sich und die Gruppen-Partner im Umkreis von 128 px vor allem Schaden
   // (45 s Cooldown, kein Cast). Kündigt ein Raid-Boss einen der großen Angriffe an, zündet ein Clavis den Skill kurz vor
@@ -4202,73 +4224,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     logEvent('warn', `Key of Hope gegen ${name}`);
     return `Key of Hope gegen ${name}`;
   }
-  // ---------- Gruppenheilung (3.1.0) ----------
-  // Im Dungeon/Raid sind Key of Hope und der Gruppen-Heilskill (Heilung auf Verbündete, z. B. Sacred Seal) immer an –
-  // egal, was die Skill-Haken sagen. Geheilt wird reihum wie beim Key of Hope (bereite Clavis nach Slot-Nummer, ein
-  // Heiler je Treffer), sobald ein Gruppenmitglied in Reichweite Schaden hat (unter HEAL_TRIGGER_PCT).
-  // auch für Mitläufer: Gruppen-Modus „Dungeon“ oder eine Raid-/Dungeon-Map (dort hat ein Mitläufer cfg.dungeon nicht gesetzt)
+  // Dungeon/Raid-Betrieb (auch für Mitläufer: Gruppen-Modus „Dungeon“ oder eine Raid-/Dungeon-Map)
   const dungeonLike = (st) => !!cfg.dungeon || (accounts.dungeon && !accounts.mirror) || isRaidMap((st || getStore()?.getState?.())?.world?.mapId);
   const kohOn = () => !!cfg.koh || dungeonLike();
-  const HEAL_TRIGGER_PCT = 85, HEAL_STEP_MS = 600, HEAL_COVER_MS = 2500;
-  const healState = { lastAt: 0, needAt: 0, needKey: '' };
   const isAllyHeal = (sk) => { const d = sk ? { ...(content()?.skills?.[sk.id] || {}), ...sk } : null; return !!d && d.kind === 'heal' && (d.target === 'ally' || d.target === 'party') && !isKoh(d); };
-  function healSlot(st) {
-    for (const k of SKILL_KEYS) { const s = skillOnKey(st, k); if (s && isAllyHeal(s.skill)) return { k, s }; }
-    return null;
-  }
-  function healReadyAt(st, now) {
-    const o = dungeonLike(st) && healSlot(st);
-    if (!o || o.s.skill.unlocked === false) return null;
-    const p = st?.me?.partner;
-    if (!p || p.fainted || p.evolving || p.ds < (o.s.skill.dsCost || 0)) return null;
-    return o.s.cdLeft > 0 ? now + o.s.cdLeft : now;
-  }
-  function healRank(st, now) {
-    let rank = 0;
-    if (!group.active()) return 0;
-    for (const [slot, m] of group.peers) {
-      if (slot < group.slot() && fresh(m, now) && m.healAt != null && m.healAt <= now && m.bot && m.inWorld && m.mapId === st.world?.mapId) rank++;
-    }
-    return rank;
-  }
-  // Wer braucht Heilung: eigenes Digimon oder ein Partner der Party in Skill-Reichweite unter HEAL_TRIGGER_PCT
-  function healNeeded(st, own) {
-    const p = st?.me?.partner, ents = window.dmo?.net?.state?.entities, me = ents?.get?.(p?.entityId);
-    if (!p || !me) return null;
-    // Sacred Seal wirkt um den am stärksten verletzten Partner in Zauberreichweite (128 px), Heilkreis 96 px darum
-    const d = content()?.skills?.[own.s.skill.id] || {};
-    const radius = (Number(d.range) || 128) + (Number(d.radius) || 96);
-    const low = [];
-    if (p.maxHp > 0 && pct(p.hp, p.maxHp) < HEAL_TRIGGER_PCT) low.push({ name: 'ich', pct: pct(p.hp, p.maxHp) });
-    for (const m of st.party?.members || []) {
-      if (m.me || !m.partnerEntityId) continue;
-      const e = ents?.get?.(m.partnerEntityId);
-      if (!e || !(e.maxHp > 0) || e.hp <= 0 || Math.hypot(e.x - me.x, e.y - me.y) > radius) continue;
-      if (pct(e.hp, e.maxHp) < HEAL_TRIGGER_PCT) low.push({ name: m.name || '?', pct: pct(e.hp, e.maxHp) });
-    }
-    return low.length ? low.sort((a, b) => a.pct - b.pct) : null;
-  }
-  function groupHeal(st, now) {
-    if (!dungeonLike(st)) return null;
-    const p = st?.me?.partner;
-    if (!p || p.fainted || p.evolving) return null;
-    const own = healSlot(st);
-    if (!own || own.s.cdLeft > 0 || own.s.skill.unlocked === false || p.ds < (own.s.skill.dsCost || 0)) return null;
-    if (now - healState.lastAt < HEAL_COVER_MS) return null; // ein anderer hat gerade geheilt – erst wirken lassen
-    const low = healNeeded(st, own);
-    if (!low) { healState.needKey = ''; return null; }
-    const key = low.map((x) => x.name).join(',');
-    if (healState.needKey !== key) { healState.needKey = key; healState.needAt = now; }
-    if (now - healState.needAt < healRank(st, now) * HEAL_STEP_MS) return null; // reihum: Clavis mit kleinerer Slot-Nummer zuerst
-    if (!bot.can('Digit' + own.k, SKILL_GAP_MS * 2, now) || !bot.can('skill', SKILL_GAP_MS, now)) return null;
-    healState.lastAt = now; healState.needKey = '';
-    try { digibotSend({ type: 'heal', slot: group.slot() }); } catch { /* ignore */ }
-    bot.lastPress.skill = now;
-    bot.hit('Digit' + own.k, now);
-    const who = low.slice(0, 3).map((x) => `${x.name} ${Math.round(x.pct)} %`).join(', ');
-    logEvent('potion', `Gruppenheilung: ${own.s.skill.name} (${who})`);
-    return `Gruppenheilung: ${own.s.skill.name}`;
-  }
   // Eigener schneller Takt: der Bot-Takt (250 ms) ist für die Staffelung zwischen den Clavis zu grob
   setInterval(() => {
     if (!bot.on || !kohOn() || (!bossSkillLog.size && !kohState.anchor)) return; // Protokoll leer, Anker noch gesetzt: kohAnchor räumt ihn ab (3.1.30)
@@ -4742,7 +4701,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     if (m.type === 'pos' && m.slot === accounts.leader && m.slot !== group.slot()) group.leaderPos = { ...m, seen: Date.now() };
     if (m.type === 'koh' && m.src && m.slot !== group.slot()) kohState.claims.set(m.src, { at: Date.now(), slot: m.slot });
-    if (m.type === 'heal' && m.slot !== group.slot()) healState.lastAt = Date.now(); // ein anderer hat gerade geheilt
+    if (m.type === 'gskill' && m.cls && m.slot !== group.slot() && (!m.mapId || m.mapId === getStore()?.getState?.()?.world?.mapId)) gskClaims.set(m.cls, { at: Date.now(), slot: m.slot }); // Gruppen-Skill gezündet (3.1.43)
     // verspäteter Plan zu einem schon gestorbenen Boss (kommt nach dem 'die' an) wird nicht angenommen (3.1.30)
     if (m.type === 'kohplan' && Number.isInteger(m.slot) && m.slot !== group.slot()
       && !(m.src != null && Date.now() - (kohState.dead.get(m.src) ?? -Infinity) < 10000)) kohState.plans.set(m.slot, { ...m, seen: Date.now() });
@@ -4756,7 +4715,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   // Was ein anderes Fenster sofort wissen muss (Ziel, Aufgabe, Gespräche, Kampf, Map, Quests) – Position nicht
   const groupSig = (m) => JSON.stringify([m.targetId, m.task?.key, m.talks?.[m.talks.length - 1]?.key, m.busy, m.done?.[m.done.length - 1],
-    m.fight, m.mapId, m.channel, m.bot, m.noFight, m.inWorld, m.quests, m.objective, m.reservation,m.tamer,m.partyId, m.kohAt != null && m.kohAt <= Date.now(), m.davis, m.davisAt, m.kohMoreOff]);
+    m.fight, m.mapId, m.channel, m.bot, m.noFight, m.inWorld, m.quests, m.objective, m.reservation,m.tamer,m.partyId, m.kohAt != null && m.kohAt <= Date.now(), m.davis, m.davisAt, m.kohMoreOff, Object.keys(m.gsk || {}).sort().join()]);
   function groupPush(force = false) {
     if (!group.active() || !group.bus) return;
     const st = getStore()?.getState?.(), now = Date.now();
@@ -4795,7 +4754,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       partyId:st.party?.id||null,tamer:{skill:digibotTamer.skill,want:digibotTamer.want,last:digibotTamer.last,cooldown:digibotTamer.cooldown},
       objective: digibotObjective(st), reservation: digibotFormation.reservation,
       kohAt: kohReadyAt(st, now), davis: davisReady(st, now), davisAt: digibotTamer.davisAt || 0, kohMoreOff: !!kohState.moreOff, // 3.1.26
-      healAt: healReadyAt(st, now),
+      gsk: gskState(now), // Gruppen-Skills, die ich gerade zünden will (3.1.43)
       serve: serveOn(),
     };
   }
@@ -10263,7 +10222,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       let held = null;
       const pk = skillPick(st, now, 'main', t);
       if (pk?.k) {
-        if (this.hit('Digit' + pk.k, now) === false) held = digibotLastInputBlock?.reason || 'Kampfeingabe zurückgehalten';
+        if (this.hit('Digit' + pk.k, now) === false) { held = digibotLastInputBlock?.reason || 'Kampfeingabe zurückgehalten'; skillRefused(pk, now); }
         else { this.lastPress.skill = now; skillPressed(st, pk, t, now); this.status += ` · Skill ${pk.k}: ${pk.s.skill.name}`; }
       } else if (pk?.held) held = pk.held;
       if(held && held!==inputBlocked)this.status+=` · ${held}`;
