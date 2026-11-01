@@ -166,7 +166,7 @@ const DIGIBOT_ROLE_NAME={attack:'Angriff',aoe:'AoE',atkbuff:'Angriffs-Buff',tank
 function digibotConfig(saved, defaults) {
   const out=JSON.parse(JSON.stringify(defaults)), issues=[];
   if(!digibotRecord(saved))return {value:out,issues:['Ungültiges Einstellungsformat']};
-  const bounds={width:[300,900],radius:[80,2000],grpDist:[60,1500],lvlDiff:[-100,100],hpPot:[0,100],dsPot:[0,100],tdsPot:[0,100]};
+  const bounds={width:[300,900],radius:[80,2000],grpDist:[60,1500],lvlDiff:[-100,100],hpPot:[0,100],dsPot:[0,100],tdsPot:[0,100],pullMax:[2,8],pullHp:[30,90]};
   const boolMap=v=>Object.fromEntries(Object.entries(digibotRecord(v)?digibotClean(v):{}).filter(([,x])=>typeof x==='boolean'));
   const skills=v=>Object.fromEntries(Object.entries(boolMap(v)).filter(([k])=>/^[2-6]$/.test(k)));
   const heals=v=>Object.fromEntries(Object.entries(digibotRecord(v)?digibotClean(v):{}).filter(([k,x])=>/^[2-6]$/.test(k)&&typeof x==='number').map(([k,x])=>[k,Math.max(0,Math.min(100,x))]));
@@ -1413,6 +1413,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     questMode: false, // nur Monster für offene Quest-Ziele jagen, danach Bot stoppen
     questOff: {},     // { [questId]: true } – Quests, die der Quest-Modus ignorieren soll
     dodge: true,      // Flächenangriffen (Warnkreisen) ausweichen
+    pull: false,      // Pull-Modus: mehrere Monster sammeln, bevor AoE und Einzelziele drankommen
+    pullMax: 3,       // Pull-Modus: höchstens so viele Monster sammeln (2–8)
+    pullHp: 60,       // Pull-Modus: nur starten, wenn die eigenen HP über diesem Wert (%) liegen (30–90)
     mirror: true,     // bei Spiegel/Reflexion des Ziels nicht angreifen
     koh: true,        // ClavisAngemon: große Raid-Angriffe mit „Key of Hope“ blocken
     tank: true,       // kleine Boss-Flächen (fester Schaden, höchstens ~1/3 der HP) tanken statt ausweichen
@@ -1752,6 +1755,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           ${slider('lvlDiff', 'Max. Level über dem Digimon', 0, 100, (v) => `+${v}`)}
           ${slider('radius', 'Suchradius', 100, 800, (v) => `${v} px`, 0, 20)}
           <div title="Gruppe: so weit dürfen Mitläufer vom Leader weg sein, bevor sie zurücklaufen. EXP und Quest-Fortschritt teilt das Spiel auf derselben Map im selben Kanal, unabhängig vom Abstand. Eigene Monster jagen die Mitläufer nur mit „Ziele verteilen“ (Reiter Gruppe) – sonst greifen sie das Ziel des Leaders an.">${slider('grpDist', 'Gruppenabstand', 60, 1500, (v) => `${v} px`, 0, 10)}</div>
+          ${check('pull', 'Monster sammeln (Pull)', 'Spielt bis zur Höchstzahl weitere Monster innerhalb der Leine des ersten an, dann AoE und Einzelziele. Nicht bei Bossen, im Dungeon/Raid und wenn ein Boss gleich fällig ist.')}
+          ${slider('pullMax', 'Sammeln: höchstens', 2, 8, (v) => `${v} Monster`)}
+          ${slider('pullHp', 'Sammeln: nur über HP', 30, 90, (v) => `${v} %`)}
           ${check('skipTaken', 'Keine Gegner angreifen, die andere Spieler bekämpfen')}
           ${check('levelRoute', 'Lern-Route: selbst zur besten EXP-Zone reisen', 'Beim Grinden reist der Bot zur Zone mit den meisten EXP/min für das aktuelle Level. Wechsel erst ab +15 % besser, frühestens nach 3 min.')}
           ${check('levelA2', 'Lern-Route nur in Adventure 02')}
