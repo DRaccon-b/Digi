@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.49
+// @version      3.1.50
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1652,7 +1652,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.49'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.50'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2787,7 +2787,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // 0,3 s vor dem Einschlag, 3.0.8)
     // – nur bei Kreisen: Fächer schwenken und Strahlen sind schmal, dort bleibt die volle Reserve (Raid: Ultimate Flare)
     const atRing = (p) => !!dodgeState.goal?.ring && !!p && Math.hypot(p.x - dodgeState.goal.x, p.y - dodgeState.goal.y) < 20;
-    const atEdge = (p) => (p === partner || p === tamer) && !!target && (dodgeState.basicTarget === target.id || atRing(p)); // 3.1.19: auch der Tamer, auch am Ring-Fluchtpunkt
+    // Steht das Digimon schon in Schlagweite neben dem gewählten Ziel, gilt dort ebenfalls nur die Kantenreserve – sonst wich es
+    // bis 28 px weiter aus und schlug erst nach dem Kreis zu (live Snimon-Kreise r 32 / 1,3 s: 0,5–0,9 s verschenkt, 3.1.50).
+    // Schlagweite wie digibotOutsideBasicPlan (ohne Annäherung): die 1 bewegt das Digimon dann nicht mehr zum Ziel hin
+    const reach0 = (() => { const C = content(), br = C?.digimon?.[partner?.defId || st?.me?.partner?.species]?.basic?.range ?? DODGE_BASIC_RANGE, tr = Math.max(1, Math.min(C?.digimon?.[target?.defId]?.radius ?? 7, 7)); return Number.isFinite(br) && br > 0 ? br + tr - DODGE_BASIC_PAD : 0; })();
+    const nextToTarget = !!target && !!partner && st?.target?.id === target.id && Math.hypot(partner.x - target.x, partner.y - target.y) <= reach0 && !mirrorActive(target.id) && !noFightEarly(st, now);
+    const atEdge = (p) => (p === partner || p === tamer) && !!target && (dodgeState.basicTarget === target.id || atRing(p) || nextToTarget); // 3.1.19: auch der Tamer, auch am Ring-Fluchtpunkt
     const inZone = (p) => p && zones.find((z) => !digibotDodgeZoneSafe(z,p, atEdge(p) && z.kind === 'circle' ? DODGE_EDGE_MARGIN : DODGE_MARGIN) && !covered(z,p,cmap));
     const approaching=!!dodgeState.approachTarget;
     const z = inZone(tamer) || inZone(partner);
@@ -3034,6 +3039,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       }
     }
     dodgeState.late = false;
+    // Ausweichen bricht den Angriff ab: draußen sofort wieder die 1, nicht erst nach der 1,5-s-Sperre (3.1.50). Nur beim
+    // Beginn einer Flucht (noch kein Fluchtpunkt – draußen, spät und ohne Fluchtpunkt wird er gelöscht), nicht in jedem Takt
+    // und nicht beim späten Herauslaufen (dort wird weitergekämpft, die Sperre muss bleiben). Nicht an dodgeState.active
+    // gekoppelt: das bleibt gesetzt, solange irgendein Kreis in der Nähe ist (mehrere Snimon)
+    if (!g0) bot.lastPress.Digit1 = 0;
     if (!dodgeState.active) { dodgeState.active = true; logEvent('warn', `${zoneName(z)} – weiche aus`); }
     if (best !== g0) dodgeState.goal = { x: best.x, y: best.y, at: now, ring: !!best.ring };
     if (best.ring && target) dodgeState.basicTarget = target.id; // am Ring sofort angreifen (3.1.19)

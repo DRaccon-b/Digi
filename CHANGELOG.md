@@ -2,6 +2,18 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.50 – Am Warnkreis schneller wieder zuschlagen
+- **Sofort zuschlagen nach dem Ausweichen:** Live (Snimon-Kreise, 1,3 s) stand das Digimon 0,5–0,9 s vor Kreisende schon
+  neben dem Ziel, die 1 kam aber erst ≈ 0,8 s später – der erste Treffer fiel fast immer erst nach dem Kreis. Zwei Gründe:
+  - Steht das Digimon in echter Schlagweite neben dem Ziel, reicht jetzt auch dort die Kantenreserve (8 px) statt 28 px – es
+    weicht nicht noch 20 px weiter aus, sondern schlägt im Stand zu. Nur in Schlagweite ohne Annäherung, damit die 1 es nicht
+    in den Kreis zieht.
+  - Das Ausweichen bricht den laufenden Angriff ab; die 1,5-s-Wiederholsperre der Taste 1 hielt den nächsten Schlag zurück.
+    Sie wird jetzt beim Beginn jeder Flucht einmal zurückgesetzt (auch wenn schon ein anderer Kreis in der Nähe ist) – nicht
+    in jedem Takt und nicht beim späten Herauslaufen, wo im Kreis weitergekämpft wird.
+- Live gemessen mit 3.1.49 (9 min): Shield of the Just trifft im Schnitt 3,8 Gegner (vorher 1,85), kein Cast mehr auf nur
+  einen; kein gesammeltes Monster lief zurück.
+
 ## 3.1.49 – AoE auf die Gruppe, gesammelte Monster laufen seltener zurück
 - **AoE zielt auf die Gruppe:** „AoE ab N“ zählt nur noch Gegner im echten Trefferradius, die dich oder die Gruppe angreifen
   (plus das Ziel), und wechselt vor dem Zünden auf das angreifende Monster mit den meisten Nachbarn. Live traf Shield of the
