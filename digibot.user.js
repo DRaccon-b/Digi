@@ -156,6 +156,8 @@ function digibotClean(v, depth=0) {
   if(typeof v==='boolean'||(typeof v==='number'&&Number.isFinite(v)))return v;
   return undefined;
 }
+// Skill-Rollen je Taste (3.1.43): attack, aoe (ab N Gegnern), atkbuff, tankbuff, atksup, defsup, utilsup, heal (< X %), grpheal (< X %)
+const DIGIBOT_ROLES=['attack','aoe','atkbuff','tankbuff','atksup','defsup','utilsup','heal','grpheal'];
 function digibotConfig(saved, defaults) {
   const out=JSON.parse(JSON.stringify(defaults)), issues=[];
   if(!digibotRecord(saved))return {value:out,issues:['Ungültiges Einstellungsformat']};
@@ -163,6 +165,8 @@ function digibotConfig(saved, defaults) {
   const boolMap=v=>Object.fromEntries(Object.entries(digibotRecord(v)?digibotClean(v):{}).filter(([,x])=>typeof x==='boolean'));
   const skills=v=>Object.fromEntries(Object.entries(boolMap(v)).filter(([k])=>/^[2-6]$/.test(k)));
   const heals=v=>Object.fromEntries(Object.entries(digibotRecord(v)?digibotClean(v):{}).filter(([k,x])=>/^[2-6]$/.test(k)&&typeof x==='number').map(([k,x])=>[k,Math.max(0,Math.min(100,x))]));
+  const roles=v=>Object.fromEntries(Object.entries(digibotRecord(v)?digibotClean(v):{}).filter(([k,x])=>/^[2-6]$/.test(k)&&DIGIBOT_ROLES.includes(x)));
+  const nums=(v,min,max)=>Object.fromEntries(Object.entries(digibotRecord(v)?digibotClean(v):{}).filter(([k,x])=>/^[2-6]$/.test(k)&&typeof x==='number').map(([k,x])=>[k,Math.max(min,Math.min(max,Math.round(x)))]));
   for(const [k,d]of Object.entries(defaults)) {
     if(!Object.hasOwn(saved,k)||k==='cardSel'||k==='cardNamed')continue;const v=saved[k];
     if(Array.isArray(d)) {if(Array.isArray(v)&&v.every(x=>typeof x===typeof d[0]))out[k]=digibotClean(v);else issues.push(k);}
@@ -171,7 +175,8 @@ function digibotConfig(saved, defaults) {
   }
   for(const [k,[min,max]]of Object.entries(bounds))if(typeof out[k]==='number'){const x=Math.max(min,Math.min(max,out[k]));if(x!==out[k])issues.push(k);out[k]=x;}
   out.skills={...defaults.skills,...skills(out.skills)};out.heal=heals(out.heal);
-  out.skillSets=Object.fromEntries(Object.entries(out.skillSets||{}).filter(([,v])=>digibotRecord(v)).map(([k,v])=>[k,{skills:{...defaults.skills,...skills(v.skills)},heal:heals(v.heal)}]));
+  out.skillSets=Object.fromEntries(Object.entries(out.skillSets||{}).filter(([,v])=>digibotRecord(v)).map(([k,v])=>[k,{skills:{...defaults.skills,...skills(v.skills)},heal:heals(v.heal),
+    role:roles(v.role),aoeN:nums(v.aoeN,2,5),grpHeal:nums(v.grpHeal,30,85),...(Number.isInteger(v.rolesV)?{rolesV:v.rolesV}:{})}]));
   for(const k of ['open','questOff'])out[k]=boolMap(out[k]);
   out.mobs=Object.fromEntries(Object.entries(out.mobs||{}).filter(([,v])=>digibotRecord(v)).map(([k,v])=>[k,boolMap(v)]));
   out.farmChannels=[...new Set((out.farmChannels||[]).filter(x=>Number.isInteger(x)&&x>=1&&x<=100))];
@@ -219,6 +224,25 @@ function digibotMechanicActive(st, scene) {
 }
 
 // Pure decisions, independent of game internals and browser timers.
+// Rollen-Vorschlag aus den Spieldaten eines Skills (3.1.43): Art (kind), Ziel (target), Form (shape) und Werte (effects)
+function digibotSkillRoleSuggest(def) {
+  if(!def)return {role:'attack'};
+  if(def.id==='clavisangemon.key_of_hope'||def.name==='Key of Hope')return {role:'koh'};
+  const fx=def.effects||[],sum=(stats,sign)=>fx.filter(e=>stats.includes(e.stat)&&Math.sign(e.pct)===sign).reduce((n,e)=>n+Math.abs(e.pct),0);
+  if(def.kind==='damage')return def.shape==='circle'||def.shape==='line'?{role:'aoe',n:2}:{role:'attack'};
+  if(def.kind==='heal')return def.target==='ally'||def.target==='party'?{role:'grpheal',n:85}:{role:'heal',n:50};
+  if(def.kind==='debuff'||def.target==='enemy'){
+    const atk=sum(['de','bl'],-1)+(def.expose?.pct||0),dfs=sum(['at','as','ms'],-1);
+    return {role:atk>0&&atk>=dfs?'atksup':'defsup'};
+  }
+  if(def.kind==='buff'){
+    const d=sum(['de','ev','bl','hp'],1)+(def.damageReduction?.pct||0)+(def.guardLink?.pct||0)+(def.protectionMs?50:0),a=sum(['at','as','ct','ht'],1);
+    if(def.cleanse&&!d&&!a)return {role:'utilsup'};
+    const group=def.shape==='circle'||def.target==='ally'||def.target==='party';
+    return {role:group?(d>=a?'defsup':'atksup'):(d>=a?'tankbuff':'atkbuff')};
+  }
+  return {role:'attack'};
+}
 function digibotTamerDecision({skill, partner, allies=[], target, fighting=false, incoming=false, debuffed=false, skillsOnCooldown=0}) {
   if(!skill||!partner||partner.fainted||partner.evolving||partner.hp<=0)return null;
   const own=partner.maxHp>0?partner.hp/partner.maxHp*100:100;
@@ -3638,10 +3662,38 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const skillSet = (st) => { const sp = st?.me?.partner?.species; return sp ? cfg.skillSets?.[sp] || null : null; };
   const skillOn = (st, k) => { const s = skillSet(st); return s ? s.skills?.[k] ?? true : !!cfg.skills[k]; };
   const healAt = (st, k) => Number(skillSet(st)?.heal?.[k]) || 0;
+  // Rolle der Taste k für die aktuelle Form: selbst gesetzt, sonst alter Heal-Wert, sonst Vorschlag aus den Spieldaten (3.1.43)
+  function skillRole(st, k) {
+    const set = skillSet(st), r = set?.role?.[k];
+    if (r) return { role: r, n: r === 'aoe' ? set.aoeN?.[k] || 2 : r === 'heal' ? Number(set.heal?.[k]) || 50 : r === 'grpheal' ? set.grpHeal?.[k] || 85 : 0, chosen: true };
+    const h = Number(set?.heal?.[k]) || 0;
+    if (h) return { role: 'heal', n: h, chosen: true };
+    const s = skillOnKey(st, k), def = s?.skill ? { ...(content()?.skills?.[s.skill.id] || {}), ...s.skill } : null;
+    const g = digibotSkillRoleSuggest(def);
+    return { role: g.role, n: g.n || 0, chosen: false };
+  }
+  const isAttackRole = (st, k) => { const r = skillRole(st, k).role; return r === 'attack' || r === 'aoe'; };
+  // Einmal je Form (3.1.43): bisher heilten healSkill/groupHeal auch mit Haken aus – damit nach dem Umbau keine Heilung still
+  // wegfällt, kommen Heal-Tasten und Gruppen-Heil-Skills an; ein Gruppen-Heil-Skill wird „Gruppen-Heal < x %“ (x = alter Wert, sonst 85)
+  function skillRoleMigrate(st) {
+    const sp = st?.me?.partner?.species, set = sp && cfg.skillSets?.[sp];
+    if (!set || set.rolesV >= 1 || !st.me.partner.skills?.length) return false;
+    for (const k of SKILL_KEYS) {
+      const s = skillOnKey(st, k), h = Number(set.heal?.[k]) || 0;
+      if (s?.skill && isAllyHeal(s.skill) && !set.role?.[k]) {
+        set.role = { ...set.role, [k]: 'grpheal' };
+        set.grpHeal = { ...set.grpHeal, [k]: Math.max(30, Math.min(85, h || 85)) };
+        if (set.heal) delete set.heal[k];
+        set.skills[k] = true;
+      } else if (h > 0) set.skills[k] = true;
+    }
+    set.rolesV = 1;
+    return true;
+  }
   function editSkillSet(st) {
     const sp = st?.me?.partner?.species || '_';
     cfg.skillSets ||= {};
-    return (cfg.skillSets[sp] ||= { skills: { ...cfg.skills }, heal: {} });
+    return (cfg.skillSets[sp] ||= { skills: { ...cfg.skills }, heal: {}, role: {}, aoeN: {}, grpHeal: {}, rolesV: 1 });
   }
   function healSkill(st, now) {
     const p = st?.me?.partner;
@@ -10259,6 +10311,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       saveCfg();
       logEvent('bot', `Heil-Skills gelten jetzt nur für ${speciesName(p.species)} (je Digitationsform einstellbar)`);
     }
+    if (skillRoleMigrate(st)) { saveCfg(); logEvent('bot', `Skill-Rollen für ${speciesName(p.species)} übernommen (Heil-Tasten bleiben an)`); }
     trackLoot(st);
     renderLoot();
     mobExpTick(st, Date.now()); renderMobExp(st);
