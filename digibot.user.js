@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.48
+// @version      3.1.49
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1652,7 +1652,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.48'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.49'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2925,7 +2925,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const kg = target && KITE_GUARD[target.defId] !== undefined && (!KITE_GUARD[target.defId] || KITE_GUARD[target.defId] === st?.world?.mapId);
     const home = kg ? mobHome.get(target.id) : null;
     const leash = home ? (content()?.digimon?.[target.defId]?.mob?.leashRange || 320) - 80 : Infinity;
-    const inLeash = (p) => !home || Math.hypot(p.x - home.x, p.y - home.y) <= leash;
+    // Pull-Modus (3.1.49): während einer Sammelrunde auch in den Leinen aller angespielten Monster bleiben – das Spiel lässt ein
+    // Monster aufgeben, sobald sein Ziel (mein Digimon) zu weit von seinem Startplatz weg ist (live: abgelassen bei 197 px vom
+    // Startplatz, Digimon 258 px weg); weiter nur bevorzugt, nicht erzwungen (Aufschlag in der Bewertung)
+    const pullHomes = cfg.pull && pull.anchor ? pull.homes : [];
+    const inLeash = (p) => (!home || Math.hypot(p.x - home.x, p.y - home.y) <= leash)
+      && pullHomes.every((h) => Math.hypot(p.x - h.x, p.y - h.y) <= (h.leash || PULL_LEASH) - PULL_DODGE_LEASH_MARGIN);
     let first = null, firstRad = 0, best = null, bestScore = Infinity, safeOnly = null, crossOnly = null;
     // Schutzzonen meiden: dort kann man nicht kämpfen (danach erst wieder herauslaufen) – nur als letzter Ausweg
     const mapId = st.world?.mapId;
@@ -3713,6 +3718,34 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (own && !own.seen && (own.ok ||= (st?.cooldowns?.[own.ref]?.end ?? 0) > own.at)) left = Math.max(left, own.end - t);
     return Math.max(0, left);
   }
+  // Gegner um (x, y), die mich, meinen Tamer oder ein Gruppenmitglied angreifen – plus das Ziel selbst (incl)
+  const AOE_HIT_PAD = 8, AOE_RETARGET_MS = 1500;
+  let aoeRetargetAt = 0;
+  function hostileNear(st, x, y, r, incl) {
+    const mine = new Set([st?.me?.partner?.entityId, st?.me?.tamerEntityId, ...groupEntityIds()].filter(Boolean));
+    let n = 0;
+    window.dmo?.net?.state?.entities?.forEach?.((e) => {
+      if (e.kind !== KIND.Mob || e.hp <= 0 || (e.flags & (FLAG.Dead | FLAG.Hidden | FLAG.Untargetable))) return;
+      if (e.id !== incl && !mine.has(e.targetId)) return;
+      if (Math.hypot(e.x - x, e.y - y) <= r) n++;
+    });
+    return n;
+  }
+  // bestes AoE-Zentrum: das angreifende Monster in Skill-Reichweite mit den meisten Gegnern im Radius (Gleichstand: näher)
+  function aoeBestCenter(st, own, def, r) {
+    if (!own) return null;
+    const mine = new Set([st?.me?.partner?.entityId, st?.me?.tamerEntityId, ...groupEntityIds()].filter(Boolean));
+    const reach = (Number(def.range) || 0) + 40;
+    let best = null;
+    window.dmo?.net?.state?.entities?.forEach?.((e) => {
+      if (e.kind !== KIND.Mob || e.hp <= 0 || (e.flags & (FLAG.Dead | FLAG.Hidden | FLAG.Untargetable | FLAG.Boss)) || !mine.has(e.targetId)) return;
+      const d = Math.hypot(e.x - own.x, e.y - own.y);
+      if (d > reach) return;
+      const n = hostileNear(st, e.x, e.y, r, e.id);
+      if (!best || n > best.n || (n === best.n && d < best.d)) best = { id: e.id, n, d };
+    });
+    return best;
+  }
   function enemiesNear(x, y, r) {
     let n = 0;
     window.dmo?.net?.state?.entities?.forEach?.((e) => { if (e.kind === KIND.Mob && e.hp > 0 && !(e.flags & (FLAG.Dead | FLAG.Hidden | FLAG.Untargetable)) && Math.hypot(e.x - x, e.y - y) <= r) n++; });
@@ -3770,9 +3803,20 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         if (mirror) { held ||= 'Spiegel – Angriffs-Buff wartet'; continue; }
       }
       if (ro.role === 'aoe' && !boss) { // gegen einen Boss zählt er wie ein Angriff
-        const c = def.origin === 'caster' ? own : te;
         const n = pull.done && pull.anchor ? Math.max(2, Math.min(ro.n, pull.count)) : ro.n; // Pull: höchstens die Zahl der gesammelten
-        if (!c || enemiesNear(c.x, c.y, (Number(def.radius) || 32) + 24) < n) continue;
+        // 3.1.49: nur Gegner im echten Trefferradius, die mich/die Gruppe angreifen (plus das Ziel) – und auf das Monster mit
+        // den meisten Nachbarn wechseln (live: nach dem Sammeln stand das Ziel abseits, die Gruppe auf der anderen Seite)
+        const r = (Number(def.radius) || 32) + AOE_HIT_PAD;
+        if (def.origin === 'caster') { if (!own || hostileNear(st, own.x, own.y, r, null) < n) continue; }
+        else {
+          const here = hostileNear(st, te.x, te.y, r, te.id), best = path === 'main' ? aoeBestCenter(st, own, def, r) : null;
+          if (best && best.id !== t.id && best.n >= n && best.n > here) {
+            if (now - aoeRetargetAt > AOE_RETARGET_MS && bot.can('select', SELECT_GAP_MS, now)) { aoeRetargetAt = now; bot.lastPress.select = now; worldScene()?.select?.(best.id); }
+            held ||= `AoE: wechsle auf die Gruppe (${best.n})`;
+            continue;
+          }
+          if (here < n) continue;
+        }
       }
       if (sup && effectLeft(t.id, def.id) >= KEEP_LEFT_MS) continue; // wirkt noch auf dem Gegner
       const why = pickBlock(st, now, path, t, k, s, def, ro.role, d, reach);
@@ -9102,7 +9146,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // ---------- Pull-Modus: Monster in der Leine des ersten sammeln, dann kämpfen ----------
   // Runde = vom ersten Angreifer, bis keiner mehr angreift. Anker = Startplatz des ersten (mobHome, ≈ Spawn – von dort misst
   // das Spiel die Leine). Weitere Monster nur, wenn sie in der Leine des ersten und jedes schon gesammelten stehen.
-  const PULL_MARGIN = 40;            // Sicherheitsabstand zum Rand der Leine (px)
+  const PULL_MARGIN = 60;            // Sicherheitsabstand zum Rand der Leine (px) – das Digimon steht beim Zuschlagen noch etwas weiter (3.1.49: 40 -> 60)
+  const PULL_DODGE_LEASH_MARGIN = 50; // Ausweichen während einer Runde: Fluchtpunkte bevorzugt so weit innerhalb der Leinen
   const PULL_MAX_MS = 12000;         // Notbremse: so lange nach dem ersten Treffer höchstens sammeln
   const PULL_BOSS_SOON_MS = 30000;   // Boss-Rotation: nicht sammeln, wenn ein Boss der Map so bald fällig ist
   const PULL_LEASH = 240;            // Leine, wenn die Spieldaten keine nennen

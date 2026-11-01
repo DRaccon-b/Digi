@@ -2,6 +2,15 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.49 – AoE auf die Gruppe, gesammelte Monster laufen seltener zurück
+- **AoE zielt auf die Gruppe:** „AoE ab N“ zählt nur noch Gegner im echten Trefferradius, die dich oder die Gruppe angreifen
+  (plus das Ziel), und wechselt vor dem Zünden auf das angreifende Monster mit den meisten Nachbarn. Live traf Shield of the
+  Just nach dem Sammeln meist nur das zuletzt angespielte Monster, weil die Gruppe auf der anderen Seite stand.
+- **In der Leine bleiben:** Ein Monster gibt auf, wenn **dein Digimon** zu weit von seinem Startplatz weg ist (live: ein Snimon
+  ließ bei 197 px ab, das Digimon war 258 px vom Startplatz weg). Beim Ausweichen während einer Sammelrunde bevorzugt der Bot
+  deshalb Fluchtpunkte in den Leinen aller angespielten Monster, und er spielt nur Monster bis 60 px (statt 40) vor dem
+  Leinenrand an.
+
 ## 3.1.48 – Pull-Modus: weiter sammeln, während der Bot einem Flächenangriff ausweicht
 - **Sammeln beim Warten:** Steht das Ziel in einem Warnkreis und wartet der Bot draußen, spielt er schon das nächste Monster
   in der Leine an – nur eines, das außerhalb aller Warnkreise steht. Ist der gerade Weg frei, schlägt er direkt zu, sonst

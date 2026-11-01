@@ -1,4 +1,7 @@
 // 3.1.43: Skill-Rotation nach Rollen (gegnerseitig).
+// 3.1.49 (live: Shield of the Just traf nach dem Sammeln meist nur das zuletzt angespielte Monster – die Gruppe stand woanders):
+// I: Ziel b:1 abseits, ein Monster 70 px daneben (außerhalb des echten Radius 56), drei Angreifer als Gruppe beim Digimon ->
+//    nicht auf b:1 zünden, sondern auf die Gruppe wechseln und dort zünden.
 // A: „AoE ab 3“ mit nur einem Gegner -> nicht; mit drei Gegnern im Kreis -> ja.   B: gegen einen Boss allein -> ja.
 // C: Boss, Angriffs-Buff (Taste 3) + Angriff (Taste 2): Buff erst ~3 s nach dem ersten Angriff und vor dem ersten Angriffsskill.
 // D: wie C, aber der Boss spiegelt: kein Buff, solange der Spiegel läuft.   E: normales Monster: kein Angriffs-Buff, Angriff sofort.
@@ -137,13 +140,28 @@ const first = (keys, c) => keys.find((k) => k.c === c)?.t ?? null;
     r.H = count(keys, 'Digit2', t1);
     G.w.close();
   }
+  // I: AoE auf die Gruppe statt auf den Nachzügler
+  {
+    const { G, keys } = await trial({ tag: 'I', keys: ['x.aoe'], roles: ['aoe:2'] });
+    const b1 = G.ents.get('b:1'); b1.x = 560; b1.y = 330;
+    const mk = (id, x, y, tgt) => G.ents.set(id, { id, kind: 2, defId: 'etemon', x, y, hp: 800000, maxHp: 900000, level: 5, flags: 32, targetId: tgt });
+    mk('b:n', 630, 330, ''); // 70 px neben b:1, greift nicht an
+    mk('b:g1', 440, 345, 'p:me'); mk('b:g2', 455, 320, 'p:me'); mk('b:g3', 470, 350, 'p:me');
+    const casts = [];
+    G.w.addEventListener('keydown', (e) => { if (e.code === 'Digit2') casts.push(G.store.getState().target?.id); }, true);
+    G.w.document.querySelector('[data-act="bot"]').click();
+    await wait(5000);
+    r.I = { casts: [...new Set(casts)], n: casts.length };
+    G.w.close();
+  }
   console.log(JSON.stringify(r));
   const ok = r.A1 === 0 && r.A2 >= 1 && r.B >= 1
     && r.C.buffAfter != null && r.C.buffAfter >= 2500 && r.C.buffFirst
     && r.D1 === 0 && r.D2 >= 1
     && r.E.d3 === 0 && r.E.d2early
     && r.F1.first >= 1 && r.F1.again === 0 && r.F2 >= 1
-    && r.G.d2 === 0 && r.G.d3 >= 1 && r.H === 0;
+    && r.G.d2 === 0 && r.G.d3 >= 1 && r.H === 0
+    && r.I.n >= 1 && !r.I.casts.includes('b:1') && r.I.casts.every((id) => /^b:g/.test(id));
   console.log(ok ? 'OK – Skill-Rotation nach Rollen' : 'FEHLER');
   process.exit(ok ? 0 : 1);
 })();
