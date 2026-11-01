@@ -508,7 +508,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     for(const opts of digibotKeys.values())window.dispatchEvent(new KeyboardEvent('keyup',opts));digibotKeys.clear();
     digibotTamer.want=false;digibotTamer.since=0;
     digibotCombat.reset();digibotDodgeReset();digibotAttackTravel=null;digibotBossWalk=null;digibotChannelPeace=null;digibotChannelCleanup=null;lr.scanPeace=false;
-    clearInterval(bot.timer); bot.questIdle=false;bot.on=false;bot.attackedId=null;bot.engage=null;bot.status=reason;
+    clearInterval(bot.timer); bot.questIdle=false;bot.on=false;bot.attackedId=null;bot.engage=null;bot.status=reason;pullReset();
     ss.set('digibot.go',null);ss.set('digibot.login',null);
     group.mirroring=false;if(locked)group.leaderPos=null;group.lastPos=null;group.worldAt=0;
     group.noFight=false;group.leaveSince=0; // gestoppt: altes „nicht kämpfen“ nicht weitersenden, Abfahrts-Grenze neu (3.1.30)
@@ -598,7 +598,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if(key!==digibotLastContext) {
       digibotCombatPlace=null;digibotCombat.reset();digibotDodgeReset();digibotAttackTravel=null;digibotBossWalk=null;
       digibotLastContext=key;autopilot.nav=null;autopilot.route=null;refusal.repos=null;
-      bot.attackedId=null;bot.engage=null;digibotFormation.reset();digibotCurrentObjective=null;
+      bot.attackedId=null;bot.engage=null;digibotFormation.reset();digibotCurrentObjective=null;pullReset();
       hunt.seenAt=0;wb.seenAt=0;hunt.polledAt=0;hunt.busy=false;hunt.pollToken=(hunt.pollToken||0)+1;
       digibotNavigationContext(st);
       digibotCore.record('Spielkontext gewechselt',{map:st?.world?.mapId,channel:st?.world?.channel});
@@ -859,7 +859,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const digibotAccountQueue=createDigiBotAccountQueue();
   function digibotQueueStatus(message) {bot.status=message;digibotCore.record('Account-Runde',{action:message,slot:digibotAccountQueue.slot},true);schedule();}
   function digibotQueueQuiesce() {
-    clearInterval(bot.timer);bot.on=false;bot.attackedId=null;bot.engage=null;bot.lastPress={};
+    clearInterval(bot.timer);bot.on=false;bot.attackedId=null;bot.engage=null;bot.lastPress={};pullReset();
     digibotHistory.cancel('Account-Wechsel');digibotCombat.reset();
     const scene=digibotRawScene(),st=window.dmo?.store?.getState?.();
     try{scene?.deps?.commands?.partnerStop?.();const me=controlled(st);if(me)scene?.tapGround?.(me.x,me.y);}catch{}
@@ -3744,6 +3744,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (!p || !t?.id) return null;
     const ents = window.dmo?.net?.state?.entities, te = ents?.get?.(t.id) || t, own = ents?.get?.(p.entityId);
     const boss = !!((te.flags ?? 0) & FLAG.Boss), fm = fightStart(t, now), since = now - fm.at;
+    // Pull-Modus: DS und AoE fürs Gesammelte aufheben (Heals/Buffs: skillCare) – auch beim ersten Treffer, bis die Runde läuft
+    if (pull.on || (cfg.pull && !pull.anchor && !pull.done && !boss && since < PULL_START_MS && !pullBlocked(st, null, now))) return { held: 'Sammle Monster – Skills warten' };
     const mirror = mirrorActive(t.id) || (boss && !!st.boss?.mirror);
     const d = own && Number.isFinite(te.x) ? Math.hypot(te.x - own.x, te.y - own.y) : 0;
     const basicRange = content()?.digimon?.[p.species]?.basic?.range, reach = (Number.isFinite(basicRange) ? basicRange : 33) + 12;
@@ -3766,7 +3768,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       }
       if (ro.role === 'aoe' && !boss) { // gegen einen Boss zählt er wie ein Angriff
         const c = def.origin === 'caster' ? own : te;
-        if (!c || enemiesNear(c.x, c.y, (Number(def.radius) || 32) + 24) < ro.n) continue;
+        const n = pull.done && pull.anchor ? Math.max(2, Math.min(ro.n, pull.count)) : ro.n; // Pull: höchstens die Zahl der gesammelten
+        if (!c || enemiesNear(c.x, c.y, (Number(def.radius) || 32) + 24) < n) continue;
       }
       if (sup && effectLeft(t.id, def.id) >= KEEP_LEFT_MS) continue; // wirkt noch auf dem Gegner
       const why = pickBlock(st, now, path, t, k, s, def, ro.role, d, reach);
@@ -9086,6 +9089,70 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return h.room >= h.rooms ? 'Dungeon: alle Räume frei – zum Ausgang' : `Dungeon: Raum ${h.room + 1}/${h.rooms}${h.pulled ? ' · Kampf' : ''} · Stürze ${h.deaths}/${h.deathLimit}`;
   }
 
+  // ---------- Pull-Modus: Monster in der Leine des ersten sammeln, dann kämpfen ----------
+  // Runde = vom ersten Angreifer, bis keiner mehr angreift. Anker = Startplatz des ersten (mobHome, ≈ Spawn – von dort misst
+  // das Spiel die Leine). Weitere Monster nur, wenn sie in der Leine des ersten und jedes schon gesammelten stehen.
+  const PULL_MARGIN = 40;            // Sicherheitsabstand zum Rand der Leine (px)
+  const PULL_MAX_MS = 12000;         // Notbremse: so lange nach dem ersten Treffer höchstens sammeln
+  const PULL_BOSS_SOON_MS = 30000;   // Boss-Rotation: nicht sammeln, wenn ein Boss der Map so bald fällig ist
+  const PULL_LEASH = 240;            // Leine, wenn die Spieldaten keine nennen
+  const PULL_START_MS = 1500;        // Skills so lange nach dem ersten Treffer zurückhalten, bis die Runde beginnt
+  const pull = { on: false, anchor: null, leash: 0, startAt: 0, ids: new Set(), homes: [], done: false, count: 0 };
+  function pullReset() {
+    pull.on = false; pull.anchor = null; pull.leash = 0; pull.startAt = 0; pull.ids = new Set(); pull.homes = []; pull.done = false; pull.count = 0;
+  }
+  const pullLeashOf = (sp) => content()?.digimon?.[sp]?.mob?.leashRange || PULL_LEASH;
+  // Grund, warum gerade nicht gesammelt wird (null = sammeln erlaubt)
+  function pullBlocked(st, sc, now) {
+    if (!cfg.pull) return 'Pull aus';
+    if (cfg.dungeon || dungeonLike(st)) return 'Dungeon/Raid';
+    if (bot.resting) return 'Ruhemodus';
+    if (group.role() === 'follower') return 'Mitläufer';
+    if (sc?.mobs?.some((m) => m.cat === 'boss' || m.mapBoss)) return 'Boss/Named in Sicht';
+    if (cfg.farm && (cfg.farmMode === 'boss' || cfg.farmMode === 'named')) {
+      const map = st?.world?.mapId, ch = st?.world?.channel ?? 1;
+      for (const [k, v] of farm.known) {
+        const [m, , c] = k.split('#');
+        if (m === map && String(c) === String(ch) && (v.up || (v.readyAt != null && v.readyAt - now <= PULL_BOSS_SOON_MS))) return 'Boss bald fällig';
+      }
+    }
+    if (huntFocus(sc) || wbFocus(sc)) return 'Event-/Weltboss';
+    return null;
+  }
+  // Monster im Schnitt der Leinen-Kreise (Anker und Startplätze der schon gesammelten)
+  function pullInLeash(m) {
+    const a = pull.anchor; if (!a) return false;
+    if (Math.hypot(m.x - a.x, m.y - a.y) > pull.leash - PULL_MARGIN) return false;
+    return pull.homes.every((h) => Math.hypot(m.x - h.x, m.y - h.y) <= h.leash - PULL_MARGIN);
+  }
+  // Nächstes Monster zum Anspielen oder null (dann normale Zielwahl)
+  function pullPick(st, sc, now) {
+    const att = sc?.attackers || [];
+    if (!att.length) { if (pull.anchor || pull.done) pullReset(); return null; } // Runde vorbei
+    if (pull.done) return null;
+    if (pullBlocked(st, sc, now)) { pull.on = false; pull.done = true; return null; } // diese Runde nicht sammeln
+    if (!pull.anchor) {
+      const f = att[0], h = mobHome.get(f.id) || f;
+      pull.anchor = { x: h.x, y: h.y }; pull.leash = pullLeashOf(f.species); pull.startAt = now; pull.on = true;
+    }
+    for (const m of att) {
+      if (pull.ids.has(m.id)) continue;
+      const h = mobHome.get(m.id) || m;
+      pull.ids.add(m.id); pull.homes.push({ x: h.x, y: h.y, leash: pullLeashOf(m.species) });
+    }
+    pull.count = att.length;
+    const p = st?.me?.partner, hp = p?.maxHp > 0 ? p.hp / p.maxHp * 100 : 100;
+    const end = pull.count >= cfg.pullMax ? 'Höchstzahl' : hp < cfg.pullHp ? `HP unter ${cfg.pullHp} %` : now - pull.startAt > PULL_MAX_MS ? 'Zeit um' : null;
+    const cands = end ? [] : sc.mobs.filter((m) => usable(m) && !m.attacker && m.cat !== 'boss' && !m.mapBoss && !safeHeld(m.id, now) && pullInLeash(m))
+      .sort((a, b) => (Number.isFinite(a.pd) ? a.pd : 1e9 + a.d) - (Number.isFinite(b.pd) ? b.pd : 1e9 + b.d));
+    if (!cands.length) {
+      pull.on = false; pull.done = true;
+      logEvent('auto', `Pull: ${pull.count} Monster gesammelt${end ? ` (${end})` : ''} – Kampf`);
+      return null;
+    }
+    return cands.find((m) => m.id === st?.target?.id) || cands[0]; // angelaufenes Ziel behalten
+  }
+
   function pickTarget(sc, resting) {
     if (!sc) return null;
     if (cfg.dungeon) { const att = sc.attackers.filter((m) => !safeHeld(m.id)); return (resting ? null : dungeonFocus(sc)) || att[0] || null; }
@@ -9095,6 +9162,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (focus && !safeHeld(focus.id)) return focus;
     const fb = resting ? null : farmBossNear(sc);
     if (fb && !safeHeld(fb.id)) return fb;
+    if (!resting) { // Pull-Modus: vor den Angreifern das nächste Monster in der Leine anspielen
+      const st = getStore()?.getState?.(), now = Date.now();
+      const pp = pullPick(st, sc, now); if (pp) return pp;
+    }
     const att = sc.attackers.filter((m) => !safeHeld(m.id));
     // Leader hat gerade kein Ziel (sein Monster ist tot): wie er den Angreifer nehmen, der ihm am nächsten ist –
     // so geht die ganze Gruppe sofort gemeinsam auf dasselbe Monster (bei wenig HP: was mich angreift)
@@ -9776,6 +9847,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       this.attackedId = null;
       this.engage = null;
       this.resting = false;
+      pullReset(); // Pull-Runde nicht in den nächsten Lauf mitnehmen
       autopilot.reset();
       farm.reset();
       if (starting && !digibotChallengeResume) food.reset(); // 3.1.29: neuer Food-Lauf mit neuem Startpunkt; nach der Anwesenheitskontrolle weiter (3.1.30)
@@ -9813,6 +9885,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       }
       if (p.fainted) {
         if (this.status !== 'Digimon ist bewusstlos') logEvent('warn', 'Digimon ist bewusstlos – Bot pausiert');
+        pullReset(); // gesammelte Runde ist vorbei
         // Lern-Route: im Kampf mit einem Feldboss umgehauen -> diesen Boss eine Weile auslassen (keine Level-Grenze, aber
         // aus Erfahrung lernen)
         const lb = lrOn() && lr.boss;
@@ -10064,7 +10137,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       // ohne Weg zum Ziel (Insel, andere Klippenseite) nicht weiter draufhalten – außer Fokus (Boss/Leader-Ziel) und Adds
       const noPath = !!info && info.reach === false && !onFocus && !addTarget;
       const defendOnly = this.defendOnly === now && !onFocus; // Warten auf Event/Weltboss: nur Angreifer abwehren
-      const valid = !noFight && !dup && !offFocus && !noPath && !(defendOnly && !isAttacker) && !(alive && safeHeld(t.id, now)) && (isAttacker || addTarget || onFocus || (!blocked && (this.resting ? fighting : alive && lvlOk)));
+      // Pull-Modus: Ziel greift schon an und ein weiteres Monster in der Leine wartet -> zu dem wechseln
+      const pullNext = alive && sc && !noFight && !onFocus && !addTarget && !this.resting ? pullPick(st, sc, now) : null;
+      const pullSwitch = !!pullNext && pullNext.id !== t.id;
+      const valid = !noFight && !dup && !offFocus && !noPath && !pullSwitch && !(defendOnly && !isAttacker) && !(alive && safeHeld(t.id, now)) && (isAttacker || addTarget || onFocus || (!blocked && (this.resting ? fighting : alive && lvlOk)));
       // Kampf gegen gesuchte Beute: Gebiet ist nicht leer (die 90-s-Leerlaufuhr lief sonst während der Kämpfe weiter)
       if (valid && alive && cfg.autopilot && autopilot.task?.kind === 'hunt' && autopilot.task.species?.has?.(info?.species)) autopilot.idleSince = 0;
       if (!valid) {
@@ -10093,7 +10169,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           let questRet = null;
           if (next) {
             if (this.can('select', SELECT_GAP_MS, now)) { this.lastPress.select = now; scene.select(next.id); kickTick(); } // gleich angreifen, nicht erst im nächsten Takt
-            this.status = `${next.attacker ? 'Angreifer' : 'Nächstes Ziel'}: Lv ${next.level} · ${Math.round(next.d)} px`;
+            this.status = pull.on && !next.attacker ? `Sammle ${pull.count + 1}/${cfg.pullMax}: ${speciesName(next.species)}`
+              : `${next.attacker ? 'Angreifer' : 'Nächstes Ziel'}: Lv ${next.level} · ${Math.round(next.d)} px`;
           } else if (defending) { // nicht zur alten Autopilot-Aufgabe weglaufen (3.1.30)
             this.status = 'Warte auf Event/Weltboss – wehre Angreifer ab';
           } else if (huntNow && !this.resting) {
