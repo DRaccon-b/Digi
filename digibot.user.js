@@ -4461,6 +4461,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         // Bosse sind Gruppenkämpfe: ein Farm-Boss gilt nie als „von anderen belegt“
         taken: cfg.skipTaken && !attacker && !isFarmMob(farmSp, e) && !isFarmMob(qbSp, e)
           && (takenByOthers.has(e.id) || (!!e.targetId && !ours.has(e.targetId))),
+        // bekämpft einen anderen Spieler (ohne Rücksicht auf skipTaken) – der Pull-Modus spielt solche Monster nie an
+        busyElse: !attacker && (takenByOthers.has(e.id) || (!!e.targetId && !ours.has(e.targetId))),
         // nur zu starke Monster sind tabu, schwächere immer erlaubt; Farm-Bosse immer
         inLvl: e.level <= pLvl + lvlLimit(mapId) || isFarmMob(farmSp, e) || cardOk(e),
         enabled: farmSp ? isFarmMob(farmSp, e) || cardOk(e) : quest ? quest.species.has(e.defId) || e.id === assistId : mobOn(mapId, key, cat),
@@ -4788,7 +4790,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       kohAt: kohReadyAt(st, now), davis: davisReady(st, now), davisAt: digibotTamer.davisAt || 0, kohMoreOff: !!kohState.moreOff, // 3.1.26
       gsk: gskState(now), // Gruppen-Skills, die ich gerade zünden will (3.1.43)
       serve: serveOn(),
-      pulling: group.role() === 'leader' && pull.on, // Pull-Modus: ich sammle gerade Monster – Mitläufer übernehmen meine Ziele nicht
+      pulling: group.role() === 'leader' && pull.on && Date.now() - pull.startAt <= PULL_MAX_MS, // Pull-Modus: ich sammle gerade Monster – Mitläufer übernehmen meine Ziele nicht
     };
   }
   const fresh = (p, now) => !!p && now - p.seen < GROUP_STALE_MS;
@@ -9123,6 +9125,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       }
     }
     if (huntFocus(sc) || wbFocus(sc)) return 'Event-/Weltboss';
+    // Warten auf Event/Weltboss (huntStep/wbStep setzen defendOnly in jedem Takt): nur Angreifer abwehren, nichts anspielen –
+    // pickTarget/skillPick laufen mit eigenem Date.now(), daher ein Fenster von zwei Takten statt === now
+    if (bot.defendOnly && now - bot.defendOnly <= TICK_MS * 2) return 'Warten auf Event/Weltboss';
     return null;
   }
   // Monster im Schnitt der Leinen-Kreise (Anker und Startplätze der schon gesammelten)
@@ -9153,11 +9158,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     pull.count = att.length + grpAtt;
     const p = st?.me?.partner, hp = p?.maxHp > 0 ? p.hp / p.maxHp * 100 : 100;
     const end = pull.count >= cfg.pullMax ? 'Höchstzahl' : hp < cfg.pullHp ? `HP unter ${cfg.pullHp} %` : now - pull.startAt > PULL_MAX_MS ? 'Zeit um' : null;
-    const cands = end ? [] : sc.mobs.filter((m) => usable(m) && !m.attacker && m.cat !== 'boss' && !m.mapBoss && !safeHeld(m.id, now) && pullInLeash(m))
+    const cands = end ? [] : sc.mobs.filter((m) => usable(m) && !m.attacker && !m.busyElse && m.cat !== 'boss' && !m.mapBoss && !safeHeld(m.id, now) && pullInLeash(m))
       .sort((a, b) => (Number.isFinite(a.pd) ? a.pd : 1e9 + a.d) - (Number.isFinite(b.pd) ? b.pd : 1e9 + b.d));
     if (!cands.length) {
       pull.on = false; pull.done = true;
-      logEvent('auto', `Pull: ${pull.count} Monster gesammelt${end ? ` (${end})` : ''} – Kampf`);
+      if (pull.count >= 2) logEvent('auto', `Pull: ${pull.count} Monster gesammelt${end ? ` (${end})` : ''} – Kampf`); // ein einzelnes ist kein Pull
       return null;
     }
     return cands.find((m) => m.id === st?.target?.id) || cands[0]; // angelaufenes Ziel behalten

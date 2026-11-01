@@ -7,6 +7,8 @@
 // F: erstes ist schon Angreifer und 100 px von seinem Startplatz weg; zweites 180 px vom Startplatz, 260 px von der
 //    aktuellen Position -> wird gewählt (Kreis um den Startplatz).
 // G: Boss-Rotation (farmMode 'boss') mit Boss in Sicht -> kein Sammeln.   G2: ohne Rotation, Boss in Sicht -> kein Sammeln.
+// I: Warten auf Event-Boss (noch nicht erschienen, defendOnly) mit Angreifer -> kein Kandidat gewählt, Angreifer sofort bekämpft.
+// J: „Keine Gegner angreifen, die andere Spieler bekämpfen“ aus, zweites Monster bekämpft einen fremden Spieler -> nicht angespielt.
 const fs = require('fs');
 const makeWorld = require('./gw');
 const script = fs.readFileSync(process.argv[2], 'utf8');
@@ -20,6 +22,7 @@ async function trial(o) {
       content.digimon.kunemon = { name: 'Kunemon', mob: { leashRange: 240 } };
       content.digimon.etemon = { name: 'Etemon', skills: [] };
       content.skills = { ...(content.skills || {}), ...SK };
+      o.setup?.(content);
     },
     extraEnts: () => o.extra || [] });
   for (const e of G.ents.values()) if (e.kind === 2) { e.hp = 90000; e.maxHp = 90000; Object.assign(e, o.patch?.[e.id] || {}); }
@@ -30,6 +33,7 @@ async function trial(o) {
   const st0 = G.store.getState();
   G.store.setState({ me: { ...st0.me, hotbar: ['cmd:attack', 'skill:0'], partner: { ...st0.me.partner, species: 'gabumon', ds: 5000, maxDs: 5000,
     skills: [{ id: 'x.hit', name: 'Hit', dsCost: 5, unlocked: true }] } } });
+  o.before?.(G);
   const keys = [], hits = [];
   G.w.addEventListener('keydown', (e) => {
     const s = G.store.getState();
@@ -128,6 +132,34 @@ const start = (G) => G.w.document.querySelector('[data-act="bot"]').click();
     r.H = { ids: uniq(picked), d2: count(keys, 'Digit2', t1), st: G.status() };
     G.w.close();
   }
+  // I: Event auf dieser Map, Boss erscheint erst in 3 min; sobald der Bot wartet, greift m:1 an
+  {
+    const before = (G) => {
+      G.w.dmo.game.scene.getScene('world').deps.commands.requestEvents = async () => { const now = Date.now(); return [{ id: 'mega_hunt', now,
+        slot: { key: 's1', startMs: now - 60000, endMs: now + 3600000 }, boss: 'bigmon_hunt', mapId: 'native_forest', channel: 1, state: 'defeated',
+        next: { boss: 'bigmon_hunt', mapId: 'native_forest', startMs: now + 180000 } }]; };
+    };
+    const { G, hits, picked } = await trial({ tag: 'I', mobs: three, cfg: { hunt: true },
+      setup: (content) => { content.digimon.bigmon_hunt = { name: 'Bigmon' }; }, before });
+    start(G);
+    const tw = Date.now(); while (Date.now() - tw < 5000 && !/erscheint in/.test(G.status())) await wait(20);
+    const waited = /erscheint in/.test(G.status()), n0 = picked.length;
+    G.ents.get('m:1').targetId = 'p:me';
+    const t0 = Date.now(); await wait(4000);
+    picked.splice(0, n0);
+    if (process.env.DBG) console.log(JSON.stringify({ hits, picked, st: G.status() }));
+    const h1 = firstHitOn(hits, 'm:1');
+    r.I = { waited, ids: uniq(picked), h1: h1 ? h1 - t0 : null, st: G.status() };
+    G.w.close();
+  }
+  // J: skipTaken aus, m:2 bekämpft einen fremden Spieler
+  {
+    const { G, picked } = await trial({ tag: 'J', mobs: three, cfg: { skipTaken: false }, patch: { 'm:2': { targetId: 'p:fremd' } } });
+    start(G);
+    const t0 = Date.now(); while (Date.now() - t0 < 6000) { const m2 = G.ents.get('m:2'); if (m2 && m2.targetId !== 'p:me') m2.targetId = 'p:fremd'; await wait(50); }
+    r.J = { ids: uniq(picked) };
+    G.w.close();
+  }
   console.log(JSON.stringify(r));
   const ok = r.A.ids.length >= 3 && r.A.h3 && r.A.d2before === 0 && r.A.d2 >= 1
     && r.B.ids.length >= 1 && !r.B.ids.includes('m:2')
@@ -137,7 +169,9 @@ const start = (G) => G.w.document.querySelector('[data-act="bot"]').click();
     && r.F.ids.includes('m:2')
     && r.G.ids.length <= 1 && !r.G.ids.includes('m:2') && !r.G.ids.includes('m:3')
     && r.G2.ids.length === 1
-    && r.H.ids.length >= 2 && r.H.d2 >= 1;
+    && r.H.ids.length >= 2 && r.H.d2 >= 1
+    && r.I.waited && r.I.ids.every((id) => id === 'm:1') && r.I.h1 != null && r.I.h1 < 2500
+    && !r.J.ids.includes('m:2') && r.J.ids.includes('m:3');
   console.log(ok ? 'OK – Pull-Modus sammelt in der Leine' : 'FEHLER');
   process.exit(ok ? 0 : 1);
 })();
