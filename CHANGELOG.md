@@ -2,6 +2,12 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.48 – Pull-Modus: weiter sammeln, während der Bot einem Flächenangriff ausweicht
+- **Sammeln beim Warten:** Steht das Ziel in einem Warnkreis und wartet der Bot draußen, spielt er schon das nächste Monster
+  in der Leine an – nur eines, das außerhalb aller Warnkreise steht. Ist der gerade Weg frei, schlägt er direkt zu, sonst
+  läuft er mit der Wegsuche um den Kreis herum („Warte außerhalb · Sammle 2/8: … (um den Kreis herum)“). Die Runde darf dort
+  auch beginnen. Monster im Kreis bleiben in Ruhe, bis er vorbei ist; die Runde endet deshalb nicht.
+
 ## 3.1.47 – Pull-Modus: Stand sichtbar, Grund im Log
 - **Sammelstand in der Statuszeile:** Während der Runde steht „Greife an: … · Sammle 3/8“. Vorher blitzte „Sammle n/m“ nur
   einen Takt lang auf, und es sah aus, als würde gar nicht gesammelt (live Backstreets: es waren 2–4 je Runde).

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.47
+// @version      3.1.48
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1652,7 +1652,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.47'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.48'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2885,7 +2885,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
 
         // Fernkampf-Skills reichen oft bis zum Boss, ohne dass das Digimon in den Kreis muss
         const ra = target && close && !soonNear && rangedSafe(partner, target, zones) ? rangedFromOutside(st, target, partner, now) : null; // kurz vor dem Einschlag nicht: danach läuft das Digimon zum Nahkampf hinein
-        return ra ? `Warte außerhalb · Fernangriff: ${ra}` : 'Warte außerhalb, bis der Flächenangriff vorbei ist…';
+        if (ra) return `Warte außerhalb · Fernangriff: ${ra}`;
+        const pt = pullTagWhileDodging(st, zones, now); // Pull-Modus: draußen schon das nächste Monster anspielen (3.1.48)
+        return pt || 'Warte außerhalb, bis der Flächenangriff vorbei ist…';
       }
       if (dodgeState.active) { dodgeState.active = false; logEvent('auto', 'Ausweichen beendet – weiter'); }
       return null;
@@ -9169,6 +9171,43 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     });
     return found;
   }
+  // Pull-Modus beim Ausweichen (3.1.48): Steht das Ziel im Warnkreis und wartet der Bot draußen, spielt er schon das nächste
+  // Monster an – nur eines außerhalb aller Warnkreise (mit Reserve), zu dem der gerade Weg durch keinen Kreis führt.
+  // Die Runde darf hier auch beginnen (sonst begann sie nie, wenn schon zu Kampfbeginn ausgewichen wurde).
+  const PULL_DODGE_MARGIN = 16;
+  function pullTagWhileDodging(st, zones, now) {
+    if (!cfg.pull || group.role() === 'follower' || !zones.length || pull.done) return null;
+    // nicht sammeln, wenn gerade nicht gekämpft werden soll (Abgabe, Abfahrt, Leader „nicht kämpfen“) – die Hauptschleife, die
+    // das sonst prüft, läuft beim Ausweichen nicht
+    if (noFightEarly(st, now) || group.noFight || farm.leave) return null;
+    const me = controlled(st), partner = window.dmo?.net?.state?.entities?.get?.(st?.me?.partner?.entityId) || me; if (!me) return null;
+    const sc = scan(st);
+    if (!sc?.attackers?.length) return null;
+    if (huntFocus(sc) || wbFocus(sc) || digibotSharedFocus(sc) || focusAssist(sc) || farmBossNear(sc)) return null; // Fokus-Ziel geht vor
+    const safe = (m) => !zones.some((z) => !digibotDodgeZoneSafe(z, m, DODGE_MARGIN + PULL_DODGE_MARGIN)); // Ziel selbst außerhalb aller Kreise
+    const next = pullPick(st, sc, now, safe);
+    if (!next) return null;
+    const label = `Warte außerhalb · Sammle ${pull.count + 1}/${cfg.pullMax}: ${speciesName(next.species)}`;
+    if (st.target?.id !== next.id) {
+      if (bot.can('select', SELECT_GAP_MS, now)) { bot.lastPress.select = now; worldScene()?.select?.(next.id); }
+      return label;
+    }
+    // Direkt anspielen, wenn das Digimon gerade hinkommt (Weg durch keinen Kreis, keine Wand) – nur es nimmt Schaden, der
+    // Tamer nicht (Spieler, 01.11.). Sonst mit der Wegsuche (umgeht Warnzonen) hinlaufen.
+    const grid = worldScene()?.map?.grid;
+    const direct = digibotDodgeZonePath(partner, next, zones, DODGE_MARGIN) && digibotDodgeGridClear(partner, next, grid, 5);
+    if (direct) {
+      if (bot.can('Digit1', ATTACK_REPEAT_MS, now)) { bot.hit('Digit1', now); dodgeState.rangedUntil = now + 1200; } // Lauf nicht per partnerStop abbrechen
+      return label;
+    }
+    if (walkTo(st, next.x, next.y, now, { zones }) === 'stuck') { blacklist.set(next.id, now + BAN_MS); return null; }
+    // Digimon folgt mit eigener Wegsuche (ohne Zonen): nur, wenn sein gerader Weg zum nächsten Wegpunkt frei ist
+    const wp = autopilot.nav?.wp || me;
+    if (partner !== me && now - (dodgeState.lastFollow || 0) > 1500 && digibotDodgeZonePath(partner, wp, zones, DODGE_MARGIN) && digibotDodgeGridClear(partner, wp, grid, 5)) {
+      dodgeState.lastFollow = now; commands()?.partnerFollow?.();
+    }
+    return `${label} (um den Kreis herum)`;
+  }
   // Monster im Schnitt der Leinen-Kreise (Anker und Startplätze der schon gesammelten)
   function pullInLeash(m) {
     const a = pull.anchor; if (!a) return false;
@@ -9176,7 +9215,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return pull.homes.every((h) => Math.hypot(m.x - h.x, m.y - h.y) <= h.leash - PULL_MARGIN);
   }
   // Nächstes Monster zum Anspielen oder null (dann normale Zielwahl)
-  function pullPick(st, sc, now) {
+  function pullPick(st, sc, now, safe = null) {
     const att = sc?.attackers || [];
     if (!att.length) { if (pull.anchor || pull.done) pullReset(); return null; } // Runde vorbei
     if (pull.done) return null;
@@ -9201,6 +9240,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const cands = end ? [] : sc.mobs.filter((m) => usable(m) && !m.attacker && !m.busyElse && m.cat !== 'boss' && !m.mapBoss && !safeHeld(m.id, now) && pullInLeash(m)
       && !bosses.some((b) => Math.hypot(m.x - b.x, m.y - b.y) <= PULL_BOSS_NEAR))
       .sort((a, b) => (Number.isFinite(a.pd) ? a.pd : 1e9 + a.d) - (Number.isFinite(b.pd) ? b.pd : 1e9 + b.d));
+    if (safe && cands.length) { const ok = cands.filter(safe); return ok.find((m) => m.id === st?.target?.id) || ok[0] || null; } // beim Ausweichen: nur sichere, Runde läuft weiter
     if (!cands.length) {
       pull.on = false; pull.done = true;
       // Ende jeder Runde mit Grund ins Log (3.1.47: live endeten Runden bei 2–4 von 8 – woran, soll man sehen können)

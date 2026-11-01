@@ -19,6 +19,8 @@
 // P: nach dem ersten Treffer erzwingt ein Warnkreis kurz Ausweichen -> danach wird weiter gesammelt (m:2 und m:3).
 // 3.1.47 (live Backstreets: 2–4 statt 8, Status zeigte nie den Stand): R: Kampfzeile zeigt „· Sammle n/3“.
 // S: 13 s Ausweichen nach dem ersten Treffer -> die 12-s-Notbremse hält an, danach wird weiter gesammelt.
+// 3.1.48: T: das erste Monster steht im Warnkreis, der Bot wartet draußen -> er spielt schon jetzt das nächste an,
+//    das außerhalb des Kreises steht (Weg frei).   U: das nächste steht selbst im Kreis -> nicht angespielt, solange er aktiv ist.
 const fs = require('fs');
 const makeWorld = require('./gw');
 const script = fs.readFileSync(process.argv[2], 'utf8');
@@ -256,6 +258,22 @@ const start = (G) => G.w.document.querySelector('[data-act="bot"]').click();
     r.S = { ids: uniq(picked), after: uniq(picked.slice(n0)) };
     G.w.close();
   }
+  // T/U: Warnkreis um m:1 (430,330) r 60; m:2 (520,400) draußen, m:3 (470,345) drinnen
+  for (const kind of ['T', 'U']) {
+    const mobs = kind === 'T' ? [[430, 330], [520, 400]] : [[430, 330], [470, 345]];
+    // m:1 greift schon an und steht in einem Warnkreis (Flächenangriff angekündigt) – der Bot wartet von Anfang an draußen
+    const { G, hits, scene } = await trial({ tag: kind, mobs, max: 3, patch: { 'm:1': { targetId: 'p:me' } } });
+    // Einschlag immer gleich (alle 1 s neu angekündigt): der Bot steht die ganze Zeit wartend draußen
+    const z = { x: 430, y: 330, r: 60 }, renew = () => { scene.telegraphs.active = [z]; scene.telegraphs.circles = [{ ...z, end: G.w.performance.now() + 1400 }]; };
+    renew();
+    start(G);
+    const t1 = Date.now(); const sts = new Set();
+    while (Date.now() - t1 < 6000) { if ((Date.now() - t1) % 1000 < 110) renew(); sts.add(G.status().slice(0, 60)); await wait(100); }
+    const during = hits.filter((h) => h.t >= t1 + 200 && h.t < t1 + 6000).map((h) => h.id);
+    scene.telegraphs.active = []; scene.telegraphs.circles = [];
+    r[kind] = { during: [...new Set(during)], sts: [...sts].slice(0, 14) };
+    G.w.close();
+  }
   console.log(JSON.stringify(r));
   const ok = r.A.ids.length >= 3 && r.A.h3 && r.A.d2before === 0 && r.A.d2 >= 1
     && r.B.ids.length >= 1 && !r.B.ids.includes('m:2')
@@ -271,7 +289,8 @@ const start = (G) => G.w.document.querySelector('[data-act="bot"]').click();
     && r.K.ids.length >= 2 && r.L.ids.length === 1 && r.M.gap != null && r.M.gap < 1300
     && !r.N.ids.includes('m:2') && r.N.ids.includes('m:3') && r.O.ids.length === 1
     && r.Q.gap != null && r.Q.gap < 1300 && r.P.ids.length >= 3
-    && r.R.seen >= 3 && r.S.ids.length >= 3 && r.S.after.includes('m:3');
+    && r.R.seen >= 3 && r.S.ids.length >= 3 && r.S.after.includes('m:3')
+    && r.T.during.includes('m:2') && !r.U.during.includes('m:2');
   console.log(ok ? 'OK – Pull-Modus sammelt in der Leine' : 'FEHLER');
   process.exit(ok ? 0 : 1);
 })();
