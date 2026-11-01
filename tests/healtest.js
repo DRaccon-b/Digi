@@ -1,5 +1,6 @@
 // 2.12.0: Heil-Skill je Digitationsform – Taste 3 ist für Gabumon „Heal <50 %“: über 50 % HP nicht im Angriff, darunter sofort.
 // Nach einer Digitation zu Garurumon gilt die Einstellung nicht (dort ist Taste 3 ein normaler Angriff).
+// 3.1.43: das Rollenfeld [data-rolecfg] zeigt „heal:50“ bzw. „attack“.
 const fs = require('fs');
 const makeWorld = require('./gw');
 const script = fs.readFileSync(process.argv[2], 'utf8');
@@ -24,13 +25,13 @@ G.w.eval(script);
   const before = keys.length;
   await wait(1500);
   const healLow = keys.slice(before).filter((k) => k === 'Digit3').length;
-  const sel = G.w.document.querySelector('[data-healcfg="3"]'); const first = sel?.value;
+  const sel = G.w.document.querySelector('[data-rolecfg="3"]'); const first = sel?.value;
   const s2 = G.store.getState(); G.store.setState({ me: { ...s2.me, partner: { ...s2.me.partner, species: 'garurumon' } } });
   await wait(600);
   const otherForm = sel?.value;
   const r = { healHigh, atk2, healLow, uiValue: '50', uiOn: true, otherForm };
   console.log(r);
-  const ok = healHigh === 0 && atk2 > 0 && healLow >= 1 && first === '50' && r.otherForm === '0';
+  const ok = healHigh === 0 && atk2 > 0 && healLow >= 1 && first === 'heal:50' && r.otherForm === 'attack';
   console.log(ok ? 'OK – Heil-Skill nur bei niedrigen HP' : 'FEHLER');
   process.exit(ok ? 0 : 1);
 })();

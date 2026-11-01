@@ -158,6 +158,11 @@ function digibotClean(v, depth=0) {
 }
 // Skill-Rollen je Taste (3.1.43): attack, aoe (ab N Gegnern), atkbuff, tankbuff, atksup, defsup, utilsup, heal (< X %), grpheal (< X %)
 const DIGIBOT_ROLES=['attack','aoe','atkbuff','tankbuff','atksup','defsup','utilsup','heal','grpheal'];
+const DIGIBOT_ROLE_OPTS=[['attack','Angriff'],...[2,3,4,5].map(n=>['aoe:'+n,'AoE ab '+n]),['atkbuff','Angriffs-Buff'],['tankbuff','Tank-Buff'],
+  ['atksup','Angriffs-Support'],['defsup','Def-Support'],['utilsup','Utility (Cleanse)'],...[30,40,50,60,70,80].map(n=>['heal:'+n,'Heal <'+n+' %']),
+  ...[30,40,50,60,70,80,85].map(n=>['grpheal:'+n,'Grp-Heal <'+n+' %']),['koh','Key of Hope (fest)']];
+const DIGIBOT_ROLE_NAME={attack:'Angriff',aoe:'AoE',atkbuff:'Angriffs-Buff',tankbuff:'Tank-Buff',atksup:'Angriffs-Support',defsup:'Def-Support',
+  utilsup:'Utility-Support',heal:'Heal',grpheal:'Gruppen-Heal',koh:'Key of Hope'};
 function digibotConfig(saved, defaults) {
   const out=JSON.parse(JSON.stringify(defaults)), issues=[];
   if(!digibotRecord(saved))return {value:out,issues:['Ungültiges Einstellungsformat']};
@@ -1341,8 +1346,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     .digibot__logf{display:flex;flex-wrap:wrap;gap:3px;margin:0 0 5px}
     .digibot__logf button{background:#161c33;border:1px solid #2a3355;color:#9aa5c4;border-radius:10px;font:600 10px system-ui;padding:1px 7px;cursor:pointer}
     .digibot__logf button.on{background:#26305a;border-color:#3fa0ff;color:#fff}
-    .digibot__heal{margin-left:2px;background:#0b1020;color:#9aa5c4;border:1px solid #3a4670;border-radius:4px;font:10px system-ui;padding:0 1px;max-width:78px}
+    .digibot__heal{margin-left:2px;background:#0b1020;color:#9aa5c4;border:1px solid #3a4670;border-radius:4px;font:10px system-ui;padding:0 1px;max-width:104px}
     .digibot__heal.on{border-color:#2ecc71;color:#7ee2a8}
+    .digibot__heal[data-suggested="1"]{border-style:dashed}
     .digibot__for{font-style:normal;font-weight:500;opacity:.7;font-size:10.5px}
     .digibot__lootsum{font-size:11px;margin-bottom:5px;line-height:1.5}
     .digibot__mobexp{margin-top:4px;max-height:160px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#3a4670 #0b1020}
@@ -1731,8 +1737,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           <label class="digibot__skill" data-skill="${k}">
             <input type="checkbox" data-skillcfg="${k}" ${cfg.skills[k] ? 'checked' : ''}>
             <kbd>${k}</kbd><span>–</span><em></em>
-            <select class="digibot__heal ${cfg.heal?.[k] ? 'on' : ''}" data-healcfg="${k}" title="Angriff = normal im Kampf wirken. Heal = nur wirken, wenn die HP des Digimons unter den Wert fallen (dann nicht im Angriff).">${[0, 30, 40, 50, 60, 70, 80].map((v) => `<option value="${v}" ${(cfg.heal?.[k] || 0) === v ? 'selected' : ''}>${v ? `Heal &lt;${v} %` : 'Angriff'}</option>`).join('')}</select>
-          </label>`).join('')}</div>`, true, 'Haken = Skill wird automatisch gewirkt, sobald er bereit ist und genug DS da ist. Rechts „Heal <x %“: Heil-Skill, der nur bei niedrigen HP gewirkt wird.')}
+            <select class="digibot__heal" data-rolecfg="${k}" title="Rolle des Skills (je Digitationsform)">${DIGIBOT_ROLE_OPTS.map(([v, t]) => `<option value="${v}"${v === 'koh' ? ' disabled' : ''}>${t.replace('<', '&lt;')}</option>`).join('')}</select>
+          </label>`).join('')}</div>`, true, 'Haken = Skill wird automatisch gewirkt. Rechts die Rolle: Angriff (in Tastenreihenfolge), AoE ab N Gegnern (gegen einen Boss immer), Angriffs-Buff (nur bei Bossen, 3 s nach Kampfbeginn, vor dem ersten Angriff, nie bei Spiegel), Tank-Buff und Def-Support (im Kampf dauerhaft gehalten), Angriffs-Support (Gegner schwächen oder Gruppe stärken), Utility (Debuffs entfernen), Heal (eigene HP) und Gruppen-Heal (ein Partner in Reichweite). Gruppen-Skills stimmen die Bot-Fenster ab: nur eines zündet. Ohne eigene Wahl gilt der Vorschlag aus den Spieldaten (gestrichelt).')}
         ${grp('pots', 'Tränke &amp; Food (F1–F3)', `
           ${slider('hpPot', 'Digimon HP (F1) unter', 0, 95, potLabel, 1)}
           ${slider('dsPot', 'Digimon DS (F2) unter', 0, 95, potLabel, 2)}
@@ -10294,15 +10300,20 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       row.querySelector('em').textContent =
         !s ? '' : s.skill.unlocked === false ? 'gesperrt' : s.cdLeft > 0 ? `${(s.cdLeft / 1000).toFixed(1)} s` : 'bereit';
       // Haken und Heal-Auswahl zeigen die Einstellung der aktuellen Digitationsform
-      const doc = row.ownerDocument, cb = row.querySelector('[data-skillcfg]'), hs = row.querySelector('[data-healcfg]');
-      const on = skillOn(st, k), hv = String(healAt(st, k));
+      const doc = row.ownerDocument, cb = row.querySelector('[data-skillcfg]'), hs = row.querySelector('[data-rolecfg]');
+      const on = skillOn(st, k), ro = skillRole(st, k), hv = ['aoe', 'heal', 'grpheal'].includes(ro.role) ? `${ro.role}:${ro.n}` : ro.role;
       if (cb && cb !== doc.activeElement && cb.checked !== on) cb.checked = on;
       if (hs && hs !== doc.activeElement && hs.value !== hv) hs.value = hv;
-      hs?.classList.toggle('on', hv !== '0');
+      if (hs) {
+        hs.classList.toggle('on', hv !== 'attack');
+        if (ro.chosen) delete hs.dataset.suggested; else hs.dataset.suggested = '1';
+        const tt = `${DIGIBOT_ROLE_NAME[ro.role] || ro.role}${ro.chosen ? '' : ' (Vorschlag aus den Spieldaten)'}`;
+        if (hs.title !== tt) hs.title = tt;
+      }
     }
     const sf = panel.querySelector('[data-f="skillsfor"]');
     const sfT = p?.species ? `· ${speciesName(p.species)}` : '';
-    if (sf && sf.textContent !== sfT) { sf.textContent = sfT; sf.title = 'Haken und Heal gelten nur für diese Digitationsform'; }
+    if (sf && sf.textContent !== sfT) { sf.textContent = sfT; sf.title = 'Haken und Rollen gelten nur für diese Digitationsform'; }
     // alte Heil-Einstellung (vor 2.12, für alle Formen) einmalig der aktuellen Form zuordnen
     if (p?.species && cfg.heal && Object.keys(cfg.heal).length) {
       const set = editSkillSet(st);
@@ -11129,13 +11140,15 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       }
       if (e.target.matches('[data-bosssearch]')) { filterBossPick(); return; }
       if (e.target.matches('[data-cardsearch]')) { filterCardPick(); return; }
-      const hk = e.target.dataset.healcfg;
-      if (hk) {
-        const st = getStore()?.getState?.(), v = Number(e.target.value) || 0, set = editSkillSet(st);
-        set.heal = { ...set.heal, [hk]: v };
-        if (!v) delete set.heal[hk];
-        saveCfg(); e.target.blur(); e.target.classList.toggle('on', !!v);
-        logEvent('bot', `Skill ${hk} (${speciesName(st?.me?.partner?.species)}): ${v ? `Heil-Skill unter ${v} % HP` : 'normal im Angriff'}`);
+      const rk = e.target.dataset.rolecfg;
+      if (rk) {
+        const st = getStore()?.getState?.(), [role, nv] = String(e.target.value).split(':'), n = Number(nv) || 0, set = editSkillSet(st);
+        if (!DIGIBOT_ROLES.includes(role)) return;
+        set.role = { ...set.role, [rk]: role }; set.heal = { ...set.heal }; set.aoeN = { ...set.aoeN }; set.grpHeal = { ...set.grpHeal };
+        delete set.heal[rk]; delete set.aoeN[rk]; delete set.grpHeal[rk];
+        if (role === 'heal') set.heal[rk] = n; else if (role === 'aoe') set.aoeN[rk] = n; else if (role === 'grpheal') set.grpHeal[rk] = n;
+        saveCfg(); e.target.blur(); e.target.classList.toggle('on', role !== 'attack'); delete e.target.dataset.suggested;
+        logEvent('bot', `Skill ${rk} (${speciesName(st?.me?.partner?.species)}): ${DIGIBOT_ROLE_NAME[role]}${n ? (role === 'aoe' ? ` ab ${n} Gegnern` : ` unter ${n} % HP`) : ''}`);
         return;
       }
       const sk = e.target.dataset.skillcfg;

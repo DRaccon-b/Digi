@@ -34,7 +34,7 @@ const saved = (G) => JSON.parse(G.w.localStorage.getItem('digibot.cfg') || '{}')
   const r = {};
   // A: Vorschlag und Auswahl
   {
-    const G = await run({ skills: { 2: true, 3: true, 4: true, 5: true, 6: true }, heal: {} });
+    const G = await run({ skills: { 2: true, 3: true, 4: true, 5: true, 6: true }, heal: {}, rolesV: 1 }); // neue Einstellung: keine Migration
     const sel = (k) => G.w.document.querySelector(`[data-rolecfg="${k}"]`);
     r.A = [2, 3, 4, 5, 6].map((k) => `${sel(k)?.value}${sel(k)?.dataset.suggested === '1' ? '*' : ''}`);
     const s2 = sel(2);
