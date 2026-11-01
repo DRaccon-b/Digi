@@ -126,13 +126,24 @@ const first = (keys, c) => keys.find((k) => k.c === c)?.t ?? null;
     r.G = { d2: count(keys, 'Digit2'), d3: count(keys, 'Digit3'), st: G.status() };
     G.w.close();
   }
+  // H: Gegner-Debuff, das Spiel meldet keinen Effekt; nach dem Cast setzt ein Davis-Reset die Abklingzeit zurück -> nicht neu
+  {
+    const { G, keys } = await trial({ tag: 'H', keys: ['x.slow'], roles: ['defsup'] });
+    G.w.document.querySelector('[data-act="bot"]').click();
+    const t0 = Date.now(); while (Date.now() - t0 < 4000 && !count(keys, 'Digit2')) await wait(100);
+    await wait(500);
+    G.store.setState({ cooldowns: {} }); // Davis
+    const t1 = Date.now(); await wait(4000);
+    r.H = count(keys, 'Digit2', t1);
+    G.w.close();
+  }
   console.log(JSON.stringify(r));
   const ok = r.A1 === 0 && r.A2 >= 1 && r.B >= 1
     && r.C.buffAfter != null && r.C.buffAfter >= 2500 && r.C.buffFirst
     && r.D1 === 0 && r.D2 >= 1
     && r.E.d3 === 0 && r.E.d2early
     && r.F1.first >= 1 && r.F1.again === 0 && r.F2 >= 1
-    && r.G.d2 === 0 && r.G.d3 >= 1;
+    && r.G.d2 === 0 && r.G.d3 >= 1 && r.H === 0;
   console.log(ok ? 'OK – Skill-Rotation nach Rollen' : 'FEHLER');
   process.exit(ok ? 0 : 1);
 })();

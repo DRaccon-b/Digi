@@ -16,12 +16,12 @@ const SK = {
 };
 const IDS = Object.keys(SK);
 
-async function run(set) {
+async function run(set, lateHotbar) {
   const G = makeWorld({ slot: 0, tag: 'Solo', noHash: true, accounts: { leader: 0, list: [{ user: 'solo' }] }, mobs: [],
     quests: { q00_meet_gennai: { state: 3, counters: [] }, q02_first_steps: { state: 3, counters: [] } },
     setup({ content }) { Object.assign(content.skills ||= {}, SK); } });
   const st0 = G.store.getState();
-  G.store.setState({ me: { ...st0.me, hotbar: ['cmd:attack', 'skill:0', 'skill:1', 'skill:2', 'skill:3', 'skill:4'],
+  G.store.setState({ me: { ...st0.me, hotbar: lateHotbar ? ['cmd:attack'] : ['cmd:attack', 'skill:0', 'skill:1', 'skill:2', 'skill:3', 'skill:4'],
     partner: { ...st0.me.partner, species: 'clavisangemon', skills: IDS.map((id) => ({ id, name: SK[id].name, dsCost: 5, unlocked: true })) } } });
   G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'mon', skillSets: { clavisangemon: set } }));
   G.w.eval(script);
@@ -69,13 +69,23 @@ const saved = (G) => JSON.parse(G.w.localStorage.getItem('digibot.cfg') || '{}')
     r.D2 = { role5: sh.role?.['5'], g5: sh.grpHeal?.['5'], heal5: sh.heal?.['5'] };
     H.w.close();
   }
+  // E: beim Laden ist die Hotbar noch leer (Spiel lädt nach) -> Migration erst, wenn die Skills da sind
+  {
+    const G = await run({ skills: { 2: true, 3: true, 4: true, 5: false, 6: true }, heal: {} }, true);
+    const s = G.store.getState(); G.store.setState({ me: { ...s.me, hotbar: ['cmd:attack', 'skill:0', 'skill:1', 'skill:2', 'skill:3', 'skill:4'] } });
+    await wait(1200);
+    const sv = saved(G);
+    r.E = { role5: sv.role?.['5'], on5: sv.skills?.['5'] };
+    G.w.close();
+  }
   console.log(JSON.stringify(r));
-  const okA = JSON.stringify(r.A) === JSON.stringify(['aoe:2*', 'tankbuff*', 'atkbuff*', 'grpheal:85*', 'defsup*']) && r.A2.role === 'aoe' && r.A2.n === 3 && r.A2.sug !== '1';
+  const okA = JSON.stringify(r.A) === JSON.stringify(['attack*', 'tankbuff*', 'atkbuff*', 'grpheal:85*', 'defsup*']) && r.A2.role === 'aoe' && r.A2.n === 3 && r.A2.sug !== '1';
   const okB = r.B.role3 === 'atksup' && r.B.aoe2 === 4;
   const okC = r.C.on4 === true && r.C.role4 === undefined && r.C.heal4 === 50 && r.C.v === 1;
   const okD = r.D.role5 === 'grpheal' && r.D.g5 === 85 && r.D.on5 === true && r.D2.role5 === 'grpheal' && r.D2.g5 === 60 && r.D2.heal5 === undefined;
   const only = process.env.ONLY; // Task 1 prüft B–D, Task 2 zusätzlich A
-  const ok = (only === 'BCD' || okA) && okB && okC && okD;
+  const okE = r.E.role5 === 'grpheal' && r.E.on5 === true;
+  const ok = (only === 'BCD' || okA) && okB && okC && okD && okE;
   console.log({ okA, okB, okC, okD });
   console.log(ok ? 'OK – Skill-Rollen gespeichert und migriert' : 'FEHLER');
   process.exit(ok ? 0 : 1);

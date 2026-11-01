@@ -13,6 +13,7 @@ const SK = {
   'x.seal': { id: 'x.seal', name: 'Seal', kind: 'heal', target: 'ally', shape: 'circle', radius: 96, power: 870, dsCost: 5, cooldownMs: 1500, castMs: 0, range: 128 },
   'x.guard': { id: 'x.guard', name: 'Guard', kind: 'buff', target: 'self', shape: 'single', dsCost: 5, cooldownMs: 1500, castMs: 0, effects: [{ stat: 'de', pct: 70, durationMs: 30000 }] },
   'x.pray': { id: 'x.pray', name: 'Pray', kind: 'heal', target: 'ally', shape: 'circle', radius: 128, power: 100, dsCost: 5, cooldownMs: 1500, castMs: 0, range: 160, cleanse: true },
+  'x.mixed': { id: 'x.mixed', name: 'Berserk', kind: 'buff', target: 'self', shape: 'single', dsCost: 5, cooldownMs: 1500, castMs: 0, effects: [{ stat: 'at', pct: 30, durationMs: 15000 }, { stat: 'de', pct: -20, durationMs: 15000 }] },
   'x.slowguard': { id: 'x.slowguard', name: 'SlowGuard', kind: 'buff', target: 'self', shape: 'single', dsCost: 5, cooldownMs: 30000, castMs: 1200, effects: [{ stat: 'de', pct: 50, durationMs: 30000 }] },
   [KOH]: { id: KOH, name: 'Key of Hope', kind: 'buff', target: 'self', protectionMs: 2000, dsCost: 5, cooldownMs: 45000, castMs: 0 },
   'diaboromon.catastrophe_cannon': { id: 'diaboromon.catastrophe_cannon', name: 'Catastrophe Cannon', shape: 'circle', radius: 64, telegraph: true, hpDamagePct: 240, castMs: 3000, cooldownMs: 24000 },
@@ -73,6 +74,7 @@ const start = (G) => G.w.document.querySelector('[data-act="bot"]').click();
   }
   { const { G, keys } = await trial({ tag: 'D1', keys: ['x.pray'], roles: ['utilsup'], effects: (W) => ({ 'p:ally': [{ id: 'wounded', end: W.w.performance.now() + 5000, ms: 5000 }] }) }); start(G); await wait(2000); r.D1 = count(keys, 'Digit2'); G.w.close(); }
   { const { G, keys } = await trial({ tag: 'D2', keys: ['x.pray'], roles: ['utilsup'] }); start(G); await wait(2000); r.D2 = count(keys, 'Digit2'); G.w.close(); }
+  { const { G, keys } = await trial({ tag: 'D3', keys: ['x.pray'], roles: ['utilsup'], effects: (W) => ({ 'p:me': [{ id: 'x.mixed', end: W.w.performance.now() + 9000, ms: 15000 }] }) }); start(G); await wait(2000); r.D3 = count(keys, 'Digit2'); G.w.close(); }
   { const { G, keys } = await trial({ tag: 'E', fight: true, keys: ['x.guard'], roles: ['tankbuff'], effects: (W) => ({ 'p:me': [{ id: 'x.guard', end: W.w.performance.now() + 10000, ms: 30000 }] }) }); start(G); await wait(3000); r.E = count(keys, 'Digit2'); G.w.close(); }
   { const { G, keys } = await trial({ tag: 'G', keys: ['x.guard'], roles: ['tankbuff'] }); start(G); await wait(2500); r.G = count(keys, 'Digit2'); G.w.close(); }
   {
@@ -89,7 +91,7 @@ const start = (G) => G.w.document.querySelector('[data-act="bot"]').click();
     G.w.close();
   }
   console.log(JSON.stringify(r));
-  const ok = r.A1 >= 1 && r.A2 === 0 && r.B1 >= 1 && r.B2 === 0 && r.C1 >= 1 && r.C2 === 0 && r.D1 >= 1 && r.D2 === 0 && r.E === 0 && r.G === 0
+  const ok = r.A1 >= 1 && r.A2 === 0 && r.B1 >= 1 && r.B2 === 0 && r.C1 >= 1 && r.C2 === 0 && r.D1 >= 1 && r.D2 === 0 && r.D3 === 0 && r.E === 0 && r.G === 0
     && r.F.koh != null && !r.F.buffBeforeKoh && r.F.buffs.length >= 1;
   console.log(ok ? 'OK – Heals, Dauer-Buffs und Support nach Rollen' : 'FEHLER');
   process.exit(ok ? 0 : 1);

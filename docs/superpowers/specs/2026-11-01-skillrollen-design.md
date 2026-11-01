@@ -39,7 +39,8 @@ Felder (zod-Schema `Bn`): `kind` damage/heal/buff/debuff, `target` enemy/self/al
 `expose`, `power`.
 
 Vorschlagsregeln (Entscheidung des Designers, siehe „Meine Entscheidungen“):
-- `kind:'damage'` + `shape` circle/line → **AoE ab 2**; sonst damage → **Angriff**
+- `kind:'damage'` → **Angriff** (auch Flächenskills; AoE nur auf Wunsch – nach dem Review geändert, damit sich das
+  Verhalten nach dem Auto-Update nicht still ändert)
 - `kind:'heal'`, `target:'self'` → **Heal < 50 %**; `kind:'heal'`, `target:'ally'` → **Gruppen-Heal < 85 %**
   (entspricht dem heutigen festen Wert); mit `cleanse` → trotzdem Gruppen-Heal (der Heal ist der Hauptzweck)
 - `kind:'buff'`, auf sich (`target:'self'`, `shape:'single'`): Defensiv-Stats (`de, ev, bl, hp`, `damageReduction`,

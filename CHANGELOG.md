@@ -5,7 +5,8 @@ Alle Änderungen an DigiBot, neueste zuerst.
 ## 3.1.43 – Skill-Rollen
 - **Rolle je Skill:** Im Reiter Digimon hat jede Taste 2–6 (je Digitationsform) statt „Angriff / Heal“ jetzt eine Rolle:
   Angriff, AoE ab N Gegnern, Angriffs-Buff, Tank-Buff, Angriffs-Support, Def-Support, Utility (Debuffs entfernen),
-  Heal < x % und Gruppen-Heal < x %. Ohne eigene Wahl schlägt der Bot die Rolle aus den Spieldaten vor (gestrichelter Rahmen).
+  Heal < x % und Gruppen-Heal < x %. Ohne eigene Wahl schlägt der Bot die Rolle aus den Spieldaten vor (gestrichelter Rahmen);
+  Schadensskills bleiben dabei „Angriff“ – AoE gilt nur, wenn du es auswählst.
 - **Rotation:** AoE nur ab N Gegnern im Wirkungskreis (gegen einen Boss immer). Der Angriffs-Buff kommt nur bei Bossen,
   3 s nach Kampfbeginn und vor dem ersten Angriffsskill, nie während eines Spiegels; ist er wieder bereit, kommt er erneut.
   Debuffs auf dem Gegner (Def-/Angriffs-Support) werden gehalten, solange sie wirken nicht neu gewirkt.
@@ -16,6 +17,8 @@ Alle Änderungen an DigiBot, neueste zuerst.
   eines zündet, auch zwischen verschiedenen Digimon mit gleichem Schutz. Ein abgelehnter Tastendruck sperrt die anderen nicht.
 - **Alte Einstellungen bleiben:** Heil-Tasten und Gruppen-Heil-Skills werden einmalig übernommen und angeschaltet
   (bisher heilten sie auch mit Haken aus); ein Gruppen-Heil-Skill wird „Gruppen-Heal < 85 %“ oder behält deinen Wert.
+  Den Leader, den du im Spiegel-Modus selbst spielst, heilt der Bot nur (keine Buffs). Alle Bot-Fenster der Gruppe sollten
+  auf 3.1.43 sein, sonst stimmen sich die Gruppenheilungen nicht ab.
 
 ## 3.1.42 – Spiel-Update: wiederholbare A3-Nebenquests
 - **Wiederholungen mit eigenen Zielen:** Seit dem Spiel-Update vom 31.10. haben die A3-Nebenquests (a3s_…) für die

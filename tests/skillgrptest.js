@@ -9,6 +9,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const SK = {
   'x.field': { id: 'x.field', name: 'Field', kind: 'buff', target: 'self', shape: 'circle', radius: 96, dsCost: 5, cooldownMs: 1500, castMs: 0, effects: [{ stat: 'de', pct: 35, durationMs: 6000 }] },
   'x.seal': { id: 'x.seal', name: 'Seal', kind: 'heal', target: 'ally', shape: 'circle', radius: 96, power: 870, dsCost: 5, cooldownMs: 1500, castMs: 0, range: 128 },
+  'x.field2': { id: 'x.field2', name: 'Field2', kind: 'buff', target: 'self', shape: 'circle', radius: 96, dsCost: 5, cooldownMs: 1500, castMs: 0, effects: [{ stat: 'de', pct: 40, durationMs: 6000 }] },
   'x.slow': { id: 'x.slow', name: 'Lock', kind: 'debuff', target: 'enemy', shape: 'single', dsCost: 5, cooldownMs: 1500, castMs: 0, range: 128, effects: [{ stat: 'as', pct: -20, durationMs: 6000 }] },
 };
 const KEYS = ['x.field', 'x.seal', 'x.slow'];
@@ -22,15 +23,15 @@ function worlds(o) {
         { id: 'boss:1', kind: 2, defId: 'armageddemon', x: 470, y: 330, hp: 800000, maxHp: 900000, level: 5, flags: 16 | 32, targetId: 'p:me' },
         ...[0, 1, 2].filter((x) => x !== slot).map((x) => ({ id: party.members[x].partnerEntityId, kind: 1, x: 420 + x * 20, y: 340, hp: x === 2 ? (o.impHp ?? 3000) : 3000, maxHp: 3000, flags: 0, targetId: '' }))] : []),
       setup({ content }) { content.skills = { ...(content.skills || {}), ...SK }; content.digimon.armageddemon = { name: 'Armageddemon', skills: [] }; } });
-    const clavis = slot < 2, role = {}, grpHeal = {};
+    const clavis = slot < 2, role = {}, grpHeal = {}, keys = o.alt && slot === 1 ? ['x.field2', ...KEYS.slice(1)] : KEYS;
     if (clavis) { role[2] = 'defsup'; role[3] = o.heal ? 'grpheal' : 'attack'; grpHeal[3] = 60; role[4] = o.enemy ? 'defsup' : 'attack'; }
     W.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, dungeon: true, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'acc',
       skillSets: { clavisangemon: { skills: { 2: !!o.field, 3: !!o.heal, 4: !!o.enemy, 5: true, 6: true }, heal: {}, role, grpHeal, aoeN: {}, rolesV: 1 } } }));
     const me = W.store.getState().me;
     W.store.setState({ party: { ...party, members: party.members.map((m, x) => ({ ...m, me: x === slot })) },
       target: { id: 'boss:1', kind: 'mob', name: 'Armageddemon', level: 5, hp: 800000, maxHp: 900000 },
-      me: { ...me, hotbar: ['cmd:attack', ...(clavis ? KEYS.map((_, i) => 'skill:' + i) : [])], partner: { ...me.partner, entityId: 'p:me', species: clavis ? 'clavisangemon' : 'imperialdramon', ds: 5000, maxDs: 5000,
-        hp: 3000, maxHp: 3000, skills: clavis ? KEYS.map((id) => ({ id, name: SK[id].name, dsCost: 5, unlocked: true })) : [] } } });
+      me: { ...me, hotbar: ['cmd:attack', ...(clavis ? keys.map((_, i) => 'skill:' + i) : [])], partner: { ...me.partner, entityId: 'p:me', species: clavis ? 'clavisangemon' : 'imperialdramon', ds: 5000, maxDs: 5000,
+        hp: 3000, maxHp: 3000, skills: clavis ? keys.map((id) => ({ id, name: SK[id].name, dsCost: 5, unlocked: true })) : [] } } });
     W.keys = [];
     W.w.addEventListener('keydown', (e) => {
       const n = Number(e.code.replace('Digit', '')) - 2; if (!(n >= 0) || n > 2 || !clavis) return;
@@ -40,7 +41,7 @@ function worlds(o) {
       if (n === 0 || n === 2) for (const V of wins) {
         const ids = n === 0 ? ['p:me', 'p:cl0', 'p:cl1', 'p:imp'] : ['boss:1'];
         const ef = { ...(V.store.getState().effects || {}) };
-        for (const id of ids) ef[id] = [...(ef[id] || []).filter((x) => x.id !== KEYS[n]), { id: KEYS[n], end: V.w.performance.now() + 6000, ms: 6000 }];
+        for (const id of ids) ef[id] = [...(ef[id] || []).filter((x) => x.id !== keys[n]), { id: keys[n], end: V.w.performance.now() + 6000, ms: 6000 }];
         V.store.setState({ effects: ef });
       }
     }, true);
@@ -56,14 +57,14 @@ const CASE = process.argv[3];
 if (!CASE) {
   const { execFileSync } = require('child_process');
   const r = {};
-  for (const c of ['AB', 'C', 'D', 'E']) {
+  for (const c of ['AB', 'C', 'D', 'E', 'F']) {
     let out = '';
     try { out = execFileSync(process.execPath, [__filename, process.argv[2], c], { encoding: 'utf8', timeout: 120000 }); } catch (e) { out = String(e.stdout || ''); }
     Object.assign(r, JSON.parse((out.match(/^RES (.*)$/m) || [, '{}'])[1]));
   }
   console.log(JSON.stringify(r));
   const one = (a) => !!a && a[0] + a[1] === 1;
-  const ok = one(r.A) && r.A[0] === 1 && one(r.B) && r.C?.[0] === 0 && r.C?.[1] >= 1 && one(r.D) && one(r.E);
+  const ok = one(r.A) && r.A[0] === 1 && one(r.B) && r.C?.[0] === 0 && r.C?.[1] >= 1 && one(r.D) && one(r.E) && one(r.F);
   console.log(ok ? 'OK – Gruppen-Skills abgestimmt' : 'FEHLER');
   process.exit(ok ? 0 : 1);
 }
@@ -112,6 +113,16 @@ if (!CASE) {
     wins[0].w.document.querySelector('[data-act="bot"]').click();
     await wait(5000); // erst Position am Boss, dann Wartezeit der Gruppenwahl
     r.E = [n(wins[0], 'Digit4'), n(wins[1], 'Digit4')];
+    for (const W of wins) W.w.close();
+  }
+  // F: verschiedene Digimon-Skills mit gleicher Wirkung (Abwehr-Schild): der zweite zündet nicht, solange der erste wirkt
+  if (CASE === 'F') {
+    const wins = worlds({ tag: 'F', field: true, alt: true });
+    await wait(1200);
+    for (const W of wins) for (const id of [...W.ents.keys()]) if (id.startsWith('m:')) W.ents.delete(id);
+    wins[0].w.document.querySelector('[data-act="bot"]').click();
+    await wait(5500);
+    r.F = [n(wins[0], 'Digit2'), n(wins[1], 'Digit2')];
     for (const W of wins) W.w.close();
   }
   console.log('RES ' + JSON.stringify(r));
