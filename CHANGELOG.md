@@ -2,6 +2,12 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.46 – Pull-Modus: keine Skill-Pause bei zu niedrigen HP
+- **Pause nur, wenn gesammelt wird:** Lagen die HP unter der Sammel-Grenze, hielt der Bot zu Kampfbeginn trotzdem 1,5 s die
+  Skills zurück (live Water Realm: nach jedem Kampf 56–65 % bei Grenze 67 %). Die HP-Grenze gehört jetzt zur gemeinsamen
+  Sperre – dann gibt es weder Sammeln noch Pause.
+- Geprüft: Nach dem Ausweichen vor einem Flächenangriff sammelt der Bot weiter (neuer Testfall).
+
 ## 3.1.45 – Pull-Modus: sammelt jetzt auch neben passiven Bossen
 - **Sammeln lief auf den Tamers-Maps nie:** Jeder sichtbare Boss sperrte das Sammeln – auf West Shinjuku stehen die
   Named-Devas, in der Digital Desert die Duell-Bosse aber dauernd im Bild (alle passiv). Jetzt sperrt ein Boss nur noch, wenn

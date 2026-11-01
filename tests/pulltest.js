@@ -15,6 +15,8 @@
 // M: nur ein Monster in der Leine -> keine 1,5 s Skill-Pause zu Kampfbeginn (Taste 2 gleich nach dem ersten Treffer).
 // N: passiver Boss ~290 px weg, ein Kandidat steht aber direkt neben ihm -> dieser nicht, der andere schon (AoE träfe den Boss).
 // O: Boss ohne Spieldaten, aber mit Aggressiv-Flag am Monster, ~260 px weg -> kein Sammeln.
+// 3.1.46 (live Water Realm): Q: HP unter der Grenze -> keine 1,5 s Skill-Pause zu Kampfbeginn.
+// P: nach dem ersten Treffer erzwingt ein Warnkreis kurz Ausweichen -> danach wird weiter gesammelt (m:2 und m:3).
 const fs = require('fs');
 const makeWorld = require('./gw');
 const script = fs.readFileSync(process.argv[2], 'utf8');
@@ -208,6 +210,28 @@ const start = (G) => G.w.document.querySelector('[data-act="bot"]').click();
     r.O = { ids: uniq(picked) };
     G.w.close();
   }
+  // Q: HP 50 % (Grenze 60), drei Monster, das erste reagiert erst nach ~1,4 s
+  {
+    const { G, keys, hits } = await trial({ tag: 'Q', mobs: three, before: (W) => { const s = W.store.getState(); W.store.setState({ me: { ...s.me, partner: { ...s.me.partner, hp: 1500 } } }); } });
+    start(G);
+    const t0 = Date.now(); while (Date.now() - t0 < 4000) { const m = G.ents.get('m:1'); if (hits[0] && Date.now() - hits[0].t < 1400 && m) m.targetId = ''; await wait(20); }
+    const h1 = hits[0]?.t ?? null, d2 = keys.find((k) => k.c === 'Digit2')?.t ?? null;
+    r.Q = { gap: h1 != null && d2 != null ? d2 - h1 : null };
+    G.w.close();
+  }
+  // P: Ausweichen mitten im Sammeln
+  {
+    const { G, hits, picked, scene } = await trial({ tag: 'P', mobs: three, max: 3 });
+    start(G);
+    const t0 = Date.now(); while (Date.now() - t0 < 3000 && !hits.length) await wait(20);
+    const me = G.ents.get('p:me'), now = G.w.performance.now(), z = { x: me.x, y: me.y, r: 70 };
+    scene.telegraphs.active = [z]; scene.telegraphs.circles = [{ ...z, end: now + 1500 }];
+    await wait(1600);
+    scene.telegraphs.active = []; scene.telegraphs.circles = [];
+    await wait(5000);
+    r.P = { ids: uniq(picked) };
+    G.w.close();
+  }
   console.log(JSON.stringify(r));
   const ok = r.A.ids.length >= 3 && r.A.h3 && r.A.d2before === 0 && r.A.d2 >= 1
     && r.B.ids.length >= 1 && !r.B.ids.includes('m:2')
@@ -221,7 +245,8 @@ const start = (G) => G.w.document.querySelector('[data-act="bot"]').click();
     && r.I.waited && r.I.ids.every((id) => id === 'm:1') && r.I.h1 != null && r.I.h1 < 2500
     && !r.J.ids.includes('m:2') && r.J.ids.includes('m:3')
     && r.K.ids.length >= 2 && r.L.ids.length === 1 && r.M.gap != null && r.M.gap < 1300
-    && !r.N.ids.includes('m:2') && r.N.ids.includes('m:3') && r.O.ids.length === 1;
+    && !r.N.ids.includes('m:2') && r.N.ids.includes('m:3') && r.O.ids.length === 1
+    && r.Q.gap != null && r.Q.gap < 1300 && r.P.ids.length >= 3;
   console.log(ok ? 'OK – Pull-Modus sammelt in der Leine' : 'FEHLER');
   process.exit(ok ? 0 : 1);
 })();
