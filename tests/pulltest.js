@@ -9,6 +9,12 @@
 // G: Boss-Rotation (farmMode 'boss') mit Boss in Sicht -> kein Sammeln.   G2: ohne Rotation, Boss in Sicht -> kein Sammeln.
 // I: Warten auf Event-Boss (noch nicht erschienen, defendOnly) mit Angreifer -> kein Kandidat gewählt, Angreifer sofort bekämpft.
 // J: „Keine Gegner angreifen, die andere Spieler bekämpfen“ aus, zweites Monster bekämpft einen fremden Spieler -> nicht angespielt.
+// 3.1.45 (live West Shinjuku/Digital Desert: passive Named-/Duell-Bosse stehen dauernd in Sicht, es wurde nie gesammelt):
+// G2: passiver Boss sehr nah (~110 px) -> kein Sammeln.   K: passiver Boss weit weg (~290 px) -> es wird gesammelt.
+// L: Boss weiter weg (~330 px), kämpft aber gerade (hat ein Ziel) -> kein Sammeln.
+// M: nur ein Monster in der Leine -> keine 1,5 s Skill-Pause zu Kampfbeginn (Taste 2 gleich nach dem ersten Treffer).
+// N: passiver Boss ~290 px weg, ein Kandidat steht aber direkt neben ihm -> dieser nicht, der andere schon (AoE träfe den Boss).
+// O: Boss ohne Spieldaten, aber mit Aggressiv-Flag am Monster, ~260 px weg -> kein Sammeln.
 const fs = require('fs');
 const makeWorld = require('./gw');
 const script = fs.readFileSync(process.argv[2], 'utf8');
@@ -114,9 +120,9 @@ const start = (G) => G.w.document.querySelector('[data-act="bot"]').click();
     r.G = { ids: uniq(picked) };
     G.w.close();
   }
-  // G2: ohne Rotation, Boss in Sicht (abgewählt) -> kein Sammeln
+  // G2: ohne Rotation, passiver Boss sehr nah (abgewählt) -> kein Sammeln
   {
-    const boss = [{ id: 'b:1', kind: 2, defId: 'etemon', x: 700, y: 330, hp: 900000, maxHp: 900000, level: 5, flags: 16, targetId: '' }];
+    const boss = [{ id: 'b:1', kind: 2, defId: 'etemon', x: 520, y: 330, hp: 900000, maxHp: 900000, level: 5, flags: 16, targetId: '' }];
     const { G, picked } = await trial({ tag: 'G2', mobs: three, extra: boss });
     start(G); await wait(4000);
     r.G2 = { ids: uniq(picked) };
@@ -160,6 +166,48 @@ const start = (G) => G.w.document.querySelector('[data-act="bot"]').click();
     r.J = { ids: uniq(picked) };
     G.w.close();
   }
+  // K: passiver Boss weit weg -> sammeln
+  {
+    const boss = [{ id: 'b:1', kind: 2, defId: 'etemon', x: 700, y: 330, hp: 900000, maxHp: 900000, level: 5, flags: 16, targetId: '' }];
+    const { G, picked } = await trial({ tag: 'K', mobs: three, extra: boss });
+    start(G); await wait(5000);
+    r.K = { ids: uniq(picked) };
+    G.w.close();
+  }
+  // L: Boss ~330 px weg, kämpft gegen jemand anderen -> kein Sammeln
+  {
+    const boss = [{ id: 'b:1', kind: 2, defId: 'etemon', x: 740, y: 330, hp: 900000, maxHp: 900000, level: 5, flags: 16 | 8, targetId: 'p:fremd' }];
+    const { G, picked } = await trial({ tag: 'L', mobs: three, extra: boss });
+    start(G); await wait(4000);
+    r.L = { ids: uniq(picked) };
+    G.w.close();
+  }
+  // M: nur ein Monster -> keine Skill-Pause zu Kampfbeginn
+  {
+    const { G, keys, hits } = await trial({ tag: 'M', mobs: [[430, 330]] });
+    start(G);
+    // wie im Spiel: das Monster reagiert erst ~1,4 s nach dem ersten Treffer (Testwelt: sofort)
+    const t0 = Date.now(); while (Date.now() - t0 < 4000) { const m = G.ents.get('m:1'); if (hits[0] && Date.now() - hits[0].t < 1400 && m) m.targetId = ''; await wait(20); }
+    const h1 = hits[0]?.t ?? null, d2 = keys.find((k) => k.c === 'Digit2')?.t ?? null;
+    r.M = { gap: h1 != null && d2 != null ? d2 - h1 : null };
+    G.w.close();
+  }
+  // N: Boss (700,330); m:2 bei (610,330) liegt 90 px neben ihm (in der Leine des Ankers 430,330: 180 px), m:3 (470,360) frei
+  {
+    const boss = [{ id: 'b:1', kind: 2, defId: 'etemon', x: 700, y: 330, hp: 900000, maxHp: 900000, level: 5, flags: 16, targetId: '' }];
+    const { G, picked } = await trial({ tag: 'N', mobs: [[430, 330], [610, 330], [470, 360]], extra: boss });
+    start(G); await wait(5000);
+    r.N = { ids: uniq(picked) };
+    G.w.close();
+  }
+  // O: aggressiver Boss (Flag 32) ~260 px weg
+  {
+    const boss = [{ id: 'b:1', kind: 2, defId: 'etemon', x: 670, y: 330, hp: 900000, maxHp: 900000, level: 5, flags: 16 | 32, targetId: '' }];
+    const { G, picked } = await trial({ tag: 'O', mobs: three, extra: boss });
+    start(G); await wait(4000);
+    r.O = { ids: uniq(picked) };
+    G.w.close();
+  }
   console.log(JSON.stringify(r));
   const ok = r.A.ids.length >= 3 && r.A.h3 && r.A.d2before === 0 && r.A.d2 >= 1
     && r.B.ids.length >= 1 && !r.B.ids.includes('m:2')
@@ -171,7 +219,9 @@ const start = (G) => G.w.document.querySelector('[data-act="bot"]').click();
     && r.G2.ids.length === 1
     && r.H.ids.length >= 2 && r.H.d2 >= 1
     && r.I.waited && r.I.ids.every((id) => id === 'm:1') && r.I.h1 != null && r.I.h1 < 2500
-    && !r.J.ids.includes('m:2') && r.J.ids.includes('m:3');
+    && !r.J.ids.includes('m:2') && r.J.ids.includes('m:3')
+    && r.K.ids.length >= 2 && r.L.ids.length === 1 && r.M.gap != null && r.M.gap < 1300
+    && !r.N.ids.includes('m:2') && r.N.ids.includes('m:3') && r.O.ids.length === 1;
   console.log(ok ? 'OK – Pull-Modus sammelt in der Leine' : 'FEHLER');
   process.exit(ok ? 0 : 1);
 })();

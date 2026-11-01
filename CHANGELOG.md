@@ -2,6 +2,15 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.45 – Pull-Modus: sammelt jetzt auch neben passiven Bossen
+- **Sammeln lief auf den Tamers-Maps nie:** Jeder sichtbare Boss sperrte das Sammeln – auf West Shinjuku stehen die
+  Named-Devas, in der Digital Desert die Duell-Bosse aber dauernd im Bild (alle passiv). Jetzt sperrt ein Boss nur noch, wenn
+  er kämpft (bis 400 px), aggressiv in Reichweite ist (Spieldaten oder Aggressiv-Kennung) oder näher als 180 px steht.
+  Monster direkt neben einem Boss (unter 180 px) spielt der Bot nicht an – dort würde der AoE den Boss mittreffen. In der
+  Boss-Rotation bleibt es bei „jeder sichtbare Boss“.
+- **Keine unnötige Skill-Pause mehr:** Die 1,5 s Wartezeit zu Kampfbeginn gilt nur noch, wenn wirklich gesammelt werden kann
+  (ein weiteres freies Monster in der Leine, kein Boss in der Nähe). Vorher warteten die Skills bei jedem Kampf.
+
 ## 3.1.44 – Pull-Modus
 - **Monster sammeln:** Im Reiter Attacke gibt es den Schalter „Monster sammeln (Pull)“ mit Höchstzahl (2–8, Standard 3)
   und HP-Grenze (30–90 %, Standard 60). Der Bot markiert weitere Monster mit je einem Treffer, kämpft dann ganz normal

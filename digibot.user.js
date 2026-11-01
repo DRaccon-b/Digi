@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.44
+// @version      3.1.45
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1652,7 +1652,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.44'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.45'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -3746,7 +3746,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const boss = !!((te.flags ?? 0) & FLAG.Boss), fm = fightStart(t, now), since = now - fm.at;
     // Pull-Modus: DS und AoE fürs Gesammelte aufheben (Heals/Buffs: skillCare) – auch beim ersten Treffer, bis die Runde läuft
     // selbstbegrenzend: nie im Ruhemodus, nie gegen einen Boss, nie länger als die Notbremse
-    if ((pull.on && !bot.resting && !boss && now - pull.startAt <= PULL_MAX_MS) || (cfg.pull && !bot.resting && !pull.anchor && !pull.done && !boss && since < PULL_START_MS && !pullBlocked(st, null, now))) return { held: 'Sammle Monster – Skills warten' };
+    if ((pull.on && !bot.resting && !boss && now - pull.startAt <= PULL_MAX_MS) || (cfg.pull && !bot.resting && !pull.anchor && !pull.done && !boss && since < PULL_START_MS && !pullBlocked(st, null, now) && pullChance(st, t))) return { held: 'Sammle Monster – Skills warten' };
     const mirror = mirrorActive(t.id) || (boss && !!st.boss?.mirror);
     const d = own && Number.isFinite(te.x) ? Math.hypot(te.x - own.x, te.y - own.y) : 0;
     const basicRange = content()?.digimon?.[p.species]?.basic?.range, reach = (Number.isFinite(basicRange) ? basicRange : 33) + 12;
@@ -9105,6 +9105,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const PULL_BOSS_SOON_MS = 30000;   // Boss-Rotation: nicht sammeln, wenn ein Boss der Map so bald fällig ist
   const PULL_LEASH = 240;            // Leine, wenn die Spieldaten keine nennen
   const PULL_START_MS = 1500;        // Skills so lange nach dem ersten Treffer zurückhalten, bis die Runde beginnt
+  // Boss in der Nähe (3.1.45): passive Named-/Duell-Bosse stehen auf den Tamers-Maps dauernd in Sicht – sie sperren nur, wenn
+  // sie kämpfen (bis PULL_BOSS_BUSY), aggressiv in Reichweite sind (Aggro + Leine) oder so nah, dass ein AoE sie mitträfe
+  // PULL_BOSS_NEAR gilt auch für jeden Kandidaten: Gegner-AoE reicht mit Zuschlag ~165 px weit
+  const PULL_BOSS_NEAR = 180, PULL_BOSS_BUSY = 400;
   const pull = { on: false, anchor: null, leash: 0, startAt: 0, ids: new Set(), homes: [], done: false, count: 0 };
   function pullReset() {
     pull.on = false; pull.anchor = null; pull.leash = 0; pull.startAt = 0; pull.ids = new Set(); pull.homes = []; pull.done = false; pull.count = 0;
@@ -9116,8 +9120,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (cfg.dungeon || dungeonLike(st)) return 'Dungeon/Raid';
     if (bot.resting) return 'Ruhemodus';
     if (group.role() === 'follower') return 'Mitläufer';
-    if (sc?.mobs?.some((m) => m.cat === 'boss' || m.mapBoss)) return 'Boss/Named in Sicht';
-    if (cfg.farm && (cfg.farmMode === 'boss' || cfg.farmMode === 'named')) {
+    const rotation = cfg.farm && (cfg.farmMode === 'boss' || cfg.farmMode === 'named');
+    const near = pullBossNear(st, sc, rotation);
+    if (near) return near;
+    if (rotation) {
       const map = st?.world?.mapId, ch = st?.world?.channel ?? 1;
       for (const [k, v] of farm.known) {
         const [m, , c] = k.split('#');
@@ -9129,6 +9135,37 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // pickTarget/skillPick laufen mit eigenem Date.now(), daher ein Fenster von zwei Takten statt === now
     if (bot.defendOnly && now - bot.defendOnly <= TICK_MS * 2) return 'Warten auf Event/Weltboss';
     return null;
+  }
+  // Bosse aus der Zielwahl (sc.mobs: auch Named ohne Boss-Flag) bzw. – ohne sc, beim Kampfbeginn – aus den Entities
+  function pullBossList(st, sc) {
+    const ents = window.dmo?.net?.state?.entities, own = ents?.get?.(st?.me?.partner?.entityId);
+    const list = sc?.mobs ? sc.mobs.filter((m) => m.cat === 'boss' || m.mapBoss) : [];
+    if (!sc) ents?.forEach?.((e) => { if (e.kind === KIND.Mob && e.hp > 0 && (e.flags & FLAG.Boss) && !(e.flags & FLAG.Dead)) list.push({ id: e.id, species: e.defId, x: e.x, y: e.y, d: own ? Math.hypot(e.x - own.x, e.y - own.y) : 0 }); });
+    return list;
+  }
+  function pullBossNear(st, sc, rotation) {
+    const ents = window.dmo?.net?.state?.entities, list = pullBossList(st, sc);
+    if (!list.length) return null;
+    if (rotation) return 'Boss/Named in Sicht'; // Boss-Rotation: der Boss kommt gleich dran
+    for (const m of list) {
+      const e = ents?.get?.(m.id), d = Number.isFinite(m.d) ? m.d : Infinity, mob = content()?.digimon?.[m.species]?.mob;
+      if ((e?.targetId || (e?.flags & FLAG.InCombat)) && d <= PULL_BOSS_BUSY) return 'Boss kämpft in der Nähe';
+      const aggressive = mob?.aggressive || !!(e?.flags & FLAG.Aggressive); // Spieldaten oder Flag am Monster (Duell-/Event-Varianten)
+      if (d <= PULL_BOSS_NEAR || (aggressive && d <= (mob?.aggroRange || 64) + PULL_LEASH)) return 'Boss in der Nähe';
+    }
+    return null;
+  }
+  // Kann um das Ziel t überhaupt gesammelt werden? Ein weiteres freies Monster in seiner Leine (sonst keine Skill-Pause zu Kampfbeginn)
+  function pullChance(st, t) {
+    const ents = window.dmo?.net?.state?.entities, h = mobHome.get(t.id) || ents?.get?.(t.id) || t, r = pullLeashOf(ents?.get?.(t.id)?.defId) - PULL_MARGIN;
+    const mine = new Set([st?.me?.partner?.entityId, st?.me?.tamerEntityId, ...groupEntityIds()].filter(Boolean));
+    let found = false;
+    ents?.forEach?.((e) => {
+      if (found || e.id === t.id || e.kind !== KIND.Mob || e.hp <= 0 || (e.flags & (FLAG.Dead | FLAG.Hidden | FLAG.Untargetable | FLAG.Boss))) return;
+      if (e.targetId && !mine.has(e.targetId)) return; // kämpft mit jemand anderem
+      if (Math.hypot(e.x - h.x, e.y - h.y) <= r) found = true;
+    });
+    return found;
   }
   // Monster im Schnitt der Leinen-Kreise (Anker und Startplätze der schon gesammelten)
   function pullInLeash(m) {
@@ -9158,7 +9195,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     pull.count = att.length + grpAtt;
     const p = st?.me?.partner, hp = p?.maxHp > 0 ? p.hp / p.maxHp * 100 : 100;
     const end = pull.count >= cfg.pullMax ? 'Höchstzahl' : hp < cfg.pullHp ? `HP unter ${cfg.pullHp} %` : now - pull.startAt > PULL_MAX_MS ? 'Zeit um' : null;
-    const cands = end ? [] : sc.mobs.filter((m) => usable(m) && !m.attacker && !m.busyElse && m.cat !== 'boss' && !m.mapBoss && !safeHeld(m.id, now) && pullInLeash(m))
+    const bosses = end ? [] : pullBossList(st, sc); // nicht neben einem (passiven) Boss anspielen – dort würde der AoE ihn mittreffen
+    const cands = end ? [] : sc.mobs.filter((m) => usable(m) && !m.attacker && !m.busyElse && m.cat !== 'boss' && !m.mapBoss && !safeHeld(m.id, now) && pullInLeash(m)
+      && !bosses.some((b) => Math.hypot(m.x - b.x, m.y - b.y) <= PULL_BOSS_NEAR))
       .sort((a, b) => (Number.isFinite(a.pd) ? a.pd : 1e9 + a.d) - (Number.isFinite(b.pd) ? b.pd : 1e9 + b.d));
     if (!cands.length) {
       pull.on = false; pull.done = true;
