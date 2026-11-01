@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.46
+// @version      3.1.47
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1652,7 +1652,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.46'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.47'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -9180,7 +9180,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const att = sc?.attackers || [];
     if (!att.length) { if (pull.anchor || pull.done) pullReset(); return null; } // Runde vorbei
     if (pull.done) return null;
-    if (pullBlocked(st, sc, now)) { pull.on = false; pull.done = true; return null; } // diese Runde nicht sammeln
+    { const why = pullBlocked(st, sc, now); if (why) { if (pull.on) logEvent('auto', `Pull abgebrochen nach ${pull.count} von ${cfg.pullMax}: ${why}`); pull.on = false; pull.done = true; return null; } } // diese Runde nicht sammeln
     if (!pull.anchor) {
       const f = att[0], h = mobHome.get(f.id) || f;
       pull.anchor = { x: h.x, y: h.y }; pull.leash = pullLeashOf(f.species); pull.startAt = now; pull.on = true;
@@ -9203,7 +9203,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       .sort((a, b) => (Number.isFinite(a.pd) ? a.pd : 1e9 + a.d) - (Number.isFinite(b.pd) ? b.pd : 1e9 + b.d));
     if (!cands.length) {
       pull.on = false; pull.done = true;
-      if (pull.count >= 2) logEvent('auto', `Pull: ${pull.count} Monster gesammelt${end ? ` (${end})` : ''} – Kampf`); // ein einzelnes ist kein Pull
+      // Ende jeder Runde mit Grund ins Log (3.1.47: live endeten Runden bei 2–4 von 8 – woran, soll man sehen können)
+      logEvent('auto', `Pull: ${pull.count} von ${cfg.pullMax} gesammelt – ${end || 'kein weiteres Monster in der Leine'}`);
       return null;
     }
     return cands.find((m) => m.id === st?.target?.id) || cands[0]; // angelaufenes Ziel behalten
@@ -10195,7 +10196,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const noPath = !!info && info.reach === false && !onFocus && !addTarget;
       const defendOnly = this.defendOnly === now && !onFocus; // Warten auf Event/Weltboss: nur Angreifer abwehren
       // Pull-Modus: Ruhemodus, Fokus, Boss-Add oder „nicht kämpfen“ beendet das Sammeln (sonst blieben die Skills gesperrt)
-      if (pull.on && (this.resting || onFocus || addTarget || noFight)) { pull.on = false; pull.done = true; }
+      if (pull.on && (this.resting || onFocus || addTarget || noFight)) { logEvent('auto', `Pull abgebrochen nach ${pull.count} von ${cfg.pullMax}: ${this.resting ? 'Ruhemodus' : onFocus ? 'Fokus-Ziel' : addTarget ? 'Boss-Add' : 'nicht kämpfen'}`); pull.on = false; pull.done = true; }
       // Pull-Modus: Ziel greift schon an und ein weiteres Monster in der Leine wartet -> zu dem wechseln
       const pullNext = alive && sc && !noFight && !onFocus && !addTarget && !this.resting ? pullPick(st, sc, now) : null;
       const pullSwitch = !!pullNext && pullNext.id !== t.id;
@@ -10372,6 +10373,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       }
       this.status = `${this.resting ? 'Ruhe – beende Kampf' : isAttacker ? 'Wehre ab' : 'Greife an'}: ` +
         `${t.name} Lv ${t.level} (${diff > 0 ? '+' : ''}${diff})`;
+      if (pull.on) this.status += ` · Sammle ${pull.count}/${cfg.pullMax}`; // Pull-Modus: Stand der Runde sichtbar (3.1.47)
       if(inputBlocked)this.status+=` · ${inputBlocked}`;
 
       if(nativeTravel){this.status+=' · Annäherung über Spiel-Wegfindung';return;}

@@ -17,6 +17,8 @@
 // O: Boss ohne Spieldaten, aber mit Aggressiv-Flag am Monster, ~260 px weg -> kein Sammeln.
 // 3.1.46 (live Water Realm): Q: HP unter der Grenze -> keine 1,5 s Skill-Pause zu Kampfbeginn.
 // P: nach dem ersten Treffer erzwingt ein Warnkreis kurz Ausweichen -> danach wird weiter gesammelt (m:2 und m:3).
+// 3.1.47 (live Backstreets: 2–4 statt 8, Status zeigte nie den Stand): R: Kampfzeile zeigt „· Sammle n/3“.
+// S: 13 s Ausweichen nach dem ersten Treffer -> die 12-s-Notbremse hält an, danach wird weiter gesammelt.
 const fs = require('fs');
 const makeWorld = require('./gw');
 const script = fs.readFileSync(process.argv[2], 'utf8');
@@ -232,6 +234,28 @@ const start = (G) => G.w.document.querySelector('[data-act="bot"]').click();
     r.P = { ids: uniq(picked) };
     G.w.close();
   }
+  // R: Sammelstand in der Kampfzeile
+  {
+    const { G } = await trial({ tag: 'R', mobs: three });
+    start(G);
+    let seen = 0; const t0 = Date.now(); while (Date.now() - t0 < 5000) { if (/(Greife an|Wehre ab).*Sammle \d+\/3/.test(G.status())) seen++; await wait(50); }
+    r.R = { seen };
+    G.w.close();
+  }
+  // S: langes Ausweichen mitten im Sammeln
+  {
+    const { G, hits, picked, scene } = await trial({ tag: 'S', mobs: three, max: 3 });
+    start(G);
+    // erst wenn die Runde läuft (zweites Monster angespielt), dann 13 s ausweichen
+    const t0 = Date.now(); while (Date.now() - t0 < 4000 && uniq(picked).length < 2) await wait(20);
+    const n0 = picked.length, me = G.ents.get('p:me'), now = G.w.performance.now(), z = { x: me.x, y: me.y, r: 70 };
+    scene.telegraphs.active = [z]; scene.telegraphs.circles = [{ ...z, end: now + 13000 }];
+    await wait(13100);
+    scene.telegraphs.active = []; scene.telegraphs.circles = [];
+    await wait(5000);
+    r.S = { ids: uniq(picked), after: uniq(picked.slice(n0)) };
+    G.w.close();
+  }
   console.log(JSON.stringify(r));
   const ok = r.A.ids.length >= 3 && r.A.h3 && r.A.d2before === 0 && r.A.d2 >= 1
     && r.B.ids.length >= 1 && !r.B.ids.includes('m:2')
@@ -246,7 +270,8 @@ const start = (G) => G.w.document.querySelector('[data-act="bot"]').click();
     && !r.J.ids.includes('m:2') && r.J.ids.includes('m:3')
     && r.K.ids.length >= 2 && r.L.ids.length === 1 && r.M.gap != null && r.M.gap < 1300
     && !r.N.ids.includes('m:2') && r.N.ids.includes('m:3') && r.O.ids.length === 1
-    && r.Q.gap != null && r.Q.gap < 1300 && r.P.ids.length >= 3;
+    && r.Q.gap != null && r.Q.gap < 1300 && r.P.ids.length >= 3
+    && r.R.seen >= 3 && r.S.ids.length >= 3 && r.S.after.includes('m:3');
   console.log(ok ? 'OK – Pull-Modus sammelt in der Leine' : 'FEHLER');
   process.exit(ok ? 0 : 1);
 })();

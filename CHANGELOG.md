@@ -2,6 +2,13 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.47 – Pull-Modus: Stand sichtbar, Grund im Log
+- **Sammelstand in der Statuszeile:** Während der Runde steht „Greife an: … · Sammle 3/8“. Vorher blitzte „Sammle n/m“ nur
+  einen Takt lang auf, und es sah aus, als würde gar nicht gesammelt (live Backstreets: es waren 2–4 je Runde).
+- **Warum eine Runde endet, steht im Log:** „Pull: 3 von 8 gesammelt – Zeit um / HP unter 50 % / kein weiteres Monster in der
+  Leine“ bzw. „Pull abgebrochen nach 2 von 8: Boss in der Nähe / Ruhemodus …“.
+- Geprüft: Auch langes Ausweichen (13 s) mitten im Sammeln beendet die Runde nicht (neuer Testfall).
+
 ## 3.1.46 – Pull-Modus: keine Skill-Pause bei zu niedrigen HP
 - **Pause nur, wenn gesammelt wird:** Lagen die HP unter der Sammel-Grenze, hielt der Bot zu Kampfbeginn trotzdem 1,5 s die
   Skills zurück (live Water Realm: nach jedem Kampf 56–65 % bei Grenze 67 %). Die HP-Grenze gehört jetzt zur gemeinsamen
