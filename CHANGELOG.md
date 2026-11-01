@@ -2,6 +2,19 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.44 – Pull-Modus
+- **Monster sammeln:** Im Reiter Attacke gibt es den Schalter „Monster sammeln (Pull)“ mit Höchstzahl (2–8, Standard 3)
+  und HP-Grenze (30–90 %, Standard 60). Der Bot markiert weitere Monster mit je einem Treffer, kämpft dann ganz normal
+  weiter und zündet „AoE ab N“-Skills, sobald sie bereit sind – N höchstens so groß wie die gesammelte Zahl (mindestens 2).
+- **Ablauf:** Gesammelt wird nur in der Leine des ersten Monsters (Kreis um seinen Spawnpunkt minus 40 px, dazu die
+  Leinen der später markierten). Das Sammeln endet bei der Höchstzahl, wenn nichts mehr erreichbar ist, unter der HP-Grenze
+  oder nach 12 s. Währenddessen halten Angriffsskills zurück; Heilungen und Dauer-Buffs laufen weiter.
+- **Sperren:** Kein Sammeln im Boss-Kampf, in Dungeon/Raid, solange ein Boss sichtbar oder in 30 s fällig ist, gegen
+  Bosse/Namensmonster oder Monster, die andere bekämpfen, und im Ruhemodus. Ruhemodus, Fokus und Boss-Add beenden das Sammeln.
+  Elite-Monster dürfen gesammelt werden.
+- **Gruppe:** Nur der Leader sammelt. Mitläufer übernehmen seine wechselnden Ziele währenddessen nicht, wehren sich aber
+  selbst und folgen ihm. Monster, die einen Mitläufer angreifen, zählen zur Höchstzahl.
+
 ## 3.1.43 – Skill-Rollen
 - **Rolle je Skill:** Im Reiter Digimon hat jede Taste 2–6 (je Digitationsform) statt „Angriff / Heal“ jetzt eine Rolle:
   Angriff, AoE ab N Gegnern, Angriffs-Buff, Tank-Buff, Angriffs-Support, Def-Support, Utility (Debuffs entfernen),
