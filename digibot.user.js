@@ -746,7 +746,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const allies=(st.party?.members||[]).filter(m=>!m.me&&m.here&&m.online!==false&&m.partnerEntityId).map(m=>ents?.get?.(m.partnerEntityId)).filter(e=>e&&own&&Math.hypot(e.x-own.x,e.y-own.y)<=(sk.range||128));
     const effectsFor=id=>(st.effects?.[id]||[]).filter(e=>!e.end||e.end>performance.now());
     const affected=[p.entityId,...(sk.scope==='party'?allies.map(e=>e.id):[])];
-    const debuffed=affected.some(id=>effectsFor(id).some(e=>{const d=C.skills?.[e.id];return (d?.effects||[]).some(x=>x.pct<0)||d?.stunMs>0||d?.rootMs>0;}));
+    const debuffed=affected.some(id=>effectsFor(id).some(isDebuff)); // Spiel-Status (wounded, silenced …) oder negativer Effekt (3.1.43)
     // Avoid renewing an already active copy of the same ability.
     if(!sk.healPct && !sk.resetCooldowns && !sk.cleanse && affected.some(id=>effectsFor(id).some(e=>e.id===sk.id||e.id===`${sk.id}:damageReduction`)))return;
     const target=ents?.get?.(st.target?.id);
@@ -3776,6 +3776,80 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (pk.role === 'atkbuff') fightStart(t, now).buffed = true;
     noteOwnCast(st, pk.s, pk.def, t);
   }
+
+  // ---------- Skill-Planer (3.1.43): eigene und Gruppen-Rollen (Heal, Gruppen-Heal, Dauer-Buffs, Support, Cleanse) ----------
+  // Debuff wie im Spiel: Spiel-Status der Art „debuff“ oder ein Skill-Effekt mit negativem Wert
+  const DEBUFF_STATUS = new Set(['marked', 'shared', 'lag', 'reaper_bubbles', 'grabbed', 'dark_tower', 'reaper', 'gear_lag', 'burn', 'tripped', 'wounded', 'silenced', 'silence_mark']);
+  const isDebuff = (e) => DEBUFF_STATUS.has(e?.id) || !!content()?.skills?.[e?.id]?.effects?.some((x) => x.pct < 0);
+  const liveEffects = (st, id) => (st?.effects?.[id] || []).filter((e) => !e.end || e.end > performance.now());
+  // eigenes Digimon plus die Gruppen-Partner im Umkreis range
+  function partyPartners(st, range) {
+    const ents = window.dmo?.net?.state?.entities, p = st?.me?.partner, me = ents?.get?.(p?.entityId);
+    const out = p?.entityId ? [{ id: p.entityId, hp: p.hp, maxHp: p.maxHp, me: true, name: 'ich' }] : [];
+    if (!me) return out;
+    for (const m of st.party?.members || []) {
+      if (m.me || !m.partnerEntityId || m.partnerEntityId === p.entityId) continue;
+      const e = ents?.get?.(m.partnerEntityId);
+      if (!e || !(e.maxHp > 0) || e.hp <= 0 || Math.hypot(e.x - me.x, e.y - me.y) > range) continue;
+      out.push({ id: e.id, hp: e.hp, maxHp: e.maxHp, me: false, name: m.name || e.id });
+    }
+    return out;
+  }
+  // „hält noch“: an der Skill-ID; nur ohne Stat-Effekte zählt der (kürzere) Schadensreduktions-Eintrag
+  const keepLeft = (id, def) => (def.effects?.length ? effectLeft(id, def.id) : Math.max(effectLeft(id, def.id), effectLeft(id, `${def.id}:damageReduction`)));
+  // Kampf: wie inCombat, dazu ein kämpfender Boss in der Nähe (wie beim Tamer-Skill)
+  function careFighting(st) {
+    if (inCombat(st)) return true;
+    const ents = window.dmo?.net?.state?.entities, t = ents?.get?.(st?.target?.id), own = ents?.get?.(st?.me?.partner?.entityId);
+    return !!t && !!own && t.hp > 0 && !!(t.flags & FLAG.Boss) && !!(t.flags & FLAG.InCombat) && Math.hypot(t.x - own.x, t.y - own.y) <= TAMER_BOSS_NEAR;
+  }
+  function careWant(st, def, ro) {
+    const p = st.me.partner;
+    if (ro.role === 'heal') return p.maxHp > 0 && pct(p.hp, p.maxHp) < ro.n ? `HP ${Math.round(pct(p.hp, p.maxHp))} %` : null;
+    const reach = (Number(def.range) || (def.target === 'ally' ? 128 : 0)) + (Number(def.radius) || 96);
+    if (ro.role === 'grpheal') { const low = partyPartners(st, reach).filter((m) => m.maxHp > 0 && pct(m.hp, m.maxHp) < ro.n); return low.length ? `${low.map((m) => m.name).join(', ')} unter ${ro.n} %` : null; }
+    if (ro.role === 'utilsup') { const deb = partyPartners(st, reach).filter((m) => liveEffects(st, m.id).some(isDebuff)); return deb.length ? `Debuff bei ${deb.map((m) => m.name).join(', ')}` : null; }
+    if (!careFighting(st)) return null; // Dauer-Buffs und Support nur im Kampf (DS sparen)
+    if (ro.role === 'tankbuff') return keepLeft(p.entityId, def) < KEEP_LEFT_MS ? 'läuft nicht' : null;
+    // Gruppen-Support: neu, wenn er bei mir fehlt oder bei der Mehrheit der Partner in Reichweite
+    const others = partyPartners(st, reach).filter((m) => !m.me), miss = others.filter((m) => keepLeft(m.id, def) < KEEP_LEFT_MS).length;
+    if (keepLeft(p.entityId, def) < KEEP_LEFT_MS) return 'läuft nicht';
+    return others.length && miss > others.length / 2 ? `fehlt bei ${miss} von ${others.length}` : null;
+  }
+  const CARE_ORDER = ['heal', 'grpheal', 'utilsup', 'defsup', 'tankbuff', 'atksup'];
+  // Liefert den Namen des gewirkten Skills oder null. Läuft vor dem Spiegel-Halt der Rotation (Heilen/Buffs gehen dort weiter).
+  function skillCare(st, now) {
+    const p = st?.me?.partner;
+    if (!p || p.fainted || p.evolving || !bot.can('skill', SKILL_GAP_MS, now)) return null;
+    const cands = [];
+    for (const k of SKILL_KEYS) {
+      const ro = skillRole(st, k), ord = CARE_ORDER.indexOf(ro.role);
+      if (ord < 0 || !skillOn(st, k)) continue;
+      const s = skillOnKey(st, k);
+      if (!s || isKoh(s.skill)) continue;
+      const def = skillDef(s.skill);
+      if ((ro.role === 'defsup' || ro.role === 'atksup') && def.target === 'enemy') continue; // Gegner-Support: skillPick
+      if (s.cdLeft > 0 || s.skill.unlocked === false || p.ds < (s.skill.dsCost || 0) || !bot.can('Digit' + k, SKILL_GAP_MS * 2, now)) continue;
+      const why = careWant(st, def, ro);
+      if (why) cands.push({ ord, k, s, def, role: ro.role, why });
+    }
+    cands.sort((a, b) => a.ord - b.ord);
+    for (const c of cands) {
+      const soon = kohSoon(st, now), cast = c.s.skill.castMs ?? c.def.castMs ?? 600;
+      if (soon != null && soon < KOH_LEAD_MS + 800 + cast) return null; // Key of Hope gleich fällig: nichts mit Cast davor
+      if (!careGroupOk(st, c, now)) continue;
+      if (bot.hit('Digit' + c.k, now) === false) return null;
+      bot.lastPress.skill = now;
+      noteOwnCast(st, c.s, c.def, null);
+      careGroupClaim(st, c, now);
+      logEvent(c.role === 'heal' || c.role === 'grpheal' ? 'potion' : 'auto', `${DIGIBOT_ROLE_NAME[c.role]}: ${c.s.skill.name} (${c.why})`);
+      return c.s.skill.name;
+    }
+    return null;
+  }
+  // Gruppenwahl (Task 5): bis dahin zündet jedes Fenster selbst
+  function careGroupOk() { return true; }
+  function careGroupClaim() {}
   function editSkillSet(st) {
     const sp = st?.me?.partner?.species || '_';
     cfg.skillSets ||= {};
@@ -5204,7 +5278,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     potion(1, cfg.hpPot > 0 && pct(p.hp, p.maxHp) < cfg.hpPot);
     potion(2, cfg.dsPot > 0 && pct(p.ds, p.maxDs) < cfg.dsPot);
     potion(3, tamerFoodNeeded(me, now));
-    healSkill(st, now);
+    skillCare(st, now); // Skill-Planer (3.1.43): Heals, Dauer-Buffs, Support
   }
   function mirrorAttack(st, P, now) {
     const me = st.me, p = me?.partner;
@@ -9842,8 +9916,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (cfg.foodBuy) { if (group.role() === 'leader') group.noFight = false; /* altes „nicht kämpfen“ nicht weitersenden (3.1.30) */ const fsx = foodStep(st, now); this.status = fsx === true ? 'Food fertig – Bot gestoppt' : `Food: ${fsx}`; if (fsx === true) bot.toggle(true); return; }
       // Heilen vor Klinge/Seitenregel und vor dem Gruppen-/Autopilot-Zweig: beide kehren mit Status zurück (Umstellen, Klinge
       // holen), Mitläufer („Gruppe: bei …“) ebenso – sonst wurde dabei nie geheilt (3.1.0/3.1.30). Beide drücken nur Skills.
-      healSkill(st, now); // Heil-Skill bei niedrigen HP (auch außerhalb des Kampfes)
-      groupHeal(st, now); // Dungeon/Raid: Gruppen-Heilskill reihum, sobald jemand in Reichweite Schaden hat (3.1.0)
+      skillCare(st, now); // Skill-Planer (3.1.43): Heal, Gruppen-Heal, Cleanse, Dauer-Buffs und Gruppen-Support (auch außerhalb des Kampfes)
       // Klinge am Boden (Armageddemon ab 20 %): der Paladin holt sie – nach dem Ausweichen, damit kein Weg durch Warnflächen führt (3.1.21)
       { const bl = dgBladeStep(st, now); if (bl) { this.status = bl; this.attackedId = null; return; } }
       // Armageddemon (3.1.7): in der unteren Raumhälfte kämpfen – wer oberhalb des Bosses steht, läuft erst unten herum
