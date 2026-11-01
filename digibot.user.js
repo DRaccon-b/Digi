@@ -4440,7 +4440,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     // Leader erledigt meine Quests: ich bleibe stehen – nur, was mich selbst angreift, ist ein Angreifer
     // „Ziele verteilen“: das Monster eines anderen ist sein Kampf, kein Angreifer für alle – sonst gehen wieder alle darauf
-    const guardParty = !(group.role() === 'follower' && groupLeader()?.serve) && !spreadOn();
+    // Pull-Modus: sammelt der Leader, sind die Monster auf ihm (noch) keine Angreifer für mich – nur mich selbst abwehren
+    const guardParty = !(group.role() === 'follower' && groupLeader()?.serve) && !spreadOn() && !(group.role() === 'follower' && leaderPulling(now));
     // Mitläufer dürfen bis zum Gruppenabstand vom Leader weg stehen – Angreifer auf ihn so weit mitzählen (3.1.38)
     const partyR = group.role() === 'follower' ? Math.max(cfg.radius, followDist() + 100) : cfg.radius;
     const dgZone = dgHereZone(st, self); // Dungeon: nur Monster im Raum, in dem ich stehe (Reste früherer Räume ignorieren)
@@ -4746,7 +4747,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   // Was ein anderes Fenster sofort wissen muss (Ziel, Aufgabe, Gespräche, Kampf, Map, Quests) – Position nicht
   const groupSig = (m) => JSON.stringify([m.targetId, m.task?.key, m.talks?.[m.talks.length - 1]?.key, m.busy, m.done?.[m.done.length - 1],
-    m.fight, m.mapId, m.channel, m.bot, m.noFight, m.inWorld, m.quests, m.objective, m.reservation,m.tamer,m.partyId, m.kohAt != null && m.kohAt <= Date.now(), m.davis, m.davisAt, m.kohMoreOff, Object.keys(m.gsk || {}).sort().join()]);
+    m.fight, m.mapId, m.channel, m.bot, m.noFight, m.inWorld, m.quests, m.objective, m.reservation,m.tamer,m.partyId, m.kohAt != null && m.kohAt <= Date.now(), m.davis, m.davisAt, m.kohMoreOff, Object.keys(m.gsk || {}).sort().join(), !!m.pulling]);
   function groupPush(force = false) {
     if (!group.active() || !group.bus) return;
     const st = getStore()?.getState?.(), now = Date.now();
@@ -4787,6 +4788,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       kohAt: kohReadyAt(st, now), davis: davisReady(st, now), davisAt: digibotTamer.davisAt || 0, kohMoreOff: !!kohState.moreOff, // 3.1.26
       gsk: gskState(now), // Gruppen-Skills, die ich gerade zünden will (3.1.43)
       serve: serveOn(),
+      pulling: group.role() === 'leader' && pull.on, // Pull-Modus: ich sammle gerade Monster – Mitläufer übernehmen meine Ziele nicht
     };
   }
   const fresh = (p, now) => !!p && now - p.seen < GROUP_STALE_MS;
@@ -5089,9 +5091,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Mitläufer: Ziel des Leaders mit angreifen
   // Wen greift der Leader gerade an? Sein Digimon/Tamer steht auch in meiner Spielwelt – dort direkt nachsehen
   // (sofort, ohne auf seine Meldung zu warten). Nur wenn er nicht in Sichtweite ist: das gemeldete Ziel.
+  // Pull-Modus: Sammelt der Leader gerade, sind seine wechselnden Ziele kein Kampf für die Gruppe – Mitläufer wehren sich
+  // nur selbst und folgen ihm; erst nach dem Sammeln helfen sie wieder beim Ziel des Leaders
+  const leaderPulling = (now = Date.now()) => !!groupLeader(now)?.pulling;
   function leaderTargetId(now = Date.now()) {
     const L = groupLeader(now);
-    if (!L) return null;
+    if (!L || L.pulling) return null;
     const ents = window.dmo?.net?.state?.entities;
     for (const id of [...(L.ents || [])].reverse()) { // Digimon zuerst
       const tid = ents?.get?.(id)?.targetId, m = tid && ents.get(tid);
@@ -9141,7 +9146,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const h = mobHome.get(m.id) || m;
       pull.ids.add(m.id); pull.homes.push({ x: h.x, y: h.y, leash: pullLeashOf(m.species) });
     }
-    pull.count = att.length;
+    // Monster, die ein Gruppenmitglied angreifen (auch außerhalb meines Radius), zählen zur Höchstzahl mit
+    const grp = groupEntityIds(), ents = window.dmo?.net?.state?.entities, attIds = new Set(att.map((m) => m.id));
+    let grpAtt = 0;
+    if (grp.size) ents?.forEach?.((e) => { if (e.kind === KIND.Mob && e.hp > 0 && !(e.flags & FLAG.Dead) && !attIds.has(e.id) && grp.has(e.targetId)) grpAtt++; });
+    pull.count = att.length + grpAtt;
     const p = st?.me?.partner, hp = p?.maxHp > 0 ? p.hp / p.maxHp * 100 : 100;
     const end = pull.count >= cfg.pullMax ? 'Höchstzahl' : hp < cfg.pullHp ? `HP unter ${cfg.pullHp} %` : now - pull.startAt > PULL_MAX_MS ? 'Zeit um' : null;
     const cands = end ? [] : sc.mobs.filter((m) => usable(m) && !m.attacker && m.cat !== 'boss' && !m.mapBoss && !safeHeld(m.id, now) && pullInLeash(m))
@@ -9173,11 +9182,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (att.length > 1 && !resting && group.role() === 'follower' && !spreadOn()) {
       const L = groupLeader(), p = getStore()?.getState?.()?.me?.partner;
       const lowHp = p && p.maxHp > 0 && p.hp / p.maxHp * 100 < FOCUS_MIN_HP;
-      if (L && L.x != null && !L.serve && !lowHp) return att.slice().sort((a, b) => Math.hypot(a.x - L.x, a.y - L.y) - Math.hypot(b.x - L.x, b.y - L.y))[0];
+      if (L && L.x != null && !L.serve && !L.pulling && !lowHp) return att.slice().sort((a, b) => Math.hypot(a.x - L.x, a.y - L.y) - Math.hypot(b.x - L.x, b.y - L.y))[0];
     }
     if (att.length) return att[0];
     if (resting) return null;
     if (group.role() === 'follower' && groupLeader()?.serve) return null; // Leader erledigt meine Quests: stehen bleiben
+    if (group.role() === 'follower' && leaderPulling()) return null; // Leader sammelt (Pull-Modus): nichts selbst anspielen, folgen
     const spread = spreadOn();
     const assist = group.role() === 'follower' && !spread ? groupAssist(sc) : null; // Mitläufer: Ziel des Leaders
     if (assist) return assist;
