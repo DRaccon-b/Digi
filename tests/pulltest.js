@@ -118,6 +118,16 @@ const start = (G) => G.w.document.querySelector('[data-act="bot"]').click();
     r.G2 = { ids: uniq(picked) };
     G.w.close();
   }
+  // H: Ruhemodus mitten im Sammeln (HP 30 %, Trank-Schwelle 40 %, kein Trank) -> Runde endet, Taste 2 kommt
+  {
+    const { G, keys, picked } = await trial({ tag: 'H', mobs: three, max: 8, cfg: { hpPot: 40 } });
+    start(G);
+    const t0 = Date.now(); while (Date.now() - t0 < 4000 && uniq(picked).length < 2) await wait(20);
+    const s = G.store.getState(); G.store.setState({ me: { ...s.me, partner: { ...s.me.partner, hp: 900 } } });
+    const t1 = Date.now(); await wait(4000);
+    r.H = { ids: uniq(picked), d2: count(keys, 'Digit2', t1), st: G.status() };
+    G.w.close();
+  }
   console.log(JSON.stringify(r));
   const ok = r.A.ids.length >= 3 && r.A.h3 && r.A.d2before === 0 && r.A.d2 >= 1
     && r.B.ids.length >= 1 && !r.B.ids.includes('m:2')
@@ -126,7 +136,8 @@ const start = (G) => G.w.document.querySelector('[data-act="bot"]').click();
     && r.E.ids.length === 1 && r.E.d2 >= 1
     && r.F.ids.includes('m:2')
     && r.G.ids.length <= 1 && !r.G.ids.includes('m:2') && !r.G.ids.includes('m:3')
-    && r.G2.ids.length === 1;
+    && r.G2.ids.length === 1
+    && r.H.ids.length >= 2 && r.H.d2 >= 1;
   console.log(ok ? 'OK – Pull-Modus sammelt in der Leine' : 'FEHLER');
   process.exit(ok ? 0 : 1);
 })();

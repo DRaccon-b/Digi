@@ -3745,7 +3745,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const ents = window.dmo?.net?.state?.entities, te = ents?.get?.(t.id) || t, own = ents?.get?.(p.entityId);
     const boss = !!((te.flags ?? 0) & FLAG.Boss), fm = fightStart(t, now), since = now - fm.at;
     // Pull-Modus: DS und AoE fürs Gesammelte aufheben (Heals/Buffs: skillCare) – auch beim ersten Treffer, bis die Runde läuft
-    if (pull.on || (cfg.pull && !pull.anchor && !pull.done && !boss && since < PULL_START_MS && !pullBlocked(st, null, now))) return { held: 'Sammle Monster – Skills warten' };
+    // selbstbegrenzend: nie im Ruhemodus, nie gegen einen Boss, nie länger als die Notbremse
+    if ((pull.on && !bot.resting && !boss && now - pull.startAt <= PULL_MAX_MS) || (cfg.pull && !bot.resting && !pull.anchor && !pull.done && !boss && since < PULL_START_MS && !pullBlocked(st, null, now))) return { held: 'Sammle Monster – Skills warten' };
     const mirror = mirrorActive(t.id) || (boss && !!st.boss?.mirror);
     const d = own && Number.isFinite(te.x) ? Math.hypot(te.x - own.x, te.y - own.y) : 0;
     const basicRange = content()?.digimon?.[p.species]?.basic?.range, reach = (Number.isFinite(basicRange) ? basicRange : 33) + 12;
@@ -10137,6 +10138,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       // ohne Weg zum Ziel (Insel, andere Klippenseite) nicht weiter draufhalten – außer Fokus (Boss/Leader-Ziel) und Adds
       const noPath = !!info && info.reach === false && !onFocus && !addTarget;
       const defendOnly = this.defendOnly === now && !onFocus; // Warten auf Event/Weltboss: nur Angreifer abwehren
+      // Pull-Modus: Ruhemodus, Fokus, Boss-Add oder „nicht kämpfen“ beendet das Sammeln (sonst blieben die Skills gesperrt)
+      if (pull.on && (this.resting || onFocus || addTarget || noFight)) { pull.on = false; pull.done = true; }
       // Pull-Modus: Ziel greift schon an und ein weiteres Monster in der Leine wartet -> zu dem wechseln
       const pullNext = alive && sc && !noFight && !onFocus && !addTarget && !this.resting ? pullPick(st, sc, now) : null;
       const pullSwitch = !!pullNext && pullNext.id !== t.id;
