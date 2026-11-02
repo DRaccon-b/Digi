@@ -2,6 +2,21 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.4 – A3-Bosse allein: geteilter Treffer und stärkende Adds
+- **Geteilter Treffer ohne eigene Gruppe:** Die Tamers-Bosse (Mihiramon, Vikaralamon, Orochimon, Zhuqiaomon, Beelzemon) setzen
+  ein Fadenkreuz auf ein Digimon; mindestens 3 Digimon müssen im Kreis stehen, sonst fallen alle darin. Bisher reagierte der
+  Bot nur in seiner eigenen Gruppe, allein ignorierte er den Kreis. Jetzt, allein bzw. mit fremden Spielern: Ist ein anderer
+  markiert und wären es mit ihm mindestens 3, geht er hinein – sonst bleibt er draußen (der Kreis gilt dann als Warnzone). Ist er
+  selbst markiert, geht er in die Mitte der nächsten Gruppe fremder Digimon (bis 260 px), mit der es reicht, und bleibt erst
+  stehen, wenn genug um ihn stehen – sonst hält er die Position. Kommt ein Markierter zu einer Gruppe, bei der er steht, und
+  reicht es dann, weicht er nicht vor ihm aus (sonst jagten sich mehrere Bots gegenseitig).
+  Ältere geteilte Treffer ohne Mindestzahl bleiben allein wie bisher.
+- **Adds in der Boss-Rotation:** Adds, die den Boss stärken oder heilen (Tamers-Bosse: +18 %, nach 20 s Heilung), greift der Bot
+  jetzt auch in der Boss-Rotation zuerst an – auch wenn sich der Boss dabei über die Add-Schwelle zurückheilt. Andere Adds
+  ignoriert die Rotation wie bisher.
+- **Bosse-Reiter:** A3-Bosse tragen ⚔ vor dem Namen (Suche: „a3“), der Tooltip sagt, was der Bot dort schon kann.
+- Tests: `sharesolotest`, `addfarmtest`.
+
 ## 3.2.3 – Karten-Digitation wählbar, Restzeit beim Pullen, Weltbosse auswählbar
 - **Karten-Digitation:** Im Reiter Bosse unter „Karten auswählen“ gibt es das Feld „Digitation“: automatisch (beste Form für die
   Karten, wie bisher), höchstmögliche Digitation, höchste Armor-Form oder eine feste Form. Gibt es die Form beim aktiven Digimon

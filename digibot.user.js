@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.3
+// @version      3.2.4
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1763,7 +1763,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.3'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.4'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2621,6 +2621,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         }
       }
     } catch { /* ignore */ }
+    // geteilter Treffer allein, zu wenige im Kreis (3.2.4): der Kreis um den Markierten ist Gefahrenzone
+    try { const pl = shareSoloPlan(getStore()?.getState?.(), Date.now()); if (pl?.act === 'avoid') zones.push({ kind: 'circle', x: pl.to.x, y: pl.to.y, r: pl.sc0.r, share: true }); } catch { /* ignore */ }
     if (!tank) try {
       for (const c of sc?.telegraphs?.active || []) {
         // Raumweite Kreise (z. B. Apocalymons „Total Annihilation“, 640 px) kann man nicht verlassen – nur den Boss vorher
@@ -7479,6 +7481,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     return set;
   }
+  // Stärken die Adds dieses Bosses ihn (empowerPct) oder heilen sie ihn (feedPctPerSec)? (3.2.4)
+  function bossAddsStrengthen(mapId, bossSpecies) {
+    for (const b of content()?.spawns?.[mapId]?.bosses || []) {
+      if (![b, ...(b.forms || [])].some((fm) => fm.species === bossSpecies)) continue;
+      if ([b.adds, ...(b.moreAdds || [])].some((a) => a && (Number(a.empowerPct) > 0 || Number(a.feedPctPerSec) > 0))) return true;
+    }
+    return false;
+  }
   const addSince = new Map(); // Boss-Entity -> wann er zuerst unter seiner Add-Schwelle gesehen wurde
   const ADD_RANGE = 500, ADD_BOSS_NEAR = 640, ADD_RAID_RADIUS = 300;
   const GK_GUARD_NEAR = 400; // Hinukamuy so nah an Gankoomon gelten als seine Schutz-Adds (sie erscheinen ~60 px neben ihm, laufen aber auf Angreifer zu)
@@ -7505,10 +7515,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         if (hk.length) return hk[0];
       }
     }
-    if (cfg.farm || cfg.dungeon) return null; // Dungeon: Reihenfolge macht dungeonFocus
+    if (cfg.dungeon) return null; // Dungeon: Reihenfolge macht dungeonFocus
     if (groupLeader()?.farm) return null; // Leader in der Boss-Rotation: Mitläufer greifen nur sein Ziel an
     const boss = sc.mobs.filter((m) => m.cat === 'boss').sort((a, b) => a.d - b.d)[0];
     if (!boss || boss.d > ADD_BOSS_NEAR) return null;
+    // Boss-Rotation: nur Adds, die den Boss stärken oder heilen (Tamers-Bosse: empowerPct, feedPctPerSec) – sonst wie bisher
+    // der Boss (3.2.4)
+    if (cfg.farm && !bossAddsStrengthen(sc.mapId, boss.species)) return null;
     const set = addSpecies(sc.mapId, boss.species), raid = isRaidMap(sc.mapId);
     // Feld-Adds erst, wenn der Boss die HP-Schwelle erreicht hat, und nur nahe am Boss (sie erscheinen an seinem Punkt) –
     // live: Arukenimon ruft Golemon erst ab 50 %, aber jeder normale Golemon in Tower Forest galt als Add
@@ -7520,9 +7533,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (pct <= maxAt + 0.02 && !addSince.has(boss.id)) addSince.set(boss.id, now);
     if (addSince.size > 50) addSince.delete(addSince.keys().next().value);
     const since = addSince.get(boss.id);
+    const strong = since != null && bossAddsStrengthen(sc.mapId, boss.species);
     const fieldAdd = (m) => {
       const e = set.get(m.species);
-      if (!e || pct > e.at + 0.02) return false;
+      // heilende/stärkende Adds bleiben Adds, auch wenn der Boss über die Schwelle zurückheilt (sonst Hin und Her) (3.2.4)
+      if (!e || (pct > e.at + 0.02 && !strong)) return false;
       if (raid) return true;
       if (e.at < 1 && (since == null || (mobHome.get(m.id)?.t ?? 0) < since - 2000)) return false; // war schon vorher da
       if (e.levels.size && !e.levels.has(m.level)) return false;
@@ -8093,6 +8108,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         id: `${map}#${b.species}`, map, index, species: b.species, level: b.level, respawnMs: b.respawnMs || 0, at: b.at, statMult: b.statMult || 0,
         kind: b.worldBoss ? 'world' : b.enrageMs ? 'group' : (b.at in (sp.zones || {})) ? 'named' : 'field',
         name: C.digimon?.[b.species]?.name || b.species, mapName: C.maps?.[map]?.name || map,
+        a3: !!(b.shieldGates || b.cadence), // Tamers-Bosse (3.2.4): geteilter Treffer, Schild- und Puls-Phasen, stärkende Adds
       }));
     }
     return out.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
@@ -10162,9 +10178,64 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (!z?.skillId || !shareGatherOn()) return false;
     return !!content()?.skills?.[z.skillId]?.share;
   }
+  // Allein bzw. mit Fremden (3.2.4, A3-Bosse): geteilte Treffer mit Mindestzahl (share.minPartners). Mit weniger Digimon im
+  // Kreis fallen laut Spiel alle darin („A lone target falls even with protection“) – also nur hinein, wenn es mit mir reicht,
+  // sonst draußen bleiben (der Kreis wird zur Warnzone, dangerZones). Bin ich markiert: der Kreis folgt mir, Weglaufen hilft
+  // nicht – zur größten Gruppe fremder Digimon in der Nähe (SHARE_SOLO_SEEK), mit der es reicht, sonst stehen bleiben.
+  const SHARE_SOLO_SEEK = 260;
+  function shareSoloPlan(st, now) {
+    if (shareGatherOn()) return null;
+    const sc0 = shareCast(now); if (!sc0) return null;
+    const min = Number(content()?.skills?.[sc0.sid]?.share?.minPartners) || 0; if (min < 2) return null;
+    const ents = window.dmo?.net?.state?.entities, me = st?.me, mine = new Set([me?.tamerEntityId, me?.partner?.entityId].filter(Boolean));
+    const partner = ents?.get?.(me?.partner?.entityId); if (!partner || !isFinite(partner.x)) return null;
+    const others = []; ents?.forEach?.((e) => { if (e.kind === KIND.Partner && !mine.has(e.id) && e.hp > 0 && isFinite(e.x) && isFinite(e.y)) others.push(e); });
+    const inR = sc0.r - SHARE_IN_PAD, near = (x, y) => others.filter((e) => Math.hypot(e.x - x, e.y - y) <= inR).length;
+    if (mine.has(sc0.dst)) {
+      if (near(partner.x, partner.y) + 1 >= min) return { sc0, min, act: 'hold' };
+      const dist = (e) => Math.hypot(e.x - partner.x, e.y - partner.y);
+      const best = others.filter((e) => dist(e) <= SHARE_SOLO_SEEK).map((e) => ({ e, n: near(e.x, e.y) })).filter((c) => c.n + 1 >= min)
+        .sort((a, b) => b.n - a.n || dist(a.e) - dist(b.e))[0];
+      if (!best) return { sc0, min, act: 'hold' };
+      // zur Mitte der Gruppe (nicht zum Ersten) – angekommen ist der Bot erst, wenn um ihn genug stehen (oben: hold)
+      const grp = others.filter((e) => Math.hypot(e.x - best.e.x, e.y - best.e.y) <= inR);
+      return { sc0, min, act: 'go', to: { x: grp.reduce((a, e) => a + e.x, 0) / grp.length, y: grp.reduce((a, e) => a + e.y, 0) / grp.length } };
+    }
+    const d0 = ents?.get?.(sc0.dst); if (!d0 || !isFinite(d0.x) || !isFinite(d0.y)) return null;
+    if (near(d0.x, d0.y) + 1 >= min) return { sc0, min, act: 'join', to: d0 };
+    // Bei mir stehen schon genug, dass es mit dem Markierten reicht: er kommt (als Bot sucht er solche Gruppen) – nicht vor ihm
+    // weglaufen, sonst jagt er die Ausweichenden und der Stapel kommt nie zustande (Gegenprüfung 3.2.4)
+    const byMe = others.filter((e) => e.id !== d0.id && Math.hypot(e.x - partner.x, e.y - partner.y) <= inR).length;
+    if (byMe + 2 >= min && Math.hypot(d0.x - partner.x, d0.y - partner.y) <= SHARE_SOLO_SEEK) return { sc0, min, act: 'wait', to: d0 };
+    return { sc0, min, act: 'avoid', to: d0 };
+  }
   const shareState = { lastTap: 0, lastFollow: 0, logged: null };
+  function shareSolo(st, now) {
+    const pl = shareSoloPlan(st, now); if (!pl) return null;
+    const ents = window.dmo?.net?.state?.entities, tamer = controlled(st), partner = ents?.get?.(st?.me?.partner?.entityId);
+    if (!tamer || !partner || st.me?.partner?.fainted) return null;
+    const name = content()?.skills?.[pl.sc0.sid]?.name || 'Geteilter Treffer';
+    const key = `${pl.sc0.src}|${pl.sc0.sid}|${pl.sc0.castEnd}|${pl.act}`;
+    if (shareState.logged !== key) {
+      shareState.logged = key;
+      logEvent('auto', `${name}: geteilter Treffer (mind. ${pl.min}) – ${{ hold: 'auf mir, halte Position', go: 'auf mir, gehe zu den anderen Digimon', join: 'mit mir sind es genug, gehe hinein', wait: 'Markierter kommt zu uns, bleibe stehen', avoid: 'zu wenige im Kreis, bleibe draußen' }[pl.act]}`);
+    }
+    if (pl.act === 'avoid') return null; // Kreis steht in dangerZones – Ausweichen hält mich draußen
+    const others = dangerZones().filter((z) => !z.share && (!z.skillId || !content()?.skills?.[z.skillId]?.share));
+    if (others.some((z) => [tamer, partner].some((e) => zoneDist(z, e).d < DODGE_MARGIN))) return null;
+    if (pl.act === 'hold') return `${name}: auf mir – halte Position` + kohAttackInPlace(st, now);
+    if (pl.act === 'wait') return `${name}: Markierter kommt – bleibe stehen` + kohAttackInPlace(st, now);
+    const to = pl.to;
+    if (pl.act === 'join' && Math.hypot(partner.x - to.x, partner.y - to.y) <= pl.sc0.r - SHARE_IN_PAD) return `${name}: im geteilten Kreis` + kohAttackInPlace(st, now);
+    if (others.length && !digibotDodgeZonePath(tamer, to, others, DODGE_MARGIN)) return `${name}: Weg zum geteilten Kreis führt durch eine Warnzone – warte`;
+    if (Math.hypot(tamer.x - to.x, tamer.y - to.y) > 8 && now - shareState.lastTap > DODGE_RETAP_MS) {
+      shareState.lastTap = now; autopilot.nav = null; autopilot.route = null; worldScene()?.tapGround?.(to.x, to.y);
+    }
+    if (partner.id !== tamer.id && now - shareState.lastFollow > 1500) { shareState.lastFollow = now; commands()?.partnerFollow?.(); }
+    return pl.act === 'go' ? `${name}: auf mir – gehe zu den anderen Digimon` : `${name}: laufe in den geteilten Kreis`;
+  }
   function shareGather(st, now) {
-    if (!shareGatherOn()) return null;
+    if (!shareGatherOn()) return shareSolo(st, now);
     const sc0 = shareCast(now);
     if (!sc0) { shareState.logged = null; return null; }
     const ents = window.dmo?.net?.state?.entities, tamer = controlled(st), partner = ents?.get?.(st?.me?.partner?.entityId);
@@ -11124,8 +11195,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       farmPickSig = sig;
       const on = new Set(cfg.farmBosses || []);
       panelQ('[data-f="bosspick"]').innerHTML = all.length ? all.map((b) => `
-        <label data-q="${esc(`${b.name} ${b.mapName}`.toLowerCase())}"><input type="checkbox" data-farmboss="${esc(b.id)}" ${on.has(b.id) ? 'checked' : ''}>
-          <span title="${esc(b.mapName)}">${esc(b.name)} · ${esc(b.mapName)}</span><em>Lv ${b.level} · ${Math.round(b.respawnMs / 60000)} min</em></label>`).join('')
+        <label data-q="${esc(`${b.name} ${b.mapName}${b.a3 ? ' a3' : ''}`.toLowerCase())}"><input type="checkbox" data-farmboss="${esc(b.id)}" ${on.has(b.id) ? 'checked' : ''}>
+          <span title="${esc(b.a3 ? `${b.mapName} – A3-Boss: geteilter Treffer (hinein nur, wenn mit dir mind. 3 Digimon im Kreis stehen), stärkende Adds zuerst. Schild- und Puls-Phasen kennt der Bot noch nicht.` : b.mapName)}">${b.a3 ? '⚔ ' : ''}${esc(b.name)} · ${esc(b.mapName)}</span><em>Lv ${b.level} · ${Math.round(b.respawnMs / 60000)} min</em></label>`).join('')
         : '<div class="digibot__none">warte auf Spielwelt…</div>';
       filterBossPick();
     }
