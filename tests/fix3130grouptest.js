@@ -2,9 +2,6 @@
 //  food1: Food, Server lehnt den Feast-Kauf ab – nach 2 Versuchen übersprungen, DS Drive gekauft, Bot stoppt; „zu wenig Bits“ nur einmal
 //         (vorher: endlose Feast-Kaufschleife, Warnung alle 250 ms)
 //  food2: Food-Map ohne Route – Abbruch mit Hinweis statt ewig „Keine Route“
-//  mt1:   „Nur Event/WB“ + Abgeben & Annehmen – Runde läuft durch, danach wieder „Nur Event/WB“ (vorher: Tick blockiert)
-//  mt2:   Food + Abgeben & Annehmen – danach wieder Food (vorher: Grinden)
-//  mt3:   Stopp mitten in Abgeben & Annehmen – Betriebsart „Bosse“ zurück (vorher: Autopilot)
 //  grp1:  Leader, Mitläufer-Bot gestoppt – Leader gibt trotzdem ab (vorher: hielt die Quest für den Mitläufer offen)
 //  grp2:  Leader startet „Food kaufen“ – kein Start an die Gruppe (vorher: Mitläufer liefen im Autopilot los)
 //  leave: Leader-Wartegrenze vor dem Map-Wechsel beginnt nach Zeitlimit neu (vorher: alte Grenze blieb, kein Warten mehr)
@@ -15,7 +12,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const scriptPath = path.resolve(process.argv[2]);
 const only = process.argv[3];
-const NAMES = ['food1', 'food2', 'mt1', 'mt2', 'mt3', 'grp1', 'grp2', 'stor', 'leave'];
+const NAMES = ['food1', 'food2', 'grp1', 'grp2', 'stor', 'leave']; // mt1–mt3 (Abgeben & Annehmen) entfallen mit 3.2.0
 
 if (!only) {
   const runs = NAMES.map((n) => new Promise((res) => {
@@ -83,27 +80,6 @@ const S = {
     const stopped = await until(() => isOff(G), 10000);
     done(stopped && /kein Weg nach Dark Area/.test(html(G)), `gestoppt=${stopped} Status „${G.status()}“`);
   },
-  async mt1() { return mapTalkTrial({ eventsOnly: true }, 'events'); },
-  async mt2() { return mapTalkTrial({ foodBuy: true, foodMap: 'primary_village', foodNpc: 'elecmon' }, 'food'); },
-  async mt3() {
-    const P = (k, v) => ({ name: k, type: 'string', value: v });
-    const G = makeWorld({ slot: 0, tag: 'M3', accounts: { leader: 0, list: [{ on: true, user: 'solo', char: 'X' }] }, mobs: [],
-      quests: { ...QUESTS, q_t: { state: 2, counters: [1] } },
-      setup({ content, MAPS }) { content.npcs.leomon = { name: 'Leomon' };
-        content.quests.q_t = { id: 'q_t', name: 'Test', giver: 'leomon', turnIn: 'leomon', minLevel: 1, objectives: [{ kind: 'kill', species: 'kunemon', count: 1 }] };
-        MAPS.native_forest.layers[0].objects.push({ type: 'npc', name: 'leomon', x: 1500, y: 330, properties: [P('npcId', 'leomon')] }); },
-      extraEnts: (id) => (id === 'native_forest' ? [{ id: 'n:leomon', kind: 3, defId: 'leomon', x: 1500, y: 330, hp: 0, flags: 0 }] : []) });
-    G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ ...CFG, farm: true }));
-    G.w.eval(script); await wait(1000);
-    const m0 = mode(G);
-    G.w.document.querySelector('[data-act="grp-maptalk"]').click();
-    const running = await until(() => !isOff(G), 3000);
-    await wait(600);
-    const mid = mode(G);
-    G.w.document.querySelector('[data-act="bot"]').click();
-    await wait(800);
-    done(m0 === 'farm' && running && isOff(G) && mode(G) === 'farm', `vorher=${m0} läuft=${running} mittendrin=${mid} nach Stopp=${mode(G)}`);
-  },
   async grp1() {
     const accounts = { leader: 0, popup: true, list: [{ on: true, user: 'lead', char: 'Lead' }, { on: true, user: 'foll', char: 'Foll' }] };
     const G = makeWorld({ slot: 0, tag: 'G1', accounts, quests: { q00_meet_gennai: { state: 3, counters: [] }, q02_first_steps: { state: 1, counters: [0] } } });
@@ -167,15 +143,4 @@ const S = {
     done(on && running === 'grind' && mode(G) === 'auto', `läuft=${on} Modus bei laufendem Bot=${running} · bei Bot aus=${mode(G)}`);
   },
 };
-async function mapTalkTrial(extra, want) {
-  const G = makeWorld({ slot: 0, tag: 'MT', accounts: { leader: 0, list: [{ on: true, user: 'solo', char: 'X' }] }, mobs: [], quests: QUESTS,
-    setup({ content }) { content.items = { ...ITEMS }; } });
-  G.w.dmo.game.scene.getScene('world').deps.commands.requestEvents = async () => [];
-  G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ ...CFG, foodHp: 'feast', foodDs: '', foodTamer: '', ...extra }));
-  G.w.eval(script); await wait(1000);
-  const m0 = mode(G);
-  G.w.document.querySelector('[data-act="grp-maptalk"]').click();
-  const fin = await until(() => /Abgeben &amp; Annehmen fertig|Abgeben & Annehmen fertig/.test(html(G)) && isOff(G), 12000);
-  done(m0 === want && fin && mode(G) === want, `vorher=${m0} Runde fertig=${fin} danach=${mode(G)} · Status „${G.status()}“`);
-}
 S[only]().catch((e) => done(false, `Ausnahme: ${e.message}`));

@@ -1,7 +1,7 @@
 // 2.10.4: Notbremse – eine Jagd, bei der die Zähler nie steigen, wird nach der Wartezeit (hier auf 3 s verkürzt) neu geplant
 const fs = require('fs');
 const makeWorld = require('./gw');
-const script = fs.readFileSync(process.argv[2], 'utf8').replace('const HUNT_STALL_MS = 240000;', 'const HUNT_STALL_MS = 3000;');
+const script = fs.readFileSync(process.argv[2], 'utf8').replace("HUNT_STALL_MS = n('huntStallMin', 4) * 60000;", 'HUNT_STALL_MS = 3000;'); // seit 3.2.0 aus cfg (Einstellungen → Zeiten)
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const G = makeWorld({ slot: 0, tag: 'Solo', noHash: true, accounts: { leader: 0, list: [{ user: 'solo' }] },
   quests: { q00_meet_gennai: { state: 3, counters: [] }, q_b: { state: 1, counters: [0] } },

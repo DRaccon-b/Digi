@@ -20,8 +20,8 @@ Einstellungen von 2.x werden übernommen.
 
 ## Schnellstart
 
-- Oben im Panel genau eine **Betriebsart** wählen: **Grinden**, **Quest-Jagd**, **Autopilot** oder **Bosse**
-  (bzw. Dungeon im Reiter Bosse).
+- Oben im Panel genau eine **Betriebsart** wählen: **Grinden**, **Autopilot**, **Bosse**, **Dungeon**, **Nur Event/WB**
+  oder **Food kaufen**. Alle Einstellungen (Food, Ausweichen, Warnungen, Zeiten, Farben) stehen im Reiter **⚙️ Einstellungen**.
 - **▶ Start** (oder **Alt+B**). Der Bot läuft erst nach diesem Klick – nichts startet von selbst.
 - **■ NOT-AUS** oder **Esc** stoppt sofort alle Fenster. Nach einem Not-Aus oder einem Sicherheitsstopp geht es nur
   per Hand weiter – ein Klick auf **▶ Start** im Leader-Fenster startet dann wieder alle Fenster (ab 3.0.5).
@@ -38,7 +38,7 @@ Einstellungen von 2.x werden übernommen.
 - **Lern-Route:** sucht selbst die Zone mit den meisten EXP pro Minute, reist hin, nimmt lohnende Feldbosse mit und
   digitiert je nach Map (Dark Tower / ohne). Beim Warten am Boss-Spawn wehrt sie Angreifer ab; ist der Boss da, hat
   er Vorrang.
-- **Digitation:** „höchstmögliche Form“ – eine DNA-Linie hat Vorrang, wenn ein DNA-Partner da ist; Armor-Formen nie
+- **Digitation (ab 3.2.0 je Map, in jeder Betriebsart):** Form ohne / mit Dark Tower im Reiter Digimon. „höchstmögliche Form“ – eine DNA-Linie hat Vorrang, wenn ein DNA-Partner da ist; Armor-Formen nie
   vor der normalen Linie. Warp-Digitation, Hinweise bei Dark Tower und Reaper-Sperre.
 - **Quest-Autopilot:** nimmt Quests an, erledigt und gibt ab – standardmäßig „erst alles erledigen, dann gemeinsam
   abgeben“, beim selben NPC alles in einem Besuch. Tagesquests, Digi-Phone-Reisen, Quest-Bosse mit Kanal-Timern.
@@ -46,9 +46,10 @@ Einstellungen von 2.x werden übernommen.
   Ein Boss gilt erst mit Beleg als besiegt; verschwindet er mit viel HP, sucht der Bot ihn.
 - **Event & Weltboss:** reist zur angesagten Mega-Jagd bzw. zum angekündigten Weltboss, hält den Kanal im Kampf
   und lässt sich unterwegs nicht von Angreifern aufhalten.
-- **Food kaufen:** Reiter Food – HP-, DS- und Tamer-DS-Food wählen, der Bot reist zu Händler Tentomon (Dream Ruins) und füllt auf, danach geht er zurück zum Startpunkt.
+- **Food kaufen:** Einstellungen → Food – HP-, DS- und Tamer-DS-Food wählen, der Bot reist zu Händler Tentomon (Dream Ruins) und füllt auf, danach geht er zurück zum Startpunkt. Ab 3.2.0 auch **automatisch nachkaufen**, sobald der Vorrat unter eine Mindestmenge fällt (Einkauf auf der aktuellen oder einer fest gewählten Map, danach weiter wie vorher).
 - **Dungeons & Raids:** Kera Easy und Hard, Apocalymon, MaloMyotismon (Gruppe; Key of Hope der ClavisAngemon).
-- **Gruppe (bis 5 Fenster):** Leader und Mitläufer, Bewegungen/Angriffe spiegeln, Ziele verteilen, feste
+- **Gruppe (bis 5 Fenster):** Leader und Mitläufer – Mitläufer **folgen** dem Leader (seine Betriebsart und Einstellungen),
+  **spiegeln** oder **greifen mit an**; Start/Stopp nur oben im Leader-Fenster. Ziele verteilen, feste
   Bossplätze je Fenster, Fenster-Anordnung, Quest-Runde (ein Fenster arbeitet mehrere Accounts nacheinander ab).
 
 Die ausführliche Beschreibung aller Reiter und Einstellungen steht in der [Anleitung](docs/ANLEITUNG.md).

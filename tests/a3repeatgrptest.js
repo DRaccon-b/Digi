@@ -56,7 +56,7 @@ async function serve() {
   const F2 = makeWorld({ slot: 2, accounts, tag: 'F2', setup: ({ content }) => quest(content), mobs: [], quests: { ...base, a3s_g_1: { state: 1, counters: [50, 1, today - 1, 0] } } });
   for (const W of [L, F1, F2]) { W.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: true, apGrind: false, apNoTurnin: true, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'acc', radius: 400 })); W.w.eval(script); }
   await wait(1500);
-  L.w.document.querySelector('[data-act="grp-start"]').click();
+  L.w.document.querySelector('[data-act="bot"]').click(); // ▶ Start im Leader-Fenster startet alle (3.2.0)
   const t0 = Date.now();
   while (Date.now() - t0 < 12000 && !L.kills) await wait(200);
   const r = { Lkills: L.kills, Lstatus: L.status() };

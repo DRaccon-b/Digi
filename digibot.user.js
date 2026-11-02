@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.51
+// @version      3.2.0
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -100,11 +100,11 @@ function createDigiBotCore({ now = Date.now, state, halt, network = () => null, 
   function accept(m, slot, leader, enabled) {
     if (!m || m.protocol !== 'digibot/1' || !Number.isInteger(m.slot) || m.slot < 0 || m.slot >= 5 || m.slot === slot || !enabled(m.slot)) return false;
     if (m.leader !== leader || typeof m.session !== 'string' || m.session.length > 80 || !Number.isSafeInteger(m.seq) || !Number.isFinite(m.sentAt) || Math.abs(now() - m.sentAt) > 6000) return false;
-    if (!['state','pos','start','stop','invite','maptalk','koh','kohplan','gskill'].includes(m.type)) return false;
-    if (['start','maptalk','pos'].includes(m.type) && m.slot !== leader) return false;
+    if (!['state','pos','start','stop','invite','koh','kohplan','gskill'].includes(m.type)) return false;
+    if (['start','pos'].includes(m.type) && m.slot !== leader) return false;
     // Nach einem Not-Aus (latch) startet nur ein bewusster Klick auf „Start“ im Leader-Fenster alle wieder (manual) –
     // kein automatischer Start, keine Abgeben-&-Annehmen-Folge (3.0.5)
-    if (['start','maptalk'].includes(m.type) && latch && !(m.type === 'start' && m.manual === true)) return false;
+    if (m.type === 'start' && latch && m.manual !== true) return false;
     if (lastLeader !== leader) { peers.clear(); lastLeader = leader; }
     const p = peers.get(m.slot);
     if (p && p.session === m.session && m.seq <= p.seq) return false;
@@ -166,7 +166,10 @@ const DIGIBOT_ROLE_NAME={attack:'Angriff',aoe:'AoE',atkbuff:'Angriffs-Buff',tank
 function digibotConfig(saved, defaults) {
   const out=JSON.parse(JSON.stringify(defaults)), issues=[];
   if(!digibotRecord(saved))return {value:out,issues:['Ungültiges Einstellungsformat']};
-  const bounds={width:[300,900],radius:[80,2000],grpDist:[60,1500],lvlDiff:[-100,100],hpPot:[0,100],dsPot:[0,100],tdsPot:[0,100],pullMax:[2,8],pullHp:[30,90]};
+  const bounds={width:[300,900],radius:[80,2000],grpDist:[60,1500],lvlDiff:[-100,100],hpPot:[0,100],dsPot:[0,100],tdsPot:[0,100],pullMax:[2,8],pullHp:[30,90],
+    foodAutoMin:[1,99],dodgeMargin:[8,80],dodgeEdge:[0,40],dodgeHold:[60,600],dodgeSoonMs:[300,3000],dodgeSoonPad:[0,200],dodgeLateK:[1,3],dodgeLatePad:[0,4000],
+    dodgeLateAbort:[0,8000],dodgeRetap:[200,3000],dodgeWalk:[60,300],dodgeSearch:[150,600],dodgeHuge:[300,1500],pullDodgeLeash:[0,150],pullDodgeMargin:[0,60],
+    stopLevel:[0,150],stopAfterMin:[0,720],stopFaints:[0,50],stopBits:[0,100000000],potCdMs:[500,10000],huntIdleMin:[0.5,10],huntStallMin:[1,15],grpWaitMin:[1,10]};
   const boolMap=v=>Object.fromEntries(Object.entries(digibotRecord(v)?digibotClean(v):{}).filter(([,x])=>typeof x==='boolean'));
   const skills=v=>Object.fromEntries(Object.entries(boolMap(v)).filter(([k])=>/^[2-6]$/.test(k)));
   const heals=v=>Object.fromEntries(Object.entries(digibotRecord(v)?digibotClean(v):{}).filter(([k,x])=>/^[2-6]$/.test(k)&&typeof x==='number').map(([k,x])=>[k,Math.max(0,Math.min(100,x))]));
@@ -492,7 +495,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // solange die Sperre gilt (Anwesenheitskontrolle, Verbindung, Fehler) stehen lassen – bis Start; sonst nach NOTICE_MS weg
     clearTimeout(digibotNoticeTimer);
     if (!digibotCore?.latched) digibotNoticeTimer = setTimeout(() => { digibotNotice?.remove(); digibotNotice = null; }, NOTICE_MS);
-    notify(text);
+    notify(text, 'stop');
   }
   function digibotHalt(reason,{locked=true}={}) {
     // Deliberate direct calls: emergency stop must work after closing the command gate.
@@ -885,7 +888,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if(String(st?.session?.username||'').trim().toLowerCase()!==digibotAccountQueue.user)return;
     cfgProfile(st);
     noteCharacter(st,Date.now());
-    cfg.autopilot=true;cfg.farm=false;cfg.dungeon=false;cfg.questMode=false;cfg.foodBuy=false;cfg.eventsOnly=false; // 3.1.30
+    cfg.autopilot=true;cfg.farm=false;cfg.dungeon=false;cfg.foodBuy=false;cfg.eventsOnly=false; // 3.1.30
     if(!digibotCore.loginMode(false))return;
     if(!bot.on){digibotQueueLaunching=true;try{bot.toggle(true);}finally{digibotQueueLaunching=false;}}
     if(!bot.on){digibotCore.stop('Autopilot konnte nicht gestartet werden',true);return;}
@@ -927,7 +930,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function digibotQueueRender() {
     const el=panel?.querySelector('[data-f="account-queue"]');if(!el)return;
     const s=digibotAccountQueue.summary();
-    panel.querySelectorAll('[data-act^="grp-"], [data-gmode], [data-accslot]').forEach(control=>{control.disabled=digibotAccountQueue.active;});
+    panelQA('[data-act^="grp-"], [data-gmode], [data-accslot]').forEach(control=>{control.disabled=digibotAccountQueue.active;});
     const labels={idle:'Bereit',switching:'Account prüfen','await-login':'Abmeldung läuft','await-auth':'Anmeldung läuft','await-world':'Charakter lädt',starting:'Autopilot startet',running:'Quests laufen',paused:'Pausiert',done:'Abgeschlossen'};
     el.textContent=`${labels[s.phase]||s.phase} · ${s.index}/${s.total} Accounts bearbeitet${s.slot!==undefined?` · Account ${s.slot+1}`:''}${s.reason?` · ${s.reason}`:''}`;
   }
@@ -989,7 +992,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     digibotDesktopControl=p.id;
     if(!digibotDesktopWrite(p))return;
     accounts.mirror=false;accounts.leadBoss=false;accounts.dungeon=false;accounts.serve=false;accounts.popup=true;saveAcc();
-    cfg.autopilot=true;cfg.farm=false;cfg.dungeon=false;cfg.questMode=false;cfg.foodBuy=false;saveCfg();
+    cfg.autopilot=true;cfg.farm=false;cfg.dungeon=false;cfg.foodBuy=false;saveCfg();
     digibotDesktopJoin(p.id,mine.slot);
     if(st?.screen==='world'&&st.me?.partner)digibotCore.enablePassive(true);
     let blocked=0;
@@ -1032,7 +1035,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const d=digibotDesktop,now=Date.now(),current=digibotDesktopRead(),st=getStore()?.getState?.();
     if(!d||d.id!==p.id||d.started||!current||current.id!==p.id||current.phase!=='scheduled')return;
     if(now-current.startAt>3000||digibotCore.latched||!digibotCore.armed||!digibotDesktopLocalState(current,st).ready||!digibotDesktopBarrier(current,digibotDesktopMembers(current),now,{armed:true}).ok){digibotDesktopCancel('Gemeinsamer Start abgebrochen: Fenster oder Party nicht mehr bereit.');return;}
-    cfg.autopilot=true;cfg.farm=false;cfg.questMode=false;cfg.dungeon=false;cfg.foodBuy=false;
+    cfg.autopilot=true;cfg.farm=false;cfg.dungeon=false;cfg.foodBuy=false;
     groupPush(true);if(!bot.on)bot.toggle(true);
     d.started=bot.on;
     if(!d.started){digibotDesktopCancel('Autopilot konnte nicht in allen Fenstern gestartet werden.');return;}
@@ -1080,7 +1083,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const POS_KEY = 'digibot.pos';
 
   // ---------- Styles ----------
-  const CSS = `
+  const CSS_RAW = `
+    .digibot{--db-bg:#0e1220;--db-panel:#161c33;--db-btn:#26305a;--db-border:#2a3355;--db-border2:#3a4670;--db-text:#e8ecf4;--db-muted:#9aa5c4;
+      --db-accent:#3fa0ff;--db-ok:#2ecc71;--db-warn:#ffd43b;--db-danger:#ff6b6b;--db-deep:color-mix(in srgb,var(--db-bg),#000 25%)}
     .digibot{position:fixed;z-index:2147483647;width:320px;font:12px/1.35 system-ui,Segoe UI,sans-serif;
       color:#e8ecf4;background:rgba(14,18,32,.92);border:1px solid #3a4670;border-radius:10px;
       box-shadow:0 6px 24px rgba(0,0,0,.5);user-select:none;backdrop-filter:blur(4px)}
@@ -1249,7 +1254,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     .digibot__timer div{display:grid;grid-template-columns:34px 1fr;gap:4px;font-variant-numeric:tabular-nums}
     .digibot__timer .up{color:#2ecc71}.digibot__timer .down{color:#ffa94d}.digibot__timer .unk{opacity:.55}
     .digibot__head .ver{flex:0;font-weight:500;font-size:10px;opacity:.5;letter-spacing:0}
-    .digibot__modes{display:grid;grid-template-columns:repeat(4,1fr);gap:3px;margin-bottom:5px}
+    .digibot__modes{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin-bottom:5px}
     .digibot__modes button{background:#161c33;border:1px solid #2a3355;color:#9aa5c4;border-radius:5px;
       font:600 10.5px system-ui;padding:3px 0;cursor:pointer}
     .digibot__modes button:hover{color:#e8ecf4;border-color:#3a4670}
@@ -1389,7 +1394,47 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     .digibot__tabs button{font-size:11px}
     .digibot__accrow input[type=text]{grid-column:3/-1}
     @keyframes digibot-blink{50%{opacity:.55}}
+    .digibot__tabs button.on,.digibot__modes button.on,.digibot__seg button.on,.digibot__grp>summary:hover,.digibot__tabs button:hover{color:var(--db-text)}
+    .digibot__seg.three{grid-template-columns:repeat(3,1fr)}
+    .digibot__seg.five{grid-template-columns:repeat(5,1fr)}
+    .digibot__stabs button{display:flex;flex-direction:column;align-items:center;gap:1px;font-size:10px;padding:3px 1px;line-height:1.1}
+    .digibot__stabs button i{font-style:normal;font-size:12px}
+    .digibot__tabs button small{font-size:9px;letter-spacing:-.2px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .digibot__stop,.digibot__txt{color:#fff}
+    .digibot [data-spage]{display:none}
+    .digibot [data-spage].on{display:block}
+    .digibot__colors{display:grid;grid-template-columns:1fr 1fr;gap:4px 8px;font-size:11px}
+    .digibot__colors label{display:flex;align-items:center;justify-content:space-between;gap:6px}
+    .digibot__colors input{width:34px;height:20px;padding:0;border:1px solid var(--db-border2);border-radius:4px;background:none;cursor:pointer}
+    .digibot__presets{display:flex;gap:4px;margin:0 0 6px}
+    .digibot__presets .digibot__btn{flex:1;padding:4px}
+    .digibot__presets .digibot__btn.on{border-color:var(--db-accent)}
+    .digibot__desc{font-size:10px;opacity:.6;margin:-1px 0 5px;line-height:1.3}
   `;
+  // Farben (3.2.0, Reiter Einstellungen → Style): feste Farben des Panels auf CSS-Variablen abbilden, die applyStyle() setzt
+  const CSS_COLOR_VARS = { '#161c33': 'var(--db-panel)', '#131a30': 'var(--db-panel)', '#0f1428': 'var(--db-panel)',
+    '#26305a': 'var(--db-btn)', '#34407a': 'color-mix(in srgb,var(--db-btn),#fff 12%)', '#2a3355': 'var(--db-border)', '#222a48': 'var(--db-border)', '#222a44': 'var(--db-border)',
+    '#3a4670': 'var(--db-border2)', '#4d5c94': 'color-mix(in srgb,var(--db-border2),#fff 15%)', '#e8ecf4': 'var(--db-text)', '#c9d1e6': 'var(--db-text)',
+    '#9aa5c4': 'var(--db-muted)', '#7c8496': 'var(--db-muted)', '#3fa0ff': 'var(--db-accent)', '#2ecc71': 'var(--db-ok)', '#ffd43b': 'var(--db-warn)', '#ff6b6b': 'var(--db-danger)' };
+  const CSS = CSS_RAW.split('\n').map((line, i) => (i < 3 ? line : line
+    .replace(/rgba\(14,18,32,\.92\)/g, 'color-mix(in srgb,var(--db-bg) 92%,transparent)')
+    .replace(/rgba\(22,28,51,\.55\)/g, 'color-mix(in srgb,var(--db-panel) 55%,transparent)')
+    .replace(/(color:)?#0b1020/g, (m, c) => (c ? m : 'var(--db-deep)'))
+    .replace(/#[0-9a-f]{6}\b/gi, (h) => CSS_COLOR_VARS[h.toLowerCase()] || h))).join('\n');
+  const STYLE_PRESETS = {
+    night: { name: '🌙 Nacht', c: { bg: '#0e1220', panel: '#161c33', btn: '#26305a', border: '#2a3355', border2: '#3a4670', text: '#e8ecf4', muted: '#9aa5c4', accent: '#3fa0ff', ok: '#2ecc71', warn: '#ffd43b', danger: '#ff6b6b' } },
+    light: { name: '☀️ Hell', c: { bg: '#eef1f8', panel: '#ffffff', btn: '#dbe2f2', border: '#c9d1e6', border2: '#a9b3cf', text: '#1b2033', muted: '#596381', accent: '#2f7de1', ok: '#1e9e57', warn: '#b7860b', danger: '#d64545' } },
+    forest: { name: '🌲 Wald', c: { bg: '#0f1a14', panel: '#16261d', btn: '#234032', border: '#2a4536', border2: '#3b5e4a', text: '#e6f2ea', muted: '#9fb8a8', accent: '#4cd18a', ok: '#6ee7a0', warn: '#ffd166', danger: '#ff7a7a' } },
+  };
+  const STYLE_NAMES = { bg: 'Hintergrund', panel: 'Flächen', btn: 'Knöpfe', border: 'Rahmen', border2: 'Rahmen hell', text: 'Schrift', muted: 'Schrift blass', accent: 'Akzent', ok: 'Gut / an', warn: 'Hinweis', danger: 'Gefahr' };
+  // Unterreiter unter „Einstellungen“ (3.2.0) – vor dem Panel-HTML, das sie aufzählt
+  const SUB_TABS = [['food', '🍱', 'Food'], ['dodge', '🏃', 'Ausweichen'], ['alerts', '🔔', 'Warnung'], ['times', '⏱', 'Zeiten'], ['style', '🎨', 'Style']];
+  function applyStyle() {
+    if (!panel) return;
+    for (const [k, v] of Object.entries(cfg.style || {})) panel.style.setProperty(`--db-${k}`, v);
+    panel.querySelectorAll('[data-style]').forEach((el) => { const v = cfg.style?.[el.dataset.style]; if (v && el.value !== v && el !== panel.ownerDocument.activeElement) el.value = v; });
+    panel.querySelectorAll('[data-stylepreset]').forEach((b) => b.classList.toggle('on', b.dataset.stylepreset === cfg.stylePreset));
+  }
 
   // ---------- Markup ----------
   const bar = (cls, label) => `
@@ -1403,14 +1448,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const CFG_KEY = 'digibot.cfg';
   const SKILL_KEYS = [2, 3, 4, 5, 6]; // Tasten, deren Skills automatisch gewirkt werden dürfen
   const cfg = {
-    tamerAuto: true, evoWarp: false, apMapEvo: true, independentGroup: true, width: 320, compact: false, min: false,
-    tab: 'data', lvlDiff: 5, radius: 300, grpDist: 110, hpPot: 40, dsPot: 20, tdsPot: 20,
+    tamerAuto: true, evoWarp: false, independentGroup: true, width: 320, compact: false, min: false,
+    tab: 'data', stab: 'food', lvlDiff: 5, radius: 300, grpDist: 110, hpPot: 40, dsPot: 20, tdsPot: 20,
     skills: { 2: true, 3: true, 4: true, 5: true, 6: true },
     heal: {},       // alt (vor 2.12): Heil-Skills je Taste – wird beim ersten Start in skillSets übernommen
     skillSets: {},  // { [Digimon-Art]: { skills: { [Taste]: an/aus }, heal: { [Taste]: HP-% } } } – je Digitationsform
     logFilter: 'all',
     mobs: {}, // { [mapId]: { 'kunemon|elite': false, ... } } – nicht gesetzt = Standard (Bosse aus, Rest an)
-    questMode: false, // nur Monster für offene Quest-Ziele jagen, danach Bot stoppen
     questOff: {},     // { [questId]: true } – Quests, die der Quest-Modus ignorieren soll
     dodge: true,      // Flächenangriffen (Warnkreisen) ausweichen
     pull: false,      // Pull-Modus: mehrere Monster sammeln, bevor AoE und Einzelziele drankommen
@@ -1422,9 +1466,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     skipTaken: true,  // keine Gegner angreifen, die andere Spieler gerade bekämpfen
     levelRoute: false, // Grinden: selbst zur besten Zone fürs Level reisen (Lern-Route)
     levelA2: true,    // Lern-Route nur in Adventure-02-Maps
-    levelEvo: true,   // Lern-Route: zwischen den Kämpfen digitieren (Form je nach Map, siehe unten)
-    levelEvoForm: '__max',   // … auf Maps ohne Dark Tower ('' = keine, '__max' = höchstmögliche, sonst Art)
-    levelEvoDark: '__armor', // … auf Maps mit Dark Tower (dort klappt nur Armor; '__armor' = höchste freie Armor-Form)
+    // Digitation je Map (3.2.0, gilt in jedem Modus): zwischen den Kämpfen die Form annehmen, die zur aktuellen Map passt
+    levelEvoForm: '__max',   // auf Maps ohne Dark Tower ('' = keine, '__max' = höchstmögliche, sonst Art)
+    levelEvoDark: '__armor', // auf Maps mit Dark Tower (dort klappt nur Armor; '__armor' = höchste freie Armor-Form)
     levelBoss: true,  // Lern-Route: Feldbosse der Map (ohne Enrage) mitnehmen, wenn sie leben oder gleich spawnen
     expPrio: true,    // Grinden: zuerst Monster +5…+8 über dem Digimon (×1,5 EXP), dann +4, +3, … – erst zuletzt über +8
     chCheck: false,   // Channel-Checker: auf den Kanal mit den wenigsten Spielern wechseln (nicht in der Boss-Rotation)
@@ -1438,7 +1482,6 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     apSweepDir: 'down', // Map für Map: 'down' = von oben nach unten, 'up' = von unten nach oben
     apSweepMap: '',   // aktuelle Map der laufenden Runde (Fortschritt, überlebt Neuladen)
     apQuestPartner: '',   // partnerId, mit dem Quests erledigt werden ('' = aktuellen behalten)
-    apEvo: '',            // Digitation (Art) für das Quest-Digimon ('' = keine)
     apTurninPartner: '',  // partnerId für die Abgabe ('' = wie Quest-Digimon)
     apRepeat: true,       // tägliche (wiederholbare) NPC-Quests wieder annehmen, sobald sie heute verfügbar sind
     apDailies: false,     // Daily-Board (ab Lv 11) mitnehmen
@@ -1471,32 +1514,94 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     foodDs: 'ds_drive', foodTamer: 'ramen',
     foodHpQty: 198, foodDsQty: 198, foodTamerQty: 99, // auffüllen auf so viele Stück (Stapel zu 99)
     foodMap: '', foodNpc: '',  // leer = Dream Ruins / Händler Tentomon (nur für Tests anders)
+    foodAuto: false,      // Food automatisch nachkaufen (3.2.0): sinkt eine eingestellte Sorte unter foodAutoMin Stück, Einkaufslauf einschieben, danach weiter wie vorher
+    foodAutoMin: 10,      // … ab so wenigen Stück (1–99)
+    foodAutoMap: '',      // Einkaufs-Map: '' = Händler auf der aktuellen Map (sonst Dream Ruins), sonst feste Map-ID
+    // Ausweichen (3.2.0, Reiter Einstellungen → Ausweichen) – Standardwerte = bisherige Konstanten
+    dodgeMargin: 28,      // Sicherheitsabstand zu Kreisen/Strahlen (px)
+    dodgeEdge: 8,         // Kantenreserve an der Angriffsposition (etwa Körperbreite, px)
+    dodgeHold: 220,       // so nah an einer aktiven Zone wird nach dem Ausweichen gewartet (px)
+    dodgeSoonMs: 1200,    // „Zone endet bald“: ab so viel Restzeit nicht mehr hinlaufen (ms)
+    dodgeSoonPad: 70,     // … wenn das Ziel näher als so an der Zone steht (px)
+    dodgeLateK: 1.5,      // lange Ansagen: loslaufen bei Laufzeit × K + Puffer
+    dodgeLatePad: 1500,   // … Puffer vor dem Einschlag (ms)
+    dodgeLateAbort: 3000, // begonnene Flucht abbrechen, wenn danach noch so viel Zeit bliebe (ms)
+    dodgeRetap: 1000,     // Klick auf denselben Fluchtpunkt so oft wiederholen (ms)
+    dodgeWalk: 130,       // angenommene Laufgeschwindigkeit beim Ausweichen (px/s)
+    dodgeSearch: 328,     // Suchweite für einen freien Punkt (px)
+    dodgeHuge: 900,       // raumweite Kreise: höchstens so weit laufen (px)
+    pullDodgeLeash: 50,   // Pull-Modus: Fluchtpunkte bevorzugt so weit innerhalb der Leinen (px)
+    pullDodgeMargin: 16,  // Pull-Modus: Reserve zu Warnkreisen beim Anspielen des nächsten Monsters (px)
+    // Warnungen und automatischer Stopp (3.2.0)
+    soundOn: true,        // Hinweistöne überhaupt
+    sounds: { done: true, stop: true, faint: true, warn: true }, // Ereignisse: Aufgabe fertig · Bot stoppt (Fehler/Kontrolle/Verbindung) · bewusstlos · Warnung
+    stopLevel: 0,         // Bot stoppen, sobald das Digimon dieses Level erreicht (0 = aus)
+    stopAfterMin: 0,      // … nach so vielen Minuten Laufzeit (0 = aus)
+    stopFaints: 0,        // … nach so vielen Bewusstlosigkeiten in dieser Sitzung (0 = aus)
+    stopBits: 0,          // … wenn die Bits unter diesen Wert fallen (0 = aus)
+    // Zeiten und Toleranzen (3.2.0)
+    potCdMs: 2000,        // gleichen Trank höchstens alle so viel ms drücken
+    huntIdleMin: 1.5,     // Autopilot: im Jagdgebiet so lange kein passendes Monster → Aufgabe aufgeben (min)
+    huntStallMin: 4,      // Autopilot: so lange darf eine Jagd ohne Fortschritt dauern (min)
+    grpWaitMin: 3,        // Gruppe: Leader wartet höchstens so lange auf die anderen (min)
+    // Style (3.2.0): Farben des Panels als CSS-Variablen
+    stylePreset: 'night',
+    style: { bg: '#0e1220', panel: '#161c33', btn: '#26305a', border: '#2a3355', border2: '#3a4670', text: '#e8ecf4', muted: '#9aa5c4', accent: '#3fa0ff', ok: '#2ecc71', warn: '#ffd43b', danger: '#ff6b6b' },
     routeStart: '',       // Named-Runde: Start-Map (leer = niedrigste)
     routeEnd: '',         // Named-Runde: End-Map (leer = höchste)
     open: {},             // auf-/zugeklappte Gruppen im Panel
   };
   // One shared configuration; account identity remains separate for quest progress.
   const CFG_DEFAULTS = JSON.parse(JSON.stringify(cfg));
-  const UI_KEYS = ['tab', 'open', 'logFilter', 'width', 'compact', 'min'];
+  const UI_KEYS = ['tab', 'stab', 'open', 'logFilter', 'width', 'compact', 'min', 'style', 'stylePreset', 'sounds', 'soundOn'];
+  // Ausweich-, Zeit- und Toleranzwerte (3.2.0): früher feste Konstanten, jetzt aus cfg (Reiter Einstellungen). Die Namen
+  // bleiben, damit die Ausweichlogik unverändert lesbar ist; syncRuntimeCfg() zieht sie nach jeder Änderung nach.
+  let DODGE_MARGIN = 28, DODGE_EDGE_MARGIN = 8, DODGE_HOLD_RANGE = 220, DODGE_SOON_MS = 1200, DODGE_SOON_PAD = 70;
+  let DODGE_LATE_K = 1.5, DODGE_LATE_PAD_MS = 1500, DODGE_LATE_ABORT_MS = 3000, DODGE_RETAP_MS = 1000, DODGE_WALK_PX_S = 130;
+  let DODGE_SEARCH_R = 328, DODGE_HUGE_MAX_R = 900, PULL_DODGE_LEASH_MARGIN = 50, PULL_DODGE_MARGIN = 16;
+  let POT_COOLDOWN_MS = 2000, HUNT_IDLE_MS = 90000, HUNT_STALL_MS = 240000, GROUP_WAIT_MS = 180000;
+  const DODGE_KEYS = ['dodgeMargin', 'dodgeEdge', 'dodgeHold', 'dodgeSoonMs', 'dodgeSoonPad', 'dodgeLateK', 'dodgeLatePad', 'dodgeLateAbort', 'dodgeRetap', 'dodgeWalk', 'dodgeSearch', 'dodgeHuge', 'pullDodgeLeash', 'pullDodgeMargin'];
+  function syncRuntimeCfg() {
+    const n = (k, d) => (Number.isFinite(cfg[k]) ? cfg[k] : d);
+    DODGE_MARGIN = n('dodgeMargin', 28); DODGE_EDGE_MARGIN = n('dodgeEdge', 8); DODGE_HOLD_RANGE = n('dodgeHold', 220);
+    DODGE_SOON_MS = n('dodgeSoonMs', 1200); DODGE_SOON_PAD = n('dodgeSoonPad', 70); DODGE_LATE_K = n('dodgeLateK', 1.5);
+    DODGE_LATE_PAD_MS = n('dodgeLatePad', 1500); DODGE_LATE_ABORT_MS = n('dodgeLateAbort', 3000); DODGE_RETAP_MS = n('dodgeRetap', 1000);
+    DODGE_WALK_PX_S = n('dodgeWalk', 130); DODGE_SEARCH_R = n('dodgeSearch', 328); DODGE_HUGE_MAX_R = n('dodgeHuge', 900);
+    PULL_DODGE_LEASH_MARGIN = n('pullDodgeLeash', 50); PULL_DODGE_MARGIN = n('pullDodgeMargin', 16);
+    POT_COOLDOWN_MS = n('potCdMs', 2000); HUNT_IDLE_MS = n('huntIdleMin', 1.5) * 60000; HUNT_STALL_MS = n('huntStallMin', 4) * 60000; GROUP_WAIT_MS = n('grpWaitMin', 3) * 60000;
+  }
   const CFG_BATCH_KEY = 'digibot.cfg.batch.v1';
   const CFG_SHARED_KEY = 'digibot.cfg.shared.v1';
   let cfgUser = null;
   function applyCfg(saved) {
     const checked = digibotConfig(saved, CFG_DEFAULTS);
     Object.assign(cfg, checked.value);
+    // alte Einstellungen (vor 3.2.0): feste Quest-Digitation ohne Map-Regel wird zur Form ohne Dark Tower
+    // alte Einstellungen (vor 3.2.0): feste Digitation (apEvo) wird zur Form der Map-Regel, „Lern-Route: je nach Map digitieren“
+    // aus (levelEvo:false) zu „keine Digitation“ – nur einmal, solange noch keine Map-Regel gespeichert ist
+    // (erkannt an den alten Schlüsseln – saveCfg schreibt sie nicht mehr, also nur einmal)
+    if (digibotRecord(saved) && ['apEvo', 'apMapEvo', 'levelEvo'].some((k) => Object.hasOwn(saved, k))) {
+      if (saved.levelEvo === false) { cfg.levelEvoForm = ''; cfg.levelEvoDark = ''; }
+      if (typeof saved.apEvo === 'string' && saved.apEvo) cfg.levelEvoForm = saved.apEvo;
+    }
+    cfg.sounds = { ...CFG_DEFAULTS.sounds, ...Object.fromEntries(Object.entries(cfg.sounds || {}).filter(([, v]) => typeof v === 'boolean')) };
+    cfg.style = { ...CFG_DEFAULTS.style, ...Object.fromEntries(Object.entries(cfg.style || {}).filter(([k, v]) => k in CFG_DEFAULTS.style && /^#[0-9a-f]{6}$/i.test(String(v)))) };
+    if (typeof cfg.stylePreset !== 'string') cfg.stylePreset = 'night';
+    syncRuntimeCfg();
     // Neuer Standard „erst alles erledigen, dann abgeben“ – nur, wenn der Nutzer apBatch nie selbst gesetzt hat
     try{if(localStorage.getItem(CFG_BATCH_KEY)!=='1'&&!(digibotRecord(saved)&&Object.hasOwn(saved,'apBatch')))cfg.apBatch=true;}catch{}
     if (checked.issues.length) digibotCore.record('Einstellungen korrigiert', {action: checked.issues.join(', ')});
     const m = modeOf(); // alte Einstellungen mit mehreren Schaltern auf eine Betriebsart bringen
-    cfg.questMode = m === 'quest'; cfg.autopilot = m === 'auto'; cfg.farm = m === 'farm'; cfg.dungeon = m === 'dungeon'; cfg.eventsOnly = m === 'events'; cfg.foodBuy = m === 'food';
+    cfg.autopilot = m === 'auto'; cfg.farm = m === 'farm'; cfg.dungeon = m === 'dungeon'; cfg.eventsOnly = m === 'events'; cfg.foodBuy = m === 'food';
     cfg.mirror = true; cfg.safeCast = true; // immer an (siehe ALWAYS_ON)
   }
-  // Betriebsart (genau eine): Grinden, Quest-Jagd (Quest-Modus), Quest-Autopilot oder Bosse (Rotation/Named-Runde)
-  const MODES = { grind: 'Grinden', quest: 'Quest-Jagd', auto: 'Autopilot', farm: 'Bosse', dungeon: 'Dungeon', events: 'Nur Event/WB', food: 'Food kaufen' };
-  const modeOf = () => (cfg.dungeon ? 'dungeon' : cfg.farm ? 'farm' : cfg.autopilot ? 'auto' : cfg.questMode ? 'quest' : cfg.eventsOnly ? 'events' : cfg.foodBuy ? 'food' : 'grind');
+  // Betriebsart (genau eine): Grinden, Quest-Autopilot, Bosse (Rotation/Named-Runde/Karten), Dungeon, Nur Event/WB, Food kaufen
+  const MODES = { grind: 'Grinden', auto: 'Autopilot', farm: 'Bosse', dungeon: 'Dungeon', events: 'Nur Event/WB', food: 'Food kaufen' };
+  const modeOf = () => (cfg.dungeon ? 'dungeon' : cfg.farm ? 'farm' : cfg.autopilot ? 'auto' : cfg.eventsOnly ? 'events' : cfg.foodBuy ? 'food' : 'grind');
   try { applyCfg(JSON.parse(localStorage.getItem(CFG_KEY) || localStorage.getItem('digibot.cfg') || '{}')); } catch {}
   const ALWAYS_ON = ['mirror', 'safeCast']; // früher Haken – ausgeschaltet schadete man sich nur selbst
   if (cfg.tab === 'care') cfg.tab = 'attack';
+  if (cfg.tab === 'food') { cfg.tab = 'set'; cfg.stab = 'food'; } // Food-Reiter liegt seit 3.2.0 unter Einstellungen
   const mobOn = (mapId, key, cat) => cfg.mobs[mapId]?.[key] ?? cat !== 'boss';
   const saveCfg = () => {
     applyCfg(cfg);
@@ -1530,7 +1635,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   // Betriebsart und Laufzustand: läuft hier der Bot oder ist das Fenster in einer Gruppe, gehören sie diesem Fenster –
   // sonst schaltete ein Reiterklick in einem anderen Fenster den laufenden (Gruppen-)Modus um (3.1.30)
-  const RUN_KEYS = ['questMode', 'autopilot', 'farm', 'dungeon', 'eventsOnly', 'foodBuy', 'farmMode', 'apSweepMap'];
+  const RUN_KEYS = ['autopilot', 'farm', 'dungeon', 'eventsOnly', 'foodBuy', 'farmMode', 'apSweepMap'];
   window.addEventListener('storage', (event) => {
     if(event.key!==CFG_KEY || !event.newValue)return;
     try {
@@ -1548,12 +1653,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     panel.querySelectorAll('[data-apflag]').forEach((el) => { el.checked = !!cfg[el.dataset.apflag]; });
     panel.querySelectorAll('input[data-cfg]').forEach((el) => {
       const k = el.dataset.cfg; el.value = cfg[k];
-      const v = panel.querySelector(`[data-v="${k}"]`); if (v && LABELS[k]) v.textContent = LABELS[k](cfg[k]);
+      const v = panelQ(`[data-v="${k}"]`); if (v && LABELS[k]) v.textContent = LABELS[k](cfg[k]);
     });
     panel.querySelectorAll('[data-farmch]').forEach((el) => { el.checked = (cfg.farmChannels || []).includes(Number(el.dataset.farmch)); });
-    const g = panel.querySelector('[data-apgrind]'); if (g) g.checked = !!cfg.apGrind;
-    const bt = panel.querySelector('[data-apbatch]'); if (bt) bt.checked = !!cfg.apBatch;
-    const em = panel.querySelector('[data-expmess]'); if (em) em.checked = !!cfg.expMess;
+    const g = panelQ('[data-apgrind]'); if (g) g.checked = !!cfg.apGrind;
+    const bt = panelQ('[data-apbatch]'); if (bt) bt.checked = !!cfg.apBatch;
+    const em = panelQ('[data-expmess]'); if (em) em.checked = !!cfg.expMess;
+    panel.querySelectorAll('[data-sound]').forEach((el) => { el.checked = cfg.sounds?.[el.dataset.sound] !== false; });
+    applyStyle();
     mobListSig = ''; questSig = ''; farmPickSig = '';
   }
 
@@ -1601,7 +1708,6 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
   }
   const GROUP_STALE_MS = 6000;           // so lange gilt die letzte Meldung eines Fensters
-  const GROUP_WAIT_MS = 180000;          // Leader wartet höchstens so lange auf die anderen (Annehmen/Abgeben)
   const GROUP_TALK_KEEP_MS = 20 * 60000; // so lange können Mitläufer verpasste Gespräche nachholen
   // Mitläufer bleiben so nah am Leader (Regler Gruppenabstand, Standard 110; 3.1.38). Weiter als followFar(): erst
   // hinlaufen, nicht kämpfen – wächst mit dem Regler, sonst lägen Mitläufer zwischen Abstand und 350 px untätig herum
@@ -1642,6 +1748,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     </label>`;
   };
 
+  // Regler mit Erklärung darunter (Reiter Einstellungen)
+  const setting = (key, label, min, max, fmtV, step, desc) => slider(key, label, min, max, fmtV, 0, step) + (desc ? `<div class="digibot__desc">${desc}</div>` : '');
   // Einklappbare Gruppe; der Zustand wird in cfg.open gespeichert
   const escAttr = (v) => String(v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
   const grp = (key, title, body, openDef = true, info = '', attrs = '') => `
@@ -1652,7 +1760,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.51'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.0'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1662,12 +1770,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     <div class="digibot__runbar">
       <div class="digibot__modes">${Object.entries(MODES).map(([k, l]) => `<button data-mode="${k}" title="${escAttr({
         grind: 'Monster aus der Liste (Reiter Kampf) im Suchradius jagen',
-        quest: 'Nur Monster für offene Quest-Ziele auf dieser Map jagen, danach stoppen',
         auto: 'Quests annehmen, hinreisen, erledigen und abgeben (Reiter Quests)',
         farm: 'Boss-Rotation oder Named-Elite-Runde (Reiter Bosse)',
         dungeon: 'Kera-Dungeon: zur Tür, betreten, Räume räumen, Boss, wieder hinaus (Reiter Bosse)',
         events: 'Nichts anderes tun: nur auf das Event (Mega-Jagd) und die Weltbosse warten, hinreisen und kämpfen. Schaltet 🎯 Event und 🌍 Weltboss ein.',
-        food: 'Zum Händler Tentomon im Lager von Dream Ruins reisen, das eingestellte Food nachkaufen (Reiter Food), zurück zum Startpunkt, dann stoppen',
+        food: 'Zum Händler Tentomon im Lager von Dream Ruins reisen, das eingestellte Food nachkaufen (Einstellungen → Food), zurück zum Startpunkt, dann stoppen',
       }[k])}">${l}</button>`).join('')}</div>
       <div class="digibot__runrow">
         <button class="digibot__btn digibot__run" data-act="bot" title="Alt+B">▶ Start</button>
@@ -1689,7 +1796,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       <div class="digibot__vitals">${bar('hp mini', 'HP').replace('data-bar="hp mini"', 'data-bar="mhp"')}${bar('ds mini', 'DS').replace('data-bar="ds mini"', 'data-bar="mds"')}${bar('tg mini', 'Ziel').replace('data-bar="tg mini"', 'data-bar="mtg"')}</div>
     </div>
     <nav class="digibot__tabs">
-      <button data-tab="data"><i>📊</i><small>Übersicht</small></button><button data-tab="mon"><i>🐣</i><small>Digimon</small></button><button data-tab="attack"><i>⚔️</i><small>Kampf</small></button><button data-tab="quest"><i>📜</i><small>Quests</small></button><button data-tab="farm"><i>👑</i><small>Bosse</small></button><button data-tab="food"><i>🍱</i><small>Food</small></button><button data-tab="acc"><i>👥</i><small>Gruppe</small></button><button data-tab="log"><i>📋</i><small>Log</small></button>
+      <button data-tab="data"><i>📊</i><small>Übersicht</small></button><button data-tab="mon"><i>🐣</i><small>Digimon</small></button><button data-tab="attack"><i>⚔️</i><small>Attacke</small></button><button data-tab="quest"><i>📜</i><small>Quests</small></button><button data-tab="farm"><i>👑</i><small>Bosse</small></button><button data-tab="acc"><i>👥</i><small>Gruppe</small></button><button data-tab="set"><i>⚙️</i><small>Einstell.</small></button><button data-tab="log"><i>📋</i><small>Log</small></button>
     </nav>
     <div class="digibot__body">
       <section data-page="data">
@@ -1730,18 +1837,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         ${grp('partner', 'Partner &amp; Digitation', `
           <div class="digibot__apcfg">
             <label>Quest-Digimon<select data-apsel="apQuestPartner"></select></label>
-            <label>Digitation<select data-apsel="apEvo"></select></label>
-            ${check('evoWarp', 'Freigegebene Warp-Digitation verwenden')}
-            ${check('apMapEvo', 'Autopilot: Digitationsregeln der Lernroute übernehmen')}
-            <div class="digibot__hint">Im Autopiloten gelten dann der Lernrouten-Schalter sowie „Form ohne Dark Tower“ und „Form mit Dark Tower“ im Reiter Kampf. Für eine feste Quest-Form den Haken ausschalten.</div>
             <label>Abgabe-Digimon<select data-apsel="apTurninPartner"></select></label>
-          </div>`, true, 'Quest-Digimon: mit ihm werden Quests angenommen und erledigt. Digitation: diese Form nimmt es dafür an (gilt auch in der Boss-Rotation und im Dungeon – dort schon an der Tür, vor dem Betreten). Abgabe-Digimon: zum Abgeben wird beim NPC zurück-digitiert und gewechselt.')}
-        ${grp('skills', 'Skills (Tasten 2–6) <i class="digibot__for" data-f="skillsfor"></i>', `<div class="digibot__skills">${SKILL_KEYS.map((k) => `
-          <label class="digibot__skill" data-skill="${k}">
-            <input type="checkbox" data-skillcfg="${k}" ${cfg.skills[k] ? 'checked' : ''}>
-            <kbd>${k}</kbd><span>–</span><em></em>
-            <select class="digibot__heal" data-rolecfg="${k}" title="Rolle des Skills (je Digitationsform)">${DIGIBOT_ROLE_OPTS.map(([v, t]) => `<option value="${v}"${v === 'koh' ? ' disabled' : ''}>${t.replace('<', '&lt;')}</option>`).join('')}</select>
-          </label>`).join('')}</div>`, true, 'Haken = Skill wird automatisch gewirkt. Rechts die Rolle: Angriff (in Tastenreihenfolge), AoE ab N Gegnern (gegen einen Boss immer), Angriffs-Buff (nur bei Bossen, 3 s nach Kampfbeginn, vor dem ersten Angriff, nie bei Spiegel), Tank-Buff und Def-Support (im Kampf dauerhaft gehalten), Angriffs-Support (Gegner schwächen oder Gruppe stärken), Utility (Debuffs entfernen), Heal (eigene HP) und Gruppen-Heal (ein Partner in Reichweite). Gruppen-Skills stimmen die Bot-Fenster ab: nur eines zündet. Ohne eigene Wahl gilt der Vorschlag aus den Spieldaten (gestrichelt).')}
+            <div class="digibot__title">Digitation je Map</div>
+            <label>ohne Dark Tower<select data-apsel="levelEvoForm"></select></label>
+            <label>mit Dark Tower<select data-apsel="levelEvoDark"></select></label>
+            ${check('evoWarp', 'Freigegebene Warp-Digitation verwenden')}
+            <div class="digibot__hint">Der Bot erkennt an der aktuellen Map (Dark Tower ja/nein), welche Form passt, und nimmt sie zwischen den Kämpfen an – beim Grinden, auf der Lern-Route, im Autopilot, bei Bossen, im Dungeon (schon an der Tür) und bei Events. „keine Digitation“ = Form so lassen.</div>
+          </div>`, true, 'Quest-Digimon: mit ihm werden Quests angenommen und erledigt. Abgabe-Digimon: zum Abgeben wird beim NPC zurück-digitiert und gewechselt. Digitation je Map: eine Regel für alle Betriebsarten – auf Maps mit Dark Tower geht nur Armor.')}
         ${grp('pots', 'Tränke &amp; Food (F1–F3)', `
           ${slider('hpPot', 'Digimon HP (F1) unter', 0, 95, potLabel, 1)}
           ${slider('dsPot', 'Digimon DS (F2) unter', 0, 95, potLabel, 2)}
@@ -1751,6 +1853,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       </section>
 
       <section data-page="attack">
+        ${grp('skills', 'Skills (Tasten 2–6) <i class="digibot__for" data-f="skillsfor"></i>', `<div class="digibot__skills">${SKILL_KEYS.map((k) => `
+          <label class="digibot__skill" data-skill="${k}">
+            <input type="checkbox" data-skillcfg="${k}" ${cfg.skills[k] ? 'checked' : ''}>
+            <kbd>${k}</kbd><span>–</span><em></em>
+            <select class="digibot__heal" data-rolecfg="${k}" title="Rolle des Skills (je Digitationsform)">${DIGIBOT_ROLE_OPTS.map(([v, t]) => `<option value="${v}"${v === 'koh' ? ' disabled' : ''}>${t.replace('<', '&lt;')}</option>`).join('')}</select>
+          </label>`).join('')}</div>`, true, 'Haken = Skill wird automatisch gewirkt. Rechts die Rolle: Angriff (in Tastenreihenfolge), AoE ab N Gegnern (gegen einen Boss immer), Angriffs-Buff (nur bei Bossen, 3 s nach Kampfbeginn, vor dem ersten Angriff, nie bei Spiegel), Tank-Buff und Def-Support (im Kampf dauerhaft gehalten), Angriffs-Support (Gegner schwächen oder Gruppe stärken), Utility (Debuffs entfernen), Heal (eigene HP) und Gruppen-Heal (ein Partner in Reichweite). Gruppen-Skills stimmen die Bot-Fenster ab: nur eines zündet. Ohne eigene Wahl gilt der Vorschlag aus den Spieldaten (gestrichelt).')}
         ${grp('targeting', 'Zielwahl', `
           ${slider('lvlDiff', 'Max. Level über dem Digimon', 0, 100, (v) => `+${v}`)}
           ${slider('radius', 'Suchradius', 100, 800, (v) => `${v} px`, 0, 20)}
@@ -1758,18 +1866,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           ${check('pull', 'Monster sammeln (Pull)', 'Spielt bis zur Höchstzahl weitere Monster innerhalb der Leine des ersten an, dann AoE und Einzelziele. Nicht bei Bossen, im Dungeon/Raid und wenn ein Boss gleich fällig ist.')}
           ${slider('pullMax', 'Sammeln: höchstens', 2, 8, (v) => `${v} Monster`)}
           ${slider('pullHp', 'Sammeln: nur über HP', 30, 90, (v) => `${v} %`)}
-          ${check('skipTaken', 'Keine Gegner angreifen, die andere Spieler bekämpfen')}
+          ${check('skipTaken', 'Keine Gegner angreifen, die andere Spieler bekämpfen')}`, true,
+          'Schwächere Monster werden immer angegriffen, nur zu starke (über +Level) nicht. Angreifer werden immer abgewehrt.')}
+        ${grp('grind', 'Grinden &amp; Lern-Route', `
           ${check('levelRoute', 'Lern-Route: selbst zur besten EXP-Zone reisen', 'Beim Grinden reist der Bot zur Zone mit den meisten EXP/min für das aktuelle Level. Wechsel erst ab +15 % besser, frühestens nach 3 min.')}
           ${check('levelA2', 'Lern-Route nur in Adventure 02')}
-          ${check('levelEvo', 'Lern-Route: je nach Map digitieren', 'Zwischen den Kämpfen die Form unten annehmen – je nachdem, ob die Map einen Dark Tower hat.')}
-          <div class="digibot__apcfg">
-            <label>Form ohne Dark Tower<select data-apsel="levelEvoForm"></select></label>
-            <label>Form mit Dark Tower<select data-apsel="levelEvoDark"></select></label>
-          </div>
           ${check('levelBoss', 'Lern-Route: Feldbosse ohne Enrage mitnehmen', 'Feldbosse der Map ohne Enrage werden mitgenommen. Die Timer kommen aus allen Kanälen, die im Reiter Bosse → Kanäle angehakt sind.')}
           ${check('expPrio', 'EXP-Priorität: zuerst Monster +5 bis +8', 'Erst Monster +5 bis +8 über dem Digimon, dann +4, +3 … Gemessen: +5 bis +8 gibt ×1,5 EXP.')}
-          ${check('chCheck', 'Channel-Checker: auf den leersten Kanal wechseln')}`, true,
-          'Schwächere Monster werden immer angegriffen, nur zu starke (über +Level) nicht. Angreifer werden immer abgewehrt. Channel-Checker: etwa jede Minute und nach jedem Map-Wechsel wechselt der Bot auf den Kanal mit den wenigsten Spielern (mind. 2 weniger) – nur außerhalb von Kämpfen, nicht in der Boss-Rotation; in der Gruppe entscheidet der Leader, die anderen folgen.')}
+          ${check('chCheck', 'Channel-Checker: auf den leersten Kanal wechseln')}
+          <div class="digibot__hint">Digitation: die Form je Map (Reiter Digimon) gilt auch hier – der Bot erkennt an der Map, ob Dark Tower gilt.</div>`, true,
+          'Lern-Route: beim Grinden selbst zur besten EXP-Zone reisen und Feldbosse mitnehmen. Channel-Checker: etwa jede Minute und nach jedem Map-Wechsel wechselt der Bot auf den Kanal mit den wenigsten Spielern (mind. 2 weniger) – nur außerhalb von Kämpfen, nicht in der Boss-Rotation; in der Gruppe entscheidet der Leader, die anderen folgen.')}
         ${grp('mech', 'Boss-Mechaniken', `
           ${check('dodge', 'Warnkreisen/-strahlen ausweichen')}
           ${check('tank', 'Kleine Boss-Treffer tanken statt ausweichen', 'Mehr Schaden, weil das Digimon stehen bleibt – die Tränke heilen.')}
@@ -1805,7 +1911,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         ${grp('quests', 'Aktive Quests', `
           <div class="digibot__qsum" data-f="qsum"></div>
           <div class="digibot__quests" data-f="quests"><div class="digibot__none">warte auf Spielwelt…</div></div>`, true,
-          'Haken weg = Quest wird ignoriert. Quest-Jagd jagt nur auf der aktuellen Map (Abgeben machst du); der Autopilot erledigt auch Gespräche, Reisen, Annehmen und Abgeben. Level-, Digitations- und Brut-Ziele erledigt keiner von beiden.', 'data-modes="auto quest"')}
+          'Haken weg = Quest wird ignoriert. Der Autopilot erledigt Gespräche, Reisen, Jagd, Annehmen und Abgeben. Level-, Digitations- und Brut-Ziele erledigt er nicht.', 'data-modes="auto"')}
       </section>
 
       <section data-page="farm">
@@ -1856,28 +1962,17 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           'Kartenrotation: der Bot farmt die angehakten Common-Karten in dieser Reihenfolge (↑/↓). Auf derselben Map nimmt er alle anderen angehakten Karten gleich mit und wählt selbst die beste Digitation. Fortschritt = benutzt + Kartentasche. 👑 = Named-Gegner (12 Karten je Kill, sehr stark) mitnehmen – standardmäßig aus. Restzeit aus deinen gemessenen Kampfzeiten (sonst Schätzwerte) und 44,8 % Dropchance.', 'data-farmmode="cards" data-modes="farm"')}
       </section>
 
-      <section data-page="food">
-        ${grp('foodcfg', 'Food kaufen (Händler Tentomon, Lager in Dream Ruins)', `
-          <div class="digibot__apcfg">
-            <label>HP-Food<select data-apsel="foodHp"><option value="">keins</option><option value="feast">Feast (26 250 HP, 1 200 Bits)</option></select></label>
-            ${slider('foodHpQty', 'HP-Food auffüllen auf', 0, 297, (v) => `${v} Stück`, 0, 9)}
-            <label>DS-Food (Digimon)<select data-apsel="foodDs"><option value="">keins</option><option value="ds_drive">DS Drive (4 000 DS, 780 Bits)</option><option value="ds_cartridge">DS Cartridge (2 500 DS, 375 Bits)</option></select></label>
-            ${slider('foodDsQty', 'DS-Food auffüllen auf', 0, 297, (v) => `${v} Stück`, 0, 9)}
-            <label>Tamer-DS-Food<select data-apsel="foodTamer"><option value="">keins</option><option value="ramen">Ramen (1 500 Tamer-DS, 1 000 Bits)</option><option value="bento">Bento (1 000 Tamer-DS, 600 Bits)</option></select></label>
-            ${slider('foodTamerQty', 'Tamer-DS-Food auffüllen auf', 0, 297, (v) => `${v} Stück`, 0, 9)}
-          </div>`, true,
-          'Betriebsart „Food kaufen“ (Schalter oben): Der Bot reist nach Dream Ruins, geht im Lager zu Händler Tentomon, kauft jede Sorte bis zur eingestellten Stückzahl nach (nur so viel, wie die Bits reichen) und stoppt danach. Vorhandene Stapel werden angerechnet. Danach Betriebsart wieder umstellen.')}
-      </section>
       <section data-page="acc">
         <div class="digibot__scope">👥 Alles in diesem Reiter gilt für alle Gruppenfenster – außer „Dieses Fenster ist“. Fenster sichtbar lassen: im Hintergrund bremst der Browser stark.</div>
-        <div class="digibot__seg">
-          <button data-gmode="bots" title="Alle Fenster fahren ihren Bot: der Leader den Autopilot, die anderen folgen ihm und machen seine Quests mit.">📜 Quests</button><button data-gmode="boss" title="Alle Fenster fahren ihren Bot: der Leader die Boss-Rotation (Bosse im Tab Farmen auswählen), die anderen folgen ihm über Maps und Kanäle und kämpfen mit.">👑 Bosse</button><button data-gmode="dungeon" title="Alle Fenster fahren den Dungeon-Modus: an der Tür sammeln, der Leader betritt den Dungeon (die Gruppe kommt mit), dann räumt jeder mit – Terminal-Fresser zuerst, danach Boss und Ausgang.">🏰 Dungeon</button><button data-gmode="move" title="Du spielst den Leader selbst – die anderen Fenster (Bot aus) laufen ihm nach, auch über Maps und Kanäle.">👣 Spiegeln</button><button data-gmode="both" title="Wie Spiegeln, und die anderen greifen das Ziel des Leaders mit an – mit ihren Skills, Tränken und Ausweichen.">⚔️ + Angriff</button>
+        <div class="digibot__title">Mitläufer</div>
+        <div class="digibot__seg three">
+          <button data-gmode="follow" title="Die Mitläufer fahren ihren eigenen Bot und richten sich nach dem Leader: gleiche Map und Kanal, seine Betriebsart (Quests, Bosse, Dungeon) und seine Einstellungen. ▶ Start und ■ Stopp im Leader-Fenster gelten für alle.">🤖 Folgen</button><button data-gmode="move" title="Du spielst den Leader selbst – die anderen Fenster (Bot aus) laufen ihm nach, auch über Maps und Kanäle.">👣 Spiegeln</button><button data-gmode="both" title="Wie Spiegeln, und die anderen greifen das Ziel des Leaders mit an – mit ihren Skills, Tränken und Ausweichen.">⚔️ Angreifen</button>
         </div>
-        <label class="digibot__skill digibot__chk" title="Jedes Gruppenmitglied greift ein anderes Quest-Monster an (statt alle dasselbe). Ist keins mehr frei, hilft man mit. Bosse greifen alle gemeinsam an. Nicht beim Spiegeln und nicht in der Boss-Rotation."><input type="checkbox" data-accspread ${accounts.spread ? 'checked' : ''}><span>🎯 Ziele verteilen: jeder ein anderes Monster</span><em class="digibot__offnote" data-f="spreadoff"></em></label>
-        <label class="digibot__skill digibot__chk" title="Der Leader kümmert sich nur um die Quests der Mitläufer (seine eigenen sind egal) und jagt, was ihnen fehlt. Die Mitläufer bleiben stehen und wehren nur Angreifer ab. Abgeben/Annehmen macht man bei ihnen selbst. Nur im Modus 📜 Quests."><input type="checkbox" data-accserve ${accounts.serve ? 'checked' : ''}><span>🤝 Leader erledigt die Quests der Mitläufer</span></label>
+        <label class="digibot__skill digibot__chk" title="Jedes Gruppenmitglied greift ein anderes Quest-Monster an (statt alle dasselbe). Ist keins mehr frei, hilft man mit. Bosse greifen alle gemeinsam an. Nur beim Folgen, nicht in der Boss-Rotation."><input type="checkbox" data-accspread ${accounts.spread ? 'checked' : ''}><span>🎯 Ziele verteilen: jeder ein anderes Monster</span><em class="digibot__offnote" data-f="spreadoff"></em></label>
+        <label class="digibot__skill digibot__chk" title="Der Leader kümmert sich nur um die Quests der Mitläufer (seine eigenen sind egal) und jagt, was ihnen fehlt. Die Mitläufer bleiben stehen und wehren nur Angreifer ab. Abgeben/Annehmen macht man bei ihnen selbst. Nur beim Folgen im Autopilot."><input type="checkbox" data-accserve ${accounts.serve ? 'checked' : ''}><span>🤝 Leader erledigt die Quests der Mitläufer</span></label>
         <div class="digibot__title">Alle Fenster</div>
-        <div class="digibot__grpbtns three"><button class="digibot__btn" data-act="grp-login" title="Fehlende Gruppenfenster öffnen – dort selbst anmelden und Charakter wählen">⧉ Fenster öffnen</button><button class="digibot__btn" data-act="grp-start" title="Bots in allen Gruppenfenstern starten">▶ Starten</button><button class="digibot__btn" data-act="grp-stop" title="Bots in allen Gruppenfenstern stoppen">■ Stoppen</button></div>
-        <div class="digibot__grpbtns"><button class="digibot__btn" data-act="grp-invite" title="Der Leader lädt sofort alle Gruppenmitglieder in die Party ein, die noch nicht drin sind (geht aus jedem Gruppenfenster). Die Mitläufer nehmen automatisch an.">👥 Party einladen</button><button class="digibot__btn" data-act="grp-maptalk" title="In allen Gruppenfenstern: alle fertigen Quests auf der aktuellen Map abgeben und alle hier verfügbaren annehmen – jeder für sich. Danach geht es weiter wie vorher (lief der Bot nicht, stoppt er wieder).">📜 Abgeben &amp; Annehmen (diese Map)</button></div>
+        <div class="digibot__grpbtns"><button class="digibot__btn" data-act="grp-login" title="Fehlende Gruppenfenster öffnen – dort selbst anmelden und Charakter wählen">⧉ Fenster öffnen</button><button class="digibot__btn" data-act="grp-invite" title="Der Leader lädt sofort alle Gruppenmitglieder in die Party ein, die noch nicht drin sind (geht aus jedem Gruppenfenster). Die Mitläufer nehmen automatisch an.">👥 Party einladen</button></div>
+        <div class="digibot__hint">Starten und stoppen über ▶ Start / ■ oben im Leader-Fenster – das gilt für alle Gruppenfenster. Abgeben und Annehmen erledigt der Autopilot des Leaders, die Mitläufer machen es nach.</div>
         <div class="digibot__gcards" data-f="gcards"></div>
         <label class="digibot__slotsel" title="Welcher Account läuft in diesem Fenster? Bestimmt, ob es Leader oder Mitläufer ist. Gilt nur für dieses Fenster.">Dieses Fenster ist
           <select data-accslot><option value="">– keine Gruppe –</option>${accounts.list.map((a, i) => `<option value="${i}">Account ${i + 1}${a.user ? ` (${escAttr(a.user)})` : ''}</option>`).join('')}</select></label>
@@ -1893,6 +1988,72 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           '☑ = in der Gruppe dabei · ◉ = Leader. Der Leader fährt den Autopilot und sucht die Monster aus. Die anderen folgen ihm, helfen beim Kämpfen und nehmen dieselben Quests an und geben sie mit ab. Der Charaktername wird beim Einloggen gemerkt.')}
       </section>
 
+      <section data-page="set">
+        <div class="digibot__seg five digibot__stabs">${SUB_TABS.map(([k, i, l]) => `<button data-stab="${k}" title="${l}"><i>${i}</i>${l}</button>`).join('')}</div>
+        <div data-spage="food">
+        ${grp('foodcfg', 'Food-Sorten &amp; Zielmengen', `
+          <div class="digibot__apcfg">
+            <label>HP-Food<select data-apsel="foodHp"><option value="">keins</option><option value="feast">Feast (26 250 HP, 1 200 Bits)</option></select></label>
+            ${slider('foodHpQty', 'HP-Food auffüllen auf', 0, 297, (v) => `${v} Stück`, 0, 9)}
+            <label>DS-Food (Digimon)<select data-apsel="foodDs"><option value="">keins</option><option value="ds_drive">DS Drive (4 000 DS, 780 Bits)</option><option value="ds_cartridge">DS Cartridge (2 500 DS, 375 Bits)</option></select></label>
+            ${slider('foodDsQty', 'DS-Food auffüllen auf', 0, 297, (v) => `${v} Stück`, 0, 9)}
+            <label>Tamer-DS-Food<select data-apsel="foodTamer"><option value="">keins</option><option value="ramen">Ramen (1 500 Tamer-DS, 1 000 Bits)</option><option value="bento">Bento (1 000 Tamer-DS, 600 Bits)</option></select></label>
+            ${slider('foodTamerQty', 'Tamer-DS-Food auffüllen auf', 0, 297, (v) => `${v} Stück`, 0, 9)}
+          </div>`, true,
+          'Sorten und Zielmengen gelten für die Betriebsart „Food kaufen“ (Schalter oben: hinreisen, auffüllen, zurück, stoppen) und für den automatischen Nachkauf unten. Vorhandene Stapel werden angerechnet, gekauft wird nur, so weit die Bits reichen.')}
+        ${grp('foodauto', 'Food automatisch nachkaufen', `
+          ${check('foodAuto', 'Nachkaufen, sobald der Vorrat zur Neige geht', 'Unterschreitet eine oben eingestellte Sorte die Mindestmenge, schiebt der Bot einen Einkauf ein: hinreisen, bis zur Zielmenge auffüllen, zurück zum Startpunkt – danach geht es in der Betriebsart weiter. Nicht im Kampf, nicht im Dungeon/Raid und nicht, solange ein Event oder Weltboss ansteht.')}
+          ${slider('foodAutoMin', 'Nachkaufen unter', 1, 99, (v) => `${v} Stück`)}
+          <div class="digibot__apcfg"><label>Einkaufs-Map<select data-apsel="foodAutoMap"></select></label></div>
+          <div class="digibot__hint">„aktuelle Map“: kaufen beim Food-Händler der Map, auf der der Bot gerade ist – gibt es dort keinen, in Dream Ruins (Händler Tentomon).</div>`, true)}
+        </div>
+        <div data-spage="dodge">
+        ${grp('dodgecfg', 'Ausweichen', `
+          <div class="digibot__hint" style="margin:0 0 5px">Ein/Aus und Tanken: Reiter Attacke → Boss-Mechaniken. Die Standardwerte sind live erprobt – nur ändern, wenn der Bot zu oft getroffen wird oder zu viel läuft.</div>
+          ${setting('dodgeMargin', 'Sicherheitsabstand', 8, 80, (v) => `${v} px`, 1, 'So weit bleibt das Digimon außerhalb von Kreisen, Strahlen und Fächern. Größer = sicherer, aber längere Wege und weniger Schaden.')}
+          ${setting('dodgeEdge', 'Kantenreserve am Ziel', 0, 40, (v) => `${v} px`, 1, 'Steht das Ziel in Schlagweite neben einer Zone, reicht dieser kleinere Abstand zum Rand (etwa Körperbreite) – das Digimon schlägt vom Rand aus weiter zu. Gilt auch neben schmalen Linien.')}
+          ${setting('dodgeHold', 'Warteabstand', 60, 600, (v) => `${v} px`, 10, 'Nach dem Ausweichen wartet der Bot höchstens so nah an einer noch aktiven Zone; liegt das Ziel weiter weg, läuft er erst nach dem Einschlag wieder hin.')}
+          ${setting('dodgeSoonMs', 'Zone endet bald', 300, 3000, (v) => `${(v / 1000).toFixed(1)} s`, 100, 'Endet eine Zone in weniger als dieser Zeit und steht das Ziel dicht daneben, greift der Bot nicht neu an – Bosse laufen weiter, das Digimon würde in die Zone folgen.')}
+          ${setting('dodgeSoonPad', 'Zone endet bald: Abstand', 0, 200, (v) => `${v} px`, 5, '… gilt, wenn das Ziel näher als so an der Zone steht.')}
+          ${setting('dodgeLateK', 'Spät herauslaufen: Faktor', 1, 3, (v) => `× ${Number(v).toFixed(1)}`, 0.1, 'Bei langen Ansagen kämpft der Bot in der Zone weiter und läuft erst bei Laufzeit × Faktor + Puffer vor dem Einschlag heraus.')}
+          ${setting('dodgeLatePad', 'Spät herauslaufen: Puffer', 0, 4000, (v) => `${(v / 1000).toFixed(1)} s`, 100, 'Zusätzliche Zeit vor dem Einschlag für das späte Herauslaufen.')}
+          ${setting('dodgeLateAbort', 'Flucht abbrechen ab Restzeit', 0, 8000, (v) => `${(v / 1000).toFixed(1)} s`, 250, 'Eine begonnene Flucht wird abgebrochen (weiterkämpfen), wenn danach noch so viel Zeit bis zum Einschlag bliebe.')}
+          ${setting('dodgeRetap', 'Fluchtpunkt erneut anklicken alle', 200, 3000, (v) => `${(v / 1000).toFixed(1)} s`, 100, 'Falls das Digimon hängen bleibt, wird der Fluchtpunkt so oft erneut angeklickt.')}
+          ${setting('dodgeWalk', 'Laufgeschwindigkeit (Annahme)', 60, 300, (v) => `${v} px/s`, 5, 'Vorsichtige Schätzung, wenn das Spiel keine Geschwindigkeit nennt – kleiner = früher loslaufen.')}
+          ${setting('dodgeSearch', 'Suchweite für freien Punkt', 150, 600, (v) => `${v} px`, 10, 'So weit sucht der Bot nach einem Punkt außerhalb aller Zonen.')}
+          ${setting('dodgeHuge', 'Raumweite Kreise: höchstens', 300, 1500, (v) => `${v} px`, 50, 'Bei sehr großen Kreisen läuft der Bot höchstens so weit, wenn die Restzeit reicht.')}
+          ${setting('pullDodgeLeash', 'Pull: Abstand zur Leine', 0, 150, (v) => `${v} px`, 5, 'Beim Sammeln (Pull) liegen Fluchtpunkte bevorzugt so weit innerhalb der Leinen, damit gesammelte Monster nicht zurücklaufen.')}
+          ${setting('pullDodgeMargin', 'Pull: Reserve zu Warnkreisen', 0, 60, (v) => `${v} px`, 1, 'Beim Ausweichen spielt der Bot nur Monster an, die so weit außerhalb aller Warnkreise stehen.')}
+          <div class="digibot__btnrow"><button class="digibot__btn" data-act="dodge-reset" title="Alle Ausweich-Werte auf die erprobten Standardwerte">↺ Standardwerte</button></div>`, true,
+          'Die Werte wirken sofort, auch im laufenden Kampf. Kreise, Strahlen, Fächer und Ringe nutzen dieselben Abstände.')}
+        </div>
+        <div data-spage="alerts">
+        ${grp('sounds', 'Warntöne', `
+          ${check('soundOn', 'Hinweistöne abspielen')}
+          <div class="digibot__sub">${[['done', 'Aufgabe fertig (Autopilot, Food, Karten, Dungeon geschafft)'], ['stop', 'Bot stoppt (Fehler, Kontrolle, Verbindung, Stopp-Bedingung)'], ['faint', 'Digimon bewusstlos'], ['warn', 'Warnung im Kampf (z. B. Key of Hope blockt nicht)']].map(([k, l]) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-sound="${k}" ${cfg.sounds?.[k] !== false ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>
+          <div class="digibot__btnrow"><button class="digibot__btn" data-act="sound-test">🔊 Testton</button></div>`, true,
+          'Jedes Ereignis hat eine eigene Tonhöhe. Ohne Ton erscheinen die Meldungen weiter im Log und in der Statuszeile.')}
+        ${grp('autostop', 'Automatisch stoppen', `
+          ${slider('stopLevel', 'Stopp bei Digimon-Level', 0, 150, (v) => (v > 0 ? `Lv ${v}` : 'aus'))}
+          ${slider('stopAfterMin', 'Stopp nach Laufzeit', 0, 720, (v) => (v > 0 ? `${Math.floor(v / 60) ? `${Math.floor(v / 60)} h ` : ''}${v % 60 ? `${v % 60} min` : ''}`.trim() : 'aus'), 0, 15)}
+          ${slider('stopFaints', 'Stopp nach Bewusstlosigkeiten', 0, 20, (v) => (v > 0 ? `${v}×` : 'aus'))}
+          ${slider('stopBits', 'Stopp, wenn Bits unter', 0, 10000000, (v) => (v > 0 ? Number(v).toLocaleString('de-DE') : 'aus'), 0, 100000)}`, true,
+          '0 = aus. Laufzeit zählt ab dem letzten Start, Bewusstlosigkeiten seit Sitzungsbeginn (↺ in der Übersicht setzt zurück). In der Gruppe stoppt ein Stopp im Leader-Fenster alle.')}
+        </div>
+        <div data-spage="times">
+        ${grp('timing', 'Zeiten &amp; Toleranzen', `
+          ${setting('potCdMs', 'Trank-Sperre', 500, 10000, (v) => `${(v / 1000).toFixed(1)} s`, 250, 'Denselben Trank (F1–F3) höchstens so oft drücken.')}
+          ${setting('huntIdleMin', 'Autopilot: Geduld im Jagdgebiet', 0.5, 10, (v) => `${Number(v).toFixed(1)} min`, 0.5, 'So lange darf im Jagdgebiet kein passendes Monster auftauchen, bevor der Autopilot die Aufgabe zurückstellt.')}
+          ${setting('huntStallMin', 'Autopilot: Jagd ohne Fortschritt', 1, 15, (v) => `${v} min`, 1, 'So lange darf eine Jagd ohne Fortschritt dauern, dann meidet der Bot das Gebiet und plant neu (Boss-Quests warten auf den Respawn).')}
+          ${setting('grpWaitMin', 'Gruppe: Leader wartet höchstens', 1, 10, (v) => `${v} min`, 1, 'So lange wartet der Leader beim Annehmen/Abgeben auf die Mitläufer.')}`, true)}
+        </div>
+        <div data-spage="style">
+        ${grp('stylecfg', 'Farben', `
+          <div class="digibot__presets">${Object.entries(STYLE_PRESETS).map(([k, v]) => `<button class="digibot__btn" data-stylepreset="${k}">${v.name}</button>`).join('')}</div>
+          <div class="digibot__colors">${Object.entries(STYLE_NAMES).map(([k, l]) => `<label><span>${l}</span><input type="color" data-style="${k}" value="${cfg.style?.[k] || '#000000'}"></label>`).join('')}</div>`, true,
+          'Fertige Farbsets oben, darunter jede Farbe einzeln. Gilt für dieses Panel in allen Fenstern.')}
+        </div>
+      </section>
       <section data-page="log">
         ${grp('command-history', 'Befehlsstatus & Fehlerchronik', '<div class="digibot__hint">Anforderung, Bestätigung und beobachtete Wirkung werden getrennt erfasst. Der Diagnoseexport enthält die letzten Abläufe bei Problemen.</div><pre data-f="command-history" style="white-space:pre-wrap;font:11px/1.5 system-ui;margin:8px 0"></pre>', true)}
         <div class="digibot__listhead">
@@ -1915,7 +2076,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const pct = (v, m) => (m > 0 ? Math.max(0, Math.min(100, (v / m) * 100)) : 0);
 
   function setBar(root, key, v, m, lowAt) {
-    const row = root.querySelector(`[data-bar="${key}"]`);
+    const row = root === panel ? panelQ(`[data-bar="${key}"]`) : root.querySelector(`[data-bar="${key}"]`);
     if (!row) return;
     const has = typeof v === 'number' && typeof m === 'number' && m > 0;
     const p = has ? pct(v, m) : 0;
@@ -2074,8 +2235,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   const mobExpReset = () => { mobExp.by = new Map(); mobExp.pending = []; mobExp.sig = ''; };
   function renderMobExp(st) {
-    const el = panel.querySelector('[data-f="mobexp"]');
-    if (!el || !panel.querySelector('[data-page="data"]').classList.contains('on')) return;
+    const el = panelQ('[data-f="mobexp"]');
+    if (!el || !panelQ('[data-page="data"]').classList.contains('on')) return;
     const now = Date.now(); if (now - mobExp.at < 1000) return; mobExp.at = now;
     const rows = [...mobExp.by.values()].filter((e) => e.exp > 0).sort((a, b) => b.exp - a.exp);
     const tot = rows.reduce((n, e) => n + e.exp, 0);
@@ -2153,7 +2314,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
   }
   function renderLoot() {
-    if (!panel.querySelector('[data-page="data"]').classList.contains('on')) return;
+    if (!panelQ('[data-page="data"]').classList.contains('on')) return;
     const now = Date.now();
     if (now - loot.at < 1000) return;
     loot.at = now;
@@ -2172,9 +2333,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const sig = sum + [...loot.gained].join() + '|' + [...loot.used].join();
     if (sig === loot.sig) return;
     loot.sig = sig;
-    panel.querySelector('[data-f="lootsum"]').innerHTML = sum;
-    panel.querySelector('[data-f="lootin"]').innerHTML = list(loot.gained) || '<i class="digibot__none">noch nichts</i>';
-    panel.querySelector('[data-f="lootout"]').innerHTML = list(loot.used) || '<i class="digibot__none">noch nichts</i>';
+    panelQ('[data-f="lootsum"]').innerHTML = sum;
+    panelQ('[data-f="lootin"]').innerHTML = list(loot.gained) || '<i class="digibot__none">noch nichts</i>';
+    panelQ('[data-f="lootout"]').innerHTML = list(loot.used) || '<i class="digibot__none">noch nichts</i>';
   }
   function watchGame(st) {
     // Meldungen des Spiels (z. B. „Du bist noch nicht bereit für diese Quest“) mitschreiben – erklärt Ablehnungen
@@ -2246,7 +2407,6 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   //  - Warnstrahlen: scene.mechB.lines = [{fx, fy, tx, ty, r, end, skill}] – ein Band vom Boss (fx/fy) zum
   //    Zielpunkt (tx/ty) mit halber Breite r; mit skill.sweep ein Fächer, der um den Boss schwenkt.
   // Steht der Tamer oder das Digimon in einer Zone, läuft der Tamer zum nächsten freien Punkt und ruft das Digimon.
-  const DODGE_MARGIN = 28;
   const FAN_APEX_R = 64;        // schwenkender Strahl: so weit um den Ursprung gilt als drin, egal in welcher Richtung (3.1.15)
   const FAN_REAR_DEG = 40;      // so weit jenseits des Fächerrands beginnt der Rücksektor, in dem der Nahbereich nicht gilt (3.1.18)
   const FAN_REAR_R = 30;        // im Rücksektor: näher als so am Boss gilt trotzdem als drin (live 26 px getroffen, ab 40 px nie; Schlagweite ~39–43)
@@ -2255,9 +2415,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const DG_SIDE_GIVEUP_MS = 6000, DG_SIDE_OFF_MS = 10000; // Seite so lange vergeblich gesucht: so lange normal kämpfen (3.1.30)
   const FAN_SAFE_DEG = 25;      // so viel Winkel neben einem Fächer gilt als voller Sicherheitsabstand (alle Fächer ≤ 180°)
   const DODGE_BASIC_PAD = 4;    // Reserve inside the real basic-attack range.
-  const DODGE_LATE_ABORT_MS = 3000; // begonnene Flucht abbrechen, wenn danach noch so viel Zeit bliebe
   const DODGE_BASIC_RANGE = 32;     // Grundangriff-Reichweite, falls die Spieldaten keine nennen
-  const DODGE_EDGE_MARGIN = 8;      // Abstand der Angriffsposition zum Kreisrand (etwa Körperbreite des Digimons)
   // Kreise am Boden (Black Rain, Cannon Volley): Nahkampfposition auf dem Ring in Schlagweite um das Ziel, die außerhalb aller
   // Kreise liegt – live 28.10.: fünf Kreise (r 64) auf den fünf Spielern rechts vom Boss (42 px), die linke Seite des Bosses war
   // frei (80–95 px von den Kreismitten), trotzdem je Black Rain ~3,5 s ohne Angriff (laufen, warten, zurück zur Seite) (3.1.19)
@@ -2273,15 +2431,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     return best;
   }
-  const DODGE_WALK_PX_S = 130;   // vorsichtig geschätzte Laufgeschwindigkeit beim Ausweichen
-  const DODGE_HOLD_RANGE = 220; // so nah an einer noch aktiven Zone wird nach dem Ausweichen gewartet
   // Kurz vor dem Einschlag nicht wieder angreifen, wenn das Ziel neben einer Zone steht: Bosse laufen weiter, das
   // Digimon folgt ihnen in den Kreis (Probelauf Hard: Volley 0,3 s vor dem Einschlag – 3 Clavis auf einmal)
-  const DODGE_SOON_MS = 1200, DODGE_SOON_PAD = 70;
   const dodgeState = { active: false, lastTap: 0, lastFollow: 0, goal: null, late: false, basicTarget: null, lastStop: 0, approachTarget:null, approachStopped:false, approachGoal:null };
   const DODGE_GOAL_MS = 3000;      // Fluchtpunkt höchstens so lange festhalten
   const DODGE_GOAL_REACHED = 12;   // so nah = angekommen
-  const DODGE_RETAP_MS = 1000;     // Klick auf denselben Fluchtpunkt so oft wiederholen
   // Kleine Boss-Treffer tanken: Ausweichen kostet Schaden pro Sekunde, ein Trank ist billiger. Tankbar ist eine Fläche
   // mit festem Schaden bis TANK_MAX_PCT der Max-HP, nach der noch TANK_KEEP_PCT übrig bleiben – ohne Zurück-Digitieren
   // und ohne geteilten Treffer (z. B. Keramon „Crazy Turn“ 28 000, Chrysalimon „Data Crusher“ 30 000 gegen ~90 000 HP;
@@ -2515,9 +2669,6 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         .filter((z) => !digibotChargeRingStay(z));
     } catch { return []; }
   }
-  const DODGE_SEARCH_R = 328;     // so weit sucht das Ausweichen nach einem freien Punkt
-  const DODGE_HUGE_MAX_R = 900;   // bei raumweiten Kreisen höchstens so weit (wenn die Restzeit reicht)
-  const DODGE_LATE_K = 1.5, DODGE_LATE_PAD_MS = 1500; // lange Ansagen: loslaufen bei Laufzeit × K + Puffer vor dem Einschlag
   // Wie weit kommt das Digimon vor dem Einschlag eines raumweiten Kreises? (mindestens die normale Suchweite)
   const hugeReach = (left,speed=DODGE_WALK_PX_S) => Math.min(DODGE_HUGE_MAX_R, Math.max(DODGE_SEARCH_R, left != null ? (left - 300) / 1000 * speed : 0));
   function hugeCounts(h,p,speed=DODGE_WALK_PX_S) {
@@ -3088,7 +3239,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
             // 3.1.26: Zusatz-Treffer trotz gezündetem Key of Hope voll abbekommen → Zusatz-Blocken bis zum Neuladen aus
             if (ev.t === 'dmg' && mine.has(ev.dst) && KOH_OPT.has(ev.skill) && (ev.amount || 0) >= 15000 && !kohState.moreOff) { const cl = kohState.claims.get(ev.src), dec = kohState.more.get(`${ev.src}|${ev.skill}`), st1 = getStore()?.getState?.();
               const ents1 = window.dmo?.net?.state?.entities, meE = ents1?.get?.(ev.dst), aId = cl ? (cl.slot === group.slot() ? me0.partner?.entityId : group.peers.get(cl.slot)?.ents?.[1]) : null, aE = aId && ents1?.get?.(aId);
-              if (cl && dec?.ok && now - cl.at <= KOH_COVER_MS + 300 && st1 && meE && aE && Math.hypot(meE.x - aE.x, meE.y - aE.y) <= kohCircleR() - 12) { kohState.moreOff = true; logEvent('warn', `Key of Hope hat ${content()?.skills?.[ev.skill]?.name || ev.skill} nicht abgefangen (${ev.amount}) – Zusatz-Blocken aus, wieder ausweichen`); notify('Key of Hope blockt Black Rain/Volley nicht – Bot weicht wieder aus.'); } }
+              if (cl && dec?.ok && now - cl.at <= KOH_COVER_MS + 300 && st1 && meE && aE && Math.hypot(meE.x - aE.x, meE.y - aE.y) <= kohCircleR() - 12) { kohState.moreOff = true; logEvent('warn', `Key of Hope hat ${content()?.skills?.[ev.skill]?.name || ev.skill} nicht abgefangen (${ev.amount}) – Zusatz-Blocken aus, wieder ausweichen`); notify('Key of Hope blockt Black Rain/Volley nicht – Bot weicht wieder aus.', 'warn'); } }
           } }
           if (ev.t === 'die' && ev.id) { bossSkillLog.delete(ev.id); if (herdCount.key) { herdCount.dead.add(ev.id); if (herdCount.dead.size > 400) herdCount.dead.delete(herdCount.dead.values().next().value); }
             // Boss stirbt während der Ansage: Anker und Sammel-Pläne zu ihm sofort verwerfen, nicht bis castEnd+500 halten (3.1.30)
@@ -4321,7 +4472,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return `Key of Hope gegen ${name}`;
   }
   // Dungeon/Raid-Betrieb (auch für Mitläufer: Gruppen-Modus „Dungeon“ oder eine Raid-/Dungeon-Map)
-  const dungeonLike = (st) => !!cfg.dungeon || (accounts.dungeon && !accounts.mirror) || isRaidMap((st || getStore()?.getState?.())?.world?.mapId);
+  const dungeonLike = (st) => !!cfg.dungeon || (group.role() === 'follower' && !accounts.mirror && groupLeaderMode() === 'dungeon') || isRaidMap((st || getStore()?.getState?.())?.world?.mapId);
   const kohOn = () => !!cfg.koh || dungeonLike();
   const isAllyHeal = (sk) => { const d = sk ? { ...(content()?.skills?.[sk.id] || {}), ...sk } : null; return !!d && d.kind === 'heal' && (d.target === 'ally' || d.target === 'party') && !isKoh(d); };
   // Eigener schneller Takt: der Bot-Takt (250 ms) ist für die Staffelung zwischen den Clavis zu grob
@@ -4481,12 +4632,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const mapId = st.world?.mapId || '';
     if (!seen.has(mapId)) seen.set(mapId, new Map());
     const seenHere = seen.get(mapId);
-    // Im Quest-Modus bestimmen die offenen Quest-Ziele, was gejagt wird (statt der Monsterliste);
+    // Im Autopilot bestimmen die offenen Quest-Ziele, was gejagt wird (statt der Monsterliste);
     // schwächere Monster sind dann erlaubt, nur zu starke (über + Level-Unterschied) bleiben tabu.
     // (sobald das Jagdziel erfüllt ist, sofort nichts Neues mehr angreifen)
     const quest = cfg.autopilot
       ? { species: (autopilot.task && !taskDone(st, autopilot.task)) || (group.role() === 'follower' && !autopilot.task) ? autopilot.huntSpecies : new Set(), open: [] }
-      : cfg.questMode ? questTargets(st, null) : null;
+      : null;
     const pLvl = me.partner?.level ?? 0;
     const farmSp = cfg.farm ? farmTargets(mapId) : null;
     const cardSp = cfg.farm && cfg.farmMode === 'cards' ? cardHuntSet(st, mapId) : null; // Kartenrotation (3.1.40)
@@ -4757,7 +4908,6 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const UNREACH_SERIES = 3, UNREACH_WINDOW_MS = 15000; // so viele „nicht erreichbar“ so schnell hintereinander = Standortproblem
   const TASK_BAN_MS = 5 * 60000;  // gescheiterte Aufgabe so lange überspringen
   const AP_BOSS_FAINTS = 2, AP_BOSS_FAINT_MS = 30 * 60000; // Quest-Boss so oft umgehauen -> Aufgabe so lange auslassen (3.1.30)
-  const HUNT_IDLE_MS = 90000;     // im Jagdgebiet so lange kein passendes Monster -> aufgeben
 
   const autopilot = {
     task: null, nav: null, failed: new Map(), huntSpecies: new Set(),
@@ -4795,6 +4945,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (m.type === 'state' && Number.isInteger(m.slot) && m.slot !== group.slot()) {
       const prev = group.peers.get(m.slot);
       group.peers.set(m.slot, { ...m, seen: Date.now() });
+      // Mitläufer folgt dem Leader (3.2.0): wechselt der Leader in den Dungeon-Modus oder heraus, zieht der laufende Bot mit
+      if (m.slot === accounts.leader && group.role() === 'follower' && bot.on && m.bot === true && !accounts.mirror && typeof m.mode === 'string' && (m.mode === 'dungeon') !== !!cfg.dungeon && !(cfg.dungeon && dg.inside)) {
+        const dgOn = m.mode === 'dungeon';
+        cfg.dungeon = dgOn; cfg.autopilot = !dgOn; cfg.farm = false; cfg.eventsOnly = false; cfg.foodBuy = false;
+        if (dgOn && !dg.inside) dg.reset();
+        autopilot.reset(); logEvent('bot', `Gruppe: Leader ${dgOn ? 'im Dungeon-Modus – folge in den Dungeon' : 'hat den Dungeon-Modus verlassen – folge wieder'}`);
+      }
       // Hat sich beim anderen Fenster etwas Wichtiges geändert: gleich einen Bot-Schritt machen, nicht auf den Takt warten
       if (bot.on && group.active() && (!prev || groupSig(prev) !== groupSig(m))) kickTick();
     }
@@ -4810,7 +4967,6 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // Fenster) sperrt, bis im Leader-Fenster von Hand auf Start geklickt wird
     if (m.type === 'stop') groupStopBot(m.scope === 'esc' ? 'Gruppe: Not-Aus (Esc) aus einem anderen Fenster' : m.scope === 'panic' ? 'Gruppe: Not-Aus aus einem anderen Fenster' : 'Gruppe: Stopp aus dem Leader-Fenster', m.scope!=='bot'&&m.scope!=='group');
     if (m.type === 'invite' && group.role() === 'leader') digibotCore.runPassive('Gruppe',20,()=>partyInviteNow()); // auch bei ausgeschaltetem Bot (Knopf im Mitläufer-Fenster)
-    if (m.type === 'maptalk') startMapTalk('Gruppe: Abgeben & Annehmen auf dieser Map (aus einem anderen Fenster)');
   }
   // Was ein anderes Fenster sofort wissen muss (Ziel, Aufgabe, Gespräche, Kampf, Map, Quests) – Position nicht
   const groupSig = (m) => JSON.stringify([m.targetId, m.task?.key, m.talks?.[m.talks.length - 1]?.key, m.busy, m.done?.[m.done.length - 1],
@@ -4849,7 +5005,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       task: tk ? { key: tk.key, kind: tk.kind, label: tk.label } : null,
       talks: group.role() === 'leader' ? group.talks : [], done: group.done.slice(-30), busy: group.cur, login: group.login.msg, fin,
       deferred: group.seen.slice(-30),
-      fight: inCombat(st), farm: !!cfg.farm,
+      fight: inCombat(st), farm: !!cfg.farm, mode: modeOf(), // mode (3.2.0): Mitläufer übernehmen die Betriebsart des Leaders
       partyId:st.party?.id||null,tamer:{skill:digibotTamer.skill,want:digibotTamer.want,last:digibotTamer.last,cooldown:digibotTamer.cooldown},
       objective: digibotObjective(st), reservation: digibotFormation.reservation,
       kohAt: kohReadyAt(st, now), davis: davisReady(st, now), davisAt: digibotTamer.davisAt || 0, kohMoreOff: !!kohState.moreOff, // 3.1.26
@@ -5385,17 +5541,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (!bot.on) { bot.status = 'Bot aus'; schedule(); }
   }
 
-  function startGroup() {
-    const st = getStore()?.getState?.();
-    if (!claimSlot(st)) return;
-    group.msg = 'Bots gestartet.';
-    if (!digibotCore.start(digibotManual)) return;
-    groupStartBot('Gruppe: Bots gestartet');
-    // mit manual-Flag wie toggle: hebt bei den Mitläufern Not-Aus und Wiedereinstiegs-Sperre auf (3.1.30)
-    groupPush(true);digibotSend({type:'start',manual:digibotManual===true});
-    groupTick();
-    schedule();
-  }
+  // Betriebsart des Leaders laut seiner letzten Gruppenmeldung ('auto' als Vorgabe, solange keine da ist)
+  const groupLeaderMode = (now = Date.now()) => { if (group.role() === 'leader') return modeOf(); const L = group.peers.get(accounts.leader); return (fresh(L, now) && L.mode) || 'auto'; };
   // 🔑 Alle einloggen: fehlende Fenster öffnen, überall den richtigen Account einloggen und den Charakter wählen
   function openGroupWindows() { // compatibility name: opens windows, never authenticates
     const st=getStore()?.getState?.(), now=Date.now(),c=claimSlot(st);if(!c)return;
@@ -5416,33 +5563,21 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   function groupStartNow(why) {
     reloadAcc();
-    const boss = group.role() === 'leader' && accounts.leadBoss && !accounts.mirror;
-    const dgOn = accounts.dungeon && !accounts.mirror; // Dungeon: alle Fenster im Dungeon-Modus
-    cfg.questMode = false; cfg.autopilot = !boss && !dgOn; cfg.farm = boss && !dgOn; cfg.dungeon = dgOn; cfg.foodBuy = false; cfg.eventsOnly = false; // „Nur Event/WB“ blockierte sonst den Tick (3.1.30)
-    if (dgOn && !dg.inside) dg.reset(); // wie toggle: einen laufenden Lauf (Raumstand, geschafft) behalten (3.1.30)
-    if (dgOn && digibotManual === true) dgExit.manualAt = Date.now(); // Leader-Start von Hand (3.1.20)
-    if (boss) cfg.farmMode = 'boss';
+    // Mitläufer (3.2.0): Betriebsart kommt vom Leader (seine Gruppenmeldung) – Dungeon: alle im Dungeon-Modus, sonst
+    // Autopilot (folgt ihm auch in Boss-Rotation, Grinden, Event). Der Leader behält, was oben eingestellt ist.
+    if (group.role() === 'follower') {
+      const dgOn = groupLeaderMode() === 'dungeon';
+      cfg.autopilot = !dgOn; cfg.farm = false; cfg.dungeon = dgOn; cfg.foodBuy = false; cfg.eventsOnly = false; // „Nur Event/WB“ blockierte sonst den Tick (3.1.30)
+      if (dgOn && !dg.inside) dg.reset(); // wie toggle: einen laufenden Lauf (Raumstand, geschafft) behalten (3.1.30)
+      if (dgOn && digibotManual === true) dgExit.manualAt = Date.now(); // Leader-Start von Hand (3.1.20)
+    }
     loadWorld();
     if (!bot.on) bot.toggle(true);
     logEvent('bot', why);
     schedule();
   }
-  // 📜 Abgeben & Annehmen: einmalige Runde nur mit Gesprächen auf der aktuellen Map (eigene Quests, keine Gruppen-Wartezeiten)
-  function startMapTalk(why) {
-    const st = getStore()?.getState?.();
-    if (st?.screen !== 'world' || !st.me?.partner || autopilot.mapTalk) return;
-    // Food und „Nur Event/WB“ mit sichern – danach weiter wie vorher (3.1.30)
-    autopilot.mapTalk = { mapId: st.world?.mapId, n: 0, prev: { autopilot: cfg.autopilot, farm: cfg.farm, questMode: cfg.questMode, dungeon: cfg.dungeon, foodBuy: cfg.foodBuy, eventsOnly: cfg.eventsOnly, on: bot.on } };
-    cfg.autopilot = true; cfg.farm = false; cfg.questMode = false; cfg.dungeon = false; cfg.foodBuy = false; cfg.eventsOnly = false;
-    bot.questIdle = false; // Event-Bereitschaft blockierte den Tick sonst vor autopilotStep; danach entscheidet er neu (3.1.30)
-    autopilot.reset();
-    loadWorld();
-    if (!bot.on) bot.toggle(true); // still: kein Start/Stopp an die ganze Gruppe
-    logEvent('auto', why);
-    schedule();
-  }
   // Betriebsart von vor der Runde – am Ende und beim Stopp mittendrin (digibotHalt) (3.1.30)
-  function mapTalkPrevCfg(mt) { return { autopilot: !!mt.prev.autopilot, farm: !!mt.prev.farm, questMode: !!mt.prev.questMode, dungeon: !!mt.prev.dungeon, foodBuy: !!mt.prev.foodBuy, eventsOnly: !!mt.prev.eventsOnly }; }
+  function mapTalkPrevCfg(mt) { return { autopilot: !!mt.prev.autopilot, farm: !!mt.prev.farm, dungeon: !!mt.prev.dungeon, foodBuy: !!mt.prev.foodBuy, eventsOnly: !!mt.prev.eventsOnly }; }
   function restoreMapTalkCfg(mt) { if (mt?.prev) Object.assign(cfg, mapTalkPrevCfg(mt)); }
   function endMapTalk() {
     const mt = autopilot.mapTalk;
@@ -5462,11 +5597,6 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     schedule();
   }
   const groupSend = (type,scope) => digibotSend({type,...scope?{scope}:{}});
-  function stopGroup() {
-    groupSend('stop','group');
-    groupStopBot('Gruppe gestoppt',false);
-    group.msg = 'Bots gestoppt.';
-  }
 
   function controlled(st) {
     const ents = window.dmo?.net?.state?.entities;
@@ -5763,15 +5893,18 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function digibotEvolutionSnapshot() {
     const st=window.dmo?.store?.getState?.(),p=st?.me?.partner;
     return {mode:cfg.autopilot?'autopilot':cfg.farm?'farm':cfg.dungeon?'dungeon':'other',
-      apMapEvo:!!cfg.apMapEvo,levelEvo:!!cfg.levelEvo,normalForm:cfg.levelEvoForm,darkForm:cfg.levelEvoDark,fixedForm:cfg.apEvo,
+      normalForm:cfg.levelEvoForm,darkForm:cfg.levelEvoDark,
       questPartner:digibotConfiguredPartner(st,'apQuestPartner')||autopilot.questHome,turninPartner:digibotConfiguredPartner(st,'apTurninPartner'),activePartner:activePartner(st)?.partnerId,apBatch:!!cfg.apBatch,batchPhase:autopilot.batchPhase,turninPartnerHeld:!!autopilot.turninPartnerHeld,
       species:p?.species,darkTower:lrDarkMap(st),tamerDs:st?.me?.tamerDs,tamerMaxDs:st?.me?.tamerMaxDs,
       options:(p?.evolutions||[]).slice(0,60).map(e=>({species:e.species,stage:e.stage,from:e.from,level:e.level,unlocked:e.unlocked,selected:e.selected,blocked:e.blocked,blockReason:e.blockReason,canEvolveNow:e.canEvolveNow,dsCost:e.dsCost,lock:e.lock}))};
   }
   const lrDarkMap = (st) => digibotTowerState(st,content());
+  // Digitation je Map (3.2.0): in jedem Modus dieselbe Regel – „Form ohne Dark Tower“ bzw. „Form mit Dark Tower“ aus dem
+  // Reiter Digimon; '' = bewusst keine Digitation (dann still).
   function lrEvolve(st, now) {
     const p = st?.me?.partner; if (!p) return true;
     let sp = lrDarkMap(st) ? cfg.levelEvoDark : cfg.levelEvoForm;
+    if (!sp) return true;
     if (sp === EVO_ARMOR) {sp = maxArmor(p);if(!sp)return digibotEvoReason(st,'keine freigeschaltete Armor-Form für das aktuelle Level gefunden');}
     else if (sp === EVO_MAX) { // aus einer Armor-Form (z. B. nach einer Dark-Tower-Map) von der Grundform aus suchen
       const root = (p.evolutions || []).find((e) => !e.from)?.species;
@@ -5809,17 +5942,17 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
 
 
-  // Autopilot uses precisely the same map-aware evolution resolver as the learning route.
-  function autopilotEvolution(st, now) {
-    if (cfg.autopilot && !cfg.farm && !cfg.dungeon && cfg.apMapEvo) {
-      return cfg.levelEvo ? lrEvolve(st, now) : digibotEvoReason(st,'Digitationsregeln übernommen, aber Lernrouten-Digitation ist ausgeschaltet');
-    }
-    const p=st?.me?.partner;let sp=cfg.apEvo;
-    if(sp && sp!==EVO_MAX && sp!==p?.species && !(p?.evolutions||[]).some(e=>e.species===sp)){
-      digibotEvoReason(st,`Zielform ${speciesName(sp)} gehört nicht zu diesem Partner – verwende dessen höchste Form`);
-      sp=EVO_MAX;
-    }
-    return ensureEvolution(st, sp, now);
+  // Autopilot, Bosse, Dungeon, Grinden: alle nutzen dieselbe Map-Regel (3.2.0)
+  function autopilotEvolution(st, now) { return lrEvolve(st, now); }
+  // Zielform für die aktuelle Map als Art (oder null): für die Dungeon-Herde und „Digitation steht noch aus“
+  function mapEvoTarget(st) {
+    const p = st?.me?.partner; if (!p) return null;
+    const sp = lrDarkMap(st) ? cfg.levelEvoDark : cfg.levelEvoForm;
+    if (!sp) return null;
+    if (sp === EVO_ARMOR) return maxArmor(p) || null;
+    if (sp === EVO_MAX) { const root = (p.evolutions || []).find((e) => !e.from)?.species; return maxEvolution(p) || (root ? maxEvolution({ ...p, species: root }) : null) || p.species; }
+    if (sp !== p.species && !(p.evolutions || []).some((e) => e.species === sp)) return lrDarkMap(st) ? maxArmor(p) || null : maxEvolution(p) || p.species;
+    return sp;
   }
 
   // Event/Weltboss (3.0.5): auch außerhalb des Autopiloten vor dem Kampf digitieren – beim Warten am Spawnpunkt und
@@ -5829,7 +5962,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (sc?.attackers?.length) return true;
     const p = st?.me?.partner; if (!p || p.evolving) return true;
     if (cfg.autopilot && !cfg.farm && !cfg.dungeon) return autopilotEvolution(st, now);
-    return ensureEvolution(st, cfg.apEvo || EVO_MAX, now);
+    return lrEvolve(st, now);
   }
 
   // IDs belong to one account. A missing saved partner means keep this account's active partner.
@@ -6811,7 +6944,6 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // - zusammengefasste Jagd: erledigte Teilziele fliegen raus (sonst jagt der Bot z. B. weiter Hagurumon, obwohl nur
   //   noch Guardromon das gesuchte Item fallen lässt)
   // - eine fertige Abgabe auf derselben Map wird zwischendurch erledigt (nicht in der Map-für-Map-Runde)
-  const HUNT_STALL_MS = 240000; // so lange darf eine Jagd ohne Fortschritt dauern
   function apRefresh(st, now) {
     const t = autopilot.task;
     // Grinden gedrosselt neu bewerten: Level-Up macht Jagden machbar, Sperren laufen ab – sonst grindete er bis zum Ziel-Level (3.1.30)
@@ -7395,7 +7527,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // auslassen; warned: „zu wenig Bits“ nur einmal je Sorte; walkStuck: Weg zum Händler blockiert (3.1.30)
   const FOOD_CONFIRM_MS = 3000, FOOD_BUY_TRIES = 2, FOOD_WALK_TRIES = 3;
   const food = { talkAt: 0, tries: 0, bought: [], done: false, home: null, homing: 0, pend: null, buyTries: {}, skip: new Set(), warned: new Set(), walkStuck: 0,
-    reset() { this.talkAt = 0; this.tries = 0; this.bought = []; this.done = false; this.home = null; this.homing = 0; this.pend = null; this.buyTries = {}; this.skip = new Set(); this.warned = new Set(); this.walkStuck = 0; } };
+    reset() { this.talkAt = 0; this.tries = 0; this.bought = []; this.done = false; this.home = null; this.homing = 0; this.pend = null; this.buyTries = {}; this.skip = new Set(); this.warned = new Set(); this.walkStuck = 0; this.auto = null; } };
   const itemCount = (me, id) => (me?.inventory || []).filter((i) => i?.itemId === id).reduce((a, i) => a + (i.qty || 0), 0);
   function foodWants(st) {
     const me = st?.me, C = content();
@@ -7404,13 +7536,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       .map((w) => ({ ...w, have: itemCount(me, w.id), price: Number(C?.items?.[w.id]?.price) || 0, name: C?.items?.[w.id]?.name || w.id }))
       .map((w) => ({ ...w, need: Math.max(0, w.want - w.have) }));
   }
-  function foodStep(st, now) {
-    const mapId = cfg.foodMap || FOOD_MAP, npcId = cfg.foodNpc || FOOD_NPC;
+  function foodStep(st, now, mapId = cfg.foodMap || FOOD_MAP, npcId = cfg.foodNpc || FOOD_NPC) {
     if (food.done) return true;
     if (!food.home) { const me0 = controlled(st); if (st.world?.mapId && me0) food.home = { mapId: st.world.mapId, x: me0.x, y: me0.y }; }
     if (food.homing) return foodReturn(st, now);
     const wants = foodWants(st);
-    if (!wants.length) { logEvent('warn', 'Food kaufen: keine Sorte eingestellt (Reiter Food)'); food.done = true; return true; }
+    if (!wants.length) { logEvent('warn', 'Food kaufen: keine Sorte eingestellt (Einstellungen → Food)'); food.done = true; return true; }
     if (!wants.some((w) => w.need > 0)) { // alles da (auch nach dem letzten Kauf): Shop/Dialog zu, fertig
       if (st.shop) commands()?.closeShop?.(); if (st.dialog) commands()?.closeDialog?.();
       logEvent('bot', `Food kaufen: ${food.bought.length ? `gekauft ${food.bought.join(', ')} – ` : ''}alles voll (${wants.map((w) => `${w.name} ${w.have}`).join(', ')})`); notify('Food gekauft.'); return foodReturn(st, now); }
@@ -7468,6 +7599,47 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (now - food.talkAt < FOOD_STEP_MS * 2) return 'Spreche den Händler an…';
     if (++food.tries > FOOD_GIVEUP) { logEvent('warn', 'Food kaufen: Händler antwortet nicht – abgebrochen'); food.done = true; return true; }
     food.talkAt = now; commands()?.talk?.(npcId); return `Spreche ${content()?.npcs?.[npcId]?.name || npcId} an…`;
+  }
+
+  // ---------- Food automatisch nachkaufen (3.2.0) ----------
+  // Sinkt eine eingestellte Sorte unter cfg.foodAutoMin Stück, schiebt der Bot einen Einkaufslauf ein (wie „Food kaufen“: hin,
+  // bis zur Zielmenge auffüllen, zurück zum Startpunkt) und macht danach mit der Betriebsart weiter. Nicht im Kampf, nicht
+  // im Dungeon/Raid und nicht, während ein Event/Weltboss ansteht. Einkaufs-Map: cfg.foodAutoMap ('' = Händler auf der
+  // aktuellen Map, sonst Dream Ruins).
+  const FOOD_AUTO_RETRY_MS = 15 * 60000; // Lauf ohne vollen Vorrat (Bits, Händler, Weg): so lange nicht neu versuchen
+  // Händler mit Food-Sortiment auf einer Map (aus den Kartendaten und content.npcs[..].shop)
+  function foodShopNpc(mapId) {
+    // nur Händler, die alle eingestellten Sorten führen – sonst liefe der Bot zu einem Händler mit anderem Sortiment
+    const C = content(), ids = [cfg.foodHp, cfg.foodDs, cfg.foodTamer].filter(Boolean);
+    const n = ids.length ? (world.maps[mapId]?.npcs || []).find((x) => { const have = new Set((C?.npcs?.[x.npcId]?.shop?.items || []).map((it) => it?.itemId || it)); return ids.every((id) => have.has(id)); }) : null;
+    return n?.npcId || (mapId === FOOD_MAP ? FOOD_NPC : null);
+  }
+  function foodAutoTarget(st) {
+    const fixed = cfg.foodAutoMap, cur = st?.world?.mapId;
+    if (fixed) return { mapId: fixed, npcId: foodShopNpc(fixed) || FOOD_NPC };
+    const here = cur && foodShopNpc(cur);
+    if (here) return { mapId: cur, npcId: here };
+    return { mapId: cfg.foodMap || FOOD_MAP, npcId: cfg.foodNpc || FOOD_NPC };
+  }
+  const foodLow = (st) => foodWants(st).filter((w) => w.want > 0 && w.have < Math.min(cfg.foodAutoMin, w.want));
+  function foodAutoStep(st, now) {
+    if (!cfg.foodAuto || cfg.foodBuy) { food.auto = null; return null; }
+    if (food.auto && inCombat(st) && !st.shop && !st.dialog) return null; // angegriffen: erst abwehren, danach weiter einkaufen
+    if (!food.auto) {
+      if ((food.autoBan || 0) > now || world.state !== 'ready' || inCombat(st) || dungeonLike(st) || bot.resting) return null;
+      // Mitläufer kaufen nicht selbst (sie würden die Gruppe verlassen) – sie folgen dem Leader, auch zu seinem Händler
+      if ((cfg.hunt && hunt.goal) || (cfg.wboss && wb.goal) || autopilot.mapTalk || group.role() === 'follower') return null;
+      const low = foodLow(st); if (!low.length) return null;
+      const tgt = foodAutoTarget(st);
+      food.reset(); food.auto = { ...tgt, at: now };
+      logEvent('bot', `Food nachkaufen: ${low.map((w) => `${w.name} ${w.have}`).join(', ')} unter ${cfg.foodAutoMin} – Einkauf in ${content()?.maps?.[tgt.mapId]?.name || tgt.mapId}`);
+    }
+    const r = foodStep(st, now, food.auto.mapId, food.auto.npcId);
+    if (r !== true) return r;
+    food.auto = null; autopilot.nav = null; autopilot.route = null;
+    if (foodLow(st).length) { food.autoBan = now + FOOD_AUTO_RETRY_MS; logEvent('warn', `Food nachkaufen: Vorrat noch knapp – nächster Versuch in ${FOOD_AUTO_RETRY_MS / 60000} min`); }
+    else logEvent('bot', 'Food nachkaufen fertig – weiter wie vorher');
+    return null;
   }
 
   // Nach erfolgreichem Kauf: zurück auf die Start-Map und zur Startposition, dann fertig (Nutzer 29.10., 3.1.29)
@@ -7566,29 +7738,6 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const HUNT_QUEST_PREP_MS = 30000; // During quest autopilot, keep working through the early warning.
   const HUNT_WP_NEAR = 60;          // so nah = Suchpunkt abgehakt
   const hunt = { info: null, skew: 0, polledAt: 0, busy: false, goal: null, visited: new Set(), wp: null, wpAt: 0, warnTs: 0, skipKey: null, stuckAt: 0, stuckMap: null, stuckSeen: 0 };
-  // Quest-Jagd: Ausgangslage vor der Reise zu Event/Weltboss – danach dorthin zurück, statt auf der Event-Map mit
-  // „Quest-Ziele erledigt“ zu stoppen (3.1.30)
-  const questBack = { home: null };
-  const QUEST_BACK_MS = 5 * 60000; // so lange höchstens zurückreisen, dann hier weiterjagen
-  function questReturn(st, sc, now) {
-    const h = questBack.home;
-    if (!h || !cfg.questMode || cfg.autopilot || (cfg.hunt && hunt.goal) || (cfg.wboss && wb.goal)) return null;
-    const where = content()?.maps?.[h.mapId]?.name || h.mapId;
-    const done = (msg, level = 'auto') => { logEvent(level, msg); questBack.home = null; autopilot.nav = null; return null; };
-    h.backAt ||= now;
-    if (now - h.backAt > QUEST_BACK_MS) return done(`Quest: Rückweg nach ${where} dauert zu lange – jage hier weiter`, 'warn');
-    if (st.world?.mapId !== h.mapId) {
-      wayRecall(st, sc, now); const tr = travel(st, h.mapId, now);
-      if (tr === 'Keine Route') return done(`Quest: kein Weg zurück nach ${where} – jage hier weiter`, 'warn');
-      if (tr !== true) return `Quest: zurück nach ${where} · ${tr}`;
-    }
-    const me = controlled(st), d = me ? Math.hypot(me.x - h.x, me.y - h.y) : 0;
-    if (d > FARM_ARRIVE) {
-      if (walkTo(st, h.x, h.y, now) === 'stuck') return done(`Quest: Jagd-Stelle in ${where} nicht erreichbar – jage hier weiter`, 'warn');
-      return `Quest: zurück zur Jagd-Stelle · ${Math.round(d)} px`;
-    }
-    return done(`Quest: zurück in ${where} – jage weiter`);
-  }
   const HUNT_STUCK_MS = 60000;      // Portal zur Event-Map so lange am Stück nicht erreichbar: Event auslassen (3.1.30)
   const EV_FIGHT_KEEP_MS = 60000;   // Vorlauf: laufenden Boss-Kampf erst beenden, solange der Start noch so weit weg ist (3.1.30)
   // Add oder Greifarm hat Vorrang (wie im Tick): den Event-/Weltboss dann nicht anwählen – sonst wechselte das Ziel im
@@ -8947,8 +9096,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     let bossUp = false, herdAlive = false;
     ents?.forEach?.((e) => { if (e.kind !== KIND.Mob || e.hp <= 0) return; if (e.defId === b.species && !(e.flags & (FLAG.Hidden | FLAG.Untargetable))) bossUp = true; if (e.defId === b.herd.species) { herdAlive = true; if (!H.seen.has(e.id)) { H.seen.add(e.id); H.lastSpawn = now; } } });
     const perWave = b.herd.perWave || 6, waves = b.herd.waves || 10;
-    const want = cfg.apEvo && cfg.apEvo !== EVO_MAX ? cfg.apEvo : null;
-    const target = want && (p.evolutions || []).some((e) => e.species === want) ? want : maxEvolution(p);
+    const target = mapEvoTarget(st) || maxEvolution(p);
     const lowerOf = (sp) => (p.evolutions || []).find((e) => e.species === sp)?.from;
     // 1) vor der Herde: eine Stufe zurück (nur aus der Zielform, nur wenn noch nichts gezogen und der Boss nicht da ist)
     if (!H.low) {
@@ -9076,7 +9224,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       }
       dg.fails++;
       // Standard (3.1.5): nach dem Rausfliegen nicht automatisch wieder hineinlaufen – Bot stoppt, die Gruppe startet über den Leader neu
-      if (!cfg.dgRetry) { logEvent('warn', 'Dungeon-Lauf gescheitert – Bot gestoppt (kein automatischer Neustart)'); notify('Dungeon-Lauf gescheitert – Bot gestoppt.'); bot.toggle(true); return 'Dungeon-Lauf gescheitert – Bot gestoppt'; }
+      if (!cfg.dgRetry) { logEvent('warn', 'Dungeon-Lauf gescheitert – Bot gestoppt (kein automatischer Neustart)'); notify('Dungeon-Lauf gescheitert – Bot gestoppt.', 'stop'); bot.toggle(true); return 'Dungeon-Lauf gescheitert – Bot gestoppt'; }
       logEvent('warn', `Dungeon-Lauf gescheitert (${dg.fails}/${DG_TRIES})`);
       if (dg.fails >= DG_TRIES) { bot.toggle(true); return `Dungeon ${DG_TRIES}× gescheitert – Bot gestoppt`; }
       dg.hud = null;
@@ -9085,7 +9233,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (!pick) return 'Kein Dungeon in den Spieldaten';
     if (dgReenterLocked(now)) { // 3.1.20
       logEvent('warn', 'Dungeon: aus dem Lauf geflogen – kein automatischer Wiedereinstieg (Start von Hand über den Leader)');
-      notify('Dungeon: rausgeflogen – Bot gestoppt.');
+      notify('Dungeon: rausgeflogen – Bot gestoppt.', 'stop');
       bot.toggle(true);
       return 'Rausgeflogen – Bot gestoppt (Neustart von Hand)';
     }
@@ -9111,7 +9259,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         if (dg.enterTries >= DG_ENTER_TRIES) {
           commands()?.closeRaidGate?.();
           logEvent('warn', `Dungeon: Spiel lässt nicht hinein (${group.role() === 'follower' && L?.mapId === pick.mapId ? 'Lauf des Leaders schon begonnen?' : 'Hard freigeschaltet? Party-Leader? Gruppengröße/Level?'}) – Bot gestoppt`);
-          notify('Dungeon: Spiel lässt nicht hinein – Bot gestoppt.');
+          notify('Dungeon: Spiel lässt nicht hinein – Bot gestoppt.', 'stop');
           bot.toggle(true);
           return 'Spiel lässt nicht hinein – Bot gestoppt';
         }
@@ -9139,10 +9287,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Eingestellte Digitation noch nicht erreicht (z. B. Abklingzeit)? Liefert den Namen der Zielform, sonst null.
   function dgEvoPending(st) {
     const p = st?.me?.partner;
-    let sp = cfg.apEvo;
+    const sp = mapEvoTarget(st);
     if (!sp || !p) return null;
     if (dg.herd.low && !dg.herd.back) return null; // Herden-Form gewollt (3.1.9)
-    if (sp === EVO_MAX) sp = maxEvolution(p);
     if (!sp || p.species === sp || autopilot.evoGiveUp === sp) return null;
     const t = (p.evolutions || []).find((e) => e.species === sp);
     return t && t.unlocked !== false ? speciesName(sp) : null;
@@ -9166,7 +9313,6 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Runde = vom ersten Angreifer, bis keiner mehr angreift. Anker = Startplatz des ersten (mobHome, ≈ Spawn – von dort misst
   // das Spiel die Leine). Weitere Monster nur, wenn sie in der Leine des ersten und jedes schon gesammelten stehen.
   const PULL_MARGIN = 60;            // Sicherheitsabstand zum Rand der Leine (px) – das Digimon steht beim Zuschlagen noch etwas weiter (3.1.49: 40 -> 60)
-  const PULL_DODGE_LEASH_MARGIN = 50; // Ausweichen während einer Runde: Fluchtpunkte bevorzugt so weit innerhalb der Leinen
   const PULL_MAX_MS = 12000;         // Notbremse: so lange nach dem ersten Treffer höchstens sammeln
   const PULL_BOSS_SOON_MS = 30000;   // Boss-Rotation: nicht sammeln, wenn ein Boss der Map so bald fällig ist
   const PULL_LEASH = 240;            // Leine, wenn die Spieldaten keine nennen
@@ -9238,7 +9384,6 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Pull-Modus beim Ausweichen (3.1.48): Steht das Ziel im Warnkreis und wartet der Bot draußen, spielt er schon das nächste
   // Monster an – nur eines außerhalb aller Warnkreise (mit Reserve), zu dem der gerade Weg durch keinen Kreis führt.
   // Die Runde darf hier auch beginnen (sonst begann sie nie, wenn schon zu Kampfbeginn ausgewichen wurde).
-  const PULL_DODGE_MARGIN = 16;
   function pullTagWhileDodging(st, zones, now) {
     if (!cfg.pull || group.role() === 'follower' || !zones.length || pull.done) return null;
     // nicht sammeln, wenn gerade nicht gekämpft werden soll (Abgabe, Abfahrt, Leader „nicht kämpfen“) – die Hauptschleife, die
@@ -9414,7 +9559,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Wechsel nur bei deutlich mehr EXP/min und frühestens nach LR_MIN_STAY_MS – sonst pendelt er.
   const LR_GAP_S = 1.3, LR_TOP_SHARE = 0.35, LR_SWITCH_GAIN = 1.15, LR_MIN_STAY_MS = 180000, LR_CALC_MS = 30000, LR_MAX_ABOVE = 12;
   const lr = { goal: null, since: 0, calcAt: 0, calcLv: 0, best: null, boss: null, scan: null };
-  const lrOn = () => cfg.levelRoute && !cfg.autopilot && !cfg.farm && !cfg.questMode && !cfg.dungeon;
+  const lrOn = () => cfg.levelRoute && !cfg.autopilot && !cfg.farm && !cfg.dungeon;
   // Zone am oder über der Level-Grenze: immer mindestens ihre untersten beiden Stufen erlauben (bzw. ihren ganzen niedrigsten
   // Level-Bereich, z. B. Lv 40–41), höchstens LR_MAX_ABOVE – sonst steht oft gerade keins im Suchradius (live: Lv 32 mit +8
   // nur Lv 40 erlaubt, Bot suchte lange)
@@ -9736,7 +9881,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // Bossen und Angreifern nie „zwischen den Kämpfen“ war). Im Kampf/unter Angriff nur den Befehl schicken, weiterkämpfen.
     // nur auf der Lern-Map bzw. der Map des Boss-Ziels – nicht auf Durchgangs-Maps zwischen Armor- und Normalform wechseln (3.1.30)
     const evoHere = st.world?.mapId === g.mapId || (lr.boss && lr.boss.b.map === st.world?.mapId);
-    if (cfg.levelEvo && evoHere) {
+    if (evoHere) {
       const ev = lrEvolve(st, now);
       if (ev !== true && !attackers.length && !fighting) return `Digitation: ${ev}`;
     }
@@ -9846,7 +9991,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function expPick(list) {
     if (!list.length) return null;
     const pLv = getStore()?.getState?.()?.me?.partner?.level;
-    if (!cfg.expPrio || !pLv || cfg.farm || cfg.dungeon || cfg.questMode || (cfg.autopilot && !autopilot.task?.grind)) return list[0];
+    if (!cfg.expPrio || !pLv || cfg.farm || cfg.dungeon || (cfg.autopilot && !autopilot.task?.grind)) return list[0];
     let best = null, bt = Infinity;
     for (const m of list) { const t = expTier((m.level ?? pLv) - pLv); if (t < bt || (t === bt && (m.pd ?? m.d) < (best.pd ?? best.d))) { best = m; bt = t; } }
     return best;
@@ -9869,18 +10014,29 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     } catch { return null; }
   }
 
-  // Kurzer Hinweiston + Statuszeile, z. B. wenn der Quest-Modus fertig ist
-  function notify(text) {
-    try {
+  // Kurzer Hinweiston + Konsole. kind (3.2.0, Reiter Einstellungen → Warnungen): 'done' Aufgabe fertig, 'stop' Bot stoppt
+  // (Fehler, Kontrolle, Verbindung, Stopp-Bedingung), 'faint' bewusstlos, 'warn' Warnung – jedes Ereignis abschaltbar
+  const SOUND_HZ = { done: 880, stop: 440, faint: 330, warn: 660 };
+  function notify(text, kind = 'done') {
+    if (cfg.soundOn && cfg.sounds?.[kind] !== false) try {
       const ac = new (window.AudioContext || window.webkitAudioContext)();
       const o = ac.createOscillator(), g = ac.createGain();
-      o.frequency.value = 880; g.gain.value = 0.08;
+      o.frequency.value = SOUND_HZ[kind] || 880; g.gain.value = 0.08;
       o.connect(g); g.connect(ac.destination); o.start(); o.stop(ac.currentTime + 0.25);
       o.onended = () => ac.close();
     } catch {}
     console.info('[DigiBot]', text);
   }
 
+  // Stopp-Bedingungen (3.2.0): Level erreicht, Laufzeit, Bewusstlosigkeiten in dieser Sitzung, Bits unter Grenze. 0 = aus.
+  function autoStopReason(st, now) {
+    const p = st?.me?.partner, me = st?.me;
+    if (cfg.stopLevel > 0 && (p?.level ?? 0) >= cfg.stopLevel) return `Stopp-Bedingung: Level ${cfg.stopLevel} erreicht`;
+    if (cfg.stopAfterMin > 0 && bot.startedAt && now - bot.startedAt >= cfg.stopAfterMin * 60000) return `Stopp-Bedingung: ${cfg.stopAfterMin} min gelaufen`;
+    if (cfg.stopFaints > 0 && sess.faints >= cfg.stopFaints) return `Stopp-Bedingung: ${sess.faints}× bewusstlos in dieser Sitzung`;
+    if (cfg.stopBits > 0 && Number.isFinite(me?.bits) && me.bits < cfg.stopBits) return `Stopp-Bedingung: Bits unter ${fmt(cfg.stopBits)}`;
+    return null;
+  }
   const TICK_MS = 250;
   const QUEST_IDLE_RECHECK_MS = 10 * 60000; // Event-Bereitschaft: so oft prüfen, ob wieder Quests machbar sind (3.1.30)
   // Normale Monster, die gleich fallen, nicht mit Skills erschlagen (spart DS und DS-Tränke): Rest-HP höchstens so viele
@@ -9893,7 +10049,6 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Lern-Route unterwegs: Angreifer, die so viel stärker sind, nicht bekämpfen – zurückrufen und weiter (nach einem
   // Digimon-Wechsel stand ein Lv-43-Digimon zwischen Golemon Lv 70+ und wollte sie besiegen)
   const LR_FLEE_ABOVE = 15;
-  const POT_COOLDOWN_MS = 2000;  // gleichen Trank höchstens alle 2 s drücken
   // Geteilter Treffer (share: % der Max-HP des Ziels, auf alle im Kreis verteilt – allein nach den Spieldaten ⅓ von
   // 240 % = 80 %): wird gerade einer angesagt, vorher mit F1 auf SHARE_TOPUP % auffüllen
   const SHARE_TOPUP = 95;
@@ -10000,10 +10155,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     toggle(quiet = false) { // quiet: Start/Stopp nicht an die ganze Gruppe melden
       if(digibotAccountQueue.active&&!digibotQueueLaunching){digibotCore.stop('Quest-Runde manuell gestoppt',true);return;}
       const starting = !this.on;
-      this.questIdle=false;questBack.home=null; // alte Jagd-Stelle nicht in einen neuen Lauf mitnehmen (3.1.30)
+      this.questIdle=false;
       if (starting && !digibotCore.start(digibotManual)) return;
       if (!starting) digibotCore.stop('Bot gestoppt', false);
       this.on = starting;
+      if (starting && !digibotChallengeResume) this.startedAt = Date.now(); // Weiterlaufen nach der Kontrolle zählt nicht neu
       if (starting) { digibotNotice?.remove(); digibotNotice=null; }
       clearInterval(this.timer);
       this.attackedId = null;
@@ -10022,7 +10178,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (this.on) loadWorld(); // Kartendaten (Portale, Zonen, Schutzzonen) für alle Modi
       if (this.on) this.timer = setInterval(() => this.tick(), TICK_MS);
       this.status = this.on ? 'Bot läuft' : 'Bot aus';
-      logEvent('bot', this.on ? `Bot gestartet${cfg.farm ? (cfg.farmMode === 'cards' ? ' (Kartenrotation)' : ' (Boss-Rotation)') : cfg.autopilot ? ' (Quest-Autopilot)' : cfg.questMode ? ' (Quest-Modus)' : ''}` : 'Bot gestoppt');
+      logEvent('bot', this.on ? `Bot gestartet${cfg.farm ? (cfg.farmMode === 'cards' ? ' (Kartenrotation)' : ' (Boss-Rotation)') : cfg.autopilot ? ' (Quest-Autopilot)' : ''}` : 'Bot gestoppt');
       // Food kaufen betrifft nur dieses Fenster: sonst liefen die Mitläufer im Autopilot los und das stille Food-Ende stoppte sie nie (3.1.30)
       if (group.role() === 'leader' && !quiet && !(this.on && cfg.foodBuy)) {if(this.on)groupPush(true);if(this.on)digibotSend({type:'start',manual:digibotManual===true});else groupSend('stop','bot');}
       schedule();
@@ -10033,9 +10189,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const st = getStore()?.getState?.();
       const now = Date.now();
       digibotResetContext(st);
-      if(!cfg.autopilot&&!cfg.questMode)this.questIdle=false; // Quest-Jagd: Event-Bereitschaft halten (3.1.30)
+      if(!cfg.autopilot)this.questIdle=false;
       const me = st?.me, p = me?.partner, t = st?.target;
       if (!p || st.screen !== 'world') { this.status = 'Warte auf Spielwelt…'; return; }
+      const autoStop = digibotAccountQueue.active ? null : autoStopReason(st, now); // Stopp-Bedingungen (3.2.0, Reiter Einstellungen → Warnungen & Stopp)
+      if (autoStop) { this.toggle(); this.status = `${autoStop} – Bot gestoppt`; logEvent('bot', this.status); notify(autoStop, 'stop'); return; }
       // Das Spiel meldet „ui“-Fokus schon, wenn nur ein Dialog-Knopf fokussiert ist. Pausiert wird nur beim Tippen
       // (Chat); sonst bekommt das Spiel den Fokus zurück, damit Tasten wieder ankommen.
       if (st.inputFocus && st.inputFocus !== 'game') {
@@ -10046,7 +10204,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         }
       }
       if (p.fainted) {
-        if (this.status !== 'Digimon ist bewusstlos') logEvent('warn', 'Digimon ist bewusstlos – Bot pausiert');
+        if (this.status !== 'Digimon ist bewusstlos') { logEvent('warn', 'Digimon ist bewusstlos – Bot pausiert'); notify('Digimon ist bewusstlos.', 'faint'); }
         pullReset(); // gesammelte Runde ist vorbei
         // Lern-Route: im Kampf mit einem Feldboss umgehauen -> diesen Boss eine Weile auslassen (keine Level-Grenze, aber
         // aus Erfahrung lernen)
@@ -10135,6 +10293,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (dg) { this.status = dg; this.attackedId = null; return; }
       // Food kaufen (3.1.8): reisen, kaufen, stoppen – kein Kampf
       if (cfg.foodBuy) { if (group.role() === 'leader') group.noFight = false; /* altes „nicht kämpfen“ nicht weitersenden (3.1.30) */ const fsx = foodStep(st, now); this.status = fsx === true ? 'Food fertig – Bot gestoppt' : `Food: ${fsx}`; if (fsx === true) bot.toggle(true); return; }
+      const fax = foodAutoStep(st, now); // Food automatisch nachkaufen (3.2.0) – Einkaufslauf einschieben, danach weiter
+      if (fax) { if (group.role() === 'leader') group.noFight = true; this.status = `Food nachkaufen: ${fax}`; this.attackedId = null; return; }
       // Heilen vor Klinge/Seitenregel und vor dem Gruppen-/Autopilot-Zweig: beide kehren mit Status zurück (Umstellen, Klinge
       // holen), Mitläufer („Gruppe: bei …“) ebenso – sonst wurde dabei nie geheilt (3.1.0/3.1.30). Beide drücken nur Skills.
       skillCare(st, now); // Skill-Planer (3.1.43): Heal, Gruppen-Heal, Cleanse, Dauer-Buffs und Gruppen-Support (auch außerhalb des Kampfes)
@@ -10172,11 +10332,6 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         const wv = !huntOn ? wbStep(st, sc, now) : null;
         const wbOn = !huntOn && !!(cfg.wboss && wb.goal);
         if ((huntOn || wbOn) && lr.boss) { lr.boss = null; lr.chainAt = 0; }
-        // Quest-Jagd: vor der Reise zur Event-/Weltboss-Map die Jagd-Stelle merken (3.1.30)
-        if ((hv || wv) && cfg.questMode && !cfg.autopilot && !questBack.home && st.world?.mapId !== (huntOn ? hunt.goal.mapId : wb.goal?.b?.map)) {
-          const me0 = controlled(st);
-          if (me0) questBack.home = { mapId: st.world?.mapId, x: me0.x, y: me0.y, backAt: 0 };
-        }
         // Leader: ein altes „nicht kämpfen“ (Abgabe-Weg) nicht über Reise/Suche/Warten weitersenden (3.1.30)
         if ((hv || wv || hunt.selAt === now) && group.role() === 'leader') group.noFight = false;
         if (hv) { this.status = `Event: ${hv}`; this.attackedId = null; return; }
@@ -10322,15 +10477,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           // Event/Weltboss (3.0.5): in jedem Modus – auch Grinden und „Nur Event/WB“ – und auch, wenn der Autopilot gerade
           // keine Jagd-Aufgabe hat (das Event setzt sie zurück: vorher kämpfte er beim Event in der Grundform)
           const eventEvo = (huntNow || (cfg.hunt && hunt.goal) || (cfg.wboss && wb.goal) || cfg.eventsOnly) && questMon && !cfg.dungeon;
-          if (!attackers.length && (eventEvo || farmEvo || (cfg.dungeon && questMon && !dgHerdLow()) || (!cfg.farm && cfg.autopilot && (folIdle || (at?.kind === 'hunt' && st.world?.mapId === at.loc.mapId && questMon))))) {
+          // Grinden (3.2.0): dieselbe Map-Regel wie überall – die Lern-Route hat auf dem Weg schon abgebrochen, hier steht der Bot auf seiner Map
+          const grindEvo = !cfg.farm && !cfg.autopilot && !cfg.dungeon && !cfg.foodBuy && !this.resting; // jedes aktive Digimon, nicht nur das Quest-Digimon
+          if (!attackers.length && (eventEvo || farmEvo || grindEvo || (cfg.dungeon && questMon && !dgHerdLow()) || (!cfg.farm && cfg.autopilot && (folIdle || (at?.kind === 'hunt' && st.world?.mapId === at.loc.mapId && questMon))))) {
             const ev = eventEvo ? digibotEventEvolve(st, sc, now) : farmEvo && cfg.farmMode === 'cards' ? cardEvolution(st, now) : autopilotEvolution(st, now);
-            if (ev !== true) { this.status = `${eventEvo ? 'Event/Weltboss' : cfg.farm ? 'Bosse' : cfg.dungeon ? 'Dungeon' : 'Autopilot'}: ${ev}`; return; }
+            if (ev !== true) { this.status = `${eventEvo ? 'Event/Weltboss' : cfg.farm ? 'Bosse' : cfg.dungeon ? 'Dungeon' : cfg.autopilot ? 'Autopilot' : 'Digitation'}: ${ev}`; return; }
           }
           // Direkt das beste Ziel anvisieren
           // Mitläufer: vor dem nächsten Kampf prüfen, ob ein Gespräch nachzumachen oder aufzuholen ist
           const folBusy = group.role() === 'follower' && autopilot.task && PASSIVE(autopilot.task) && !taskDone(st, autopilot.task);
           const next = noFight || folBusy ? null : pickTarget(sc, this.resting);
-          let questRet = null;
           if (next) {
             if (this.can('select', SELECT_GAP_MS, now)) { this.lastPress.select = now; scene.select(next.id); kickTick(); } // gleich angreifen, nicht erst im nächsten Takt
             this.status = pull.on && !next.attacker ? `Sammle ${pull.count + 1}/${cfg.pullMax}: ${speciesName(next.species)}`
@@ -10356,25 +10512,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
               logEvent('auto', `${why[0].toUpperCase()}${why.slice(1)} – Bot gestoppt`);
               notify('Autopilot fertig.');
             } else this.status = `Autopilot: ${noFight && attackers.length ? 'ignoriere Kämpfe · ' : ''}${s}`;
-          } else if (!cfg.autopilot && questBack.home && (questRet = questReturn(st, sc, now))) {
-            this.status = questRet; // Quest-Jagd nach Event/Weltboss: zurück zur Jagd-Stelle (3.1.30)
-          } else if (!cfg.autopilot && sc.quest && !sc.quest.open.length && !attackers.length) {
-            // Quest-Modus: alle jagbaren Ziele auf dieser Map erledigt -> fertig; mit 🎯/🌍 auf Events warten (3.1.30)
-            if (this.waitForEvents('Quest-Ziele auf dieser Map erledigt')) return;
-            this.toggle();
-            this.status = 'Quest-Ziele auf dieser Map erledigt – Bot gestoppt';
-            logEvent('bot', 'Quest-Ziele auf dieser Map erledigt – Bot gestoppt');
-            notify('Quest-Ziele auf dieser Map erledigt.');
           } else {
-            const names = sc.quest ? [...sc.quest.species].map((sp) => content()?.digimon?.[sp]?.name || sp).join(', ') : '';
-            // Quest-Jagd: sichtbares Quest-Monster, das der Bot nicht angreifen darf – den Grund nennen (3.1.30)
-            const qm = !cfg.autopilot && sc.quest ? sc.mobs.find((m) => sc.quest.species.has(m.species) && !m.taken && !m.banned) : null;
-            const qWhy = !qm ? '' : !qm.inLvl ? ` – ${content()?.digimon?.[qm.species]?.name || qm.species} zu stark (Lv ${qm.level} > ${p.level + lvlLimit(sc.mapId)})`
-              : qm.reach === false ? ` – ${content()?.digimon?.[qm.species]?.name || qm.species} unerreichbar`
-              : (qm.pd ?? qm.d) > cfg.radius && !qm.mapBoss && qm.cat !== 'boss' ? ` – außerhalb des Radius (${Math.round(qm.pd ?? qm.d)} px > ${cfg.radius} px)` : '';
             this.status = this.resting
               ? `Ruhe: keine HP-Tränke – warte auf 100 % HP (${hpPct.toFixed(0)} %)`
-              : sc.quest ? `Warte auf Quest-Monster: ${names}${qWhy}`
               : `Kein passendes Monster im Radius (${cfg.radius} px) – warte…`;
           }
           return;
@@ -10556,6 +10696,24 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
 
   // ---------- Panel ----------
   let panel, getStore;
+  // Abfrage-Cache (3.2.0): render() fragt alle 250 ms Dutzende fester Panel-Elemente ab – jede Abfrage lief über das ganze
+  // Panel. Gemerkt wird das gefundene Element, solange es noch im Panel hängt und zum Selektor passt (sonst neu suchen).
+  const panelQCache = new Map(), panelQACache = new Map();
+  function panelQ(sel) {
+    const el = panelQCache.get(sel);
+    if (el && el.isConnected && panel.contains(el) && el.matches(sel)) return el;
+    const n = panel.querySelector(sel);
+    if (n) panelQCache.set(sel, n); else panelQCache.delete(sel);
+    return n;
+  }
+  // nur für feste Elementgruppen (Knöpfe, Bereiche), nicht für Listen, die neu aufgebaut werden
+  function panelQA(sel) {
+    const list = panelQACache.get(sel);
+    if (list && list.every((e) => e.isConnected) && (!list.length || panel.contains(list[0]))) return list;
+    const n = [...panel.querySelectorAll(sel)];
+    panelQACache.set(sel, n);
+    return n;
+  }
 
   function render() {
     digibotQueueRender();
@@ -10565,7 +10723,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const p = me?.partner;
     const t = st?.target;
 
-    panel.querySelector('[data-f="partner"]').textContent =
+    panelQ('[data-f="partner"]').textContent =
       p ? `Digimon · ${p.name ?? p.species ?? ''}${p.level ? ' · Lv ' + p.level : ''}` : 'Digimon';
     setBar(panel, 'hp', p?.hp, p?.maxHp, 25);
     setBar(panel, 'ds', p?.ds, p?.maxDs);
@@ -10575,16 +10733,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     exp.update(p, now);
     if (cfg.expMess) {
       hookBossEvents(); expmTick(st, now);
-      const ec = panel.querySelector('[data-f="expmcount"]'), et = `(${expm.data?.length || 0} Kills, ${Object.keys(expm.levels || {}).length} Level)`;
+      const ec = panelQ('[data-f="expmcount"]'), et = `(${expm.data?.length || 0} Kills, ${Object.keys(expm.levels || {}).length} Level)`;
       if (ec && ec.textContent !== et) ec.textContent = et;
     }
     const rate = exp.perMinute(now);
-    panel.querySelector('[data-f="rate"]').textContent = rate > 0 ? fmt(rate) : '–';
+    panelQ('[data-f="rate"]').textContent = rate > 0 ? fmt(rate) : '–';
     bitsRate.update(me?.bits, now);
     const brate = bitsRate.perMinute(now);
-    panel.querySelector('[data-f="bitrate"]').textContent = brate > 0 ? fmt(brate) : '–';
+    panelQ('[data-f="bitrate"]').textContent = brate > 0 ? fmt(brate) : '–';
     // Tooltip: Hochrechnung pro Stunde (aus dem gleitenden 5-Minuten-Schnitt) und Sitzungswerte
-    const tip = (k, text) => panel.querySelectorAll(`[data-tip="${k}"]`).forEach((el) => { if (el.title !== text) el.title = text; });
+    const tip = (k, text) => panelQA(`[data-tip="${k}"]`).forEach((el) => { if (el.title !== text) el.title = text; });
     const sessMin = exp.last ? (now - exp.start) / 60000 : 0;
     tip('rate', rate > 0
       ? `EXP pro Stunde: ≈ ${fmt(rate * 60)}\nEXP in 10 min: ≈ ${fmt(rate * 10)}\nEXP pro Minute: ${fmt(rate)} (Schnitt der letzten 5 min)\n`
@@ -10596,30 +10754,30 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       ? `Bits pro Stunde: ≈ ${fmt(brate * 60)}\nBits in 10 min: ≈ ${fmt(brate * 10)}\nBits pro Minute: ${fmt(brate)} (Schnitt der letzten 5 min)\n`
         + `Diese Sitzung: ${fmt(bitsRate.total)} Bits in ${fmtDur(now - bitsRate.start)}${bMin >= 1 ? ` (Ø ${fmt(bitsRate.total / bMin * 60)} / Std.)` : ''}`
       : 'Noch keine Bits-Messung – erscheint nach den ersten Einnahmen.');
-    panel.querySelector('[data-f="eta"]').textContent =
+    panelQ('[data-f="eta"]').textContent =
       rate > 0 && p ? fmtDur(((p.expNext - p.exp) / rate) * 60000) : '–';
     // Nächste Map: Restzeit bis zum Level, ab dem ihre niedrigsten Monster in der Grenze liegen (bei der aktuellen EXP/min)
-    const nm = nextMapInfo(st), nmEl = panel.querySelector('[data-f="nextmap"]');
+    const nm = nextMapInfo(st), nmEl = panelQ('[data-f="nextmap"]');
     const nmTxt = !nm ? '–' : nm.level == null ? `${nm.name} – Wechsel nicht in Sicht` : nm.need <= 0 ? `${nm.name} – jetzt (ab Lv ${nm.level})` : `${nm.name} ab Lv ${nm.level} · ${rate > 0 ? 'noch ' + fmtDur(nm.need / rate * 60000) : 'noch keine EXP-Messung'}`;
     if (nmEl && nmEl.textContent !== nmTxt) nmEl.textContent = nmTxt;
     tip('nextmap', nm ? `Die Lern-Route wechselt, sobald ${nm.name} mindestens ${Math.round((LR_SWITCH_GAIN - 1) * 100)} % mehr EXP/min bringt als ${nm.curName} (Grinden + Feldbosse der Rotation)\n`
       + (nm.level == null ? 'In den nächsten 30 Level nicht.' : `Bei Lv ${nm.level}: ~${fmt(nm.rn)} gegenüber ~${fmt(nm.rc)} EXP/min (geschätzt)\n`)
       + (nm.need > 0 ? `Noch ${fmt(nm.need)} EXP${rate > 0 ? ` · bei ${fmt(rate)} EXP/min (Schnitt der letzten 5 min) ≈ ${fmtDur(nm.need / rate * 60000)}` : ''}` : 'Level erreicht')
       : 'Keine nächste Map gefunden (Stadt oder letzte Map der Serie).');
-    panel.querySelector('[data-f="sess"]').textContent =
+    panelQ('[data-f="sess"]').textContent =
       exp.last ? `${fmt(exp.total)} (${fmtDur(now - exp.start)})` : '–';
 
     setBar(panel, 'tds', me?.tamerDs, me?.tamerMaxDs);
 
-    const mtg = panel.querySelector('[data-bar="mtg"]');
+    const mtg = panelQ('[data-bar="mtg"]');
     if (mtg) { const tn = t ? `Ziel: ${t.name ?? '?'}${t.level ? ' · Lv ' + t.level : ''}${t.boss ? ' · BOSS' : ''}` : 'Kein Ziel'; if (mtg.title !== tn) mtg.title = tn; }
-    panel.querySelector('[data-f="kills"]').textContent = fmt(sess.kills);
-    panel.querySelector('[data-f="sturn"]').textContent = fmt(sess.turnins);
-    panel.querySelector('[data-f="sfaint"]').textContent = fmt(sess.faints);
+    panelQ('[data-f="kills"]').textContent = fmt(sess.kills);
+    panelQ('[data-f="sturn"]').textContent = fmt(sess.turnins);
+    panelQ('[data-f="sfaint"]').textContent = fmt(sess.faints);
 
     const sc = scan(st);
-    drawRadar(panel.querySelector('.digibot__radar'), sc, t?.id);
-    panel.querySelector('[data-f="radar"]').textContent = sc
+    drawRadar(panelQ('.digibot__radar'), sc, t?.id);
+    panelQ('[data-f="radar"]').textContent = sc
       ? `Radar · ${sc.mobs.length} Monster · ${sc.mobs.filter(usable).length} passend im Radius`
       : 'Radar';
     renderMobList(st, sc);
@@ -10633,15 +10791,15 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     watchGame(st);
     renderLog();
 
-    const run = panel.querySelector('[data-act="bot"]');
+    const run = panelQ('[data-act="bot"]');
     run.classList.toggle('on', bot.on);
     const mode = modeOf();
     run.textContent = `${bot.on ? '■ Stopp' : '▶ Start'} · ${mode === 'farm' ? (cfg.farmMode === 'named' ? 'Named-Elite-Runde' : cfg.farmMode === 'cards' ? 'Kartenrotation' : 'Boss-Rotation') : MODES[mode]}`;
     if(digibotAccountQueue.active)run.textContent='■ Quest-Runde stoppen';
-    panel.querySelectorAll('[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
-    panel.querySelector('[data-act="hunt"]')?.classList.toggle('on', !!cfg.hunt);
-    panel.querySelector('[data-act="wboss"]')?.classList.toggle('on', !!cfg.wboss);
-    const stEl = panel.querySelector('[data-f="status"]');
+    panelQA('[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
+    panelQ('[data-act="hunt"]')?.classList.toggle('on', !!cfg.hunt);
+    panelQ('[data-act="wboss"]')?.classList.toggle('on', !!cfg.wboss);
+    const stEl = panelQ('[data-f="status"]');
     stEl.textContent = bot.status;
     if (stEl.title !== bot.status) stEl.title = bot.status;
     setBar(panel, 'mhp', p?.hp, p?.maxHp, 25);
@@ -10650,13 +10808,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
 
     for (const f of [1, 2, 3]) {
       const n = potionCount(me, f);
-      const el = panel.querySelector(`[data-cnt="${f}"]`);
+      const el = panelQ(`[data-cnt="${f}"]`);
       el.textContent = n == null ? '· kein Item' : `· ${n} Stk`;
       el.classList.toggle('empty', !n);
     }
 
     for (const k of SKILL_KEYS) {
-      const row = panel.querySelector(`[data-skill="${k}"]`);
+      const row = panelQ(`[data-skill="${k}"]`);
       const s = skillOnKey(st, k);
       row.classList.toggle('off', !s);
       row.querySelector('span').textContent = s ? s.skill.name : 'kein Skill';
@@ -10674,7 +10832,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         if (hs.title !== tt) hs.title = tt;
       }
     }
-    const sf = panel.querySelector('[data-f="skillsfor"]');
+    const sf = panelQ('[data-f="skillsfor"]');
     const sfT = p?.species ? `· ${speciesName(p.species)}` : '';
     if (sf && sf.textContent !== sfT) { sf.textContent = sfT; sf.title = 'Haken und Rollen gelten nur für diese Digitationsform'; }
     // alte Heil-Einstellung (vor 2.12, für alle Formen) einmalig der aktuellen Form zuordnen
@@ -10695,14 +10853,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // sonst werden nur Anzahl/Markierungen aktualisiert (damit Klicks auf die Checkboxen nicht verloren gehen).
   let mobListSig = '';
   function renderMobList(st, sc) {
-    const box = panel.querySelector('[data-f="mobs"]');
-    if (!panel.querySelector('[data-page="attack"]').classList.contains('on')) return;
+    const box = panelQ('[data-f="mobs"]');
+    if (!panelQ('[data-page="attack"]').classList.contains('on')) return;
     const mapId = st?.world?.mapId;
     const pLvl = st?.me?.partner?.level ?? 0;
     const rows = mapMonsters(st, sc);
-    panel.querySelector('[data-f="mapname"]').textContent =
-      `Monster · ${st?.world?.mapName || worldScene()?.deps?.content?.maps?.[mapId]?.name || mapId || '?'}` +
-      (cfg.questMode ? ' (Quest-Modus aktiv)' : '');
+    panelQ('[data-f="mapname"]').textContent =
+      `Monster · ${st?.world?.mapName || worldScene()?.deps?.content?.maps?.[mapId]?.name || mapId || '?'}`;
     const lvTxt = (r) => (!isFinite(r.lo) ? 'Lv ?' : r.lo === r.hi ? `Lv ${r.lo}` : `Lv ${r.lo}–${r.hi}`);
     const out = (r) => isFinite(r.lo) && r.lo > pLvl + cfg.lvlDiff;
     const sig = `${mapId}|${pLvl}|${cfg.lvlDiff}|${rows.map((r) => `${r.key}:${r.lo}-${r.hi}`).join(',')}`;
@@ -10734,14 +10891,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const hhmmss = (d) => d.toLocaleTimeString('de-DE');
   function renderLog() {
     digibotRenderHistory();
-    if (!panel.querySelector('[data-page="log"]').classList.contains('on') || logShown === logSig) return;
+    if (!panelQ('[data-page="log"]').classList.contains('on') || logShown === logSig) return;
     logShown = logSig;
     const esc = (x) => String(x).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
     const fk = LOG_FILTERS[cfg.logFilter] ? cfg.logFilter : 'all';
-    panel.querySelectorAll('[data-logf]').forEach((b) => b.classList.toggle('on', b.dataset.logf === fk));
+    panelQA('[data-logf]').forEach((b) => b.classList.toggle('on', b.dataset.logf === fk));
     const list = logbook.filter(LOG_FILTERS[fk]);
-    panel.querySelector('[data-f="logcount"]').textContent = fk === 'all' ? `· ${logbook.length}` : `· ${list.length} von ${logbook.length}`;
-    panel.querySelector('[data-f="log"]').innerHTML = list.length
+    panelQ('[data-f="logcount"]').textContent = fk === 'all' ? `· ${logbook.length}` : `· ${list.length} von ${logbook.length}`;
+    panelQ('[data-f="log"]').innerHTML = list.length
       ? list.slice().reverse().map((e) => `<div style="--c:${LOG_COLORS[e.type] || '#888'}"><time>${hhmmss(e.t)}</time>` +
         `<span>${esc(e.text)}${e.n > 1 ? ` <b>×${e.n}</b>` : ''}</span></div>`).join('')
       : `<div class="digibot__none">${logbook.length ? 'Keine Einträge in diesem Filter.' : 'Noch keine Einträge.'}</div>`;
@@ -10763,13 +10920,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Autopilot-Einstellungen: Auswahllisten für Start-Map, Team und Digitation füllen
   const selSig = {};
   function fillSelect(key, options) {
-    const el = panel.querySelector(`[data-apsel="${key}"]`);
+    const el = panelQ(`[data-apsel="${key}"]`);
     if (!el) return;
     const val = cfg[key] ?? '';
     if (val && !options.some((o) => o[0] === val)) {
-      options.push([val, key === 'apEvo' ? `${speciesName(val)} (wird beim Quest-Digimon angewendet)`
-        : /^levelEvo/.test(key) ? `${speciesName(val)} (anderes Digimon)`
-        : key === 'apStartMap' ? (content()?.maps?.[val]?.name || val) : '(gespeichert, gerade nicht im Team)']);
+      options.push([val, /^levelEvo/.test(key) ? `${speciesName(val)} (anderes Digimon)`
+        : key === 'apStartMap' || key === 'foodAutoMap' || key === 'eventsIdleMap' ? (content()?.maps?.[val]?.name || val) : '(gespeichert, gerade nicht im Team)']);
     }
     const sig = JSON.stringify(options) + '|' + val;
     if (selSig[key] === sig || panel.ownerDocument.activeElement === el) return;
@@ -10779,21 +10935,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     el.value = val;
   }
   function renderApConfig(st) {
-    const order = panel.querySelector('[data-apsel="apOrder"]');
+    const order = panelQ('[data-apsel="apOrder"]');
     if (order && panel.ownerDocument.activeElement !== order) order.value = cfg.apOrder;
-    const dir = panel.querySelector('[data-apsel="apSweepDir"]');
+    const dir = panelQ('[data-apsel="apSweepDir"]');
     if (dir && panel.ownerDocument.activeElement !== dir) dir.value = cfg.apSweepDir === 'up' ? 'up' : 'down';
-    panel.querySelectorAll('[data-sweeponly]').forEach((el) => el.classList.toggle('hide', cfg.apOrder !== 'sweep'));
+    panelQA('[data-sweeponly]').forEach((el) => el.classList.toggle('hide', cfg.apOrder !== 'sweep'));
     const team = teamOf(st);
     const teamOpts = team.map((p) => [p.partnerId, partnerLabel(p) + (p.active ? ' (aktiv)' : '')]);
     fillSelect('apQuestPartner', [['', 'aktuelles behalten'], ...teamOpts]);
     fillSelect('apTurninPartner', [['', 'wie Quest-Digimon'], ...teamOpts]);
-    const act = activePartner(st);
-    const evoFor = !digibotQuestPartner(st) || act?.partnerId === digibotQuestPartner(st);
-    const evos = evoFor ? (st?.me?.partner?.evolutions || []).filter((e) => !e.isCurrent || e.species !== st.me.partner.species) : [];
-    fillSelect('apEvo', [['', 'keine Digitation'], [EVO_MAX, '⬆ höchstmögliche Digitation'], ...evos.map((e) => [e.species,
-      `${speciesName(e.species)} (${e.stage}, ab Lv ${e.level}${e.unlocked === false ? ', gesperrt' : ''})`])]);
-    // Lern-Route: Formen des aktiven Digimons
+    // Digitation je Map: Formen des aktiven Digimons
     const allEvos = (st?.me?.partner?.evolutions || []).map((e) => [e.species, `${speciesName(e.species)} (${e.stage}, ab Lv ${e.level}${e.unlocked === false ? ', gesperrt' : ''})`]);
     fillSelect('levelEvoForm', [['', 'keine Digitation'], [EVO_MAX, '⬆ höchstmögliche Digitation'], [EVO_ARMOR, '🛡 höchste Armor-Form'], ...allEvos]);
     fillSelect('levelEvoDark', [['', 'keine Digitation'], [EVO_ARMOR, '🛡 höchste Armor-Form'], [EVO_MAX, '⬆ höchstmögliche Digitation'], ...allEvos]);
@@ -10801,6 +10952,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       ? [['', cfg.apSweepDir === 'up' ? 'niedrigste erreichbare' : 'höchste erreichbare'], ...sweepList().map((m) => [m.id,
         `${seriesTag(m.series)} · ${m.name} (${m.levelRange?.join('–')})${hops(st?.world?.mapId, m.id) === Infinity ? ' – nicht erreichbar' : ''}`])]
       : [['', 'Weltkarte lädt…']]);
+    fillSelect('foodAutoMap', world.state === 'ready'
+      ? [['', 'aktuelle Map (sonst Dream Ruins)'], ...Object.entries(content()?.maps || {}).map(([id, m]) => ({ id, name: m?.name || id })).filter((m) => world.maps[m.id] && !isRaidMap(m.id) && foodShopNpc(m.id))
+        .sort((a, b) => a.name.localeCompare(b.name)).map((m) => [m.id, `${m.name} · ${content()?.npcs?.[foodShopNpc(m.id)]?.name || foodShopNpc(m.id)}`])]
+      : [['', 'aktuelle Map (sonst Dream Ruins)']]);
     fillSelect('eventsIdleMap', world.state === 'ready'
       ? [['', 'stehen bleiben'], ...Object.values(content()?.maps || {}).filter((m) => world.maps[m.id] && !isRaidMap(m.id) && !/^sandbox/.test(m.id) && mapWalkable(st, m.id))
         .sort((a, b) => a.name.localeCompare(b.name)).map((m) => [m.id, `${m.name}${hops(st?.world?.mapId, m.id) === Infinity ? ' – nicht erreichbar' : ''}`])]
@@ -10827,7 +10982,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Reiter "Quests": aktive Quests mit Zielen und Fortschritt
   let questSig = '';
   function renderBossSkills(st) {
-    const box = panel.querySelector('[data-f="bskills"]');
+    const box = panelQ('[data-f="bskills"]');
     const boss = currentBoss(st);
     if (!boss) { box.innerHTML = '<div class="digibot__none">Kein Boss im Kampf – Attacken erscheinen hier, sobald du einen Boss anvisierst.</div>'; return; }
     const esc = (v) => String(v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -10845,23 +11000,23 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }).join('') : '<div class="digibot__none">Keine Attacken in den Spieldaten.</div>');
   }
 
-  const pageOn = (p) => !!panel.querySelector(`[data-page="${p}"]`)?.classList.contains('on');
+  const pageOn = (p) => !!panelQ(`[data-page="${p}"]`)?.classList.contains('on');
   // Bereiche, die im aktuellen Modus nicht gelten, abblenden (z. B. Autopilot-Optionen in der Boss-Rotation)
-  const MODE_NAMES = { grind: 'Grinden', quest: 'Quest-Jagd', auto: 'Autopilot', farm: 'Bosse', dungeon: 'Dungeon', events: 'Nur Event/Weltboss' };
+  const MODE_NAMES = { grind: 'Grinden', auto: 'Autopilot', farm: 'Bosse', dungeon: 'Dungeon', events: 'Nur Event/Weltboss', food: 'Food kaufen' };
   function syncModeScope() {
     const m = modeOf();
     for (const k of ['dgMode', 'foodHp', 'foodDs', 'foodTamer']) { // feste Selects: angezeigten Wert an cfg angleichen (Neuladen, andere Fenster)
-      const el = panel.querySelector(`[data-apsel="${k}"]`), v = cfg[k] ?? '';
+      const el = panelQ(`[data-apsel="${k}"]`), v = cfg[k] ?? '';
       if (el && panel.ownerDocument.activeElement !== el && el.value !== v) el.value = v;
     }
-    panel.querySelectorAll('[data-dgmode]').forEach((el) => { const off = !el.dataset.dgmode.split(' ').includes(cfg.dgMode); if (el.classList.contains('hide') !== off) el.classList.toggle('hide', off); });
-    panel.querySelectorAll('[data-modes]').forEach((el) => {
+    panelQA('[data-dgmode]').forEach((el) => { const off = !el.dataset.dgmode.split(' ').includes(cfg.dgMode); if (el.classList.contains('hide') !== off) el.classList.toggle('hide', off); });
+    panelQA('[data-modes]').forEach((el) => {
       const modes = el.dataset.modes.split(' '), off = !modes.includes(m);
       if (el.classList.contains('is-off') !== off) el.classList.toggle('is-off', off);
       const note = `· gilt nur im Modus ${modes.map((x) => MODE_NAMES[x] || x).join(' / ')}`;
       if (el.dataset.offnote !== note) el.dataset.offnote = note;
     });
-    const prof = panel.querySelector('[data-f="prof"]'), txt = '🌐 Einstellungen für alle Accounts';
+    const prof = panelQ('[data-f="prof"]'), txt = '🌐 Einstellungen für alle Accounts';
     if (prof && prof.textContent !== txt) prof.textContent = txt;
   }
   let farmPickSig = '';
@@ -10870,7 +11025,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (pageOn('attack')) renderBossSkills(st); // Boss-Attacken stehen im Kampf-Reiter
     if (!pageOn('farm')) return;
     const mode = cfg.farmMode === 'named' || cfg.farmMode === 'cards' ? cfg.farmMode : 'boss';
-    panel.querySelectorAll('[data-farmmode]').forEach((el) => el.classList.toggle('hide', el.dataset.farmmode !== mode));
+    panelQA('[data-farmmode]').forEach((el) => el.classList.toggle('hide', el.dataset.farmmode !== mode));
     fillSelect('farmMode', [['boss', 'Boss-Rotation (ausgewählte Bosse)'], ['named', 'Named-Elite-Runde (Map für Map)'], ['cards', 'Kartenrotation (Karten farmen)']]);
     if (mode === 'cards') renderCards(st);
     const rm = routeMaps().map((r) => [r.id, `${r.name} (${r.range.join('–')}) · ${r.boss.name}`]);
@@ -10878,7 +11033,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     fillSelect('routeEnd', [['', 'höchste'], ...rm]);
     if (mode === 'named') {
       const list = routeList(), R = farm.route;
-      panel.querySelector('[data-f="routeinfo"]').textContent = !list.length ? 'Keine Maps mit Named Elite gewählt.'
+      panelQ('[data-f="routeinfo"]').textContent = !list.length ? 'Keine Maps mit Named Elite gewählt.'
         : `Runde: ${list.length} Maps · ${list[0].name} → ${list[list.length - 1].name}`
           + (bot.on && cfg.farm && R ? ` · jetzt ${R.i + 1}/${list.length} ${list[R.i]?.name || ''}${R.back ? ' (zurück per Digi-Phone)' : ''}` : '');
     }
@@ -10888,7 +11043,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (sig !== farmPickSig) {
       farmPickSig = sig;
       const on = new Set(cfg.farmBosses || []);
-      panel.querySelector('[data-f="bosspick"]').innerHTML = all.length ? all.map((b) => `
+      panelQ('[data-f="bosspick"]').innerHTML = all.length ? all.map((b) => `
         <label data-q="${esc(`${b.name} ${b.mapName}`.toLowerCase())}"><input type="checkbox" data-farmboss="${esc(b.id)}" ${on.has(b.id) ? 'checked' : ''}>
           <span title="${esc(b.mapName)}">${esc(b.name)} · ${esc(b.mapName)}</span><em>Lv ${b.level} · ${Math.round(b.respawnMs / 60000)} min</em></label>`).join('')
         : '<div class="digibot__none">warte auf Spielwelt…</div>';
@@ -10896,7 +11051,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     const now = Date.now(), sel = farmSelected(), chs = farmChannels();
     const curMap = st?.world?.mapId, curCh = st?.world?.channel ?? 1;
-    panel.querySelector('[data-f="timers"]').innerHTML = sel.length ? sel.map((b) => {
+    panelQ('[data-f="timers"]').innerHTML = sel.length ? sel.map((b) => {
       const goal = cfg.farm && bot.on && (cfg.farmMode === 'named'
         ? farm.route?.map === b.map
         : farm.goal && farm.goal.map === b.map && farm.goal.index === b.index);
@@ -10921,7 +11076,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const rows = defs.map((d, i) => ({ d, i, have: cardHave(st, d), eta: cardEtaMs(st, d) })).sort((a, b) => pos(a.d) - pos(b.d) || a.i - b.i);
     const picked = rows.filter((r) => sel.includes(r.d.id) && r.have < r.d.limit);
     const tot = picked.reduce((n, r) => n + (isFinite(r.eta) ? r.eta : 0), 0), stuck = picked.filter((r) => !isFinite(r.eta)).length;
-    const eta = panel.querySelector('[data-f="cardeta"]');
+    const eta = panelQ('[data-f="cardeta"]');
     const etaTxt = !defs.length ? 'Keine Trainingskarten in den Spieldaten.' : !sel.length ? 'Keine Karten ausgewählt.'
       : !picked.length ? 'Alle ausgewählten Karten sind voll.'
       : `noch ca. ${fmtCardDur(tot)} für ${picked.length} Karte${picked.length > 1 ? 'n' : ''}${stuck ? ` · ${stuck} gerade nicht farmbar` : ''}`;
@@ -10929,7 +11084,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const sig = rows.map((r) => `${r.d.id}:${r.have}:${isFinite(r.eta) ? Math.round(r.eta / 60000) : 'x'}`).join(',') + '|' + sel.join(',') + '|' + [...nm].join(',');
     if (sig === cardPickSig) return;
     cardPickSig = sig;
-    const box = panel.querySelector('[data-f="cardpick"]');
+    const box = panelQ('[data-f="cardpick"]');
     if (!box) return;
     box.innerHTML = rows.length ? rows.map(({ d, have, eta: ms }) => {
       const on = sel.includes(d.id), src = cardField(st, d) || d.sources[0];
@@ -10947,14 +11102,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     filterCardPick();
   }
   function filterCardPick() {
-    const q = (panel.querySelector('[data-cardsearch]')?.value || '').trim().toLowerCase();
+    const q = (panelQ('[data-cardsearch]')?.value || '').trim().toLowerCase();
     panel.querySelectorAll('[data-f="cardpick"] [data-cardrow]').forEach((l) => l.classList.toggle('hide', !!q && !l.dataset.q.includes(q)));
   }
 
   // Suchfeld über der Boss-Liste: Einträge ausblenden, deren Boss-/Map-Name den Suchtext nicht enthält
   function filterBossPick() {
-    const q = (panel.querySelector('[data-bosssearch]')?.value || '').trim().toLowerCase();
-    const box = panel.querySelector('[data-f="bosspick"]');
+    const q = (panelQ('[data-bosssearch]')?.value || '').trim().toLowerCase();
+    const box = panelQ('[data-f="bosspick"]');
     let shown = 0;
     box.querySelectorAll('label[data-q]').forEach((l) => { const hit = !q || l.dataset.q.includes(q); l.classList.toggle('hide', !hit); if (hit) shown++; });
     let none = box.querySelector('.digibot__nohit');
@@ -10963,10 +11118,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
 
   function renderQuests(st, sc) {
-    if ((pageOn('mon') || pageOn('attack')) && !pageOn('quest')) { renderApConfig(st); return; } // Partner/Digitation (Digimon), Lern-Route-Formen (Kampf)
+    if ((pageOn('mon') || pageOn('set')) && !pageOn('quest')) { renderApConfig(st); return; } // Partner/Digitation je Map (Digimon), Einkaufs-Map (Einstellungen)
     if (!pageOn('quest')) return;
     renderApConfig(st);
-    const ap = panel.querySelector('[data-f="apinfo"]');
+    const ap = panelQ('[data-f="apinfo"]');
     ap.classList.toggle('on', cfg.autopilot);
     if (cfg.autopilot) {
       const t = autopilot.task;
@@ -10974,15 +11129,15 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         : t ? `${autopilot.sweepAt ? `Runde: ${content()?.maps?.[autopilot.sweepAt]?.name} · ` : ''}Aufgabe: ${t.label}` : bot.on ? 'Plane nächste Aufgabe…' : `Bereit – Weltkarte mit ${Object.keys(world.maps).length} Maps geladen. Bot starten.`;
     }
     const list = questList(st, sc);
-    const qt = cfg.questMode ? sc?.quest : questTargets(st, sc);
-    const sum = panel.querySelector('[data-f="qsum"]');
-    sum.textContent = !qt || (!cfg.questMode && !cfg.autopilot) ? '' : qt.open.length
+    const qt = questTargets(st, sc);
+    const sum = panelQ('[data-f="qsum"]');
+    sum.textContent = !qt || !cfg.autopilot ? '' : qt.open.length
       ? `Hier offen: ${qt.open.map((o) => `${o.label.replace(/^(Besiege|Sammle) /, '')} ${o.cur}/${o.need}`).join(' · ')}`
-      : 'Auf dieser Map ist für die Quest-Jagd nichts mehr zu jagen.';
+      : 'Auf dieser Map ist für die aktiven Quests nichts mehr zu jagen.';
     const sig = JSON.stringify(list.map((q) => [q.id, q.state, q.on, q.objectives.map((o) => [o.cur, o.here])])) + st?.world?.mapId;
     if (sig === questSig) return;
     questSig = sig;
-    const box = panel.querySelector('[data-f="quests"]');
+    const box = panelQ('[data-f="quests"]');
     if (!list.length) { box.innerHTML = '<div class="digibot__none">Keine aktiven Quests.</div>'; return; }
     const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     // nach Serie getrennt: Adventure und Adventure 02 – die Serie der aktuellen Map zuerst
@@ -11023,18 +11178,18 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       </div>`).join('');
   }
   function renderAccounts(st) {
-    if (!panel.querySelector('[data-page="acc"]').classList.contains('on')) return;
+    if (!panelQ('[data-page="acc"]').classList.contains('on')) return;
     const now = Date.now(), C = content();
     accounts.list.forEach((a, i) => {
       for (const k of ['user']) { // von einem anderen Fenster gespeichert -> übernehmen (nicht das Feld, in dem getippt wird)
-        const el = panel.querySelector(`[data-acc="${i}"][data-k="${k}"]`);
+        const el = panelQ(`[data-acc="${i}"][data-k="${k}"]`);
         if (el && el !== document.activeElement && el.value !== a[k]) el.value = a[k];
       }
-      const cb = panel.querySelector(`[data-acc="${i}"][data-k="on"]`); if (cb && cb.checked !== !!a.on) cb.checked = !!a.on;
-      const rb = panel.querySelector(`[data-accleader="${i}"]`); if (rb && rb.checked !== (accounts.leader === i)) rb.checked = accounts.leader === i;
+      const cb = panelQ(`[data-acc="${i}"][data-k="on"]`); if (cb && cb.checked !== !!a.on) cb.checked = !!a.on;
+      const rb = panelQ(`[data-accleader="${i}"]`); if (rb && rb.checked !== (accounts.leader === i)) rb.checked = accounts.leader === i;
       const self = group.active() && group.slot() === i;
       const p = self ? groupState(st, now) : fresh(group.peers.get(i), now) ? group.peers.get(i) : null;
-      const info = panel.querySelector(`[data-accinfo="${i}"]`);
+      const info = panelQ(`[data-accinfo="${i}"]`);
       let text;
       if (p) {
         const where = p.inWorld ? `${C?.maps?.[p.mapId]?.name || p.mapId} Ch${p.channel}` : (p.login || 'nicht in der Welt');
@@ -11043,7 +11198,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (info.textContent !== text) { info.textContent = text; info.title = text; }
       info.classList.toggle('on', !!p);
     });
-    const sel = panel.querySelector('[data-accslot]');
+    const sel = panelQ('[data-accslot]');
     if (sel && sel !== document.activeElement) {
       accounts.list.forEach((a, i) => { const o = sel.options[i + 1], t = `Account ${i + 1}${a.user ? ` (${a.user})` : ''}`; if (o && o.textContent !== t) o.textContent = t; });
       const v = group.active() ? String(group.slot()) : '';
@@ -11053,7 +11208,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const slotUser = group.active() ? accounts.list[group.slot()]?.user?.trim() : '';
     const loggedIn = String(st?.session?.username || '');
     const wrong = !!slotUser && !!loggedIn && loggedIn.toLowerCase() !== slotUser.toLowerCase();
-    const gi = panel.querySelector('[data-f="grpinfo"]');
+    const gi = panelQ('[data-f="grpinfo"]');
     const text = group.active()
       ? `Dieses Fenster: Account ${group.slot() + 1} · ${group.role() === 'leader' ? 'Leader' : 'folgt dem Leader'}${wrong ? ` · ⚠ hier ist ${loggedIn} eingeloggt, nicht ${slotUser} – oben den richtigen Account wählen` : ''}${group.login.msg ? ` · ${group.login.msg}` : ''}${group.msg ? ` · ${group.msg}` : ''}`
       : `Dieses Fenster ist in keiner Gruppe.${group.msg ? ` · ${group.msg}` : ''}`;
@@ -11063,15 +11218,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   // Gruppe: Modus-Schalter und eine Karte pro Mitglied (Name, Rolle, Ort, HP, Status, Quest-Abgleich mit dem Leader)
   function renderGroupCards(st, now) {
-    const mode = !accounts.mirror ? (accounts.dungeon ? 'dungeon' : accounts.leadBoss ? 'boss' : 'bots') : accounts.mirrorAtk ? 'both' : 'move';
-    const spr = panel.querySelector('[data-accspread]'); if (spr && spr !== document.activeElement) spr.checked = !!accounts.spread;
-    // Verteilen wirkt nur, wenn alle ihren Bot fahren (Modus Quests) – beim Spiegeln, in Bosse und Dungeon nicht: sichtbar machen
-    const sprOff = mode !== 'bots', sprNote = panel.querySelector('[data-f="spreadoff"]');
+    const mode = !accounts.mirror ? 'follow' : accounts.mirrorAtk ? 'both' : 'move';
+    const spr = panelQ('[data-accspread]'); if (spr && spr !== document.activeElement) spr.checked = !!accounts.spread;
+    // Verteilen wirkt nur, wenn alle ihren Bot fahren (Folgen) und der Leader nicht Bosse rotiert: sichtbar machen
+    const sprOff = mode !== 'follow' || cfg.farm, sprNote = panelQ('[data-f="spreadoff"]');
     if (spr) spr.closest('label').style.opacity = sprOff ? '.5' : '';
-    if (sprNote && sprNote.textContent !== (sprOff ? ' · gilt nur im Modus 📜 Quests' : '')) sprNote.textContent = sprOff ? ' · gilt nur im Modus 📜 Quests' : '';
-    const srv = panel.querySelector('[data-accserve]'); if (srv && srv !== document.activeElement) srv.checked = !!accounts.serve;
-    panel.querySelectorAll('[data-gmode]').forEach((b) => b.classList.toggle('on', b.dataset.gmode === mode));
-    const box = panel.querySelector('[data-f="gcards"]');
+    const sprTxt = mode !== 'follow' ? ' · gilt nur beim Folgen' : cfg.farm ? ' · nicht in der Boss-Rotation' : '';
+    if (sprNote && sprNote.textContent !== sprTxt) sprNote.textContent = sprTxt;
+    const srv = panelQ('[data-accserve]'); if (srv && srv !== document.activeElement) srv.checked = !!accounts.serve;
+    panelQA('[data-gmode]').forEach((b) => b.classList.toggle('on', b.dataset.gmode === mode));
+    const box = panelQ('[data-f="gcards"]');
     const C = content(), esc = (x) => String(x ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     const stateOf = (i) => (group.active() && group.slot() === i ? groupState(st, now) : fresh(group.peers.get(i), now) ? group.peers.get(i) : null);
     const L = stateOf(accounts.leader);
@@ -11100,7 +11256,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Übersicht „Lage“: Modus, Ort, Ziel, Aufgabe; in der Gruppe eine Zeile je Bot
   function renderLage(st, now) {
     if (!pageOn('data')) return;
-    const box = panel.querySelector('[data-f="lage"]');
+    const box = panelQ('[data-f="lage"]');
     if (!box) return;
     const C = content(), esc = (x) => String(x ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     const mapName = (id) => C?.maps?.[id]?.name || id || '?';
@@ -11133,7 +11289,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Kopfbereich: Gruppen-Chip und aktuelle Aufgabe mit Fortschritt
   function renderTop(st) {
     const now = Date.now();
-    const chip = panel.querySelector('[data-f="gchip"]');
+    const chip = panelQ('[data-f="gchip"]');
     let ct = '';
     if (group.active()) {
       const on = accounts.list.map((a, i) => i).filter((i) => accounts.list[i].on && accounts.list[i].user.trim());
@@ -11142,7 +11298,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     if (chip.textContent !== ct) chip.textContent = ct;
     chip.classList.toggle('on', !!ct);
-    const box = panel.querySelector('[data-f="task"]'), at = autopilot.task;
+    const box = panelQ('[data-f="task"]'), at = autopilot.task;
     let tl = '', prog = null;
     if (bot.on && cfg.autopilot && !cfg.farm && at && st?.me) {
       tl = at.label;
@@ -11160,7 +11316,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Übersicht: aktuelle Aufgabe und die nächsten Schritte (alle 2 s neu berechnet)
   const queueCache = { at: 0, html: '' };
   function renderQueue(st) {
-    if (!panel.querySelector('[data-page="data"]').classList.contains('on')) return;
+    if (!panelQ('[data-page="data"]').classList.contains('on')) return;
     const now = Date.now();
     if (now - queueCache.at < 2000) return;
     queueCache.at = now;
@@ -11178,19 +11334,27 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     const html = rows.length ? rows.map((r, i) => `<div${r.cur ? ' class="cur"' : ''}><b>${r.cur ? '▶' : i + (rows[0]?.cur ? 0 : 1)}</b><span title="${esc(r.text)}">${esc(r.text)}</span></div>`).join('')
       : '<div class="digibot__none">Nur im Modus Autopilot.</div>';
-    if (html !== queueCache.html) { queueCache.html = html; panel.querySelector('[data-f="queue"]').innerHTML = html; }
+    if (html !== queueCache.html) { queueCache.html = html; panelQ('[data-f="queue"]').innerHTML = html; }
   }
 
   function setTab(tab) {
     cfg.tab = tab; saveCfg();
     panel.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
     panel.querySelectorAll('[data-page]').forEach((p) => p.classList.toggle('on', p.dataset.page === tab));
+    setSubTab(cfg.stab);
     mobListSig = '';
     questSig = '';
     logShown = -1;
     schedule();
   }
 
+  // Unterreiter unter „Einstellungen“ (3.2.0)
+  function setSubTab(stab) {
+    const k = SUB_TABS.some(([x]) => x === stab) ? stab : 'food';
+    if (cfg.stab !== k) { cfg.stab = k; saveCfg(); }
+    panel.querySelectorAll('[data-stab]').forEach((b) => b.classList.toggle('on', b.dataset.stab === k));
+    panel.querySelectorAll('[data-spage]').forEach((el) => el.classList.toggle('on', el.dataset.spage === k));
+  }
   function setAllMobs(on) {
     const st = getStore()?.getState?.();
     const mapId = st?.world?.mapId;
@@ -11234,16 +11398,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (dpip.window) { dpip.window.close(); return; }
     const win = await dpip.requestWindow({ width: 290, height: 640 });
     const style = win.document.createElement('style');
-    style.textContent = CSS + `body{margin:0;background:#0e1220}
+    style.textContent = CSS + `body{margin:0;background:${cfg.style?.bg || '#0e1220'}}
       .digibot{position:static;width:auto;border:0;border-radius:0;box-shadow:none}
       .digibot__head{cursor:default}`;
     win.document.head.append(style);
     win.document.title = 'DigiBot';
     win.document.body.append(panel);
-    panel.querySelector('[data-act="pip"]').title = 'Zurück ins Spiel';
+    panelQ('[data-act="pip"]').title = 'Zurück ins Spiel';
     win.addEventListener('pagehide', () => {
       document.body.append(panel);
-      panel.querySelector('[data-act="pip"]').title = 'In eigenes Fenster (immer im Vordergrund)';
+      panelQ('[data-act="pip"]').title = 'In eigenes Fenster (immer im Vordergrund)';
       schedule();
     });
     schedule();
@@ -11264,7 +11428,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (pos) { panel.style.left = pos.l; panel.style.top = pos.t; panel.style.right = 'auto'; }
     } catch {}
     document.body.append(panel);
-    if (cfg.min) { panel.classList.add('is-min'); panel.querySelector('[data-act="min"]').textContent = '+'; } // bleibt nach Neuladen eingeklappt
+    if (cfg.min) { panel.classList.add('is-min'); panelQ('[data-act="min"]').textContent = '+'; } // bleibt nach Neuladen eingeklappt
     if (cfg.compact) panel.classList.add('is-compact');
     if (cfg.width >= 300) panel.style.width = cfg.width + 'px';
     try { // Breite (am rechten unteren Rand ziehbar) merken
@@ -11276,8 +11440,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       }).observe(panel);
     } catch { /* ignore */ }
 
-    makeDraggable(panel, panel.querySelector('.digibot__head'));
-    setTab(['data', 'mon', 'attack', 'quest', 'farm', 'food', 'acc', 'log'].includes(cfg.tab) ? cfg.tab : 'data');
+    makeDraggable(panel, panelQ('.digibot__head'));
+    setTab(['data', 'mon', 'attack', 'quest', 'farm', 'acc', 'set', 'log'].includes(cfg.tab) ? cfg.tab : 'data');
+    applyStyle();
     // Tippen in die Account-Felder nicht ans Spiel weitergeben (sonst laufen/greifen Tasten im Spiel)
     for (const ev of ['keydown', 'keyup', 'keypress']) {
       panel.addEventListener(ev, (e) => { if (e.target.matches?.('input[type="text"],input[type="password"]')) e.stopPropagation(); });
@@ -11292,7 +11457,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     panel.addEventListener('click', digibotUserIntent((e) => {
       const act = e.target.closest('[data-act]')?.dataset.act;
       if(digibotAccountQueue.active && ((act||'').startsWith('grp-')||e.target.closest('[data-gmode]')))return;
-      if (act === 'min') { cfg.min = panel.classList.toggle('is-min'); saveCfg(); panel.querySelector('[data-act="min"]').textContent = cfg.min ? '+' : '–'; }
+      if (act === 'min') { cfg.min = panel.classList.toggle('is-min'); saveCfg(); panelQ('[data-act="min"]').textContent = cfg.min ? '+' : '–'; }
       if (act === 'pip') popOut();
       if (act === 'reset') {
         exp.reset(); bitsRate.last = null; bitsRate.gains = []; bitsRate.total = 0; sess.kills = 0; sess.turnins = 0; sess.faints = 0;
@@ -11301,13 +11466,22 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         schedule();
       }
       if (act === 'mobexp-reset') { mobExpReset(); mobExp.at = 0; schedule(); }
+      const stab = e.target.closest?.('[data-stab]')?.dataset.stab;
+      if (stab) { setSubTab(stab); saveCfg(); schedule(); }
+      const sp = e.target.closest?.('[data-stylepreset]')?.dataset.stylepreset;
+      if (sp && STYLE_PRESETS[sp]) { cfg.style = { ...STYLE_PRESETS[sp].c }; cfg.stylePreset = sp; saveCfg(); applyStyle(); }
+      if (act === 'sound-test') { const on = cfg.soundOn, sd = cfg.sounds; cfg.soundOn = true; cfg.sounds = { ...sd, done: true }; notify('Testton', 'done'); cfg.soundOn = on; cfg.sounds = sd; }
+      if (act === 'dodge-reset') {
+        for (const k of DODGE_KEYS) cfg[k] = CFG_DEFAULTS[k];
+        saveCfg(); syncCfgInputs(); logEvent('bot', 'Ausweichen: Standardwerte wiederhergestellt');
+      }
       const mv = e.target.closest?.('[data-cardmove]');
       if (mv) { // Kartenrotation: Reihenfolge der ausgewählten Karten (3.1.40)
         const id = mv.closest('[data-cardrow]')?.dataset.cardrow, list = [...(cfg.cardSel || [])], i = list.indexOf(id), j = i + (mv.dataset.cardmove === 'up' ? -1 : 1);
         if (i >= 0 && j >= 0 && j < list.length) { [list[i], list[j]] = [list[j], list[i]]; cfg.cardSel = list; saveCfg(); farm.reset(); cardPickSig = ''; schedule(); }
       }
       if (act === 'compact') { cfg.compact = panel.classList.toggle('is-compact'); saveCfg(); }
-      if (act === 'more') { const on = panel.querySelector('[data-f="menu"]').classList.toggle('on'); e.target.closest('[data-act]').classList.toggle('on', on); }
+      if (act === 'more') { const on = panelQ('[data-f="menu"]').classList.toggle('on'); e.target.closest('[data-act]').classList.toggle('on', on); }
       if (act === 'wboss') {
         cfg.wboss = !cfg.wboss; saveCfg(); wb.goal = null; farm.lastPins = 0;
         logEvent('auto', `Weltboss ${cfg.wboss ? `an – ${wbSel().map((b) => b.name).join(', ') || 'keine Weltbosse in den Spieldaten'}, Kanal 1 und 2 nach Spawnzeit` : 'aus'}`);
@@ -11321,8 +11495,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const gm = e.target.closest('[data-gmode]')?.dataset.gmode;
       if (gm) {
         digibotCore.enablePassive(digibotManual);
-        reloadAcc(); accounts.mirror = gm === 'move' || gm === 'both'; accounts.mirrorAtk = gm === 'both'; accounts.leadBoss = gm === 'boss'; accounts.dungeon = gm === 'dungeon'; saveAcc();
-        logEvent('bot', `Gruppe: Modus ${{ bots: 'Quests (Autopilot)', boss: 'Bosse (Rotation)', dungeon: 'Dungeon', move: 'Bewegungen spiegeln', both: 'Bewegungen + Angriffe spiegeln' }[gm]}`);
+        reloadAcc(); accounts.mirror = gm === 'move' || gm === 'both'; accounts.mirrorAtk = gm === 'both'; accounts.leadBoss = false; accounts.dungeon = false; saveAcc();
+        logEvent('bot', `Gruppe: Mitläufer ${{ follow: 'folgen dem Leader (eigener Bot, seine Betriebsart)', move: 'spiegeln die Bewegungen', both: 'spiegeln Bewegungen und greifen mit an' }[gm]}`);
         schedule();
       }
       const lf = e.target.closest('[data-logf]')?.dataset.logf;
@@ -11339,11 +11513,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (act === 'grp-desktop'){digibotDesktopStart();return;}
       if (act === 'grp-desktop-stop'){digibotDesktopCancel('Desktopstart manuell abgebrochen',true);digibotDesktopTick();return;}
       if (act === 'grp-desktop-resume'){digibotDesktopResume();return;}
-      if (act === 'grp-start') startGroup();
       if (act === 'grp-invite' && claimSlot(getStore()?.getState?.())) {digibotCore.enablePassive(digibotManual);digibotCore.runPassive('Gruppe',20,()=>{if(group.role()==='leader')partyInviteNow();else groupSend('invite');});}
-      if (act === 'grp-maptalk' && claimSlot(getStore()?.getState?.())) { groupSend('maptalk'); startMapTalk('Gruppe: Abgeben & Annehmen auf dieser Map'); }
       if (act === 'grp-login') openGroupWindows();
-      if (act === 'grp-stop') stopGroup();
       if (act === 'mobs-all') setAllMobs(true);
       if (act === 'log-copy') copyLog(e.target);
       if (act === 'log-clear') { logbook.length = 0; logSig++; schedule(); }
@@ -11354,7 +11525,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (tab) setTab(tab);
       const mode = e.target.closest('[data-mode]')?.dataset.mode;
       if (mode && mode !== modeOf()) {
-        cfg.questMode = mode === 'quest'; cfg.autopilot = mode === 'auto'; cfg.farm = mode === 'farm'; cfg.dungeon = mode === 'dungeon'; cfg.eventsOnly = mode === 'events'; cfg.foodBuy = mode === 'food';
+        cfg.autopilot = mode === 'auto'; cfg.farm = mode === 'farm'; cfg.dungeon = mode === 'dungeon'; cfg.eventsOnly = mode === 'events'; cfg.foodBuy = mode === 'food';
         if (mode === 'food') { food.reset(); loadWorld(); }
         if (mode === 'events') { cfg.hunt = true; cfg.wboss = true; loadWorld(); } // ohne die beiden gäbe es nichts zu tun
         dg.reset();
@@ -11463,7 +11634,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       }
       const flag = e.target.dataset.apflag;
       if (flag) {
-        cfg[flag] = e.target.checked; saveCfg(); e.target.blur(); autopilot.reset(); schedule();
+        cfg[flag] = e.target.checked; saveCfg(); e.target.blur(); if (!['soundOn', 'foodAuto'].includes(flag)) autopilot.reset(); schedule();
         if (flag === 'levelRoute' || flag === 'levelA2') { lr.goal = null; lr.calcAt = 0; }
         if (flag === 'levelBoss') { lr.boss = null; lr.calcAt = 0; } // Bewertung rechnet die Bosse mit ein
         logEvent('auto', `Einstellung: ${e.target.nextElementSibling?.textContent} = ${e.target.checked ? 'an' : 'aus'}`);
@@ -11483,10 +11654,6 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         cfg.apGrind = e.target.checked; saveCfg(); e.target.blur(); autopilot.reset(); schedule();
         return;
       }
-      if (e.target.matches('[data-questmode]')) {
-        cfg.questMode = e.target.checked; saveCfg(); e.target.blur(); questSig = ''; schedule();
-        return;
-      }
       const qid = e.target.dataset.quest;
       if (qid) {
         if (e.target.checked) delete cfg.questOff[qid]; else cfg.questOff[qid] = true;
@@ -11501,6 +11668,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         e.target.blur();
         return;
       }
+      const snd = e.target.dataset.sound;
+      if (snd) { cfg.sounds = { ...cfg.sounds, [snd]: e.target.checked }; saveCfg(); e.target.blur(); return; }
+      const sty = e.target.dataset.style;
+      if (sty && /^#[0-9a-f]{6}$/i.test(e.target.value)) { cfg.style = { ...cfg.style, [sty]: e.target.value }; cfg.stylePreset = 'custom'; saveCfg(); applyStyle(); return; }
       if (e.target.matches('[data-bosssearch]')) { filterBossPick(); return; }
       if (e.target.matches('[data-cardsearch]')) { filterCardPick(); return; }
       const rk = e.target.dataset.rolecfg;
@@ -11519,7 +11690,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const key = e.target.dataset.cfg;
       if (!key) return;
       cfg[key] = Number(e.target.value);
-      panel.querySelector(`[data-v="${key}"]`).textContent = LABELS[key](cfg[key]);
+      panelQ(`[data-v="${key}"]`).textContent = LABELS[key](cfg[key]);
       saveCfg();
       if (key === 'lvlDiff') lr.calcAt = 0; // Lern-Route gleich neu bewerten
     });
@@ -11529,7 +11700,6 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (key) {
         cfg[key] = e.target.value;
         if (key === 'apStartMap' || key === 'apOrder' || key === 'apSweepDir') cfg.apSweepMap = ''; // Runde neu beginnen
-        if (key === 'apQuestPartner') cfg.apEvo = '';                     // Digitation gilt pro Digimon
         if (/^(farm|route)/.test(key)) farm.reset();
         saveCfg(); autopilot.reset(); e.target.blur(); questSig = ''; schedule();
         logEvent('auto', `Einstellung: ${e.target.closest('label')?.firstChild?.textContent?.trim() || key} = ${e.target.selectedOptions[0]?.textContent || '–'}`);

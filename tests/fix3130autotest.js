@@ -3,14 +3,13 @@
 //          nicht jeden Takt verworfen und neu gewählt (vorher: „Aufgabe: … abgeben bei sage ×15“)
 //  minlvl: Portal mit Mindeststufe 50, Partner Lv 6 – Abgabe dahinter wird nicht eingeplant (vorher: lief ins Portal)
 //  portal: Portal löst nicht aus (Spiel lehnt ab) – nach PORTAL_HOLD_MS „Portal nicht erreichbar“ (vorher: stand für immer darin)
-//  idle:   „nur erledigen, nicht abgeben“ + Event-Bereitschaft, dann 📜 Abgeben & Annehmen – gibt ab (vorher: Tick blockiert)
 // Aufruf: node tests/fix3130autotest.js <script>   (startet jedes Szenario als eigenen Prozess)
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const scriptPath = path.resolve(process.argv[2]);
 const only = process.argv[3];
-const NAMES = ['batch', 'minlvl', 'portal', 'idle'];
+const NAMES = ['batch', 'minlvl', 'portal']; // „idle“ (Abgeben & Annehmen) entfällt mit 3.2.0
 
 if (!only) {
   const runs = NAMES.map((n) => new Promise((res) => {
@@ -85,20 +84,6 @@ const S = {
     maps.native_forest.layers[0].objects[0].type = 'portal_off'; // Spielwelt lässt nicht durch, der Bot kennt das Portal schon
     const ok = await until(() => /Portal nicht erreichbar – 5 min übersprungen/.test(logText(G)), 40000);
     done(going && ok && G.state.world.mapId === 'native_forest', `unterwegs=${going} Portal nicht erreichbar=${ok} Status=${G.status()}`);
-  },
-  async idle() {
-    const G = makeWorld({ slot: 0, tag: 'I', accounts: { leader: 0, list: [{ on: true, user: 'solo', char: 'X' }] }, mobs: [],
-      quests: { q00_meet_gennai: { state: 3, counters: [] }, q02_first_steps: { state: 3, counters: [] }, q_t: { state: 2, counters: [1] } },
-      setup({ content, MAPS }) { content.npcs.leomon = { name: 'Leomon' };
-        content.quests.q_t = { id: 'q_t', name: 'Test', giver: 'leomon', turnIn: 'leomon', minLevel: 1, objectives: [{ kind: 'kill', species: 'kunemon', count: 1 }] };
-        MAPS.native_forest.layers[0].objects.push({ type: 'npc', name: 'leomon', x: 600, y: 330, properties: [P('npcId', 'leomon')] }); },
-      extraEnts: (id) => (id === 'native_forest' ? [{ id: 'n:leomon', kind: 3, defId: 'leomon', x: 600, y: 330, hp: 0, flags: 0 }] : []) });
-    G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ ...CFG, apNoTurnin: true, hunt: true }));
-    G.w.eval(script); await wait(800); start(G);
-    const idle = await until(() => /Event-Bereitschaft|warte auf aktivierte Events/.test(G.status()), 15000);
-    G.w.document.querySelector('[data-act="grp-maptalk"]').click();
-    const ok = await until(() => G.state.me.quests.q_t?.state === 3, 25000);
-    done(idle && ok, `Bereitschaft=${idle} abgegeben=${ok} Status=${G.status()}`);
   },
 };
 S[only]().catch((e) => done(false, e.stack));

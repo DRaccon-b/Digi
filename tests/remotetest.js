@@ -1,4 +1,4 @@
-// 2.9.3: Start/Stopp im Leader-Fenster und „Gruppe starten/stoppen“ schalten alle Gruppenfenster
+// 2.9.3 / 3.2.0: ▶ Start / ■ Stopp im Leader-Fenster schalten alle Gruppenfenster (eigene Gruppen-Knöpfe gibt es nicht mehr)
 const fs = require('fs');
 const makeWorld = require('./gw');
 const script = fs.readFileSync(process.argv[2], 'utf8');
@@ -20,11 +20,8 @@ const until = async (fn, ms = 6000) => { const t0 = Date.now(); while (Date.now(
   A.w.document.querySelector('[data-act="bot"]').click();          // Leader: ■ Stopp
   r.stopFollows = await until(() => !on(B));
   r.leaderStopped = !on(A);
-  A.w.document.querySelector('[data-act="grp-start"]').click();    // Gruppe starten (Fenster läuft schon -> kein neues)
-  r.grpStart = await until(() => on(A) && on(B));
+  r.noGroupButtons = !A.w.document.querySelector('[data-act="grp-start"],[data-act="grp-stop"]'); // seit 3.2.0: nur ▶/■ oben
   r.noNewWindow = opened.length === 0;
-  B.w.document.querySelector('[data-act="grp-stop"]').click();     // Gruppe stoppen aus dem Mitläufer-Fenster
-  r.grpStop = await until(() => !on(A) && !on(B));
   r.stillGroup = A.w.sessionStorage.getItem('digibot.group') === '1' && B.w.sessionStorage.getItem('digibot.group') === '1';
   A.w.document.querySelector('[data-act="bot"]').click();          // danach geht Start wieder an alle
   r.restart = await until(() => on(B));

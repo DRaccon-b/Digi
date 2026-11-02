@@ -4,7 +4,28 @@
 > Passwörter werden nicht mehr gespeichert, Not-Aus, Tamer-Skills, feste Gruppenplätze), steht in der [README](../README.md)
 > und im [CHANGELOG](../CHANGELOG.md).
 
-## Aufbau des Panels (ab 2.6)
+## Aufbau des Panels (ab 3.2.0)
+Reiter: **📊 Übersicht** · **🐣 Digimon** (Partner, **Digitation je Map**: Form ohne / mit Dark Tower – gilt in jeder
+Betriebsart, Tränke F1–F3, Tamer) · **⚔️ Attacke** (Skills 2–6 mit Rollen, Heal-Schwellen und AoE ab N, Zielwahl, Grinden &
+Lern-Route, Boss-Mechaniken, Boss-Attacken, Monsterliste) · **📜 Quests** · **👑 Bosse** · **👥 Gruppe** · **⚙️ Einstellungen**
+· **📋 Log**. Unter Einstellungen liegen fünf Unterreiter:
+- **Food** – Sorten und Zielmengen (für „Food kaufen“) und **automatisch nachkaufen**: unter der Mindestmenge schiebt der
+  Bot einen Einkauf ein (Einkaufs-Map: aktuelle Map mit Food-Händler, sonst Dream Ruins – oder eine feste Map), kehrt zum
+  Startpunkt zurück und macht weiter. Nicht im Kampf, Dungeon/Raid oder wenn ein Event/Weltboss ansteht.
+- **Ausweichen** – Sicherheitsabstand, Kantenreserve, Warteabstand, „Zone endet bald“, spätes Herauslaufen, Fluchtabbruch,
+  Klick-Wiederholung, angenommene Laufgeschwindigkeit, Suchweite, raumweite Kreise und die beiden Pull-Abstände. Standard =
+  die erprobten Werte bis 3.1.51; „↺ Standardwerte“ setzt zurück.
+- **Warnung** – Warntöne an/aus und je Ereignis (Aufgabe fertig, Bot stoppt, bewusstlos, Warnung), Testton; **automatisch
+  stoppen** bei Level, Laufzeit, Anzahl Bewusstlosigkeiten oder Bits unter einer Grenze (0 = aus).
+- **Zeiten** – Trank-Sperre, Geduld und Fortschritts-Grenze der Autopilot-Jagd, Wartezeit des Leaders.
+- **Style** – Farbsets Nacht / Hell / Wald und jede Panelfarbe einzeln.
+
+Entfallen in 3.2.0: die Betriebsart **Quest-Jagd** (der Autopilot erledigt Quests vollständig), die Schalter
+„Lern-Route: je nach Map digitieren“ und „Autopilot: Digitationsregeln der Lernroute übernehmen“ sowie die feste
+„Digitation“ (alte Werte werden übernommen), in der Gruppe die Knöpfe **Starten**, **Stoppen** und **Abgeben & Annehmen**
+und die Gruppenmodi Quests/Bosse/Dungeon – Mitläufer mit „Folgen“ übernehmen die Betriebsart des Leaders.
+
+### Bis 3.1.51
 Oben immer sichtbar:
 - **Modus-Schalter** – genau eine Betriebsart: **Grinden** (Monsterliste im Suchradius), **Quest-Jagd** (nur
   Quest-Monster dieser Map), **Autopilot** (Quests komplett) oder **Bosse** (Boss-Rotation / Named-Elite-Runde),

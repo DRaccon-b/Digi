@@ -2,6 +2,43 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.0 – Neue Oberfläche: Einstellungen an einem Ort, Food-Nachkauf, Ausweichen einstellbar
+- **Neue Reiter:** Übersicht · Digimon · Attacke · Quests · Bosse · Gruppe · **⚙️ Einstellungen** · Log. Der Food-Reiter ist in
+  den Einstellungen aufgegangen. Bestandsaufnahme und Begründung: `docs/ui-struktur-2026-11-02.md`.
+- **Skills unter Attacke:** Skill-Freigaben, Rollen, Heal-Schwellen und „AoE ab N“ stehen jetzt oben im Reiter Attacke (weiter je
+  Digitationsform). Die Zielwahl ist in „Zielwahl“ und „Grinden & Lern-Route“ geteilt.
+- **Quest-Jagd entfernt:** Die Betriebsart und ihre Logik (nur Quest-Monster dieser Map, Rückweg nach Event/Weltboss) sind weg –
+  der Autopilot erledigt Quests vollständig. Gespeicherte Einstellungen mit Quest-Jagd starten als Grinden.
+- **Digitation je Map, in jeder Betriebsart:** Im Reiter Digimon gibt es nur noch „ohne Dark Tower“ / „mit Dark Tower“. Der Bot
+  erkennt an der aktuellen Map, welche Form passt – beim Grinden, auf der Lern-Route, im Autopilot, bei Bossen, im Dungeon und bei
+  Events. Die Schalter „Lern-Route: je nach Map digitieren“, „Digitationsregeln der Lernroute übernehmen“ und die feste Quest-
+  Digitation entfallen; eine alte feste Form wird zur Form ohne Dark Tower, „je nach Map digitieren“ aus zu „keine Digitation“.
+  Neu dadurch: Auch Grinden ohne Lern-Route, Boss-Rotation und Dungeon digitieren jetzt nach der Map-Regel (Standard: höchstmögliche
+  Form, auf Dark-Tower-Maps die höchste Armor-Form) – wer das nicht will, stellt „keine Digitation“ ein.
+- **Food automatisch nachkaufen** (Einstellungen → Food): Fällt eine eingestellte Sorte unter die Mindestmenge (Standard 10),
+  schiebt der Bot einen Einkauf ein – bis zur Zielmenge auffüllen, zurück zum Startpunkt, weiter in der Betriebsart. Einkaufs-
+  Map: die aktuelle (wenn dort ein Food-Händler steht, sonst Dream Ruins) oder eine feste Map aus der Liste der Händler-Maps.
+  Nur Händler, die alle eingestellten Sorten führen. Wird der Bot unterwegs angegriffen, wehrt er erst ab und kauft dann weiter.
+  Nicht im Dungeon/Raid oder wenn ein Event/Weltboss ansteht; bleibt der Vorrat knapp (Bits), 15 min Pause. Mitläufer kaufen nicht
+  selbst nach – sie folgen dem Leader.
+- **Gruppe vereinfacht:** Mitläufer wählen nur noch **Folgen** (eigener Bot, Betriebsart und Ziele des Leaders – Quests, Bosse,
+  Dungeon; wechselt der laufende Leader in den Dungeon-Modus, ziehen laufende Mitläufer mit – nicht mitten in einem Lauf), **Spiegeln** oder **Angreifen**. Die Knöpfe
+  Starten, Stoppen und „Abgeben & Annehmen“ sind weg – ▶ Start / ■ oben im Leader-Fenster gelten für alle.
+- **Ausweichen einstellbar** (Einstellungen → Ausweichen): 14 Regler aus der bestehenden Logik – Sicherheitsabstand (28 px),
+  Kantenreserve (8 px), Warteabstand (220 px), „Zone endet bald“ (1,2 s / 70 px), spätes Herauslaufen (× 1,5 + 1,5 s),
+  Fluchtabbruch (3 s), Klick-Wiederholung (1 s), Laufgeschwindigkeit (130 px/s), Suchweite (328 px), raumweite Kreise (900 px)
+  und die Pull-Abstände (50 / 16 px). Standard = die bisherigen Werte, „↺ Standardwerte“ setzt zurück, Werte wirken sofort.
+- **Warnungen & Stopp:** Warntöne an/aus und je Ereignis (Aufgabe fertig, Bot stoppt, bewusstlos, Warnung; eigene Tonhöhe,
+  Testton), neu ein Ton bei Bewusstlosigkeit. Automatisch stoppen bei Level, Laufzeit, Anzahl Bewusstlosigkeiten oder Bits unter
+  einer Grenze.
+- **Zeiten:** Trank-Sperre, Geduld und Fortschritts-Grenze der Autopilot-Jagd und die Wartezeit des Leaders sind einstellbar
+  (Standard wie bisher).
+- **Style:** Panelfarben als CSS-Variablen, Farbsets Nacht (Standard), Hell und Wald, jede Farbe einzeln wählbar.
+- **Schnelleres Panel:** Feste Panel-Elemente werden nicht mehr bei jedem Neuzeichnen gesucht – in drei Testfenstern sinkt die
+  Verzögerung der Ereignisschleife von ≈ 77 ms auf ≈ 9 ms (der Bot reagiert in Gruppen schneller).
+- Tests: neu `foodautotest`, `dodgecfgtest`, `settingstest`; Gruppentests auf ▶ Start im Leader-Fenster umgestellt; entfernt
+  `maptalktest`, `dropstest`, `lvltest`, `fix3130questtest` (prüften nur entfallene Funktionen).
+
 ## 3.1.51 – Schmale Linien: neben der Linie sofort weiterkämpfen
 - **Nicht mehr warten, wenn die Angriffsposition neben der Linie liegt:** Bei schmalen Linien (Whamon „Tidal Wave“, 20 px
   breit, 1,8 s Ansage) stand das Digimon nach dem Ausweichen 53 px seitlich vom Ziel und wartete, bis die Linie weg war –

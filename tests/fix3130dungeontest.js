@@ -1,7 +1,7 @@
 // 3.1.30 (Prüfung Modi, Abschnitt Dungeon):
-// A: „Gruppe starten“ (grp-start, echter Klick) schickt den Start mit manual:true – sonst bleiben Mitläufer nach einem
+// A: ▶ Start im Leader-Fenster (echter Klick; seit 3.2.0 statt „Gruppe starten“) schickt den Start mit manual:true – sonst bleiben Mitläufer nach einem
 //    Rauswurf gesperrt (dgReenterLocked) bzw. nach einem Not-Aus aus.
-// B: „Gruppe starten“ mitten im Lauf setzt den Dungeon-Stand nicht zurück (kein zweites „Dungeon betreten“).
+// B: Start an die Gruppe mitten im Lauf setzt den Dungeon-Stand nicht zurück (kein zweites „Dungeon betreten“).
 // C: Armageddemon-Seitenregel: Seite aus dem festen Spawnpunkt (nicht der Live-Position), bei Tamer-Steuerung wird das
 //    Digimon nachgeholt (partnerFollow), und nach ~6 s vergeblichem Umstellen kämpft der Bot erst einmal weiter.
 // D: Klinge im Warnbereich: kein „warte“-Stillstand, die Klinge wird trotzdem erfasst (20-s-Zähler läuft).
@@ -39,7 +39,7 @@ async function testA() {
   bus.onmessage = (e) => { if (e.data?.type === 'start') starts.push(e.data); };
   G.w.eval(script);
   await wait(1200);
-  G.w.document.querySelector('[data-act="grp-start"]').click();
+  G.w.document.querySelector('[data-act="bot"]').click();
   await wait(800);
   G.w.close(); bus.close();
   return { starts: starts.map((m) => ({ manual: m.manual })) };
@@ -51,10 +51,10 @@ async function testB() {
   G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ dungeon: true, dgMode: 'easy', autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 100 }));
   G.w.eval(script);
   await wait(1200);
-  G.w.document.querySelector('[data-act="grp-start"]').click();
+  G.w.document.querySelector('[data-act="bot"]').click();
   await wait(1500);
   const n1 = (logText(G).match(/Dungeon betreten/g) || []).length;
-  G.w.document.querySelector('[data-act="grp-start"]').click(); // mitten im Lauf noch einmal
+  { const bus = require('./groupbus')('digibot-group'); bus.postMessage({ type: 'start', slot: 0, manual: true }); setTimeout(() => bus.close(), 300); } // mitten im Lauf noch einmal
   await wait(1500);
   const n2 = (logText(G).match(/Dungeon betreten/g) || []).length;
   const r = { n1, n2, on: btn(G), status: G.status() };

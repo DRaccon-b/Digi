@@ -20,7 +20,7 @@ const pos = (W) => { const t = W.ents.get('t:me'); return { x: Math.round(t.x), 
 (async () => {
   await wait(1200);
   const start = pos(F);
-  L.w.document.querySelector('[data-act="grp-start"]').click();
+  L.w.document.querySelector('[data-act="bot"]').click(); // ▶ Start im Leader-Fenster startet alle (3.2.0)
   await wait(8000);
   const mid = { pos: pos(F), kills: F.kills, status: F.status() };
   // jetzt greift ein Monster den Mitläufer an
