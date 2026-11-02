@@ -2,6 +2,20 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.3 – Karten-Digitation wählbar, Restzeit beim Pullen, Weltbosse auswählbar
+- **Karten-Digitation:** Im Reiter Bosse unter „Karten auswählen“ gibt es das Feld „Digitation“: automatisch (beste Form für die
+  Karten, wie bisher), höchstmögliche Digitation, höchste Armor-Form oder eine feste Form. Gibt es die Form beim aktiven Digimon
+  nicht (oder am Dark Tower nur Armor), wählt der Bot automatisch. „Höchstmögliche“ sucht nach einer Dark-Tower-Map von der
+  Grundform aus (sonst blieb das Digimon in der Armor-Form).
+- **Restzeit der Kartenrotation beim Pullen:** Gerechnet wurde mit der Kampfzeit je Monster (erster Treffer bis Tod) + 4 s. Beim
+  Pullen ist die je Monster lang, es sterben aber mehrere fast gleichzeitig – die Restzeit war viel zu hoch. Jetzt misst der Bot
+  den Kill-Takt (Abstand zum vorigen eigenen Kill in der Kartenrotation, gleiche Map, Pausen über 60 s zählen nicht) und rechnet
+  ab 3 Messungen damit. Darin stecken Laufen, Sammeln und Flächenschaden schon; Kills im selben Moment (Flächenschaden) zählen
+  mit 0 ms.
+- **Weltbosse auswählen:** Neuer Unterreiter Einstellungen → 🌍 Events: je Weltboss (BlackWarGreymon, Megidramon) ein Haken – ohne
+  Haken steuert „🌍 Weltboss“ ihn nicht an. Der Warteplatz ist mit dorthin umgezogen.
+- Test: `cardformwbtest`; `settingstest` kennt den neuen Unterreiter.
+
 ## 3.2.2 – Pull-Modus holt mehr Monster und verliert keine an der Leine
 - **Nachholen nach dem Rundenende:** War die Sammelrunde zu („kein weiteres Monster in der Leine“), holte der Bot bis zum Tod
   aller Angreifer nichts mehr dazu – live standen oft freie Monster 50–100 px daneben. Jetzt holt er neue Monster in der Leine

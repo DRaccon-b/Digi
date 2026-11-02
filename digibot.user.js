@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.2
+// @version      3.2.3
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -185,7 +185,7 @@ function digibotConfig(saved, defaults) {
   out.skills={...defaults.skills,...skills(out.skills)};out.heal=heals(out.heal);
   out.skillSets=Object.fromEntries(Object.entries(out.skillSets||{}).filter(([,v])=>digibotRecord(v)).map(([k,v])=>[k,{skills:{...defaults.skills,...skills(v.skills)},heal:heals(v.heal),
     role:roles(v.role),aoeN:nums(v.aoeN,2,5),grpHeal:nums(v.grpHeal,30,85),...(Number.isInteger(v.rolesV)?{rolesV:v.rolesV}:{})}]));
-  for(const k of ['open','questOff'])out[k]=boolMap(out[k]);
+  for(const k of ['open','questOff','wbOff'])out[k]=boolMap(out[k]);
   out.mobs=Object.fromEntries(Object.entries(out.mobs||{}).filter(([,v])=>digibotRecord(v)).map(([k,v])=>[k,boolMap(v)]));
   out.farmChannels=[...new Set((out.farmChannels||[]).filter(x=>Number.isInteger(x)&&x>=1&&x<=100))];
   for(const k of ['cardSel','cardNamed'])if(Object.hasOwn(saved,k)){if(Array.isArray(saved[k]))out[k]=[...new Set(saved[k].filter(x=>typeof x==='string'&&x.length<200))].slice(0,300);else issues.push(k);}
@@ -1397,6 +1397,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     .digibot__tabs button.on,.digibot__modes button.on,.digibot__seg button.on,.digibot__grp>summary:hover,.digibot__tabs button:hover{color:var(--db-text)}
     .digibot__seg.three{grid-template-columns:repeat(3,1fr)}
     .digibot__seg.five{grid-template-columns:repeat(5,1fr)}
+    .digibot__seg.six{grid-template-columns:repeat(3,1fr)}
     .digibot__stabs button{display:flex;flex-direction:column;align-items:center;gap:1px;font-size:10px;padding:3px 1px;line-height:1.1}
     .digibot__stabs button i{font-style:normal;font-size:12px}
     .digibot__tabs button small{font-size:9px;letter-spacing:-.2px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -1428,7 +1429,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   };
   const STYLE_NAMES = { bg: 'Hintergrund', panel: 'Flächen', btn: 'Knöpfe', border: 'Rahmen', border2: 'Rahmen hell', text: 'Schrift', muted: 'Schrift blass', accent: 'Akzent', ok: 'Gut / an', warn: 'Hinweis', danger: 'Gefahr' };
   // Unterreiter unter „Einstellungen“ (3.2.0) – vor dem Panel-HTML, das sie aufzählt
-  const SUB_TABS = [['food', '🍱', 'Food'], ['dodge', '🏃', 'Ausweichen'], ['alerts', '🔔', 'Warnung'], ['times', '⏱', 'Zeiten'], ['style', '🎨', 'Style']];
+  const SUB_TABS = [['food', '🍱', 'Food'], ['dodge', '🏃', 'Ausweichen'], ['alerts', '🔔', 'Warnung'], ['times', '⏱', 'Zeiten'], ['events', '🌍', 'Events'], ['style', '🎨', 'Style']];
   function applyStyle() {
     if (!panel) return;
     for (const [k, v] of Object.entries(cfg.style || {})) panel.style.setProperty(`--db-${k}`, v);
@@ -1492,6 +1493,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     farmMode: 'boss',     // 'boss' = Boss-Rotation, 'named' = Named-Elite-Runde (Map für Map), 'cards' = Kartenrotation (3.1.40)
     cardSel: [],          // Kartenrotation: ausgewählte Common-Karten in Prioritäts-Reihenfolge (Item-IDs)
     cardNamed: [],        // Kartenrotation: Karten, deren Named-Gegner mitgenommen werden dürfen (standardmäßig keiner)
+    cardForm: '',         // Kartenrotation: Digitation ('' = automatisch die beste für die Karten, sonst Form wie bei der Map-Regel) (3.2.3)
     dungeon: false,       // Dungeon-Modus (Kera): betreten, Räume räumen, Boss, raus
     dgMode: 'easy',       // 'easy' = War Game, 'hard' = Revenge (allein kaum zu schaffen), 'apocalymon' / 'malomyotismon' = Raid
     dgBreak: true,        // Optionales Brechbares (Mail Server bei Diaboromon) zerstören – alle dasselbe Ziel; aus = nur der Boss (3.1.1).
@@ -1508,6 +1510,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     hunt: false,          // Event (Mega-Jagd): zum angesagten Weltboss reisen, ihn suchen und bekämpfen – in jedem Modus
     wboss: false,         // Weltboss (z. B. BlackWarGreymon): beide Kanäle nach Spawnzeit abarbeiten – in jedem Modus
     eventsOnly: false,    // Modus „Nur Event/Weltboss“: nichts anderes tun, nur auf Event und Weltbosse warten (3.0.4)
+    wbOff: {},            // Weltbosse, die der Bot nicht ansteuert (Art -> true; Einstellungen → Events) (3.2.3)
     eventsIdleMap: '',    // Warteplatz beim Warten auf Event/Weltboss ('' = stehen bleiben; z. B. 'network' – dort kein Tamer-DS-Verlust) (3.0.9)
     foodBuy: false,       // Modus „Food kaufen“: zum Händler in Dream Ruins reisen, Food nachkaufen, stoppen (3.1.8)
     foodHp: 'feast',      // HP-Food ('' = keins) · foodDs: DS-Food fürs Digimon · foodTamer: Tamer-DS-Food
@@ -1760,7 +1763,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.2'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.3'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1947,16 +1950,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
             </details>
           </div>`, true,
           'Gilt für den Modus Dungeon: zur Tür auf der Map Network, betreten (in der Gruppe nur der Leader, die anderen kommen mit), Raum 1: Terminals schützen – Tsumemon, die zu einem Terminal laufen, zuerst; dann durchs Tor, Boss Keramon (Chrysalimon, Infermon) und zum Ausgang. Ausweichen, Spiegel und Skill-Timing wie bei Bossen. Hard (Revenge): Diaboromon mit Uhr, dann Armageddemon mit Kuramon-Herde – der geteilte Treffer (240 % der HP) ist allein tödlich, also nur in der Gruppe sinnvoll. Apocalymon-Raid: über Spiral Summit zur Tür, digitieren, betreten, Megadramon-Adds zuerst, dann Apocalymon; nach dem Sieg wieder hinaus. MaloMyotismon-Raid genauso über Myotismon Castle: Phantomon und Illusionstürme zuerst, dann MaloMyotismon.', 'data-modes="dungeon"')}
-        ${grp('events', 'Event &amp; Weltboss', `
-          <div class="digibot__apcfg">
-            <label>Warteplatz<select data-apsel="eventsIdleMap"></select></label>
-          </div>`, true,
-          'Wohin der Bot geht, solange kein Event und kein Weltboss fällig ist – im Modus „Nur Event/WB“ und wenn der Autopilot mit allen Quests fertig ist und auf Events wartet. Zum Beispiel The Network: dort wird kein Tamer-DS abgezogen. „stehen bleiben“ = dort warten, wo er gerade ist. Ist ein Event/Weltboss fällig, reist er von dort hin und kehrt danach zurück.')}
         ${grp('timers', 'Timer', `<div class="digibot__timers" data-f="timers"><div class="digibot__none">Keine Bosse ausgewählt.</div></div>`, true,
           'Aus dem Boss-Fenster des Spiels, der Map-Info deines Kanals und eigenen Siegen. ★ = aktuelles Ziel, „hier“ = dein Standort.', 'data-modes="farm"')}
         ${grp('bosspick', 'Bosse auswählen', `<input class="digibot__search" type="text" data-bosssearch placeholder="🔍 Boss oder Map suchen…" autocomplete="off" spellcheck="false">
           <div class="digibot__bosspick" data-f="bosspick"><div class="digibot__none">warte auf Spielwelt…</div></div>`, false, 'Suchfeld filtert nach Boss- oder Map-Namen. Die Liste hat eine feste Höhe – mit dem Balken rechts scrollen.', 'data-farmmode="boss" data-modes="farm"')}
         ${grp('cardpick', 'Karten auswählen', `<div class="digibot__routeinfo" data-f="cardeta">–</div>
+          <div class="digibot__apcfg"><label>Digitation<select data-apsel="cardForm"></select></label></div>
           <input class="digibot__search" type="text" data-cardsearch placeholder="🔍 Karte, Stat oder Map suchen…" autocomplete="off" spellcheck="false">
           <div class="digibot__bosspick digibot__cardpick" data-f="cardpick"><div class="digibot__none">warte auf Spieldaten…</div></div>`, true,
           'Kartenrotation: der Bot farmt die angehakten Common-Karten in dieser Reihenfolge (↑/↓). Auf derselben Map nimmt er alle anderen angehakten Karten gleich mit und wählt selbst die beste Digitation. Fortschritt = benutzt + Kartentasche. 👑 = Named-Gegner (12 Karten je Kill, sehr stark) mitnehmen – standardmäßig aus. Restzeit aus deinen gemessenen Kampfzeiten (sonst Schätzwerte) und 44,8 % Dropchance.', 'data-farmmode="cards" data-modes="farm"')}
@@ -1989,7 +1988,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       </section>
 
       <section data-page="set">
-        <div class="digibot__seg five digibot__stabs">${SUB_TABS.map(([k, i, l]) => `<button data-stab="${k}" title="${l}"><i>${i}</i>${l}</button>`).join('')}</div>
+        <div class="digibot__seg six digibot__stabs">${SUB_TABS.map(([k, i, l]) => `<button data-stab="${k}" title="${l}"><i>${i}</i>${l}</button>`).join('')}</div>
         <div data-spage="food">
         ${grp('foodcfg', 'Food-Sorten &amp; Zielmengen', `
           <div class="digibot__apcfg">
@@ -2046,6 +2045,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           ${setting('huntIdleMin', 'Autopilot: Geduld im Jagdgebiet', 0.5, 10, (v) => `${Number(v).toFixed(1)} min`, 0.5, 'So lange darf im Jagdgebiet kein passendes Monster auftauchen, bevor der Autopilot die Aufgabe zurückstellt.')}
           ${setting('huntStallMin', 'Autopilot: Jagd ohne Fortschritt', 1, 15, (v) => `${v} min`, 1, 'So lange darf eine Jagd ohne Fortschritt dauern, dann meidet der Bot das Gebiet und plant neu (Boss-Quests warten auf den Respawn).')}
           ${setting('grpWaitMin', 'Gruppe: Leader wartet höchstens', 1, 10, (v) => `${v} min`, 1, 'So lange wartet der Leader beim Annehmen/Abgeben auf die Mitläufer.')}`, true)}
+        </div>
+        <div data-spage="events">
+        ${grp('events', 'Event &amp; Weltboss', `
+          <div class="digibot__sub" data-f="wbpick"><div class="digibot__none">warte auf Spieldaten…</div></div>
+          <div class="digibot__apcfg">
+            <label>Warteplatz<select data-apsel="eventsIdleMap"></select></label>
+          </div>`, true,
+          'Haken = diesen Weltboss ansteuern, wenn 🌍 Weltboss an ist (ohne Haken: auslassen). Warteplatz: wohin der Bot geht, solange kein Event und kein Weltboss fällig ist – im Modus „Nur Event/WB“ und wenn der Autopilot mit allen Quests fertig ist und auf Events wartet. Zum Beispiel The Network: dort wird kein Tamer-DS abgezogen. „stehen bleiben“ = dort warten, wo er gerade ist. Ist ein Event/Weltboss fällig, reist er von dort hin und kehrt danach zurück.')}
         </div>
         <div data-spage="style">
         ${grp('stylecfg', 'Farben', `
@@ -2213,7 +2220,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const t = Date.now();
       const { el, ...rr } = r;
       mobExp.pending.push({ ...rr, t, dur: t - r.t0 <= MOBEXP_MAX_FIGHT_MS ? t - r.t0 : null }); // Kampfzeit: erster eigener Treffer bis Tod
-      if (t - r.t0 <= MOBEXP_MAX_FIGHT_MS) cardKillNote(r.sp, t - r.t0, el); // Kartenrotation: Ø-Kampfzeit je Art für die Restzeit (3.1.40)
+      // Kartenrotation: Ø-Kampfzeit je Art (3.1.40) und Kill-Takt (3.2.3) für die Restzeit
+      const flow = bot.on && cfg.farm && cfg.farmMode === 'cards', gap = flow && cardFlow.map === r.map && t - cardFlow.at <= CARD_GAP_MAX_MS ? t - cardFlow.at : null;
+      if (flow) { cardFlow.at = t; cardFlow.map = r.map; } else cardFlow.at = 0;
+      if (t - r.t0 <= MOBEXP_MAX_FIGHT_MS) cardKillNote(r.sp, t - r.t0, el, gap);
     }
   }
   function mobExpTick(st, now) {
@@ -7933,7 +7943,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Weltbosse: nur auf freigeschalteten Maps und höchstens WB_LEVEL_ABOVE über dem Digimon (3.0.7) – sonst zog der Knopf
   // nach einer BlackWarGreymon-Warnung Megidramon (Tamers, Lv 120) heran
   const WB_LEVEL_ABOVE = 15;
-  const wbSel = () => { const st = getStore()?.getState?.(), pl = st?.me?.partner?.level; return farmBossList().filter((b) => b.kind === 'world' && mapWalkable(st, b.map) && (pl == null || b.level <= pl + Math.max(WB_LEVEL_ABOVE, cfg.lvlDiff || 0))); };
+  const wbSel = () => { const st = getStore()?.getState?.(), pl = st?.me?.partner?.level; return farmBossList().filter((b) => b.kind === 'world' && !cfg.wbOff?.[b.species] && mapWalkable(st, b.map) && (pl == null || b.level <= pl + Math.max(WB_LEVEL_ABOVE, cfg.lvlDiff || 0))); };
   // Unterwegs zum Event/Weltboss angegriffen: nicht kämpfen – Digimon zurückrufen und weiterlaufen (wie die Rotation)
   function wayRecall(st, sc, now) {
     if (!sc?.attackers?.length) return;
@@ -8133,6 +8143,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const CARD_EXTRA_MS = 4000;   // Laufen/Suchen je Kill
   const CARD_GUESS_MS = { evasive: 6000, normal: 8000, armored: 14000 }; // ohne eigene Messung
   const CARD_KILL_KEY = 'digibot.cardKillMs';
+  // Kill-Takt (3.2.3): Abstand zum vorigen eigenen Kill in der Kartenrotation (gleiche Map). Beim Pullen ist die Kampfzeit je
+  // Monster lang, es sterben aber mehrere fast zugleich – der Takt enthält Laufen, Sammeln und Flächenschaden schon
+  const CARD_GAP_MAX_MS = 60000; // längere Pausen (Reise, Rast, Warten) zählen nicht
+  const CARD_GAP_MIN_N = 3;      // ab so vielen gemessenen Abständen gilt der Takt
+  const cardFlow = { at: 0, map: null };
   let cardCache = { C: null, n: -1, list: [] };
   function cardDefs() {
     const C = content(); if (!C?.items || !C?.spawns) return [];
@@ -8184,11 +8199,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return cardKill;
   }
   // gleitender Mittelwert der Kampfzeit und des Elite-Anteils je Art (höchstens 20 Kämpfe Gewicht), dauerhaft gespeichert
-  function cardKillNote(sp, ms, elite) {
+  function cardKillNote(sp, ms, elite, gap = null) {
     if (!sp || !(ms > 0)) return;
     const K = cardKillLoad(), e = digibotRecord(K[sp]) ? K[sp] : { ms: 0, n: 0 };
+    // gleichzeitige Kills (Flächenschaden, ein Paket) zählen mit 0 ms – sonst stünde beim Pullen nur der lange Abstand je Runde drin
+    const has = Number.isFinite(gap) && gap >= 0, gn = Math.min(20, (Number(e.gn) || 0) + (has ? 1 : 0)), g = has ? Math.round(((Number(e.g) || 0) * (gn - 1) + gap) / gn) : e.g;
     const n = Math.min(20, (Number(e.n) || 0) + 1), e0 = Number.isFinite(Number(e.e)) && e.e !== null ? Number(e.e) : CARD_ELITE_SHARE;
-    K[sp] = { ms: Math.round(((Number(e.ms) || 0) * (n - 1) + ms) / n), n, e: Math.round((e0 * (n - 1) + (elite ? 1 : 0)) / n * 1000) / 1000 };
+    K[sp] = { ms: Math.round(((Number(e.ms) || 0) * (n - 1) + ms) / n), n, e: Math.round((e0 * (n - 1) + (elite ? 1 : 0)) / n * 1000) / 1000, ...(Number.isFinite(Number(g)) && gn > 0 ? { g, gn } : {}) };
     try { localStorage.setItem(CARD_KILL_KEY, JSON.stringify(K)); } catch { /* voll/gesperrt: nur im Speicher */ }
   }
   // Ø Common-Karten je Kill: 40 % normal, 80 % Elite – mit dem gemessenen Elite-Anteil (der Bot zieht Elites vor)
@@ -8199,6 +8216,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   function cardKillMs(sp, tags) {
     const e = cardKillLoad()[sp];
+    if (Number(e?.gn) >= CARD_GAP_MIN_N && Number(e?.g) > 0) return Number(e.g); // gemessener Kill-Takt (3.2.3)
     const base = e?.ms > 0 ? e.ms : (tags || []).includes('armored') ? CARD_GUESS_MS.armored : (tags || []).includes('evasive') ? CARD_GUESS_MS.evasive : CARD_GUESS_MS.normal;
     return base + CARD_EXTRA_MS;
   }
@@ -8284,12 +8302,24 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return best !== p.species && bv < value(p.species) * CARD_FORM_GAIN ? p.species : best;
   }
   // Zielform nur neu bestimmen, wenn Map oder Arten wechseln – sonst die gemerkte (kein Hin und Her)
+  // Gewählte Karten-Digitation (3.2.3): '' = automatisch; sonst wie bei der Map-Regel (Form, höchste, höchste Armor). Gibt es die
+  // Form beim aktiven Digimon nicht (oder ist sie am Dark Tower nicht möglich), automatisch
+  function cardFormTarget(st, plan) {
+    const p = st?.me?.partner, sp = cfg.cardForm; if (!p || !sp) return cardBestForm(st, plan);
+    if (sp === EVO_ARMOR) return maxArmor(p) || cardBestForm(st, plan);
+    // aus einer Armor-Form (z. B. nach einer Dark-Tower-Map) von der Grundform aus suchen – wie mapEvoTarget
+    if (sp === EVO_MAX) { if (lrDarkMap(st)) return maxArmor(p) || cardBestForm(st, plan); const root = (p.evolutions || []).find((e) => !e.from)?.species; return maxEvolution(p) || (root ? maxEvolution({ ...p, species: root }) : null) || p.species; }
+    const e = (p.evolutions || []).find((x) => x.species === sp);
+    if (sp !== p.species && (!e || e.unlocked === false || e.blocked)) return cardBestForm(st, plan);
+    if (lrDarkMap(st) && (e?.stage || p.stage) !== 'armor') return cardBestForm(st, plan);
+    return sp;
+  }
   function cardEvolution(st, now) {
     const K = farm.card, plan = K?.plan; if (!plan) return true;
-    const key = `${plan.mapId}|${[...plan.species].sort().join(',')}`;
+    const key = `${plan.mapId}|${[...plan.species].sort().join(',')}|${cfg.cardForm || ''}`;
     if (K.formKey !== key) {
-      K.formKey = key; K.form = cardBestForm(st, plan);
-      if (K.form && K.form !== st.me?.partner?.species) logEvent('auto', `Kartenrotation: beste Form für ${[...plan.species].map(speciesName).join(', ')} – ${speciesName(K.form)}`);
+      K.formKey = key; K.form = cardFormTarget(st, plan);
+      if (K.form && K.form !== st.me?.partner?.species) logEvent('auto', `Kartenrotation: ${cfg.cardForm ? 'eingestellte' : 'beste'} Form für ${[...plan.species].map(speciesName).join(', ')} – ${speciesName(K.form)}`);
     }
     return K.form ? evolveVia(st, K.form, now) : true;
   }
@@ -10959,7 +10989,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (!el) return;
     const val = cfg[key] ?? '';
     if (val && !options.some((o) => o[0] === val)) {
-      options.push([val, /^levelEvo/.test(key) ? `${speciesName(val)} (anderes Digimon)`
+      options.push([val, /^(levelEvo|cardForm)/.test(key) ? `${speciesName(val)} (anderes Digimon)`
         : key === 'apStartMap' || key === 'foodAutoMap' || key === 'eventsIdleMap' ? (content()?.maps?.[val]?.name || val) : '(gespeichert, gerade nicht im Team)']);
     }
     const sig = JSON.stringify(options) + '|' + val;
@@ -10983,6 +11013,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const allEvos = (st?.me?.partner?.evolutions || []).map((e) => [e.species, `${speciesName(e.species)} (${e.stage}, ab Lv ${e.level}${e.unlocked === false ? ', gesperrt' : ''})`]);
     fillSelect('levelEvoForm', [['', 'keine Digitation'], [EVO_MAX, '⬆ höchstmögliche Digitation'], [EVO_ARMOR, '🛡 höchste Armor-Form'], ...allEvos]);
     fillSelect('levelEvoDark', [['', 'keine Digitation'], [EVO_ARMOR, '🛡 höchste Armor-Form'], [EVO_MAX, '⬆ höchstmögliche Digitation'], ...allEvos]);
+    fillSelect('cardForm', [['', '🤖 automatisch (beste Form für die Karten)'], [EVO_MAX, '⬆ höchstmögliche Digitation'], [EVO_ARMOR, '🛡 höchste Armor-Form'], ...allEvos]);
     fillSelect('apStartMap', world.state === 'ready'
       ? [['', cfg.apSweepDir === 'up' ? 'niedrigste erreichbare' : 'höchste erreichbare'], ...sweepList().map((m) => [m.id,
         `${seriesTag(m.series)} · ${m.name} (${m.levelRange?.join('–')})${hops(st?.world?.mapId, m.id) === Infinity ? ' – nicht erreichbar' : ''}`])]
@@ -10991,10 +11022,24 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       ? [['', 'aktuelle Map (sonst Dream Ruins)'], ...Object.entries(content()?.maps || {}).map(([id, m]) => ({ id, name: m?.name || id })).filter((m) => world.maps[m.id] && !isRaidMap(m.id) && foodShopNpc(m.id))
         .sort((a, b) => a.name.localeCompare(b.name)).map((m) => [m.id, `${m.name} · ${content()?.npcs?.[foodShopNpc(m.id)]?.name || foodShopNpc(m.id)}`])]
       : [['', 'aktuelle Map (sonst Dream Ruins)']]);
+    renderWbPick(st);
     fillSelect('eventsIdleMap', world.state === 'ready'
       ? [['', 'stehen bleiben'], ...Object.values(content()?.maps || {}).filter((m) => world.maps[m.id] && !isRaidMap(m.id) && !/^sandbox/.test(m.id) && mapWalkable(st, m.id))
         .sort((a, b) => a.name.localeCompare(b.name)).map((m) => [m.id, `${m.name}${hops(st?.world?.mapId, m.id) === Infinity ? ' – nicht erreichbar' : ''}`])]
       : [['', 'Weltkarte lädt…']]);
+  }
+  // Einstellungen → Events (3.2.3): je Weltboss der Spieldaten ein Haken (an = ansteuern)
+  let wbPickSig = '';
+  function renderWbPick(st) {
+    const el = panelQ('[data-f="wbpick"]'); if (!el) return;
+    const list = farmBossList().filter((b) => b.kind === 'world'), pl = st?.me?.partner?.level;
+    const esc = (x) => String(x ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const rows = list.map((b) => {
+      const why = !mapWalkable(st, b.map) ? ' – Map noch zu' : pl != null && b.level > pl + Math.max(WB_LEVEL_ABOVE, cfg.lvlDiff || 0) ? ' – Level zu hoch' : '';
+      return `<label class="digibot__skill digibot__chk"><input type="checkbox" data-wbon="${esc(b.species)}"${cfg.wbOff?.[b.species] ? '' : ' checked'}> ${esc(b.name)} · Lv ${b.level} · ${esc(content()?.maps?.[b.map]?.name || b.map)}${why}</label>`;
+    });
+    const html = rows.length ? rows.join('') : '<div class="digibot__none">Keine Weltbosse in den Spieldaten.</div>';
+    if (html !== wbPickSig) { wbPickSig = html; el.innerHTML = html; }
   }
   // Warteplatz (3.0.9): solange kein Event/Weltboss fällig ist, zur eingestellten Map reisen (z. B. The Network – kein
   // Tamer-DS-Verlust). Liefert den Reise-Status, null = schon dort oder keiner eingestellt.
@@ -11153,7 +11198,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
 
   function renderQuests(st, sc) {
-    if ((pageOn('mon') || pageOn('set')) && !pageOn('quest')) { renderApConfig(st); return; } // Partner/Digitation je Map (Digimon), Einkaufs-Map (Einstellungen)
+    if ((pageOn('mon') || pageOn('set') || pageOn('farm')) && !pageOn('quest')) { renderApConfig(st); return; } // Partner/Digitation je Map (Digimon), Einkaufs-Map und Weltbosse (Einstellungen), Karten-Digitation (Bosse)
     if (!pageOn('quest')) return;
     renderApConfig(st);
     const ap = panelQ('[data-f="apinfo"]');
@@ -11738,6 +11783,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         if (/^(farm|route)/.test(key)) farm.reset();
         saveCfg(); autopilot.reset(); e.target.blur(); questSig = ''; schedule();
         logEvent('auto', `Einstellung: ${e.target.closest('label')?.firstChild?.textContent?.trim() || key} = ${e.target.selectedOptions[0]?.textContent || '–'}`);
+        return;
+      }
+      const wbSp = e.target.dataset.wbon; // Einstellungen → Events: Weltboss an/aus (3.2.3)
+      if (wbSp) {
+        cfg.wbOff = { ...(cfg.wbOff || {}) };
+        if (e.target.checked) delete cfg.wbOff[wbSp]; else cfg.wbOff[wbSp] = true;
+        saveCfg(); e.target.blur(); wb.goal = null; schedule();
+        logEvent('auto', `Weltboss ${speciesName(wbSp)}: ${e.target.checked ? 'ansteuern' : 'auslassen'}`);
         return;
       }
       if (e.target.dataset.cfg) e.target.blur();
