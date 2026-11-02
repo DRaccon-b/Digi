@@ -2,6 +2,20 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.2 – Pull-Modus holt mehr Monster und verliert keine an der Leine
+- **Nachholen nach dem Rundenende:** War die Sammelrunde zu („kein weiteres Monster in der Leine“), holte der Bot bis zum Tod
+  aller Angreifer nichts mehr dazu – live standen oft freie Monster 50–100 px daneben. Jetzt holt er neue Monster in der Leine
+  während des Kampfs nach, bis zur Höchstzahl (Status „Hole nach n/max“, Log „… nachgeholt“). Auf dem Weg dorthin warten die
+  Skills, damit der Flächenangriff das Ziel nicht zurück auf die Gruppe zieht – höchstens 4 s und nur, solange das Monster
+  noch frei ist (nimmt es ein anderer Spieler, kämpft der Bot normal weiter). Endet die Runde auf Zeit (12 s), wird nicht
+  nachgeholt.
+- **Leine ab dem Anspielpunkt:** Als Mitte der Leine gilt jetzt die Stelle, an der das Monster zuletzt frei stand, bevor es
+  angriff – nicht mehr der Platz, an dem der Bot es zuerst sah. Herumlaufende Monster (Okuwamon) waren dort längst weg; live rissen
+  sie 223–243 px vom Anspielpunkt ab, das passt zur Leine von 240 px.
+- **Tote binden nicht mehr:** Nur noch die Monster, die gerade angreifen, begrenzen den erlaubten Bereich (auch beim Ausweichen).
+  Vorher schrumpfte er mit jedem gesammelten Monster weiter, auch wenn es schon tot war.
+- Test: `pullrefilltest` (Nachholen, Leine ab Anspielpunkt, tote binden nicht, außerhalb der Leine bleibt tabu).
+
 ## 3.2.1 – Autopilot-Runde läuft über alle Maps
 - **Runde brach nach 40 Maps ab:** Die Map-für-Map-Runde sprang pro Planung höchstens 40 Maps weiter. Von Primary Village aus
   endete das genau bei Water Realm – die Reaper-Dailies in D-Reaper: Shinjuku und Shinjuku Evacuation District dahinter blieben
