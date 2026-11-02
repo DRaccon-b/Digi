@@ -2,6 +2,13 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.1 – Autopilot-Runde läuft über alle Maps
+- **Runde brach nach 40 Maps ab:** Die Map-für-Map-Runde sprang pro Planung höchstens 40 Maps weiter. Von Primary Village aus
+  endete das genau bei Water Realm – die Reaper-Dailies in D-Reaper: Shinjuku und Shinjuku Evacuation District dahinter blieben
+  liegen, der Bot meldete „keine machbaren Quests mehr“ und wartete am Event-Warteplatz (live 02.11.). Die Grenze ist jetzt die
+  Länge der Runde; sollte sie je erreicht werden, plant der Bot im nächsten Takt weiter, statt die Runde für fertig zu halten.
+  Test: `sweeplongtest` (50 Maps, Quest auf der letzten).
+
 ## 3.2.0 – Neue Oberfläche: Einstellungen an einem Ort, Food-Nachkauf, Ausweichen einstellbar
 - **Neue Reiter:** Übersicht · Digimon · Attacke · Quests · Bosse · Gruppe · **⚙️ Einstellungen** · Log. Der Food-Reiter ist in
   den Einstellungen aufgegangen. Bestandsaufnahme und Begründung: `docs/ui-struktur-2026-11-02.md`.

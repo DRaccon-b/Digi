@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.0
+// @version      3.2.1
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1760,7 +1760,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.0'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.1'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -7031,8 +7031,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const gw = groupWait(now);
       if (gw) return gw;
       let all = questTasks(st);
-      // Runde: auf dieser Map nichts mehr zu tun -> nächste Map (absteigend)
-      for (let guard = 0; cfg.apOrder === 'sweep' && !autopilot.bountyReturn && !all.length && guard < 40; guard++) {
+      // Runde: auf dieser Map nichts mehr zu tun -> nächste Map (absteigend). Grenze = Länge der Runde: sweepAdvance geht
+      // jedes Mal mindestens eine Map weiter. Mit fest 40 endete die Runde von Primary Village aus bei Water Realm, die
+      // Reaper-Dailies dahinter blieben liegen und der Bot meldete „keine machbaren Quests“ (live 02.11., 3.2.1)
+      const sweepN = cfg.apOrder === 'sweep' ? sweepList().length + 1 : 0;
+      let guard = 0;
+      for (; cfg.apOrder === 'sweep' && !autopilot.bountyReturn && !all.length && guard < sweepN; guard++) {
         const done = autopilot.sweepAt;
         const why = sweepSkipReasons(st, done);
         const next = sweepAdvance(st);
@@ -7043,6 +7047,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         autopilot.phase = 0;
         all = questTasks(st);
       }
+      // Grenze erreicht, Runde aber nicht zu Ende: im nächsten Takt weiterplanen statt „nichts mehr zu tun“ zu melden
+      if (!all.length && sweepN && guard >= sweepN && !autopilot.bountyReturn) return 'Runde: plane die nächsten Maps…';
       t = autopilot.task = all[0] || null;
       if (cfg.apBatch && !t?.sameNpc) autopilot.batchPhase = !t ? 'do' : t.purpose === 'accept' || t.purpose === 'daily' ? 'accept' : t.purpose === 'turnin' ? 'turnin' : 'do';
       if (t?.kind === 'hunt' && !t.grind) {
