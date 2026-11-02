@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.1.50
+// @version      3.1.51
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1652,7 +1652,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.50'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.1.51'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2484,7 +2484,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
             half: (l.skill.sweep.arc || 90) * Math.PI / 360, end: l.end || 0, sweep: true,
             cover: l.skill.cover || content()?.skills?.[l.skill.id]?.cover || null });
         } else {
-          zones.push({ kind: 'line', x: l.fx, y: l.fy, tx: l.tx, ty: l.ty, len, r: l.r || 16, end: l.end || 0 });
+          // grab: Greifarm/Ansturm – daneben gilt nie die Kantenreserve (Packen = 24 s hilflos, 3.1.51)
+          zones.push({ kind: 'line', x: l.fx, y: l.fy, tx: l.tx, ty: l.ty, len, r: l.r || 16, end: l.end || 0, grab: !!(l.skill?.grab || l.skill?.dash) });
         }
       }
     } catch { /* ignore */ }
@@ -2586,7 +2587,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     for(const h of z.holes||[])if(Math.hypot(p.x-h.x,p.y-h.y)<h.r)required=Math.min(required,Math.max(10,h.r/3));
     // Schmaler Strahl/Ansturm (Trinity Arm 10 px, Behemoth 14 px): der Sicherheitsabstand schrumpft mit der Breite –
     // ein Schritt zur Seite reicht, das Digimon bleibt in Schlagweite (3.0.5; vorher 28/42 px wie bei breiten Kreisen)
-    if(z.kind==='line' && Number.isFinite(z.r))required=required*Math.min(1,Math.max(12,z.r)/DODGE_MARGIN);
+    // – aber nie unter die Kantenreserve (Körperbreite): 8 px bleiben 8 px, auch neben einer 20-px-Linie (3.1.51)
+    if(z.kind==='line' && Number.isFinite(z.r))required=Math.max(Math.min(margin,DODGE_EDGE_MARGIN),required*Math.min(1,Math.max(12,z.r)/DODGE_MARGIN));
     return zoneDist(z,p).d>=required;
   }
   // Exact expanded circle edges supplement the coarse escape rings. Include the
@@ -2793,7 +2795,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const reach0 = (() => { const C = content(), br = C?.digimon?.[partner?.defId || st?.me?.partner?.species]?.basic?.range ?? DODGE_BASIC_RANGE, tr = Math.max(1, Math.min(C?.digimon?.[target?.defId]?.radius ?? 7, 7)); return Number.isFinite(br) && br > 0 ? br + tr - DODGE_BASIC_PAD : 0; })();
     const nextToTarget = !!target && !!partner && st?.target?.id === target.id && Math.hypot(partner.x - target.x, partner.y - target.y) <= reach0 && !mirrorActive(target.id) && !noFightEarly(st, now);
     const atEdge = (p) => (p === partner || p === tamer) && !!target && (dodgeState.basicTarget === target.id || atRing(p) || nextToTarget); // 3.1.19: auch der Tamer, auch am Ring-Fluchtpunkt
-    const inZone = (p) => p && zones.find((z) => !digibotDodgeZoneSafe(z,p, atEdge(p) && z.kind === 'circle' ? DODGE_EDGE_MARGIN : DODGE_MARGIN) && !covered(z,p,cmap));
+    // Kantenreserve auch an schmalen Linien (Whamon Tidal Wave, 20 px): sonst galt das Digimon an der Angriffsposition 15 px neben
+    // der Linie mit der vollen (für Linien auf 20 px skalierten) Reserve als „drin“ und floh gleich wieder – Hin und Her bis zum
+    // Einschlag (Review 3.1.51). Breite Strahlen und Fächer behalten die volle Reserve.
+    const edgeZone = (z) => z.kind === 'circle' || (z.kind === 'line' && !z.grab && !z.persistent && (z.r || 16) < DODGE_MARGIN); // nicht bei Greifarmen und treibenden Hindernissen
+    const inZone = (p) => p && zones.find((z) => !digibotDodgeZoneSafe(z,p, atEdge(p) && edgeZone(z) ? DODGE_EDGE_MARGIN : DODGE_MARGIN) && !covered(z,p,cmap));
     const approaching=!!dodgeState.approachTarget;
     const z = inZone(tamer) || inZone(partner);
     if (!z) {
@@ -2820,7 +2826,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const soonNear = !!target && zones.some((c) => {
         const left = c.end ? c.end - performance.now() : zoneLeftMs(c);
         const narrow = c.kind === 'line' && (c.r || 16) < DODGE_MARGIN; // nur schmale Linien – breite Strahlen wie Kreise
-        return left != null && left < DODGE_SOON_MS && zoneDist(c, narrow || c.kind === 'fan' ? attackPos : target).d < (narrow ? Math.max(12, c.r || 16) + 12 : DODGE_SOON_PAD); // Fächer: Angriffsposition (3.1.18)
+        // Schmale Linie: „bald“ sperrt nur, wenn die Angriffsposition selbst in der Linie läge (Kantenreserve) – daneben zieht die 1
+        // das Digimon auf die sichere Seite, egal wann die Linie einschlägt (live Whamon Tidal Wave: 53 px seitlich, Angriffsposition
+        // 15 px neben der Linie, trotzdem 0,7 s je Ansage gewartet, 3.1.51)
+        return left != null && left < DODGE_SOON_MS && zoneDist(c, narrow || c.kind === 'fan' ? attackPos : target).d < (narrow ? DODGE_EDGE_MARGIN : DODGE_SOON_PAD); // Fächer: Angriffsposition (3.1.18)
       });
       // „kurz vor dem Einschlag“ sperrt nur Angriffe, für die das Digimon erst laufen müsste – steht es schon in
       // Schlagweite außerhalb, darf es weiterschlagen (3.0.8; vorher 1,2 s Pause bei jedem Dark Roar)

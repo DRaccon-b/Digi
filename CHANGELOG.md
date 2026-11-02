@@ -2,6 +2,17 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.1.51 – Schmale Linien: neben der Linie sofort weiterkämpfen
+- **Nicht mehr warten, wenn die Angriffsposition neben der Linie liegt:** Bei schmalen Linien (Whamon „Tidal Wave“, 20 px
+  breit, 1,8 s Ansage) stand das Digimon nach dem Ausweichen 53 px seitlich vom Ziel und wartete, bis die Linie weg war –
+  obwohl die Angriffsposition 15 px neben der Linie lag. Grund war die Regel „Zone endet bald, nicht hinlaufen“, die hier
+  nur noch greift, wenn die Angriffsposition selbst in der Linie läge (Kantenreserve 8 px). Jetzt kommt die 1 sofort, Skills
+  folgen vom Rand. Live gemessen (Water Realm, 5,4 min): 31 % der Zeit Ausweichen, davon 39 s reines Warten in Reichweite.
+- **An der Angriffsposition neben der Linie bleiben:** Dort gilt wie am Kreisrand nur noch die Kantenreserve, nicht die volle
+  Linien-Reserve (20 px) – sonst wäre das Digimon nach dem Loslaufen gleich wieder geflohen (Hin und Her bis zum Einschlag).
+  Gilt auch für schmale Boss-Strahlen: hinter dem Boss wird schon während der Ansage weiter angegriffen (wie beim Fächer seit
+  3.1.18). Breite Strahlen, Fächer und Kreise bleiben wie bisher.
+
 ## 3.1.50 – Am Warnkreis schneller wieder zuschlagen
 - **Sofort zuschlagen nach dem Ausweichen:** Live (Snimon-Kreise, 1,3 s) stand das Digimon 0,5–0,9 s vor Kreisende schon
   neben dem Ziel, die 1 kam aber erst ≈ 0,8 s später – der erste Treffer fiel fast immer erst nach dem Kreis. Zwei Gründe:

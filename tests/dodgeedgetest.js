@@ -23,12 +23,12 @@ async function trial(tag, mob) {
   for (const e of G.ents.values()) if (e.kind === 2) { e.hp = 900000; e.maxHp = 900000; }
   const scene = G.w.dmo.game.scene.getScene('world');
   scene.telegraphs = { active: [], marksActive: [], circles: [], mirrors: [] }; scene.mechB = { lines: [] };
-  const keys = [];
-  G.w.addEventListener('keydown', (e) => { if (e.code === 'Digit1') keys.push(Date.now()); }, true);
+  const keys = [], posAt = []; // posAt: x des Digimons beim Druck (unter Last rutscht die Testwelt das Digimon zwischen zwei Pins weiter)
+  G.w.addEventListener('keydown', (e) => { if (e.code === 'Digit1') { keys.push(Date.now()); posAt.push(G.ents.get('p:me')?.x); } }, true);
   G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, dodge: true, tab: 'log', lvlDiff: 20, radius: 400 }));
   G.w.eval(script);
   await wait(800);
-  return { G, keys, scene };
+  return { G, keys, posAt, scene };
 }
 const circle = (scene, G, ms) => { scene.telegraphs.active = [{ ...C }]; scene.telegraphs.circles = [{ ...C, end: G.w.performance.now() + ms }]; };
 const clear = (scene) => { scene.telegraphs.active = []; scene.telegraphs.circles = []; };
@@ -37,7 +37,7 @@ const clear = (scene) => { scene.telegraphs.active = []; scene.telegraphs.circle
   const r = {};
   // X / Z: Digimon bei (476,330) = 14 px außerhalb des Rands; Tamer abseits
   for (const [tag, mob] of [['X', [506, 330]], ['Z', [596, 330]], ['V', [518, 330]]]) {
-    const { G, keys, scene } = await trial(tag, mob);
+    const { G, keys, posAt, scene } = await trial(tag, mob);
     const p = G.ents.get('p:me'), t = G.ents.get('t:me'), m = G.ents.get('m:1');
     m.targetId = 'p:me';
     p.x = 476; p.y = 330; t.x = 476; t.y = 330;
@@ -47,7 +47,7 @@ const clear = (scene) => { scene.telegraphs.active = []; scene.telegraphs.circle
     G.w.document.querySelector('[data-act="bot"]').click();
     const sts = new Set();
     while (Date.now() - t0 < 1200) { sts.add(G.status().slice(0, 50)); p.x = 476; p.y = 330; t.x = 476; t.y = 330; await wait(5); } // beide festhalten (die Testwelt bewegt den Tamer zum Fluchtpunkt)
-    r[tag] = { during: keys.filter((k) => k < t0 + 1200).length, sts: [...sts] };
+    r[tag] = { during: keys.filter((k, i) => k < t0 + 1200 && Math.abs(posAt[i] - 476) < 6).length, sts: [...sts] }; // nur Drücke von der Startposition aus
     clear(scene); G.w.close();
   }
   // Y: erst normaler Kampf, dann Kreis auf dem Digimon, nach 700 ms draußen.   Y2: dazu eine dauerhafte Falle 190 px entfernt

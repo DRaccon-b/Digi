@@ -1,6 +1,7 @@
 // 3.1.2: Fächer (Ultimate Flare, schwenkt 1,6 s NACH der Ansage): verschwindet die Ansage, bleibt der Fächer noch als Gefahr
 // stehen (sweep.ms + 300 ms). Vorher lief der Bot in den 0,3 s zwischen Ansage-Ende und Treffer zurück zum Boss
 // (Sim Raum 4: alle vier Clavis gleichzeitig tot). Ein gewöhnlicher Strahl ohne Schwenk wird dagegen sofort vergessen.
+// 3.1.51: beim schmalen Strahl darf hinter dem Boss (Angriffsposition neben der Linie) schon während der Ansage angegriffen werden.
 const fs = require('fs');
 const makeWorld = require('./gw');
 const script = fs.readFileSync(process.argv[2], 'utf8');
@@ -41,7 +42,8 @@ async function trial(sweep) {
   console.log(f, l);
   const behind = f.px >= 570; // 3.1.18: Fluchtpunkt hinter dem Boss – von dort weiter angreifen ist erlaubt
   const ok = (behind || /Weiche|Warte außerhalb|Fernangriff|Außerhalb der Warnzone/.test(f.during)) && (behind ? /Warte außerhalb|Weiche|normaler Angriff|Wehre ab/.test(f.after) : (/Warte außerhalb|Weiche|Fernangriff|Außerhalb der Warnzone/.test(f.after) && f.d1 === 0)) && !/Warte außerhalb|Weiche|Außerhalb der Warnzone/.test(f.later)
-    && /Weiche|Warte außerhalb|Fernangriff/.test(l.during) && !/Warte außerhalb|Weiche|Außerhalb der Warnzone/.test(l.after);
+    // 3.1.51: schmaler Strahl – hinter dem Boss (Angriffsposition neben der Linie) wird schon während der Ansage angegriffen
+    && (l.px >= 570 ? /normaler Angriff|Angriff im Stand|Wehre ab|Weiche|Warte außerhalb/.test(l.during) : /Weiche|Warte außerhalb|Fernangriff/.test(l.during)) && !/Warte außerhalb|Weiche|Außerhalb der Warnzone/.test(l.after);
   console.log(ok ? 'OK – Fächer wirkt nach der Ansage nach, Strahl nicht' : 'FEHLER');
   process.exit(ok ? 0 : 1);
 })();
