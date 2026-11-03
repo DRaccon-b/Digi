@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.9
+// @version      3.2.10
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1783,7 +1783,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.9'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.10'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -5897,6 +5897,18 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return best && best.species !== p.species ? best.species : null;
   }
 
+  // Warp nutzbar? (3.2.10) Der Server meldet ein Hindernis (warp.blocker). Fehlt nur Tamer-DS (der Warp kostet die Summe aller
+  // Schritte bis zur Mega-Form), F3 essen statt schrittweise zu digitieren – sofern das Maximum für den Warp reicht und F3 da ist
+  // (live: Mitläufer mit knappem Tamer-DS digitierte immer Schritt für Schritt)
+  const WARP_SKIP_MS = 5 * 60000;
+  function warpUsable(st, tgt) {
+    // ausgesetzt (Server gab den Warp trotz genug Tamer-DS nicht frei): nur WARP_SKIP_MS, nicht für den ganzen Lauf
+    if (!cfg.evoWarp || !tgt?.warp || lrDarkMap(st) || (autopilot.warpSkip?.sp === tgt.species && autopilot.warpSkip.until > Date.now())) return false;
+    const b = tgt.warp.blocker;
+    if (!b) return true;
+    const need = Math.ceil((Number(tgt.warp.dsCost) || 0) * 11 / 10); // wie das Spiel (De) – ohne Gleitkomma-Rundung
+    return b === 'not_enough_tamer_energy' && (st?.me?.tamerMaxDs ?? 0) >= need && potionCount(st.me, 3) > 0;
+  }
   // Digitiert das aktive Digimon Schritt für Schritt zur gewünschten Form. Fehlt Tamer-DS, wird der F3-Trank
   // benutzt. true = passt (oder geht gerade nicht); sonst Statustext.
   function ensureEvolution(st, species, now) {
@@ -5913,7 +5925,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const note=(reason)=>{const key=species+':'+reason;if(autopilot.evoNote!==key){autopilot.evoNote=key;logEvent('warn',`Digitation ${speciesName(species)}: ${reason}`);}return true;};
     if (!target) return note('Form im aktuellen Spielzustand nicht verfügbar');
     if(target.unlocked===false)return note(`gesperrt (${target.lock||'Voraussetzungen fehlen'})`);
-    const warp=!!(cfg.evoWarp && target.warp && !target.warp.blocker && !lrDarkMap(st));
+    const warp=warpUsable(st,target);
+    // eigener Merker, damit er sich nicht mit den anderen Hinweisen abwechselt (sonst jede Runde neu im Log)
+    if(cfg.evoWarp&&target.warp?.blocker&&!warp){const wk=species+':'+target.warp.blocker;if(autopilot.warpNote!==wk){autopilot.warpNote=wk;logEvent('warn',`Digitation ${speciesName(species)}: Warp nicht möglich (${target.warp.blocker}) – digitiere schrittweise`);}}
     if(target.blocked && !warp){
       // Reaper (Tamers-Maps): DNA-/Super-Ultimate-Formen anderer Welten gehen dort nicht, Mega schon – statt in der
       // Grundform zu bleiben, die höchste freie Form nehmen (3.0.7)
@@ -5928,8 +5942,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const withPartner = warp ? undefined : step.jogress?.partner?.partnerId;
     if (evoCooldownLeft(st) > 0) return true;            // Abklingzeit: erst mal in aktueller Form weiter
     // Das Spiel verlangt 10 % Tamer-DS mehr als die Kosten (ceil(dsCost·1,1), 3.1.33)
-    const cost=warp?target.warp.dsCost:step.dsCost, need=Math.ceil((cost??0)*1.1);
+    const cost=warp?target.warp.dsCost:step.dsCost, need=Math.ceil((cost??0)*11/10); // wie das Spiel (De)
     const ready=warp?!target.warp.blocker && (st.me.tamerDs??0)>=need:step.canEvolveNow;
+    // Warp nur am Tamer-DS gescheitert, aber genug im Bestand (Server-Hindernis noch nicht aktualisiert): kurz warten, nicht F3 essen
+    if(warp&&!ready&&target.warp.blocker==='not_enough_tamer_energy'&&(st.me.tamerDs??0)>=need){
+      if(now-(autopilot.warpWaitSeen||0)>2000)autopilot.warpWaitAt=now; // alter Startwert aus einem früheren Versuch zählt nicht
+      autopilot.warpWaitSeen=now;autopilot.warpWaitAt||=now;
+      if(now-autopilot.warpWaitAt<6000)return 'Warte auf Warp-Freigabe…';
+      autopilot.warpSkip={sp:species,until:now+WARP_SKIP_MS};autopilot.warpWaitAt=0;note('Warp bleibt gesperrt – digitiere 5 min schrittweise');return true; // nicht endlos warten
+    }
+    autopilot.warpWaitAt=0;
     if (!ready) {
       if ((st.me.tamerDs ?? 0) < need && (st.me.tamerDs ?? 0) < (st.me.tamerMaxDs ?? Infinity) && potionCount(st.me, 3) > 0 && bot.can('F3', POT_COOLDOWN_MS, now)) { // volles DS: kein F3 in Schleife
         bot.hit('F3', now);
@@ -5996,7 +6018,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // Ziel auf einem anderen Ast (z. B. Mega -> Armor): erst zurück in die Grundform
     const evos = p.evolutions || [], tgt = evos.find((e) => e.species === sp);
     if (!tgt || tgt.unlocked === false || (p.level ?? 0) < (tgt.level || 0)) return true;
-    if(cfg.evoWarp && tgt.warp && !tgt.warp.blocker && !lrDarkMap(st))return ensureEvolution(st,sp,now);
+    if(warpUsable(st,tgt))return ensureEvolution(st,sp,now); // Warp – auch, wenn erst F3 fehlt (3.2.10)
     let x = tgt; for (let i = 0; i < 8 && x && x.species !== p.species; i++) x = evos.find((e) => e.species === x.from);
     if (!x && p.stage && p.stage !== 'rookie' && p.stage !== 'in-training') {
       if (evoCooldownLeft(st) > 0) return true;
@@ -6045,7 +6067,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function digibotEvolutionContext(st) {
     const key=activePartner(st)?.partnerId||st?.me?.partner?.entityId;
     if(key && autopilot.evoPartner!==key){
-      autopilot.evoPartner=key;autopilot.evoGiveUp=null;autopilot.evoTries=0;autopilot.devoGiveUp=null;autopilot.devoTries=0;autopilot.evoFrom=null;autopilot.evoNote=null;
+      autopilot.evoPartner=key;autopilot.warpSkip=null;autopilot.evoGiveUp=null;autopilot.evoTries=0;autopilot.devoGiveUp=null;autopilot.devoTries=0;autopilot.evoFrom=null;autopilot.evoNote=null;
     }
   }
   function digibotQuestPartner(st) {

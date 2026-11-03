@@ -2,6 +2,15 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.10 – Warp-Digitation auch bei knappem Tamer-DS
+- **Mitläufer warpte nie:** Der Warp kostet die Summe aller Schritte bis zur Mega-Form. Reicht das Tamer-DS nicht, meldet das
+  Spiel das Hindernis „not_enough_tamer_energy“ – der Bot ging dann sofort Schritt für Schritt (live: Patamon → Angemon →
+  Holy Angemon → Seraphimon, ständig Bento). Jetzt isst er zuerst F3 und warpt, sofern das Tamer-DS-Maximum für den Warp reicht
+  und F3 da ist. Andere Hindernisse (Dark Tower, bewusstlos, …) melden „Warp nicht möglich (…)“ im Log und er digitiert
+  schrittweise wie bisher (einmal je Hindernis). Gibt das Spiel den Warp trotz genug Tamer-DS 6 s lang nicht frei, 5 min
+  schrittweise, danach wieder Warp. Tamer-DS-Bedarf gerechnet wie im Spiel (Kosten × 11/10, aufgerundet).
+- Test: `warpdstest`.
+
 ## 3.2.9 – Kleinigkeiten zu 3.2.8
 - Weltboss: Auch nach einer Chat-Warnung ohne bekannten Kanal-Timer gilt der eingestellte Vorlauf (vorher ging der Bot dann
   immer gleich los).
