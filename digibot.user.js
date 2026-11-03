@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.4
+// @version      3.2.5
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1763,7 +1763,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.4'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.5'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2593,6 +2593,35 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       }
     }
     return Math.min(99, need);
+  }
+  // Tamers-Bosse (3.2.5): Schild- und Puls-Phasen. Solange der Schild steht (Status gate_shield am Boss), folgt jeder 3. Aktion
+  // ein Blast auf alle (45 % der Max-HP, Zhuqiaomon mehr) mit nur 0,6 s Ansage – zu kurz zum Reagieren, also die HP vorher
+  // darüber halten (+A3_SHIELD_PAD). Der Puls kommt an festen Boss-HP-Schwellen (cadence.atHp) mit 2,5 s Ansage und ist
+  // unausweichbar: kurz vor der Schwelle (A3_PULSE_LEAD) auf A3_PULSE_PREP auffüllen (nicht höher – solo dauert das Stück vor
+  // der Schwelle Minuten, sonst ein Trank je Cooldown), während der Ansage auf A3_PULSE_TOPUP.
+  const A3_SHIELD_PAD = 20, A3_PULSE_LEAD = 0.04, A3_PULSE_PREP = 85, A3_PULSE_TOPUP = 95;
+  function a3BossSpec(mapId, species) {
+    return (content()?.spawns?.[mapId]?.bosses || []).find((b) => b.species === species && (b.shieldGates || b.cadence)) || null;
+  }
+  function a3Topup(st, now) {
+    const boss = currentBoss(st); if (!boss?.species) return 0;
+    const spec = a3BossSpec(st?.world?.mapId, boss.species); if (!spec) return 0;
+    const ents = window.dmo?.net?.state?.entities, be = ents?.get?.(boss.id), me = controlled(st);
+    if (!be || !(be.hp > 0) || !me || Math.hypot(be.x - me.x, be.y - me.y) > CHARGE_NEAR) return 0;
+    let need = 0;
+    const blast = spec.shieldGates?.pulse && content()?.skills?.[spec.shieldGates.pulse];
+    const pnow = performance.now(); // Effekt-Ende speichert der Client in performance.now()-Zeit
+    if (blast && (st?.effects?.[boss.id] || []).some((e) => e?.id === 'gate_shield' && (!e.end || e.end > pnow))) {
+      need = Math.max(need, Math.min(95, (Number(blast.hpDamagePct) || Number(blast.refHpPct) || 45) + A3_SHIELD_PAD));
+    }
+    const cad = spec.cadence;
+    if (cad?.skill) {
+      const hpPct = be.maxHp > 0 ? be.hp / be.maxHp : 1;
+      if ((cad.atHp || []).some((t) => hpPct > t && hpPct - t <= A3_PULSE_LEAD)) need = Math.max(need, A3_PULSE_PREP);
+      const e = bossSkillLog.get(boss.id)?.get?.(cad.skill);
+      if (e?.phase === 'cast' && e.castEnd > now - 300) need = Math.max(need, A3_PULSE_TOPUP);
+    }
+    return need;
   }
   function digibotDodgeReset(){Object.assign(dodgeState,{active:false,lastTap:0,lastFollow:0,goal:null,late:false,basicTarget:null,lastStop:0,approachTarget:null,approachStopped:false,approachGoal:null});lineMemo.clear();}
   function digibotDodgeSpeed(st) {
@@ -5526,6 +5555,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (kg) { group.mirrorTap = null; return { text: kg, hold: true }; }
     const sg = digibotCore.priority(100,()=>shareGather(st, now));
     if (sg) { group.mirrorTap = null; return { text: sg, hold: true }; }
+    const pd = digibotCore.priority(100,()=>padStep(st, now));
+    if (pd) { group.mirrorTap = null; return { text: pd, hold: true }; }
     const dg = digibotCore.priority(100,()=>dodge(st, now));
     if (dg) { group.mirrorTap = null; return { text: dg, hold: true }; }
     const ents = window.dmo?.net?.state?.entities;
@@ -10234,6 +10265,48 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (partner.id !== tamer.id && now - shareState.lastFollow > 1500) { shareState.lastFollow = now; commands()?.partnerFollow?.(); }
     return pl.act === 'go' ? `${name}: auf mir – gehe zu den anderen Digimon` : `${name}: laufe in den geteilten Kreis`;
   }
+  // Leuchtpunkte (3.2.5: Orochimons Sake-Fässer ab 50 %, Megidramons Siegel): alle Punkte müssen gleichzeitig von je einem
+  // Digimon besetzt sein (scene.mech.padsActive: {id, at:[[x,y]..], r, held = Bitmaske der besetzten, doneAt}). Allein reicht es
+  // nicht – mit Fremden das nächste freie besetzen und halten, bis erledigt. Gewählter Punkt bleibt (kein Hin und Her).
+  const PAD_MAX_D = 700, PAD_KEEP = 60, PAD_CLAIM = 400;
+  const padState = { lastTap: 0, lastFollow: 0, pick: null, logged: null };
+  function padStep(st, now) {
+    const views = (worldScene()?.mech?.padsActive || []).filter((v) => v && !(v.doneAt > 0) && Array.isArray(v.at) && v.at.length);
+    if (!views.length || st.me?.partner?.fainted) { padState.pick = null; return null; }
+    const ents = window.dmo?.net?.state?.entities, tamer = controlled(st), partner = ents?.get?.(st?.me?.partner?.entityId);
+    if (!tamer || !partner) return null;
+    const mine = new Set([st.me?.tamerEntityId, partner.id]);
+    const others = []; ents?.forEach?.((e) => { if (e.kind === KIND.Partner && !mine.has(e.id) && e.hp > 0 && isFinite(e.x) && isFinite(e.y)) others.push(e); });
+    // Warnzonen gehen vor: steht Tamer oder Digimon in einer, ausweichen (dodge) – auch auf dem eigenen Punkt (Gegenprüfung 3.2.5)
+    const zones = dangerZones();
+    if (zones.some((z) => [tamer, partner].some((e) => zoneDist(z, e).d < DODGE_MARGIN))) return null;
+    let best = null;
+    for (const v of views) {
+      // Nur wenn genug lebende Digimon in der Nähe sind, um alle Punkte zugleich zu halten – allein bricht die Ladung so nie,
+      // dann wie bisher ausweichen (Gegenprüfung 3.2.5)
+      const cx = v.at.reduce((a, p) => a + p[0], 0) / v.at.length, cy = v.at.reduce((a, p) => a + p[1], 0) / v.at.length;
+      if (others.filter((e) => Math.hypot(e.x - cx, e.y - cy) <= PAD_MAX_D).length + 1 < v.at.length) continue;
+      v.at.forEach(([x, y], i) => {
+        const r = v.r || 18, d = Math.hypot(partner.x - x, partner.y - y), key = `${v.id}#${i}`, mineIn = d <= r; // held setzt der Server ab Radius r
+        if ((v.held & (1 << i)) && !mineIn) return; // von einem anderen besetzt
+        if (d > PAD_MAX_D) return;
+        // Läuft schon ein anderes Digimon näher auf diesen Punkt zu, lieber einen anderen (mehrere Bots: nicht alle auf denselben)
+        const claimed = !mineIn && others.some((e) => Math.hypot(e.x - x, e.y - y) < d);
+        const score = d - (padState.pick === key ? PAD_KEEP : 0) + (claimed ? PAD_CLAIM : 0);
+        if (!best || score < best.score) best = { key, x, y, r, d, mineIn, score };
+      });
+    }
+    if (!best) { padState.pick = null; return null; }
+    padState.pick = best.key;
+    if (padState.logged !== best.key) { padState.logged = best.key; logEvent('auto', 'Leuchtpunkte: alle gleichzeitig besetzen – gehe zum nächsten freien'); }
+    if (best.mineIn && best.d <= best.r - 4) return 'Leuchtpunkt besetzt – halte' + kohAttackInPlace(st, now);
+    if (zones.length && !digibotDodgeZonePath(tamer, best, zones, DODGE_MARGIN)) return 'Weg zum Leuchtpunkt führt durch eine Warnzone – warte';
+    if (Math.hypot(tamer.x - best.x, tamer.y - best.y) > 4 && now - padState.lastTap > DODGE_RETAP_MS) {
+      padState.lastTap = now; autopilot.nav = null; autopilot.route = null; worldScene()?.tapGround?.(best.x, best.y);
+    }
+    if (partner.id !== tamer.id && now - padState.lastFollow > 1500) { padState.lastFollow = now; commands()?.partnerFollow?.(); }
+    return best.mineIn ? 'Leuchtpunkt besetzt – rücke zur Mitte' : `Laufe zum Leuchtpunkt (${Math.round(best.d)} px)`;
+  }
   function shareGather(st, now) {
     if (!shareGatherOn()) return shareSolo(st, now);
     const sc0 = shareCast(now);
@@ -10388,7 +10461,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       // Lern-Route auf dem Weg zum Feldboss / am Spawnpunkt: vorher auffüllen (im Kampf gelten die normalen Schwellen)
       const prep = lrOn() && !!lr.boss && !(t?.kind === 'mob' && t.hp > 0 && this.attackedId === t.id && lrBossEnt(lr.boss.b)?.id === t.id);
       // Prozent-Lade-Treffer, der nicht bricht (Megiddo Flame, 90 %): HP immer darüber halten (3.1.33)
-      const chargeNeed = chargeTopup(st, now);
+      const chargeNeed = Math.max(chargeTopup(st, now), a3Topup(st, now)); // + Schild/Puls der Tamers-Bosse (3.2.5)
       potion(1, (cfg.hpPot > 0 && pct(p.hp, p.maxHp) < cfg.hpPot) || (shareIncoming(now) && pct(p.hp, p.maxHp) < SHARE_TOPUP)
         || (prep && pct(p.hp, p.maxHp) < LR_BOSS_PREP_HP) || (chargeNeed > 0 && pct(p.hp, p.maxHp) < chargeNeed));
       potion(2, (cfg.dsPot > 0 && pct(p.ds, p.maxDs) < cfg.dsPot) || (prep && pct(p.ds, p.maxDs) < LR_BOSS_PREP_DS));
@@ -10425,6 +10498,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (kg) { this.status = kg; return; }
       const sg = heldNow ? null : shareGather(st, now); // geteilter Treffer: in der Gruppe zusammenstehen (3.1.33)
       if (sg) { this.status = sg; return; }
+      const pd = heldNow ? null : padStep(st, now); // Leuchtpunkte besetzen (3.2.5)
+      if (pd) { this.status = pd; return; }
       const dg = heldNow ? null : dodge(st, now);
       if (dg) { this.status = dg; this.attackedId = null; return; }
       // Food kaufen (3.1.8): reisen, kaufen, stoppen – kein Kampf

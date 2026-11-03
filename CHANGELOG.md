@@ -2,6 +2,18 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.5 – A3-Bosse: Schild- und Puls-Phasen, Leuchtpunkte
+- **Schild (75/50/25 %):** Solange der Schild des Bosses steht (Status „Shield“), folgt jeder 3. Aktion ein Blast auf alle (45 %
+  der Max-HP, nicht ausweichbar, nur 0,6 s Ansage). Der Bot hält die HP in dieser Zeit mit F1 über Blast-Schaden + 20 % (65 %).
+- **Puls (80/60/40/20 % bzw. 75/50/25 %):** Bis zu 4 % vor jeder Schwelle füllt er auf 85 % auf, während der 2,5-s-Ansage auf
+  95 % (vorher nicht höher – solo dauert das Stück vor der Schwelle Minuten, sonst ginge bei jedem Cooldown ein Trank drauf).
+- **Leuchtpunkte (Orochimons Sake-Fässer ab 50 %, auch Megidramons Siegel):** Alle Punkte müssen gleichzeitig von je einem
+  Digimon besetzt sein, dann bricht Spirytus Breath (sonst Treffer auf die ganze Arena). Sind genug lebende Digimon in der Nähe
+  (mindestens so viele wie Punkte), läuft der Bot zum nächsten freien Punkt (bis 700 px, nicht durch Warnzonen, Punkte, auf die
+  schon ein anderes Digimon näher zuläuft, zuletzt) und hält ihn, bis er erledigt ist. Allein geht er nicht hin, dort bricht die
+  Ladung nie – er weicht wie bisher aus. Warnzonen haben immer Vorrang.
+- Tests: `a3topuptest`, `padtest`. Live noch ungeprüft (Status-Name „gate_shield“ und Punkt-Daten aus den Spieldaten).
+
 ## 3.2.4 – A3-Bosse allein: geteilter Treffer und stärkende Adds
 - **Geteilter Treffer ohne eigene Gruppe:** Die Tamers-Bosse (Mihiramon, Vikaralamon, Orochimon, Zhuqiaomon, Beelzemon) setzen
   ein Fadenkreuz auf ein Digimon; mindestens 3 Digimon müssen im Kreis stehen, sonst fallen alle darin. Bisher reagierte der
