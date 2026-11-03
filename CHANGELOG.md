@@ -2,6 +2,14 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.6 – Digimon-Einstellungen je Account
+- **Mehrere Fenster überschrieben sich gegenseitig:** Alle Einstellungen gelten für alle Fenster. Quest- und Abgabe-Digimon
+  (Partner-IDs gibt es nur in einem Account), Digitation je Map (ohne/mit Dark Tower) und die Karten-Digitation gehören aber zu
+  den Digimon eines Accounts – stellte man sie in einem Fenster ein, übernahm das andere Fenster sie und verlor seine Wahl. Diese
+  fünf Werte speichert der Bot jetzt je Account (digibot.acct.<name>) und behält sie beim Abgleich mit anderen Fenstern; alles
+  andere bleibt gemeinsam. Hinweis 👤 im Reiter Digimon.
+- Test: `acctcfgtest`.
+
 ## 3.2.5 – A3-Bosse: Schild- und Puls-Phasen, Leuchtpunkte
 - **Schild (75/50/25 %):** Solange der Schild des Bosses steht (Status „Shield“), folgt jeder 3. Aktion ein Blast auf alle (45 %
   der Max-HP, nicht ausweichbar, nur 0,6 s Ansage). Der Bot hält die HP in dieser Zeit mit F1 über Blast-Schaden + 20 % (65 %).

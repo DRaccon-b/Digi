@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.5
+// @version      3.2.6
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1576,6 +1576,18 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const CFG_BATCH_KEY = 'digibot.cfg.batch.v1';
   const CFG_SHARED_KEY = 'digibot.cfg.shared.v1';
   let cfgUser = null;
+  // Einstellungen, die sich auf die Digimon eines Accounts beziehen (3.2.6): je Account gespeichert und beim Abgleich mit anderen
+  // Fenstern behalten – sonst überschrieb ein Fenster mit anderem Account z. B. das Abgabe-Digimon (Partner-IDs gibt es nur in
+  // einem Account; fremde fielen auf „aktuelles behalten“ zurück). Alles andere bleibt für alle Fenster gemeinsam.
+  const ACCT_KEYS = ['apQuestPartner', 'apTurninPartner', 'levelEvoForm', 'levelEvoDark', 'cardForm'];
+  const acctCfgKey = (u) => `digibot.acct.${u}`;
+  const acctPick = () => Object.fromEntries(ACCT_KEYS.map((k) => [k, cfg[k]]));
+  function acctLoad(u) {
+    try {
+      const v = JSON.parse(localStorage.getItem(acctCfgKey(u)) || 'null');
+      return digibotRecord(v) ? Object.fromEntries(ACCT_KEYS.filter((k) => typeof v[k] === typeof CFG_DEFAULTS[k]).map((k) => [k, v[k]])) : null;
+    } catch { return null; }
+  }
   function applyCfg(saved) {
     const checked = digibotConfig(saved, CFG_DEFAULTS);
     Object.assign(cfg, checked.value);
@@ -1614,6 +1626,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       localStorage.setItem(CFG_KEY, JSON.stringify(mt ? { ...cfg, ...mapTalkPrevCfg(mt) } : cfg));
       localStorage.setItem(CFG_SHARED_KEY, '1');
       localStorage.setItem(CFG_BATCH_KEY, '1');
+      if (cfgUser) localStorage.setItem(acctCfgKey(cfgUser), JSON.stringify(acctPick())); // je Account (3.2.6)
     } catch { digibotCore.record('Gemeinsame Einstellungen konnten nicht gespeichert werden'); }
   };
   // Import the first signed-in account's former settings once, then never load profiles again.
@@ -1634,6 +1647,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       }
     } catch { digibotCore.record('Bisherige Einstellungen konnten nicht übernommen werden'); }
     try{if(localStorage.getItem(CFG_BATCH_KEY)!=='1')saveCfg();}catch{}
+    // Werte dieses Accounts (3.2.6): vorhanden -> übernehmen; sonst die jetzigen als seine merken
+    const acct = acctLoad(u);
+    if (acct && Object.keys(acct).length) { Object.assign(cfg, acct); syncCfgInputs(); autopilot.reset(); }
+    else try { localStorage.setItem(acctCfgKey(u), JSON.stringify(acctPick())); } catch { /* voll/gesperrt */ }
     schedule();
   }
   // Betriebsart und Laufzustand: läuft hier der Bot oder ist das Fenster in einer Gruppe, gehören sie diesem Fenster –
@@ -1643,9 +1660,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if(event.key!==CFG_KEY || !event.newValue)return;
     try {
       const saved=JSON.parse(event.newValue);if(!digibotRecord(saved))return;
-      const own=!!bot?.on||group.active(), keep=own?Object.fromEntries(RUN_KEYS.map(k=>[k,cfg[k]])):null;
+      const own=!!bot?.on||group.active(), keep={...(own?Object.fromEntries(RUN_KEYS.map(k=>[k,cfg[k]])):{}),...(cfgUser?acctPick():{})}; // Account-Werte bleiben (3.2.6)
       const behavior=()=>JSON.stringify(Object.fromEntries(Object.entries(cfg).filter(([key])=>!UI_KEYS.includes(key)&&!(own&&RUN_KEYS.includes(key)))));
-      const before=behavior();applyCfg(saved);if(keep)Object.assign(cfg,keep);syncCfgInputs();
+      const before=behavior();applyCfg(saved);Object.assign(cfg,keep);syncCfgInputs();
       if(before!==behavior()){farm.reset();autopilot.reset();}
       schedule();
     } catch { digibotCore.record('Gemeinsame Einstellungen konnten nicht geladen werden'); }
@@ -1763,7 +1780,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.5'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.6'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1844,6 +1861,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
             <div class="digibot__title">Digitation je Map</div>
             <label>ohne Dark Tower<select data-apsel="levelEvoForm"></select></label>
             <label>mit Dark Tower<select data-apsel="levelEvoDark"></select></label>
+            <div class="digibot__hint">👤 Quest-/Abgabe-Digimon und Digitation gelten nur für den Account in diesem Fenster – andere Fenster behalten ihre eigene Wahl.</div>
             ${check('evoWarp', 'Freigegebene Warp-Digitation verwenden')}
             <div class="digibot__hint">Der Bot erkennt an der aktuellen Map (Dark Tower ja/nein), welche Form passt, und nimmt sie zwischen den Kämpfen an – beim Grinden, auf der Lern-Route, im Autopilot, bei Bossen, im Dungeon (schon an der Tür) und bei Events. „keine Digitation“ = Form so lassen.</div>
           </div>`, true, 'Quest-Digimon: mit ihm werden Quests angenommen und erledigt. Abgabe-Digimon: zum Abgeben wird beim NPC zurück-digitiert und gewechselt. Digitation je Map: eine Regel für alle Betriebsarten – auf Maps mit Dark Tower geht nur Armor.')}
