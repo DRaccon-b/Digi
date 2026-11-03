@@ -2,6 +2,11 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.9 – Kleinigkeiten zu 3.2.8
+- Weltboss: Auch nach einer Chat-Warnung ohne bekannten Kanal-Timer gilt der eingestellte Vorlauf (vorher ging der Bot dann
+  immer gleich los).
+- Named-Runde: Timer-Fenster markiert nur den aktuellen Halt (★), nicht alle Named der Map; Log und Status nennen den Named.
+
 ## 3.2.8 – Named-Runde auf den A3-Maps, Event-Vorlauf einstellbar
 - **Named-Elite-Runde mit A3-Named:** Die Named Elites der A3-Maps (Devas wie Sandiramon, Pajiramon, Vajramon, Indramon,
   Kumbhiramon, Majiramon, Caturamon, dazu adr_jeri und die Story-Duelle) stehen an einem Spawnpunkt statt in einer Zone und

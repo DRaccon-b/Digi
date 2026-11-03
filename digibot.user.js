@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.8
+// @version      3.2.9
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1783,7 +1783,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.8'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.9'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -8058,7 +8058,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         else if (s.state === 'down') { wb.upSince.delete(key); if (s.readyAt - now > wbLeadMs()) continue; at = s.readyAt; }
         else if (wb.upSince.has(key) && now - wb.upSince.get(key) < WB_UP_KEEP_MS) at = wb.upSince.get(key);
         // Angekündigt (Chat-Warnung genau dieses Bosses), Kanal-Timer noch unbekannt: fällig zum angesagten Spawn
-        else if (warned(b, now)) at = warned(b, now).at + (C?.spawns?.[b.map]?.bosses?.[b.index]?.worldBoss?.warnMs || 300000);
+        else if (warned(b, now)) { at = warned(b, now).at + (C?.spawns?.[b.map]?.bosses?.[b.index]?.worldBoss?.warnMs || 300000); if (at - now > wbLeadMs()) continue; } // Vorlauf auch hier (3.2.9)
         else continue;
         opts.push({ b, ch, at, s, key });
       }
@@ -8751,7 +8751,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const NAMED_SEARCH_MS = 45000;    // „lebt“, aber nicht zu finden: so lange die Zone absuchen
   function namedNext(R, list, why) {
     const r = list[R.i];
-    if (r && why) logEvent('auto', `Runde: ${r.name} ${why} → weiter`);
+    if (r && why) logEvent('auto', `Runde: ${r.name} · ${r.boss?.name || ''} ${why} → weiter`);
     R.i++; R.map = null; R.bossId = null;
     if (R.i >= list.length) {
       R.i = 0; R.back = true;
@@ -8773,7 +8773,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const R = farm.route ||= { i: 0, map: null, skip: new Set(), back: false, chSince: 0, chKey: '', zoneAt: 0, patrol: 0, logged: new Set() };
     if (R.i >= list.length) R.i = 0;
     const r = list[R.i], b = r.boss;
-    const label = `${R.i + 1}/${list.length} ${r.name}`;
+    const label = `${R.i + 1}/${list.length} ${r.name} · ${b.name}`;
     // 1) Map (nach der End-Map per Digi-Phone zurück)
     if (st.world?.mapId !== b.map) {
       const tr = travel(st, b.map, now, R.back);
@@ -11304,7 +11304,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const list = routeList(), R = farm.route;
       panelQ('[data-f="routeinfo"]').textContent = !list.length ? 'Keine Maps mit Named Elite gewählt.'
         : `Runde: ${list.length} Named auf ${new Set(list.map((r) => r.id)).size} Maps · ${list[0].name} → ${list[list.length - 1].name}`
-          + (bot.on && cfg.farm && R ? ` · jetzt ${R.i + 1}/${list.length} ${list[R.i]?.name || ''}${R.back ? ' (zurück per Digi-Phone)' : ''}` : '');
+          + (bot.on && cfg.farm && R ? ` · jetzt ${R.i + 1}/${list.length} ${list[R.i]?.name || ''}${list[R.i]?.boss ? ` · ${list[R.i].boss.name}` : ''}${R.back ? ' (zurück per Digi-Phone)' : ''}` : '');
     }
     const all = farmBossList();
     const esc = (v) => String(v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -11322,7 +11322,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const curMap = st?.world?.mapId, curCh = st?.world?.channel ?? 1;
     panelQ('[data-f="timers"]').innerHTML = sel.length ? sel.map((b) => {
       const goal = cfg.farm && bot.on && (cfg.farmMode === 'named'
-        ? farm.route?.map === b.map
+        ? farm.route?.map === b.map && (!farm.route?.bossId || farm.route.bossId === b.id) // aktueller Halt, nicht alle Named der Map (3.2.9)
         : farm.goal && farm.goal.map === b.map && farm.goal.index === b.index);
       const rows = chs.map((ch) => {
         const s = farmState(b, ch, now);
