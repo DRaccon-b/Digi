@@ -2,6 +2,17 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.8 – Named-Runde auf den A3-Maps, Event-Vorlauf einstellbar
+- **Named-Elite-Runde mit A3-Named:** Die Named Elites der A3-Maps (Devas wie Sandiramon, Pajiramon, Vajramon, Indramon,
+  Kumbhiramon, Majiramon, Caturamon, dazu adr_jeri und die Story-Duelle) stehen an einem Spawnpunkt statt in einer Zone und
+  tragen in den Spieldaten das Kennzeichen „namedElite“ – die Runde kannte nur Zonen-Named und nahm je Map nur einen. Jetzt
+  ist jeder Named Elite ein eigener Halt (West Shinjuku: vier Devas nacheinander); Start-/End-Map wählen weiter Maps, die
+  Auswahl zeigt alle Named der Map. Die Lern-Route bleibt unverändert.
+- **Wann zum Event:** Einstellungen → 🌍 Events: „Event: aufbrechen … min vorher“ (Standard 6), „Event beim Questen:
+  aufbrechen … min vorher“ (Standard 0,5 – bis dahin weiter Quests) und „Weltboss: aufbrechen … min vorher“ (Standard 6).
+  Die Standardwerte entsprechen dem bisherigen Verhalten.
+- Tests: `namedA3test`, `eventleadtest`.
+
 ## 3.2.7 – Mitläufer geben mit ihrem Abgabe-Digimon ab
 - **Mitläufer wechselten nie das Digimon:** Vor einer Abgabe wechselte nur der Leader auf das Abgabe-Digimon; ein Mitläufer gab
   mit dem aktuellen ab, weil die Partner-IDs früher die des Leaders waren. Seit 3.2.6 hat jeder Account seine eigenen – jetzt

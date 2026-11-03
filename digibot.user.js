@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.7
+// @version      3.2.8
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -169,7 +169,7 @@ function digibotConfig(saved, defaults) {
   const bounds={width:[300,900],radius:[80,2000],grpDist:[60,1500],lvlDiff:[-100,100],hpPot:[0,100],dsPot:[0,100],tdsPot:[0,100],pullMax:[2,8],pullHp:[30,90],
     foodAutoMin:[1,99],dodgeMargin:[8,80],dodgeEdge:[0,40],dodgeHold:[60,600],dodgeSoonMs:[300,3000],dodgeSoonPad:[0,200],dodgeLateK:[1,3],dodgeLatePad:[0,4000],
     dodgeLateAbort:[0,8000],dodgeRetap:[200,3000],dodgeWalk:[60,300],dodgeSearch:[150,600],dodgeHuge:[300,1500],pullDodgeLeash:[0,150],pullDodgeMargin:[0,60],
-    stopLevel:[0,150],stopAfterMin:[0,720],stopFaints:[0,50],stopBits:[0,100000000],potCdMs:[500,10000],huntIdleMin:[0.5,10],huntStallMin:[1,15],grpWaitMin:[1,10]};
+    stopLevel:[0,150],stopAfterMin:[0,720],stopFaints:[0,50],stopBits:[0,100000000],potCdMs:[500,10000],huntLeadMin:[0.5,30],huntQuestLeadMin:[0.5,30],wbLeadMin:[1,30],huntIdleMin:[0.5,10],huntStallMin:[1,15],grpWaitMin:[1,10]};
   const boolMap=v=>Object.fromEntries(Object.entries(digibotRecord(v)?digibotClean(v):{}).filter(([,x])=>typeof x==='boolean'));
   const skills=v=>Object.fromEntries(Object.entries(boolMap(v)).filter(([k])=>/^[2-6]$/.test(k)));
   const heals=v=>Object.fromEntries(Object.entries(digibotRecord(v)?digibotClean(v):{}).filter(([k,x])=>/^[2-6]$/.test(k)&&typeof x==='number').map(([k,x])=>[k,Math.max(0,Math.min(100,x))]));
@@ -1511,6 +1511,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     wboss: false,         // Weltboss (z. B. BlackWarGreymon): beide Kanäle nach Spawnzeit abarbeiten – in jedem Modus
     eventsOnly: false,    // Modus „Nur Event/Weltboss“: nichts anderes tun, nur auf Event und Weltbosse warten (3.0.4)
     wbOff: {},            // Weltbosse, die der Bot nicht ansteuert (Art -> true; Einstellungen → Events) (3.2.3)
+    huntLeadMin: 6,       // Event (Mega-Jagd): so viele min vor Beginn aufbrechen (3.2.8; bisher fest 6)
+    huntQuestLeadMin: 0.5, // … im Quest-Autopilot (bis dahin weiter questen; bisher fest 30 s)
+    wbLeadMin: 6,         // Weltboss: hinreisen, wenn er in so vielen min spawnt (bisher fest 6)
     eventsIdleMap: '',    // Warteplatz beim Warten auf Event/Weltboss ('' = stehen bleiben; z. B. 'network' – dort kein Tamer-DS-Verlust) (3.0.9)
     foodBuy: false,       // Modus „Food kaufen“: zum Händler in Dream Ruins reisen, Food nachkaufen, stoppen (3.1.8)
     foodHp: 'feast',      // HP-Food ('' = keins) · foodDs: DS-Food fürs Digimon · foodTamer: Tamer-DS-Food
@@ -1780,7 +1783,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.7'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.8'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1801,8 +1804,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         <button class="digibot__btn digibot__stop" data-act="digibot-stop" title="Alles sofort anhalten (Esc)">■ NOT-AUS</button>
       </div>
       <div class="digibot__runrow extra">
-        <button class="digibot__btn digibot__hunt" data-act="hunt" title="Event (Mega-Jagd): Sobald der Weltboss angekündigt ist (6 min vorher), reist der Bot zur Map, Kanal 1, wartet, sucht ihn und kämpft. Danach weiter wie vorher. Gilt in jedem Modus.">🎯 Event</button>
-        <button class="digibot__btn digibot__hunt" data-act="wboss" title="Weltboss (z. B. BlackWarGreymon): spawnt auf Kanal 1 und 2 mit eigenem Timer. Lebt er oder spawnt er in den nächsten 6 min, reist der Bot hin, wartet am Spawnpunkt und kämpft – zuerst der Kanal, der zuerst spawnt (gleichzeitig: Kanal 1), danach der andere. Danach weiter wie vorher. Das Event geht vor.">🌍 Weltboss</button>
+        <button class="digibot__btn digibot__hunt" data-act="hunt" title="Event (Mega-Jagd): Vor Beginn (Einstellungen → Events, Standard 6 min) reist der Bot zur Map, Kanal 1, wartet, sucht ihn und kämpft. Danach weiter wie vorher. Gilt in jedem Modus.">🎯 Event</button>
+        <button class="digibot__btn digibot__hunt" data-act="wboss" title="Weltboss (z. B. BlackWarGreymon): spawnt auf Kanal 1 und 2 mit eigenem Timer. Lebt er oder spawnt er bald (Einstellungen → Events, Standard 6 min), reist der Bot hin, wartet am Spawnpunkt und kämpft – zuerst der Kanal, der zuerst spawnt (gleichzeitig: Kanal 1), danach der andere. Danach weiter wie vorher. Das Event geht vor.">🌍 Weltboss</button>
         <button class="digibot__btn digibot__morebtn" data-act="more" title="Diagnose, Presets, Gruppen-Option">⋯</button>
       </div>
       <div class="digibot__menu" data-f="menu">
@@ -2067,6 +2070,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         <div data-spage="events">
         ${grp('events', 'Event &amp; Weltboss', `
           <div class="digibot__sub" data-f="wbpick"><div class="digibot__none">warte auf Spieldaten…</div></div>
+          ${setting('huntLeadMin', 'Event: aufbrechen', 0.5, 30, (v) => `${Number(v).toFixed(1)} min vorher`, 0.5, 'So viele Minuten vor Beginn der Mega-Jagd reist der Bot zur Event-Map (alle Betriebsarten außer Quest-Autopilot). Mehr Zeit bei weiter Anreise.')}
+          ${setting('huntQuestLeadMin', 'Event beim Questen: aufbrechen', 0.5, 30, (v) => `${Number(v).toFixed(1)} min vorher`, 0.5, 'Im Quest-Autopilot erledigt der Bot bis dahin weiter Quests und bricht erst so viele Minuten vor Beginn auf.')}
+          ${setting('wbLeadMin', 'Weltboss: aufbrechen', 1, 30, (v) => `${v} min vorher`, 1, 'Spawnt ein ausgewählter Weltboss in so vielen Minuten (oder lebt er), reist der Bot hin und wartet am Spawnpunkt.')}
           <div class="digibot__apcfg">
             <label>Warteplatz<select data-apsel="eventsIdleMap"></select></label>
           </div>`, true,
@@ -7872,7 +7878,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (!e) return null;
     if (e.state === 'up' && e.boss && e.mapId && (!e.slot?.endMs || sn < e.slot.endMs)) return { boss: e.boss, mapId: e.mapId, ch: policy.channel, key: `${e.slot?.key || ''}|${e.boss}`, up: true };
     const n = e.next;
-    if (n?.boss && n.mapId && n.startMs && n.startMs - sn <= policy.leadMs && n.startMs - sn > -120000) return { boss: n.boss, mapId: n.mapId, ch: policy.channel, key: `next@${n.startMs}|${n.boss}`, up: false, at: n.startMs - hunt.skew };
+    // Ziel bekannt, sobald einer der eingestellten Vorläufe greift (Aufbruch regelt huntStep je Betriebsart) (3.2.8)
+    const lead = Math.max(policy.leadMs, (Math.max(Number(cfg.huntLeadMin) || 0, Number(cfg.huntQuestLeadMin) || 0)) * 60000);
+    if (n?.boss && n.mapId && n.startMs && n.startMs - sn <= lead && n.startMs - sn > -120000) return { boss: n.boss, mapId: n.mapId, ch: policy.channel, key: `next@${n.startMs}|${n.boss}`, up: false, at: n.startMs - hunt.skew };
     return null;
   }
   // Suchpunkte: Mitten der Jagdgebiete (Zonen) der Map, sonst ihre Spawn-Punkte
@@ -7935,11 +7943,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     // Event-Map gesperrt oder ohne Weg: dieses Event auslassen (3.1.30)
     if (g.key === hunt.skipKey) { if (hunt.goal) { hunt.goal = null; hunt.wp = null; autopilot.nav = null; } return null; }
-    if(cfg.autopilot && !cfg.farm && !g.up){
+    // Aufbruch erst zum eingestellten Vorlauf (3.2.8): Quest-Autopilot huntQuestLeadMin (bis dahin weiter questen), sonst huntLeadMin
+    if(!g.up){
+      const quest=cfg.autopilot && !cfg.farm;
+      const lead=Math.max(0.5,Number(quest?cfg.huntQuestLeadMin:cfg.huntLeadMin)||(quest?HUNT_QUEST_PREP_MS/60000:6))*60000;
       const visible=st.world?.mapId===g.mapId && huntBossEnt(g.boss,controlled(st));
-      const turningIn=!!autopilot.turninPartnerHeld || autopilot.task?.purpose==='turnin' && st.me?.quests?.[autopilot.task.questId]?.state===2;
-      if(!visible && (g.at-now>HUNT_QUEST_PREP_MS || turningIn)){
-        if(hunt.goal){hunt.goal=null;hunt.wp=null;autopilot.nav=null;logEvent('auto','Event erst angekündigt – erledige bis zum Aufbruch weiter Quests');}
+      const turningIn=quest && (!!autopilot.turninPartnerHeld || autopilot.task?.purpose==='turnin' && st.me?.quests?.[autopilot.task.questId]?.state===2);
+      if(!visible && (g.at-now>lead || turningIn)){
+        if(hunt.goal){hunt.goal=null;hunt.wp=null;autopilot.nav=null;logEvent('auto',quest?'Event erst angekündigt – erledige bis zum Aufbruch weiter Quests':`Event angekündigt – Aufbruch ${Math.round(lead/6000)/10} min vor Beginn`);}
         return null;
       }
     }
@@ -8006,10 +8017,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   // ---------- Weltboss (z. B. BlackWarGreymon) ----------
   // Weltbosse (worldBoss in den Spieldaten) spawnen je Kanal (1 und 2) mit eigenem Timer, das Spiel warnt 5 min vorher im
-  // Chat. Knopf 🌍 Weltboss: fällig ist ein Kanal, auf dem er lebt oder in den nächsten WB_LEAD_MS spawnt – dann hinreisen,
+  // Chat. Knopf 🌍 Weltboss: fällig ist ein Kanal, auf dem er lebt oder in den nächsten wbLeadMs() spawnt – dann hinreisen,
   // Kanal wechseln, am Spawnpunkt warten und kämpfen; danach der nächste Kanal. Reihenfolge nach Spawnzeit, gleichzeitig =
   // Kanal 1 zuerst. Timer, Kanalwechsel und Sieg-Erkennung wie in der Boss-Rotation.
-  const WB_LEAD_MS = 6 * 60000, WB_CHANNELS = [1, 2], WB_MISS_MS = 8000;
+  const wbLeadMs = () => Math.max(1, Number(cfg.wbLeadMin) || 6) * 60000; // einstellbar (3.2.8, vorher fest 6 min)
+  const WB_CHANNELS = [1, 2], WB_MISS_MS = 8000;
   const WB_UP_KEEP_MS = 20 * 60000; // einmal lebend gesehen: so lange als „lebt“ merken (Timer-Info läuft nach 60 s ab)
   const wb = { goal: null, warnTs: 0, warnings: new Map(), upSince: new Map(), skip: new Map(), arrAt: 0, seenAt: 0 };
   // Weltbosse: nur auf freigeschalteten Maps und höchstens WB_LEVEL_ABOVE über dem Digimon (3.0.7) – sonst zog der Knopf
@@ -8043,7 +8055,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         if ((wb.skip.get(key) || 0) > now) continue;
         let at;
         if (s.state === 'up') { if (!wb.upSince.has(key)) wb.upSince.set(key, now); at = wb.upSince.get(key); }
-        else if (s.state === 'down') { wb.upSince.delete(key); if (s.readyAt - now > WB_LEAD_MS) continue; at = s.readyAt; }
+        else if (s.state === 'down') { wb.upSince.delete(key); if (s.readyAt - now > wbLeadMs()) continue; at = s.readyAt; }
         else if (wb.upSince.has(key) && now - wb.upSince.get(key) < WB_UP_KEEP_MS) at = wb.upSince.get(key);
         // Angekündigt (Chat-Warnung genau dieses Bosses), Kanal-Timer noch unbekannt: fällig zum angesagten Spawn
         else if (warned(b, now)) at = warned(b, now).at + (C?.spawns?.[b.map]?.bosses?.[b.index]?.worldBoss?.warnMs || 300000);
@@ -8166,6 +8178,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         kind: b.worldBoss ? 'world' : b.enrageMs ? 'group' : (b.at in (sp.zones || {})) ? 'named' : 'field',
         name: C.digimon?.[b.species]?.name || b.species, mapName: C.maps?.[map]?.name || map,
         a3: !!(b.shieldGates || b.cadence), // Tamers-Bosse (3.2.4): geteilter Treffer, Schild- und Puls-Phasen, stärkende Adds
+        // Named Elite (3.2.8): Zonen-Named wie bisher oder Kennzeichen namedElite (A3-Devas, adr_jeri, Story-Duelle – Spawnpunkt
+        // statt Zone). kind bleibt, damit die Lern-Route (kind 'field') unverändert bleibt
+        named: !b.worldBoss && !b.enrageMs && (!!b.namedElite || (b.at in (sp.zones || {}))),
       }));
     }
     return out.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
@@ -8176,23 +8191,24 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const on = new Set(cfg.farmBosses || []);
     return farmBossList().filter((b) => on.has(b.id));
   };
-  // Named-Elite-Runde: alle Maps mit einem Named Elite (ohne Raids/sichere Maps), nach Level aufsteigend
+  // Named-Elite-Runde: je Named Elite ein Halt (3.2.8: auch mehrere auf einer Map, z. B. vier Devas in West Shinjuku), ohne
+  // Raids/sichere Maps, Maps nach Level aufsteigend, auf einer Map nach Level
   function routeMaps() {
     const C = content();
-    const named = new Map();
-    for (const b of farmBossList()) if (b.kind === 'named' && !named.has(b.map) && mapWalkable(null, b.map)) named.set(b.map, b);
-    return [...named.values()].map((b) => ({ id: b.map, name: b.mapName, range: C?.maps?.[b.map]?.levelRange || [b.level, b.level], boss: b }))
-      .filter((r) => !C?.maps?.[r.id]?.safe)
-      .sort((a, b) => (a.range[0] ?? 0) - (b.range[0] ?? 0) || (a.range[1] ?? 0) - (b.range[1] ?? 0) || a.name.localeCompare(b.name));
+    return farmBossList().filter((b) => b.named && mapWalkable(null, b.map) && !C?.maps?.[b.map]?.safe)
+      .map((b) => ({ id: b.map, name: b.mapName, range: C?.maps?.[b.map]?.levelRange || [b.level, b.level], boss: b }))
+      .sort((a, b) => (a.range[0] ?? 0) - (b.range[0] ?? 0) || (a.range[1] ?? 0) - (b.range[1] ?? 0) || a.name.localeCompare(b.name)
+        || a.boss.level - b.boss.level || a.boss.name.localeCompare(b.boss.name));
   }
   // Abschnitt Start-Map … End-Map (umgekehrt, wenn die Start-Map höher liegt)
   function routeList() {
     const all = routeMaps();
     if (!all.length) return [];
-    let a = all.findIndex((r) => r.id === cfg.routeStart), b = all.findIndex((r) => r.id === cfg.routeEnd);
+    const maps = [...new Set(all.map((r) => r.id))]; // Start/Ende wählen Maps, nicht einzelne Named
+    let a = maps.indexOf(cfg.routeStart), b = maps.indexOf(cfg.routeEnd);
     if (a < 0) a = 0;
-    if (b < 0) b = all.length - 1;
-    return a <= b ? all.slice(a, b + 1) : all.slice(b, a + 1).reverse();
+    if (b < 0) b = maps.length - 1;
+    return (a <= b ? maps.slice(a, b + 1) : maps.slice(b, a + 1).reverse()).flatMap((m) => all.filter((r) => r.id === m));
   }
   // Zu jagende Arten auf einer Map (Art -> Level). Ein Boss kann im Spiel als Boss oder Elite markiert sein;
   // ein gleichnamiges normales Monster zählt nur mit genau dem Boss-Level.
@@ -8736,14 +8752,15 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function namedNext(R, list, why) {
     const r = list[R.i];
     if (r && why) logEvent('auto', `Runde: ${r.name} ${why} → weiter`);
-    R.i++; R.map = null;
+    R.i++; R.map = null; R.bossId = null;
     if (R.i >= list.length) {
       R.i = 0; R.back = true;
-      if (list.length === 1) {
+      if (new Set(list.map((x) => x.id)).size === 1) {
         // nur eine Map: bis kurz vor dem frühesten Respawn (sonst 30 s) ruhen – sonst lief die Runde jeden Takt neu
         // und füllte das Protokoll (3.1.30)
-        const now = Date.now(), b = list[0].boss;
-        R.restUntil = Math.min(...farmChannels().map((ch) => { const s = farmState(b, ch, now); return s.state === 'down' && s.readyAt - now > NAMED_WAIT_MS ? s.readyAt - NAMED_WAIT_MS : now + 30000; }), now + 30000 * 10);
+        // alle Named dieser Map zählen (3.2.8: mehrere je Map)
+        const now = Date.now();
+        R.restUntil = Math.min(...list.flatMap((x) => farmChannels().map((ch) => { const s = farmState(x.boss, ch, now); return s.state === 'down' && s.readyAt - now > NAMED_WAIT_MS ? s.readyAt - NAMED_WAIT_MS : now + 30000; })), now + 30000 * 10);
         logEvent('map', `Runde fertig – prüfe erneut in ${fmtClock(R.restUntil - now)}`);
       } else logEvent('map', `Runde fertig – zurück zur Start-Map ${list[0].name} (Digi-Phone)`);
     }
@@ -8756,7 +8773,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const R = farm.route ||= { i: 0, map: null, skip: new Set(), back: false, chSince: 0, chKey: '', zoneAt: 0, patrol: 0, logged: new Set() };
     if (R.i >= list.length) R.i = 0;
     const r = list[R.i], b = r.boss;
-    const label = `Map ${R.i + 1}/${list.length} ${r.name}`;
+    const label = `${R.i + 1}/${list.length} ${r.name}`;
     // 1) Map (nach der End-Map per Digi-Phone zurück)
     if (st.world?.mapId !== b.map) {
       const tr = travel(st, b.map, now, R.back);
@@ -8764,10 +8781,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (tr !== true) return `${label} · ${tr}`;
     }
     // Runde mit einer Map fertig: warten statt neu prüfen – ein sichtbarer Named Elite beendet die Pause (3.1.30)
-    if (R.restUntil > now && st.world?.mapId === b.map && !farmBossMob(sc, b)) return `${label} · Runde fertig – prüfe erneut in ${fmtClock(R.restUntil - now)}`;
+    if (R.restUntil > now && st.world?.mapId === b.map && !list.some((x) => x.id === b.map && farmBossMob(sc, x.boss))) return `${label} · Runde fertig – prüfe erneut in ${fmtClock(R.restUntil - now)}`;
     R.restUntil = 0;
-    if (R.map !== b.map) {
-      Object.assign(R, { map: b.map, skip: new Set(), back: false, zoneAt: 0, patrol: 0, logged: new Set() });
+    if (R.map !== b.map || R.bossId !== b.id) { // neuer Halt – auch der nächste Named auf derselben Map (3.2.8)
+      Object.assign(R, { map: b.map, bossId: b.id, skip: new Set(), back: false, zoneAt: 0, patrol: 0, logged: new Set() });
       logEvent('map', `Runde: ${label} – prüfe ${b.name}`);
     }
     const curCh = st.world?.channel ?? 1;
@@ -11280,13 +11297,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     panelQA('[data-farmmode]').forEach((el) => el.classList.toggle('hide', el.dataset.farmmode !== mode));
     fillSelect('farmMode', [['boss', 'Boss-Rotation (ausgewählte Bosse)'], ['named', 'Named-Elite-Runde (Map für Map)'], ['cards', 'Kartenrotation (Karten farmen)']]);
     if (mode === 'cards') renderCards(st);
-    const rm = routeMaps().map((r) => [r.id, `${r.name} (${r.range.join('–')}) · ${r.boss.name}`]);
+    const rmAll = routeMaps(), rm = [...new Set(rmAll.map((r) => r.id))].map((id) => { const rs = rmAll.filter((r) => r.id === id); return [id, `${rs[0].name} (${rs[0].range.join('–')}) · ${rs.map((r) => r.boss.name).join(', ')}`]; });
     fillSelect('routeStart', [['', 'niedrigste'], ...rm]);
     fillSelect('routeEnd', [['', 'höchste'], ...rm]);
     if (mode === 'named') {
       const list = routeList(), R = farm.route;
       panelQ('[data-f="routeinfo"]').textContent = !list.length ? 'Keine Maps mit Named Elite gewählt.'
-        : `Runde: ${list.length} Maps · ${list[0].name} → ${list[list.length - 1].name}`
+        : `Runde: ${list.length} Named auf ${new Set(list.map((r) => r.id)).size} Maps · ${list[0].name} → ${list[list.length - 1].name}`
           + (bot.on && cfg.farm && R ? ` · jetzt ${R.i + 1}/${list.length} ${list[R.i]?.name || ''}${R.back ? ' (zurück per Digi-Phone)' : ''}` : '');
     }
     const all = farmBossList();
