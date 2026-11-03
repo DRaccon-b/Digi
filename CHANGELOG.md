@@ -2,6 +2,14 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.7 – Mitläufer geben mit ihrem Abgabe-Digimon ab
+- **Mitläufer wechselten nie das Digimon:** Vor einer Abgabe wechselte nur der Leader auf das Abgabe-Digimon; ein Mitläufer gab
+  mit dem aktuellen ab, weil die Partner-IDs früher die des Leaders waren. Seit 3.2.6 hat jeder Account seine eigenen – jetzt
+  wechselt auch ein Mitläufer vor der Abgabe auf sein Abgabe-Digimon und danach zurück auf sein Quest-Digimon. Hat der Mitläufer
+  keins eingestellt, bleibt alles wie bisher. Das Abgabe-Digimon hält er nur, solange seine eigene Aufgabe eine Abgabe ist – eigene
+  fertige Quests, die der Leader noch nicht abgibt, halten ihn nicht auf dem Abgabe-Digimon fest.
+- Test: `folturnintest` (2 Fälle).
+
 ## 3.2.6 – Digimon-Einstellungen je Account
 - **Mehrere Fenster überschrieben sich gegenseitig:** Alle Einstellungen gelten für alle Fenster. Quest- und Abgabe-Digimon
   (Partner-IDs gibt es nur in einem Account), Digitation je Map (ohne/mit Dark Tower) und die Karten-Digitation gehören aber zu

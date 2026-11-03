@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.6
+// @version      3.2.7
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1780,7 +1780,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.6'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.7'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -5820,7 +5820,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const evoCooldownLeft = (st) => Math.max(0, (st?.cooldowns?.evolve?.end ?? 0) - performance.now());
 
   function ensurePartner(st, partnerId, now) {
-    if (group.role() === 'follower') return true; // Partner-IDs gehören zum Account des Leaders
+    // Mitläufer wechseln seit 3.2.7 auch (Quest-/Abgabe-Digimon gelten je Account, 3.2.6) – eine fremde ID findet sich unten
+    // nicht im eigenen Team und wird übergangen
     if (!partnerId || autopilot.switchGiveUp === partnerId) return true;
     const act = activePartner(st);
     if (!act || act.partnerId === partnerId) { autopilot.switchTries = 0; return true; }
@@ -6057,7 +6058,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return digibotConfiguredPartner(st,'apTurninPartner')||home;
   }
   function digibotAutopilotEvolveTick(st,now) {
-    if(!cfg.autopilot||cfg.farm||cfg.dungeon||group.role()==='follower')return true;
+    if(!cfg.autopilot||cfg.farm||cfg.dungeon)return true;
+    // Mitläufer (3.2.7): nur, wenn dieser Account eigene Quest-/Abgabe-Digimon eingestellt hat – dann nach der Abgabe zurück
+    // aufs Quest-Digimon; Digitation regelt beim Mitläufer weiter die Kampfpause
+    const follower=group.role()==='follower';
+    if(follower&&!digibotConfiguredPartner(st,'apQuestPartner')&&!digibotConfiguredPartner(st,'apTurninPartner'))return true;
     digibotEvolutionContext(st);
     const home=digibotQuestPartner(st),task=autopilot.task;
     // A completed turn-in task must not keep the reward partner active during combat.
@@ -6068,7 +6073,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       // The current task can already be done (or reset) while the planner has yet to select the next reward.
       // Annahme beim selben NPC mitten in der Abgabe-Folge: kein Grund zum Zurückwechseln, solange noch eine Abgabe folgt (3.1.30)
       const holdAccept=(x)=>x?.purpose==='accept' && (x.sameNpc || autopilot.batchPhase==='turnin');
-      if((autopilot.turninPartnerHeld || task?.purpose==='turnin') && (!task || task.purpose==='turnin' || holdAccept(task))){
+      // Mitläufer: nur halten, solange die eigene (gespiegelte) Aufgabe eine Abgabe ist – eigene fertige Quests gibt er erst ab,
+      // wenn der Leader es tut; darauf zu warten hielte das Abgabe-Digimon im Kampf (Gegenprüfung 3.2.7)
+      if(follower&&task?.purpose!=='turnin')autopilot.turninPartnerHeld=false;
+      else if((autopilot.turninPartnerHeld || task?.purpose==='turnin') && (!task || task.purpose==='turnin' || holdAccept(task))){
         if(world.state!=='ready')return true;
         const list=autopilot.mapTalk
           ?questTasks(st).filter(t=>t.kind==='talk' && ['turnin','accept','objective'].includes(t.purpose) && t.loc?.mapId===autopilot.mapTalk.mapId)
@@ -6088,7 +6096,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const sw=ensurePartner(st,home,now);
     if(sw!==true)return sw;
     if(home&&activePartner(st)?.partnerId!==home)return true;
-    return autopilotEvolution(st,now);
+    return follower?true:autopilotEvolution(st,now);
   }
   // ---------- Map-für-Map-Runde ----------
   // Alle normalen Maps (keine Raids/Sandbox), absteigend nach Level – von „Dream Ruins“ bis „Native Forest“ –
