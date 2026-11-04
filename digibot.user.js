@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.10
+// @version      3.2.11
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1694,14 +1694,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const ACC_MAX = 5;
   // Per-window volatile credentials; never serialize or broadcast this map.
   const digibotQueuePasswords = new Map();
-  const accounts = { leader: 0, popup: true, mirror: false, mirrorAtk: true, leadBoss: false, dungeon: false, spread: false, serve: false, list: [] };
+  const accounts = { leader: 0, popup: true, mirror: false, mirrorAtk: true, leadBoss: false, dungeon: false, spread: false, serve: false, serveOrder: true, list: [] };
   function reloadAcc() {
 
     try {
       const a=JSON.parse(localStorage.getItem(ACC_KEY)||localStorage.getItem('digibot.accounts')||'null');
       if(digibotRecord(a)&&Array.isArray(a.list)) {
         accounts.leader=Number.isInteger(a.leader)&&a.leader>=0&&a.leader<ACC_MAX?a.leader:0;
-        for(const k of ['popup','mirror','mirrorAtk','leadBoss','dungeon','spread','serve'])if(typeof a[k]==='boolean')accounts[k]=a[k];
+        for(const k of ['popup','mirror','mirrorAtk','leadBoss','dungeon','spread','serve','serveOrder'])if(typeof a[k]==='boolean')accounts[k]=a[k];
         accounts.list=Array.from({length:ACC_MAX},(_,i)=>{
           const row=digibotRecord(a.list[i])?a.list[i]:{};
           const user=typeof row.user==='string'?row.user.slice(0,64):'';
@@ -1783,7 +1783,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.10'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.11'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1990,6 +1990,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         </div>
         <label class="digibot__skill digibot__chk" title="Jedes Gruppenmitglied greift ein anderes Quest-Monster an (statt alle dasselbe). Ist keins mehr frei, hilft man mit. Bosse greifen alle gemeinsam an. Nur beim Folgen, nicht in der Boss-Rotation."><input type="checkbox" data-accspread ${accounts.spread ? 'checked' : ''}><span>🎯 Ziele verteilen: jeder ein anderes Monster</span><em class="digibot__offnote" data-f="spreadoff"></em></label>
         <label class="digibot__skill digibot__chk" title="Der Leader kümmert sich nur um die Quests der Mitläufer (seine eigenen sind egal) und jagt, was ihnen fehlt. Die Mitläufer bleiben stehen und wehren nur Angreifer ab. Abgeben/Annehmen macht man bei ihnen selbst. Nur beim Folgen im Autopilot."><input type="checkbox" data-accserve ${accounts.serve ? 'checked' : ''}><span>🤝 Leader erledigt die Quests der Mitläufer</span></label>
+        <label class="digibot__skill digibot__chk" title="Nur zusammen mit 🤝: Der Leader erledigt zuerst die Quests der Mitläufer, die in der Story am weitesten zurück sind (bei Gleichstand alle davon). Diese nehmen ihre Story- und Nebenquests selbst an, sprechen, reisen und geben ab – ohne unterwegs zu kämpfen – und warten dann am Abgabe-NPC, bis der Leader die Monster erledigt hat. Wer weiter ist, wartet, bis er eingeholt ist, und macht ab dann mit."><input type="checkbox" data-accserveorder ${accounts.serveOrder ? 'checked' : ''}><span>📜 Hinterste zuerst: Nachholer nehmen selbst an und geben ab</span></label>
         <div class="digibot__title">Alle Fenster</div>
         <div class="digibot__grpbtns"><button class="digibot__btn" data-act="grp-login" title="Fehlende Gruppenfenster öffnen – dort selbst anmelden und Charakter wählen">⧉ Fenster öffnen</button><button class="digibot__btn" data-act="grp-invite" title="Der Leader lädt sofort alle Gruppenmitglieder in die Party ein, die noch nicht drin sind (geht aus jedem Gruppenfenster). Die Mitläufer nehmen automatisch an.">👥 Party einladen</button></div>
         <div class="digibot__hint">Starten und stoppen über ▶ Start / ■ oben im Leader-Fenster – das gilt für alle Gruppenfenster. Abgeben und Annehmen erledigt der Autopilot des Leaders, die Mitläufer machen es nach.</div>
@@ -3552,6 +3553,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (group.role() === 'follower') {
       const tk = autopilot.task;
       if (tk && !taskDone(st, tk)) return PASSIVE(tk);
+      if (group.ownWalkAt && now - group.ownWalkAt < 1500) return true; // Nachholer läuft zum Abgabe-NPC (3.2.11)
       const L = groupLeader(now);
       if (!L?.inWorld) return false;
       if (L.noFight || st.world?.mapId !== L.mapId) return true;
@@ -5039,7 +5041,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   // Was ein anderes Fenster sofort wissen muss (Ziel, Aufgabe, Gespräche, Kampf, Map, Quests) – Position nicht
   const groupSig = (m) => JSON.stringify([m.targetId, m.task?.key, m.talks?.[m.talks.length - 1]?.key, m.busy, m.done?.[m.done.length - 1],
-    m.fight, m.mapId, m.channel, m.bot, m.noFight, m.inWorld, m.quests, m.objective, m.reservation,m.tamer,m.partyId, m.kohAt != null && m.kohAt <= Date.now(), m.davis, m.davisAt, m.kohMoreOff, Object.keys(m.gsk || {}).sort().join(), !!m.pulling]);
+    m.fight, m.mapId, m.channel, m.bot, m.noFight, m.inWorld, m.quests, m.objective, m.reservation,m.tamer,m.partyId, m.kohAt != null && m.kohAt <= Date.now(), m.davis, m.davisAt, m.kohMoreOff, Object.keys(m.gsk || {}).sort().join(), !!m.pulling, m.prog, (m.catchup || []).join()]);
   function groupPush(force = false) {
     if (!group.active() || !group.bus) return;
     const st = getStore()?.getState?.(), now = Date.now();
@@ -5080,6 +5082,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       kohAt: kohReadyAt(st, now), davis: davisReady(st, now), davisAt: digibotTamer.davisAt || 0, kohMoreOff: !!kohState.moreOff, // 3.1.26
       gsk: gskState(now), // Gruppen-Skills, die ich gerade zünden will (3.1.43)
       serve: serveOn(),
+      prog: st?.screen === 'world' && me?.quests && me.partner ? storyProg(me) : null, // Story-Fortschritt für die Nachholgruppe (3.2.11) – nicht im Ladebildschirm
+      cuIdle: !!group.cuIdle && !autopilot.task, // Nachholer, der nichts selbst tun kann und auf nichts wartet
+      catchup: serveOrderOn() ? catchupList(now) : null, // Leader: Slots der Nachholgruppe
       pulling: group.role() === 'leader' && pull.on && Date.now() - pull.startAt <= PULL_MAX_MS, // Pull-Modus: ich sammle gerade Monster – Mitläufer übernehmen meine Ziele nicht
     };
   }
@@ -5157,11 +5162,55 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // „Leader erledigt die Quests der Mitläufer“ – nur im Quest-Betrieb der Gruppe
   // nur im Autopiloten: Quest-Jagd/Grinden erledigen keine Mitläufer-Quests, die Mitläufer standen sonst nutzlos herum (3.1.30)
   const serveOn = () => group.role() === 'leader' && accounts.serve && !accounts.mirror && cfg.autopilot && !cfg.farm && !autopilot.mapTalk;
+  // Hinterste zuerst (3.2.11): nur die Mitläufer mit dem kleinsten Story-Fortschritt bekommen ihre Quests erledigt
+  const serveOrderOn = () => serveOn() && accounts.serveOrder !== false;
+  const storyProg = (me) => Object.entries(me?.quests || {}).filter(([id, q]) => q?.state === 3 && isStory(id)).length;
+  const CATCHUP_MEM_MS = 60000;   // Stand und Quests eines Mitläufers so lange merken (Map-Wechsel, Ladebildschirm, kurz weg)
+  const CATCHUP_IDLE_MS = 30000;  // so lange kann ein Nachholer nichts tun (Level, gesperrte Quest) …
+  const CATCHUP_STALL_MS = 900000; // Nachholer, dessen Quests sich so lange nicht ändern (wartet ewig am NPC), auch überspringen
+  const CATCHUP_SKIP_MS = 600000; // … dann wird er so lange übersprungen, damit die anderen weitermachen
+  function catchupList(now = Date.now()) {
+    const mem = group.progMem ||= new Map(), skip = group.cuSkip ||= new Map();
+    for (const p of group.peers.values()) {
+      if (!fresh(p, now) || p.role !== 'follower') continue;
+      if (!p.bot && !accounts.mirror) { mem.delete(p.slot); continue; } // Bot aus: würde nie bedient
+      if (!p.inWorld || typeof p.prog !== 'number') continue;            // Ladebildschirm: gemerkten Stand behalten
+      const old = mem.get(p.slot);
+      const qsig = JSON.stringify(p.quests || {}); // Fortschrittsuhr: ändert sich lange nichts, kommt der Nachholer nicht weiter
+      mem.set(p.slot, { prog: p.prog, at: now, name: p.name, quests: p.quests, idleSince: p.cuIdle ? (old?.idleSince || now) : 0,
+        qsig, chgAt: old && old.qsig === qsig && old.prog === p.prog ? old.chgAt : now });
+    }
+    for (const [slot, v] of mem) if (now - v.at > CATCHUP_MEM_MS || !accounts.list[slot]?.on) mem.delete(slot);
+    for (const [slot, v] of mem) {
+      const cuNow = (group.catchupKey || '').split('|')[1]?.split(',').includes(String(slot)); // nur aktuelle Nachholer prüfen
+      const stuck = cuNow && now - v.chgAt > CATCHUP_STALL_MS;
+      if (skip.has(slot) || !(stuck || (v.idleSince && now - v.idleSince > CATCHUP_IDLE_MS))) continue;
+      skip.set(slot, { prog: v.prog, until: now + CATCHUP_SKIP_MS }); v.idleSince = 0; v.chgAt = now;
+      logEvent('auto', `Gruppe: ${v.name || `Fenster ${slot + 1}`} kommt nicht weiter (Level, gesperrte Quest oder keine Kills) – die anderen machen 10 min weiter`);
+    }
+    for (const [slot, x] of skip) if (x.until < now || (mem.has(slot) && mem.get(slot).prog !== x.prog)) skip.delete(slot);
+    const cand = [...mem].filter(([slot]) => !skip.has(slot));
+    if (!cand.length) return null; // niemand bedienbar: wie ohne „Hinterste zuerst“
+    const min = Math.min(...cand.map(([, v]) => v.prog));
+    const slots = cand.filter(([, v]) => v.prog === min).map(([slot]) => slot).sort((a, b) => a - b);
+    const key = `${min}|${slots.join()}`;
+    if (group.catchupKey !== key) {
+      group.catchupKey = key;
+      logEvent('auto', `Gruppe: Nachholer ${slots.map((x) => mem.get(x).name || `Fenster ${x + 1}`).join(', ')} (Story ${min})`);
+    }
+    return slots;
+  }
+  // Mitläufer: gehöre ich zur Nachholgruppe des Leaders?
+  const catchupOn = (L) => !!L?.serve && Array.isArray(L.catchup) && L.catchup.includes(group.slot());
   // Quests aller Mitläufer zusammen: aktiv, solange einer noch ein Ziel offen hat (Zähler = der kleinste);
   // fertig (abgeben), wenn alle, die sie haben, fertig sind
   function serveQuests() {
     const C = content(), out = {};
-    for (const m of groupMembers().filter((x) => x.inWorld && x.quests)) {
+    const cu = serveOrderOn() ? catchupList() : null; // Hinterste zuerst: nur die Nachholgruppe
+    const live = groupMembers().filter((x) => x.inWorld && x.quests);
+    // Nachholer beim Map-Wechsel: zuletzt gemeldete Quests weiter nehmen (sonst bricht der Leader seine Jagd jedes Mal ab)
+    const src = cu ? cu.map((slot) => live.find((x) => x.slot === slot) || (group.progMem?.get(slot)?.quests ? { quests: group.progMem.get(slot).quests } : null)).filter(Boolean) : live;
+    for (const m of src) {
       for (const [id, q] of Object.entries(m.quests)) {
         if (q.state !== 1 && q.state !== 2) continue;
         const def = questDef(C, id), objs = questPhase(def, q).objs;
@@ -5239,7 +5288,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (lt && now - lt.at > GROUP_WAIT_MS) { group.leaveSince = 0; return null; }
     // Wer gerade dasselbe Gespräch nachmacht (gleiches Ziel wie der Leader), läuft ohnehin mit – auf den nicht warten
     const sameAsMine = (m) => group.talks.some((x) => x.key === m.busy && x.tkey === t.key);
-    const busy = groupMembers(now).filter((m) => m.inWorld && m.busy && m.mapId === st.world?.mapId && !sameAsMine(m));
+    // Nachholer (own:…) gehen eigene Wege – auf die nicht warten (3.2.11)
+    const busy = groupMembers(now).filter((m) => m.inWorld && m.busy && !String(m.busy).startsWith('own:') && m.mapId === st.world?.mapId && !sameAsMine(m));
     if (!busy.length) { group.leaveSince = 0; return null; }
     // eigene Grenze je Abfahrt (Aufgabe + Map), auch ohne gemerktes Gespräch (Leader neu geladen: group.talks leer) (3.1.30)
     const lk = `${t.key}@${st.world?.mapId}`;
@@ -5277,7 +5327,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function followerPick(st, sc, now) {
     let t = autopilot.task;
     // Leader erledigt meine Quests: eine noch laufende eigene Aufgabe (Aufholen, Gespräch nachmachen) abbrechen und stehen bleiben
-    if (t && groupLeader(now)?.serve) { autopilot.reset(); t = null; }
+    if (t && groupLeader(now)?.serve && !(t.own && catchupOn(groupLeader(now)))) { autopilot.reset(); t = null; } // Nachholer behalten ihre eigene Aufgabe
     if (t && taskDone(st, t)) { autopilot.reset(); t = null; }
     if (!t && group.cur) { group.done.push(group.cur); group.cur = null; }
     if (t) return t;
@@ -5294,7 +5344,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // zwischen zwei Kämpfen (sonst kommt ein Mitläufer im Jagdgebiet nie dazu, weil immer ein Monster da ist).
   function followerAssign(st, L, now) {
     if (group.cur && !autopilot.task) { group.done.push(group.cur); group.cur = null; }
-    if (L.farm || L.serve) return null; // Leader rotiert Bosse / führt nur: folgen und mitkämpfen
+    if (L.farm) return null; // Leader rotiert Bosse: folgen und mitkämpfen
+    if (L.serve) return catchupOn(L) ? catchupPick(st, now) : null; // Leader erledigt die Quests: nur die Nachholgruppe spricht selbst
     for (const lt of L.talks || []) {
       if (group.handled.has(lt.key)) continue;
       const mt = mirrorTask(st, lt);
@@ -5326,6 +5377,47 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     return null;
   }
+  // Nachholgruppe (3.2.11): eigene Quests der Mitläufer – Annehmen, Abgeben, Gespräch, Reise (Story und Nebenquests). Talk/Reach
+  // sind PASSIVE Aufgaben: unterwegs wird nicht gekämpft. Gejagt wird vom Leader.
+  function catchupTasks(st, now) {
+    const me = st?.me;
+    const key = `${st?.world?.mapId}|${Object.entries(me?.quests || {}).map(([id, q]) => `${id}:${q.state}:${(q.counters || []).join('.')}`).join()}`;
+    const c = group.cuTasks;
+    if (c && c.key === key && now - c.at < 2000) return c.list;
+    let list;
+    try { list = questTasks(st); } catch { list = []; }
+    group.cuTasks = { key, at: now, list };
+    return list;
+  }
+  function catchupPick(st, now) {
+    if (autopilot.task) return null;
+    const t = catchupTasks(st, now).find((x) => (x.kind === 'talk' || x.kind === 'reach') && !x.grind && (autopilot.failed.get(x.key) || 0) <= now && !taskDone(st, x));
+    if (!t) return null;
+    autopilot.reset();
+    autopilot.task = { ...t, own: true }; group.cur = `own:${t.key}@${now}`;
+    logEvent('auto', `Nachholen: ${t.label}`);
+    return autopilot.task;
+  }
+  // Nichts selbst zu erledigen: zum Abgabe-NPC einer Quest laufen, deren Monster der Leader gerade jagt, und dort warten
+  function catchupWait(st, L, now) {
+    const hs = catchupTasks(st, now).filter((x) => x.kind === 'hunt' && !x.grind), h = hs.find((x) => x.turnLoc);
+    if (!h) return hs.length ? `Nachholen: warte – ${L.name || 'Leader'} erledigt „${hs[0].def?.name || hs[0].questId}“` : null; // ohne Abgabe-NPC (z. B. Daily): hier warten
+    const loc = h.turnLoc, name = h.turnName || 'NPC', me = controlled(st);
+    if (st.world?.mapId !== loc.mapId) {
+      group.ownWalkAt = now; group.standAt = null;
+      const tr = travel(st, loc.mapId, now);
+      return `Nachholen: zu ${name} · ${tr === true ? 'angekommen' : tr}`;
+    }
+    const ty = loc.y != null ? loc.y + 12 : null;
+    const d = me && loc.x != null ? Math.hypot(me.x - loc.x, me.y - ty) : 0;
+    if (d > NPC_TALK_DIST) {
+      group.ownWalkAt = now; group.standAt = null;
+      if (walkTo(st, loc.x, ty, now) === 'stuck') autopilot.nav = null;
+      return `Nachholen: laufe zu ${name} (${Math.round(d)} px)`;
+    }
+    autopilot.nav = null;
+    return `Nachholen: warte bei ${name} – ${L.name || 'Leader'} erledigt „${h.def?.name || h.questId}“`;
+  }
   function followerCatchUp(st, L, now) {
     const lq = L.quests || {}, own = st.me?.quests || {};
     let tasks;
@@ -5348,7 +5440,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function followLeader(st, sc, L, now) {
     const name = L.name || 'Leader';
     if (L.serve) {
-      autopilot.huntSpecies = new Set(); autopilot.nav = null;
+      autopilot.huntSpecies = new Set();
+      const cu = catchupOn(L), w = cu ? catchupWait(st, L, now) : null;
+      group.cuIdle = cu && !w;
+      if (w) return w;
+      autopilot.nav = null;
       // ein laufender Weg (Klickziel) läuft im Spiel sonst weiter: einmal auf die eigene Position tippen
       const me = controlled(st);
       if (me && (!group.standAt || Math.hypot(me.x - group.standAt.x, me.y - group.standAt.y) > 4) && bot.can('stand', 600, now)) {
@@ -6337,6 +6433,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           const source=bountyMap?{...C,spawns:C.spawns?.[bountyMap]?{[bountyMap]:C.spawns[bountyMap]}:{}}:C;
           const spot = huntSpot(source, [].concat(o.species || []), lvl, mapId, o.kind === 'collect' ? o.itemId : null, activeAvoid());
           if (spot && !activeAvoid().has(spot.key)) tasks.push({ ...base, key: `hunt:${id}:${i}`, kind: 'hunt', species: new Set(spot.species), names: spot.names, loc: spot, prio: 3,
+            turnLoc: def.turnIn ? npcLoc(def.turnIn, def.turnInMap) : null, turnName: def.turnIn ? npcName(def.turnIn) : null, // Warteplatz der Nachholer
             label: `${def.name}: ${o.kind === 'kill' ? 'besiege' : 'sammle von'} ${spot.names}` });
         }
       });
@@ -7196,6 +7293,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
             const C = content();
             return `Gruppe: warte, bis die anderen bei ${held.map((id) => `„${questDef(C, id)?.name || id}“`).join(', ')} so weit sind`;
           }
+          if (serveOrderOn() && catchupList()) return 'Gruppe: nichts zu jagen – die Nachholer nehmen an und geben ab';
           if (serveOn()) return 'Gruppe: bei den Mitläufern gibt es nichts mehr zu jagen – Abgeben/Annehmen bitte selbst';
         }
         return null;
@@ -11517,6 +11615,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const sprTxt = mode !== 'follow' ? ' · gilt nur beim Folgen' : cfg.farm ? ' · nicht in der Boss-Rotation' : '';
     if (sprNote && sprNote.textContent !== sprTxt) sprNote.textContent = sprTxt;
     const srv = panelQ('[data-accserve]'); if (srv && srv !== document.activeElement) srv.checked = !!accounts.serve;
+    const sro = panelQ('[data-accserveorder]'); if (sro && sro !== document.activeElement) sro.checked = !!accounts.serveOrder;
     panelQA('[data-gmode]').forEach((b) => b.classList.toggle('on', b.dataset.gmode === mode));
     const box = panelQ('[data-f="gcards"]');
     const C = content(), esc = (x) => String(x ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -11871,6 +11970,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (e.target.matches('[data-accserve]')) {
         reloadAcc(); accounts.serve = e.target.checked; saveAcc(); e.target.blur(); autopilot.reset();
         logEvent('bot', `Gruppe: Leader erledigt die Quests der Mitläufer – ${accounts.serve ? 'an' : 'aus'}`);
+        return;
+      }
+      if (e.target.matches('[data-accserveorder]')) {
+        reloadAcc(); accounts.serveOrder = e.target.checked; saveAcc(); e.target.blur(); autopilot.reset();
+        logEvent('bot', `Gruppe: Hinterste zuerst – ${accounts.serveOrder ? 'an' : 'aus'}`);
         return;
       }
       if (e.target.matches('[data-accspread]')) {

@@ -2,6 +2,19 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.11 – Hinterste zuerst: der Stärkste zieht die anderen in der Story nach
+- **Neu im Reiter Accounts, unter „🤝 Leader erledigt die Quests der Mitläufer“: „📜 Hinterste zuerst“ (Standard an).**
+  Der Leader erledigt nur die Quests der Mitläufer, die in der Story am weitesten zurück sind (Zahl abgeschlossener
+  Story-Quests; bei Gleichstand alle davon). Diese Nachholer nehmen ihre Story- und Nebenquests selbst an, sprechen, reisen und
+  geben ab – ohne unterwegs zu kämpfen, auch nicht gegen Angreifer – und warten danach am Abgabe-NPC, bis der Leader die Monster
+  erledigt hat. Mitläufer, die weiter sind, nehmen nichts an und bleiben stehen, bis die Nachholer sie eingeholt haben; dann
+  machen sie mit. So sind am Ende alle auf demselben Stand.
+- Ladebildschirm, Map-Wechsel und kurz geschlossene Fenster (bis 60 s) ändern die Nachholgruppe nicht; ein Mitläufer mit
+  gestopptem Bot zählt nicht. Kommt ein Nachholer nicht weiter (Level zu niedrig, gesperrte Quest: 30 s nichts zu tun; oder
+  15 min keine Änderung an seinen Quests), wird er 10 min übersprungen und die anderen machen weiter.
+- Der Leader wartet vor einem Map-Wechsel nicht auf die eigenen Wege der Nachholer.
+- Tests: `cuordertest`, `cuskiptest`.
+
 ## 3.2.10 – Warp-Digitation auch bei knappem Tamer-DS
 - **Mitläufer warpte nie:** Der Warp kostet die Summe aller Schritte bis zur Mega-Form. Reicht das Tamer-DS nicht, meldet das
   Spiel das Hindernis „not_enough_tamer_energy“ – der Bot ging dann sofort Schritt für Schritt (live: Patamon → Angemon →
