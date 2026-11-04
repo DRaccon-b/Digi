@@ -29,7 +29,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const ok = (c, m) => { if (!c) fails.push(m); };
   ok(row('card_kunemon')?.textContent.includes('8/20'), `Fortschritt 8/20: ${row('card_kunemon')?.textContent}`);
   ok(row('card_tsunomon')?.textContent.includes('0/30'), 'Tsunomon 0/30');
-  ok(!row('card_kunemon_rare'), 'keine Rare-Karte in der Liste');
+  // 3.2.12: Rare-Karten stehen mit in der Liste (eigenes Limit, 4 %/10 % Dropchance)
+  ok(/Rare/.test(row('card_kunemon_rare')?.textContent || '') && row('card_kunemon_rare')?.textContent.includes('0/9'), `Rare-Karte in der Liste: ${row('card_kunemon_rare')?.textContent}`);
   const boxPick = D.querySelector('[data-f="bosspick"]')?.closest('[data-farmmode]');
   ok(boxPick?.classList.contains('hide'), 'Boss-Auswahl ausgeblendet');
   ok(!D.querySelector('[data-f="cardpick"]').closest('[data-farmmode]').classList.contains('hide'), 'Kartenliste sichtbar');
@@ -44,6 +45,10 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   // nur Kunemon gewählt: 12 offen / 0,448 × (10 s + 4 s) ≈ 375 s
   const eta = D.querySelector('[data-f="cardeta"]')?.textContent || '';
   ok(/noch ca\. 6 min/.test(eta), `Restzeit: ${eta}`);
+  // nur die Rare-Karte: 9 offen / (0,04 + 0,06 × 0,12) × 14 s ≈ 2669 s ≈ 44 min
+  tick('card_kunemon'); tick('card_kunemon_rare'); await wait(1200);
+  const eta2 = D.querySelector('[data-f="cardeta"]')?.textContent || '';
+  ok(/noch ca\. 44 min/.test(eta2), `Restzeit Rare: ${eta2}`);
   console.log(fails.length ? fails : 'alle Prüfungen gut');
   console.log(fails.length ? 'FEHLER' : 'OK – Kartenliste mit Fortschritt, Auswahl und Restzeit');
   process.exit(fails.length ? 1 : 0);

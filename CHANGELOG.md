@@ -2,6 +2,19 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.12 – Verkaufen bei vollem Inventar, Rare-Karten in der Kartenrotation
+- **Neu unter Einstellungen → Food: „Verkaufen bei vollem Inventar“ (Standard aus).** Ist kein Inventarplatz mehr frei, schiebt
+  der Bot einen Verkauf ein: zum Händler der aktuellen Map, sonst zur nächsten offenen Map mit Händler, alle Ausrüstungsteile
+  der angehakten Seltenheiten verkaufen (Common, Uncommon, Rare, Epic, Legendary – Standard Common und Uncommon), zurück zum
+  Startpunkt, weiter in der Betriebsart. Tränke, Food, Material, Karten, Quest-Gegenstände, gebundene Teile, Favoriten und Teile eines
+  Ausrüstungs-Sets verkauft er nie. Verkauft wird vor dem Food-Nachkauf (der braucht freie Plätze).
+  Nicht im Kampf, nicht im Dungeon/Raid, nicht vor einem Event/Weltboss; Mitläufer verkaufen nur bei einem Händler auf ihrer Map.
+  Ist nichts Passendes dabei oder das Inventar danach noch voll, meldet er das und versucht es erst nach 10 min wieder.
+- **Kartenrotation: Rare-Karten stehen jetzt mit in der Liste** („Name (Rare)“, eigenes Limit). Sie droppen bei denselben
+  Feld-Monstern (4 % normal, 10 % Elite) und bei Named-Gegnern (75 % je Kill); die Restzeit rechnet mit diesen Chancen.
+  Ultra-Rare-Karten gibt es nur in Raids und bleiben draußen.
+- Tests: sellfulltest (neu, mit Favorit/Set-Teil und Stopp/Start), carduitest (Rare-Karte in der Liste, Restzeit).
+
 ## 3.2.11 – Hinterste zuerst: der Stärkste zieht die anderen in der Story nach
 - **Neu im Reiter Accounts, unter „🤝 Leader erledigt die Quests der Mitläufer“: „📜 Hinterste zuerst“ (Standard an).**
   Der Leader erledigt nur die Quests der Mitläufer, die in der Story am weitesten zurück sind (Zahl abgeschlossener
