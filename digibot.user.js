@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.12
+// @version      3.2.13
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -192,7 +192,7 @@ function digibotConfig(saved, defaults) {
   out.farmChannels=[...new Set((out.farmChannels||[]).filter(x=>Number.isInteger(x)&&x>=1&&x<=100))];
   out.sellRar=[...new Set((out.sellRar||[]).filter(x=>Number.isInteger(x)&&x>=0&&x<DIGIBOT_GEAR_RAR.length))].sort((a,b)=>a-b);
   for(const k of ['cardSel','cardNamed'])if(Object.hasOwn(saved,k)){if(Array.isArray(saved[k]))out[k]=[...new Set(saved[k].filter(x=>typeof x==='string'&&x.length<200))].slice(0,300);else issues.push(k);}
-  const enums={farmMode:['boss','named','cards'],apOrder:['near','sweep'],apSweepDir:['up','down'],dgMode:['easy','hard','apocalymon','malomyotismon']};
+  const enums={farmMode:['boss','named','cards'],apOrder:['near','sweep'],apSweepDir:['up','down'],dgMode:['easy','hard','apocalymon','malomyotismon','beelzemon','d_reaper']};
   for(const [k,vals]of Object.entries(enums))if(!vals.includes(out[k])){out[k]=defaults[k];issues.push(k);}
   return {value:out,issues};
 }
@@ -1498,7 +1498,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     cardNamed: [],        // Kartenrotation: Karten, deren Named-Gegner mitgenommen werden dürfen (standardmäßig keiner)
     cardForm: '',         // Kartenrotation: Digitation ('' = automatisch die beste für die Karten, sonst Form wie bei der Map-Regel) (3.2.3)
     dungeon: false,       // Dungeon-Modus (Kera): betreten, Räume räumen, Boss, raus
-    dgMode: 'easy',       // 'easy' = War Game, 'hard' = Revenge (allein kaum zu schaffen), 'apocalymon' / 'malomyotismon' = Raid
+    dgMode: 'easy',       // 'easy' = War Game, 'hard' = Revenge (allein kaum zu schaffen), 'apocalymon' / 'malomyotismon' / 'beelzemon' / 'd_reaper' = Raid
     dgBreak: true,        // Optionales Brechbares (Mail Server bei Diaboromon) zerstören – alle dasselbe Ziel; aus = nur der Boss (3.1.1).
     dgRetry: false,       // Nach einem gescheiterten Lauf (rausgeflogen) neu betreten, bis DG_TRIES Versuche – aus: Bot stoppt (3.1.5)
     dgFlareCover: false,  // Ultimate Flare: Platten als Deckung nutzen, wenn näher – aus: nur hinter Armageddemon, dort weiter angreifen (3.1.18)
@@ -1789,7 +1789,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.12'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.13'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1960,9 +1960,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           'Gilt für den Modus Bosse. Boss-Rotation: reist zum ausgewählten Boss, der als Nächstes da ist. Named-Elite-Runde: Maps von Start bis Ende ablaufen, je Kanal prüfen (lebt → kämpfen, Respawn unter 2 min → warten, sonst weiter), danach per Digi-Phone zurück. Kanalwechsel nur außerhalb des Kampfes; das Level-Limit gilt für diese Bosse nicht.', 'data-modes="farm"')}
         ${grp('dungeon', 'Dungeon', `
           <div class="digibot__apcfg">
-            <label>Modus<select data-apsel="dgMode"><option value="easy">Easy – War Game</option><option value="hard">Hard – Revenge (Gruppe)</option><option value="apocalymon">Apocalymon-Raid</option><option value="malomyotismon">MaloMyotismon-Raid</option></select></label>
+            <label>Modus<select data-apsel="dgMode"><option value="easy">Easy – War Game</option><option value="hard">Hard – Revenge (Gruppe)</option><option value="apocalymon">Apocalymon-Raid</option><option value="malomyotismon">MaloMyotismon-Raid</option><option value="beelzemon">Beelzebumon-Raid (Lv 121)</option><option value="d_reaper">Mother-D-Reaper-Raid (Lv 130)</option></select></label>
             ${check('dgRetry', 'Nach gescheitertem Lauf neu betreten (bis 3×)', 'Aus: Der Bot stoppt nach einem gescheiterten Lauf, Neustart über den Leader. Nach einem Rauswurf wartet er ohnehin 15 min (manueller Start hebt das auf).')}
           </div>
+          <div data-dgmode="beelzemon d_reaper"><div class="digibot__hint">Tamers-Raid, auch mit Fremden in der Party: Nur der Party-Leader kann ihn öffnen – ist das ein Mitspieler, wartet der Bot an der Tür, bis er offen ist. Ist der Bot Leader, wartet er, bis alle Mitspieler bereit an der Tür stehen (höchstens 20 min). Geteilte Treffer (mind. 3 im Kreis) nimmt er mit den Mitspielern zusammen, Adds und Greifhände zuerst. Voraussetzung: Beelzebumon – Quest „The Broken Promise“ angenommen, Mega; Mother D-Reaper – Quest des Raids angenommen. Nach dem Sieg geht der Bot hinaus und stoppt.</div></div>
           <div data-dgmode="hard">
             <div class="digibot__title">Hard – Diaboromon (Raum 3)</div>
             ${check('dgBreak', 'Mail Server zerstören (ab 30 %)', 'Diaboromon ab 30 %: drei Mail Server – alle schlagen dasselbe, danach zurück zum Boss. Aus: nur der Boss, dann verstärken die Support-Mails Diaboromon über die Server (bis ×2,5).')}
@@ -3840,6 +3841,22 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       digibotGrabArms.mapId=mapId;digibotGrabArms.C=C;digibotGrabArms.set=set;
     }
     return digibotGrabArms.set;
+  }
+  // Greifhände nach Dringlichkeit (3.2.13): 0 = hält mich (greift mich an, zielt auf mich oder ist meinem festgehaltenen
+  // Digimon/Tamer am nächsten – live hat die Hand keine targetId), 1 = hält ein anderes Digimon. others: 'any' = jedes
+  // festgehaltene in 200 px (einfacher Raid mit Fremden), 'target' = nur per targetId (Bot-Gruppe wie bisher), sonst keine fremden.
+  function digibotArmRank(sc,arms,others){
+    const st=getStore()?.getState?.(),ents=window.dmo?.net?.state?.entities,mine=[st?.me?.tamerEntityId,st?.me?.partner?.entityId].map((id)=>ents?.get?.(id)).filter(Boolean);
+    const list=(sc?.mobs||[]).filter((m)=>arms.has(m.species)&&!m.banned&&!safeHeld(m.id)),own=new Set(),rank=new Map();
+    for(const e of mine)if(e.flags&FLAG.Held){let best=null,bd=200;for(const m of list){const d=Math.hypot(m.x-e.x,m.y-e.y);if(d<bd){bd=d;best=m;}}if(best)own.add(best.id);}
+    for(const m of list){const t=ents?.get?.(ents?.get?.(m.id)?.targetId);if(m.attacker||(t&&mine.some((e)=>e.id===t.id)))own.add(m.id);}
+    const held=[];ents?.forEach?.((e)=>{if((e.flags&FLAG.Held)&&(e.kind===KIND.Partner||e.kind===KIND.Tamer)&&!mine.some((x)=>x.id===e.id))held.push(e);});
+    for(const m of list){
+      if(own.has(m.id)){rank.set(m.id,0);continue;}
+      const t=ents?.get?.(ents?.get?.(m.id)?.targetId),tOk=!!t&&(t.kind===KIND.Partner||t.kind===KIND.Tamer);
+      if(others==='target'?tOk:others==='any'?tOk||held.some((e)=>Math.hypot(e.x-m.x,e.y-m.y)<=200):false)rank.set(m.id,1);
+    }
+    return rank;
   }
   function digibotCombatInputReason(st,now=performance.now()){
     const ents=window.dmo?.net?.state?.entities,own=ents?.get?.(st?.me?.partner?.entityId),queue=window.dmo?.client?.skillQueue;
@@ -7688,12 +7705,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function bossAdd(sc) {
     if (!sc) return null;
     // Greifarm (Tentacle Bug, Creep Hands), der mich oder ein Gruppenmitglied hält: sofort zerschlagen – in jedem Modus
-    // außer Dungeon (dort regelt es dungeonFocus) (3.0.5)
-    if (!cfg.dungeon) {
+    // außer Dungeon (dort regelt es dungeonFocus) (3.0.5); im einfachen Raid (Mother D-Reaper, 3.2.13) auch hier – sonst hielte
+    // die Add-Regel unten am Add fest, während die Hand das Digimon leersaugt
+    if (!cfg.dungeon || plainRaid(sc.mapId)) {
       const st0 = getStore()?.getState?.(), arms = digibotGrabArms(st0);
       if (arms.size) {
-        const ents = window.dmo?.net?.state?.entities, mine = new Set([st0?.me?.tamerEntityId, st0?.me?.partner?.entityId]);
-        const held = sc.mobs.find((m) => { if (!arms.has(m.species) || m.banned) return false; const h = ents?.get?.(ents?.get?.(m.id)?.targetId); return !!h && (mine.has(h.id) || (group.active() && (h.kind === KIND.Partner || h.kind === KIND.Tamer))); });
+        // die eigene Hand zuerst, dann eine, die ein anderes Digimon hält (im einfachen Raid auch Fremde, sonst wie bisher per targetId)
+        const rank = digibotArmRank(sc, arms, plainRaid(sc.mapId) ? 'any' : group.active() ? 'target' : null);
+        const held = sc.mobs.filter((m) => rank.has(m.id)).sort((a, b) => rank.get(a.id) - rank.get(b.id) || a.d - b.d)[0];
         if (held) return held;
       }
     }
@@ -9169,13 +9188,15 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const DG_DOOR_NEAR = 90;       // so nah an der Tür gilt ein Mitglied als „da“
   const DG_ENTER_MS = 4000;      // Betreten frühestens so oft versuchen
   const DG_ENTER_TRIES = 6;      // so oft betreten, ohne hineinzukommen (~24 s, auch über Portal-Runden): dann stoppen (3.1.30)
+  const DG_GATE_WAIT_MS = 20 * 60000; // Raid-Tür mit Fremden: so lange auf den Party-Leader bzw. die Mitspieler warten (3.2.13)
+  const DG_GATE_KNOCK_MS = 10000;     // … und so oft anklopfen (Spiel antwortet „nur der Party-Leader“, bis er offen ist)
   const DG_TRIES = 3;            // gescheiterte Läufe so oft neu versuchen
   const DG_PULL_HP = 90;         // einen neuen Raum (Kampf beginnt beim Hineingehen) erst ab so viel HP betreten
   const dg = {
-    dps: 0, dpsTrack: null, hud: null, hudAt: 0, inside: false, insideAt: 0, enterAt: 0, enterTries: 0, doorAt: 0, fails: 0, cleared: false, logRoom: -1,
+    dps: 0, dpsTrack: null, hud: null, hudAt: 0, inside: false, insideAt: 0, enterAt: 0, enterTries: 0, doorAt: 0, gateWait: 0, gateLog: '', fails: 0, cleared: false, logRoom: -1,
     herd: { low: false, lowAt: 0, back: false, backAt: 0, seen: new Set(), lastSpawn: 0, note: '' }, // Herden-Form (3.1.9)
     kite: { at: 0, done: false, best: Infinity, bestAt: 0, side: 0 }, // Armageddemon nach unten kiten, dann eine Seite (3.1.10/11)
-    reset() { this.hud = null; this.hudAt = 0; this.inside = false; this.insideAt = 0; this.enterAt = 0; this.enterTries = 0; this.doorAt = 0; this.fails = 0; this.cleared = false; this.logRoom = -1; this.herd = { low: false, lowAt: 0, back: false, backAt: 0, seen: new Set(), lastSpawn: 0, note: '' }; this.kite = { at: 0, done: false, best: Infinity, bestAt: 0, side: 0 }; },
+    reset() { this.hud = null; this.hudAt = 0; this.inside = false; this.insideAt = 0; this.enterAt = 0; this.enterTries = 0; this.doorAt = 0; this.gateWait = 0; this.gateLog = ''; this.fails = 0; this.cleared = false; this.logRoom = -1; this.herd = { low: false, lowAt: 0, back: false, backAt: 0, seen: new Set(), lastSpawn: 0, note: '' }; this.kite = { at: 0, done: false, best: Infinity, bestAt: 0, side: 0 }; },
   };
   function dgNote(ev) {
     dg.hud = { raid: ev.raid, room: ev.room ?? 0, rooms: ev.rooms ?? 0, roomId: ev.roomId, pulled: !!ev.pulled, deaths: ev.deaths ?? 0, deathLimit: ev.deathLimit ?? 0 };
@@ -9189,7 +9210,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const dgRaid = (mapId) => { const r = content()?.spawns?.[mapId]?.raid; return r?.dungeon ? r : null; };
   // Einfacher Raid ohne Räume (z. B. Apocalymon): nur ein Boss mit Adds
   const plainRaid = (mapId) => { const r = content()?.spawns?.[mapId]?.raid; return r && !r.dungeon ? r : null; };
-  const DG_RAIDS = { apocalymon: 'apocalymon', malomyotismon: 'malomyotismon' }; // Auswahl im Panel -> Raid-ID in den Spieldaten
+  // Auswahl im Panel -> Raid-ID in den Spieldaten (Tamers-Raids 3.2.13: Beelzebumon = Art tamers_beelzemon, D-Reaper = d_reaper)
+  const DG_RAIDS = { apocalymon: 'apocalymon', malomyotismon: 'malomyotismon', beelzemon: 'tamers_beelzemon', d_reaper: 'd_reaper' };
   // gewählter Modus -> Dungeon-Map und Raid (Easy = Modus-Reihenfolge 0)
   function dgPick() {
     if (DG_RAIDS[cfg.dgMode]) {
@@ -9237,13 +9259,22 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return Math.max(500, dg.dps || DG_DPS0);
   }
   // Einfacher Raid: Adds des Bosses (füttern ihn sonst) vor dem Boss, Angreifer dazwischen, sonst nichts
+  // Greifhände (Creep Hands, 3.2.13): hält eine mich, sofort brechen; hält sie ein anderes Digimon (auch eines Mitspielers),
+  // mithelfen – vor Adds und Boss. Der Arm hat live keine targetId: Halter = Digimon/Tamer mit Held-Flag am nächsten (wie dungeonFocus)
   function raidFocus(sc) {
-    const spawn = content()?.spawns?.[sc.mapId], adds = new Set();
-    for (const b of spawn?.bosses || []) for (const a of [b.adds, ...(b.moreAdds || [])]) if (a?.species) adds.add(a.species);
-    const score = (m) => (adds.has(m.species) ? 100 + m.d : m.cat === 'boss' ? 1000 + m.d : m.attacker ? 5000 + m.d : Infinity);
+    const spawn = content()?.spawns?.[sc.mapId], adds = new Set(), arms = new Set();
+    for (const b of spawn?.bosses || []) {
+      for (const a of [b.adds, ...(b.moreAdds || [])]) if (a?.species) adds.add(a.species);
+      for (const sk of b.skills || []) if (sk.grab?.arm) arms.add(sk.grab.arm);
+    }
+    const rank = arms.size ? digibotArmRank(sc, arms, 'any') : new Map();
+    const armScore = (m) => (rank.get(m.id) === 0 ? -20 + m.d / 1000 : rank.get(m.id) === 1 ? -10 + m.d / 1000 : 150 + m.d);
+    const tier = (v) => (v < -15 ? 0 : v < 0 ? 1 : 2); // eigene Hand / fremde Hand / Rest
+    const score = (m) => (arms.has(m.species) ? armScore(m) : adds.has(m.species) ? 100 + m.d : m.cat === 'boss' ? 1000 + m.d : m.attacker ? 5000 + m.d : Infinity);
     const list = sc.mobs.filter((m) => !m.banned && !safeHeld(m.id) && score(m) < Infinity).sort((a, b) => score(a) - score(b));
     const cur = getStore()?.getState?.()?.target, keep = cur && list.find((m) => m.id === cur.id);
-    return keep && score(keep) - score(list[0] || keep) < 150 ? keep : list[0] || null;
+    const top = list[0] || keep; // gepackt (Greifhand): sofort wechseln – Ziel nur innerhalb derselben Stufe behalten
+    return keep && tier(score(keep)) === tier(score(top)) && score(keep) - score(top) < 150 ? keep : list[0] || null;
   }
   function dungeonFocus(sc) {
     if (!cfg.dungeon || !sc) return null;
@@ -9625,6 +9656,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // nur, wer schon drin war (raid_fight_on); der Zähler unten beendet die Versuche (3.1.30)
     if (st.raid && !st.raid.inside) {
       if (!lead) { commands()?.closeRaidGate?.(); return 'Warte, bis der Leader den Dungeon betritt…'; }
+      const gw = raidGateWait(st.raid, pick, now);
+      if (gw) return gw;
       if (now - dg.enterAt > DG_ENTER_MS) {
         // Spiel lässt nicht hinein (Hard nicht frei, nicht Party-Leader, Gruppe/Level, Lauf schon begonnen …): nicht endlos neu senden (3.1.30)
         if (dg.enterTries >= DG_ENTER_TRIES) {
@@ -9654,6 +9687,38 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (dgEvoWait(evo, now)) return `An der Tür: warte auf die Digitation zu ${evo}…`; // digitiert wird im Bot-Takt (ensureEvolution)
     walkTo(st,door.x,portal.y+portal.h/2,now,{portal});
     return 'Gehe durch die Dungeon-Tür';
+  }
+  // Raid-Tür mit Fremden (3.2.13, Party ohne Bots): Laut Spiel öffnet nur der Party-Leader einen Raid (raid.iLead), Mitglieder
+  // kommen erst hinein, wenn er offen ist (raid.instance). Bin ich nicht Leader: an der Tür warten und es alle 4 s versuchen,
+  // ohne nach DG_ENTER_TRIES zu stoppen. Bin ich Leader: warten, solange das Spiel sperrt (raid.blocked) oder ein Mitspieler
+  // nicht bereit ist (members[].check: weit weg, Level …). Höchstens DG_GATE_WAIT_MS, dann stoppen. null = betreten wie bisher.
+  const RAID_BLOCK_TXT = { raid_far: 'Mitspieler zu weit weg', raid_level: 'Level eines Mitspielers zu niedrig', raid_party_size: 'Partygröße passt nicht',
+    raid_party: 'Party passt nicht', raid_busy: 'ein Mitspieler ist beschäftigt', raid_full: 'Raid voll', raid_fight_on: 'Kampf läuft schon', raid_no_party: 'keine Party',
+    raid_not_leader: 'nicht Party-Leader', raid_unavailable: 'Raid gerade nicht verfügbar' };
+  const RAID_CHECK_TXT = { far: 'zu weit weg', level: 'Level zu niedrig', busy: 'beschäftigt', dead: 'bewusstlos', map: 'auf einer anderen Map' };
+  function raidGateWait(R, pick, now) {
+    // nur mit Fremden: in der Bot-Gruppe gilt das bisherige Warten an der Tür (20 s) und der Stopp nach DG_ENTER_TRIES
+    if (pick.raid.dungeon || !R || R.instance || group.active()) { dg.gateWait = 0; return null; }
+    let why = null;
+    if (R.iLead === false) {
+      why = 'warte, bis der Party-Leader den Raid öffnet';
+      if (now - dg.enterAt > DG_GATE_KNOCK_MS) { dg.enterAt = now; commands()?.raidEnter?.(pick.raid.id); } // geht durch, sobald er offen ist
+    } else if (R.iLead) {
+      const notOk = (R.members || []).filter((m) => m?.check && m.check !== 'ok' && m.check !== 'offline');
+      if (R.blocked || notOk.length) why = `warte auf die Party – ${notOk.map((m) => `${m.name || '?'} ${RAID_CHECK_TXT[m.check] || m.check}`).join(', ') || RAID_BLOCK_TXT[R.blocked] || R.blocked}`;
+    }
+    if (!why) { dg.gateWait = 0; return null; }
+    dg.gateWait ||= now;
+    if (dg.gateLog !== why) { dg.gateLog = why; logEvent('bot', `Raid-Tür: ${why}`); }
+    if (now - dg.gateWait > DG_GATE_WAIT_MS) {
+      commands()?.closeRaidGate?.();
+      logEvent('warn', `Raid-Tür: ${DG_GATE_WAIT_MS / 60000} min gewartet (${why}) – Bot gestoppt`);
+      notify('Raid: zu lange an der Tür gewartet – Bot gestoppt.', 'stop');
+      bot.toggle(true);
+      return 'Raid-Tür: zu lange gewartet – Bot gestoppt';
+    }
+    const left = Math.ceil((DG_GATE_WAIT_MS - (now - dg.gateWait)) / 60000);
+    return `An der Raid-Tür: ${why} (noch bis ${left} min)`;
   }
   // Eingestellte Digitation noch nicht erreicht (z. B. Abklingzeit)? Liefert den Namen der Zielform, sonst null.
   function dgEvoPending(st) {

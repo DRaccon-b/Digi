@@ -2,6 +2,21 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.13 – Raids Beelzebumon und Mother D-Reaper, Raid-Tür mit Fremden
+- **Dungeon-Reiter → Modus: neu „Beelzebumon-Raid (Lv 121)“ und „Mother-D-Reaper-Raid (Lv 130)“.** Der Bot reist zur
+  Tür-Map (Deva Mountain bzw. D-Reaper Shinjuku), geht durchs Raid-Portal und hinein, nimmt Adds (IceDevimon, ADR-01 Jeri)
+  und Greifhände vor dem Boss, weicht wie gewohnt aus und geht nach dem Sieg hinaus und stoppt.
+- **Raid mit Fremden in der Party (ohne Bots):** Im Spiel kann nur der Party-Leader einen Raid öffnen. Ist ein Mitspieler
+  Leader, wartet der Bot an der Tür und versucht es alle 4 s, bis der Raid offen ist (vorher stoppte er nach 6 Versuchen).
+  Ist der Bot Leader, wartet er, solange das Spiel sperrt oder ein Mitspieler nicht bereit ist (z. B. „Fremder zu weit
+  weg“), und betritt den Raid dann. Nach 20 min Warten stoppt er. Gilt für alle einfachen Raids, aber nur ohne Bot-Gruppe (mit Bot-Gruppe wie bisher).
+- **Greifhände (Creep Hands) im einfachen Raid zuerst:** hält eine Hand das eigene oder ein fremdes Digimon fest, bricht der
+  Bot sie sofort – vorher blieb er am Add bzw. Boss und das Digimon wurde leergesaugt. Der Halter wird wie live über das
+  Held-Flag erkannt (die Hand hat keine targetId). Sind zwei Hände da, kommt die eigene zuerst (die dem eigenen
+  festgehaltenen Digimon nächste), dann die am fremden Digimon. Außerhalb einfacher Raids bleibt es wie bisher.
+- Geteilte Treffer (Heartbreak Shot, D-Reaper Zone: mind. 3 Digimon im Kreis) laufen über die Fremden-Logik aus 3.2.4.
+- Tests: raidpartytest (neu, mit Greifhand und zwei Händen).
+
 ## 3.2.12 – Verkaufen bei vollem Inventar, Rare-Karten in der Kartenrotation
 - **Neu unter Einstellungen → Food: „Verkaufen bei vollem Inventar“ (Standard aus).** Ist kein Inventarplatz mehr frei, schiebt
   der Bot einen Verkauf ein: zum Händler der aktuellen Map, sonst zur nächsten offenen Map mit Händler, alle Ausrüstungsteile
