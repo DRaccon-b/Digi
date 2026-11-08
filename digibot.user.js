@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.14
+// @version      3.2.15
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1790,7 +1790,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.14'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.15'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -4024,6 +4024,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (!bot.can('Digit' + k, SKILL_GAP_MS * 2, now)) return true; // Server-Cooldown noch nicht angekommen
     const cast = s.skill.castMs ?? def.castMs ?? 600, soon = kohSoon(st, now);
     if (soon != null && soon < KOH_LEAD_MS + 800 + cast) return { stop: 'Key of Hope gleich fällig – Skills warten' };
+    const psoon = protSoon(st, now);
+    if (psoon != null && psoon < PROT_LEAD_MS + 800 + cast) return { stop: 'Schutz-Skill gleich fällig – Skills warten' };
+    if (def.protectionMs > 0 && def.target === 'self' && protHold(st, now)) return true; // für den tödlichen Treffer aufheben (3.2.15)
+    { const res = protReserve(st, now); if (res && !(def.protectionMs > 0) && p.ds - (s.skill.dsCost || 0) < res) return true; } // DS für den Schutz lassen
     const selfCast = def.target === 'self' || role === 'atkbuff'; // bewegt das Digimon nicht: auch am Kreisrand und von außen
     if (path === 'edge' || path === 'ranged') {
       if (s.skill.dash || def.dash) return true; // ein Ansturm führte in den Kreis
@@ -4172,6 +4176,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (!s || isKoh(s.skill)) continue;
       const def = skillDef(s.skill);
       if ((ro.role === 'defsup' || ro.role === 'atksup') && def.target === 'enemy') continue; // Gegner-Support: skillPick
+      if (def.protectionMs > 0 && def.target === 'self' && protHold(st, now)) continue; // Schutz für den tödlichen Treffer aufheben (3.2.15)
+      { const res = ro.role === 'heal' || ro.role === 'grpheal' ? 0 : protReserve(st, now); if (res && p.ds - (s.skill.dsCost || 0) < res) continue; } // DS für den Schutz lassen (Heilen geht vor)
       // Buffs mit Cast nicht kurz vor einer Boss-Attacke (wie in der Rotation); Heals wie bisher immer
       if (ro.role !== 'heal' && ro.role !== 'grpheal' && ro.role !== 'utilsup' && (s.skill.castMs ?? def.castMs ?? 0) > 0 && st.target?.id
         && skillUnsafe(st, st.target, s.skill, now, Number(String(s.ref).slice(6)))) continue;
@@ -4183,6 +4189,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     for (const c of cands) {
       const soon = kohSoon(st, now), cast = c.s.skill.castMs ?? c.def.castMs ?? 600;
       if (soon != null && soon < KOH_LEAD_MS + 800 + cast) return null; // Key of Hope gleich fällig: nichts mit Cast davor
+      const psoon = protSoon(st, now); if (psoon != null && psoon < PROT_LEAD_MS + 800 + cast) return null; // Schutz-Skill gleich fällig
       if (!careGroupOk(st, c, now)) continue;
       if (bot.hit('Digit' + c.k, now) === false) { gskRefused(skillClass(c.role, c.def), now); return null; }
       bot.lastPress.skill = now;
@@ -4571,6 +4578,114 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     logEvent('warn', `Key of Hope gegen ${name}`);
     return `Key of Hope gegen ${name}`;
   }
+  // ---------- Eigene Unverwundbarkeit getimt (3.2.15, Nutzer: Piedmon allein im Hard-Raid) ----------
+  // Partner-Skill mit protectionMs auf sich selbst (Piedmon: Clown Trick, 2 s unverwundbar, 24 s cd): kurz vor dem Einschlag
+  // eines tödlichen Treffers zünden – Catastrophe Cannon (240 % Max-HP, geteilt: allein trifft er voll), Black-Rain-Hülle,
+  // Infermon-Ladeschuss, und alles mit share oder hpDamagePct ≥ 100. Steht ein Boss mit so einem Treffer in der Nähe, wird
+  // der Skill nicht mehr frei als Buff verbraucht (sonst lief er beim Treffer gerade ab). Key of Hope der Gruppe geht vor.
+  const PROT_LEAD_MS = 700;   // so lange vor dem Einschlag zünden (Schutz hält 2 s, deckt Latenz und Streuung)
+  const PROT_NEAR = 900;      // Boss mit tödlichem Treffer so nah: Schutz zurückhalten
+  const PROT_CONFIRM_MS = 350; // ohne Bestätigung (Abklingzeit läuft) so lange nach dem Druck: noch einmal drücken
+  const PROT_SAVE_MS = 10000;  // so lange vor Ende der Abklingzeit schon auf die DS des Schutzes sparen
+  const protState = { castEnd: 0, src: '', warned: '', at: 0, tries: 0, ds: 0 };
+  const protCost = (o) => Number(o?.s?.skill?.dsCost ?? o?.def?.dsCost) || 0;
+  const protDeadlyCache = new Map();
+  function protDeadly(sid) {
+    if (KOH_BLOCK.has(sid) || KOH_SHARED.has(sid)) return true;
+    const sk = content()?.skills?.[sid];
+    return !!sk && sk.kind !== 'buff' && sk.kind !== 'heal' && (!!sk.share || Number(sk.hpDamagePct) >= 100);
+  }
+  function protSlot(st) {
+    for (const k of SKILL_KEYS) {
+      const s = skillOnKey(st, k); if (!s || isKoh(s.skill) || !skillOn(st, k)) continue; // Tasten-Schalter aus: nicht anfassen
+      const def = skillDef(s.skill);
+      if (def.protectionMs > 0 && def.target === 'self') return { k, s, def };
+    }
+    return null;
+  }
+  // Boss-Art mit tödlichem Treffer (Skills aus den Digimon- oder Spawn-Daten der Map)
+  function protDeadlySpecies(sp, mapId) {
+    const key = `${mapId}|${sp}`;
+    if (protDeadlyCache.has(key)) return protDeadlyCache.get(key);
+    const C = content(), ids = [];
+    for (const x of C?.digimon?.[sp]?.skills || []) ids.push(typeof x === 'string' ? x : x?.id);
+    for (const b of C?.spawns?.[mapId]?.bosses || []) if (b.species === sp) for (const x of b.skills || []) ids.push(typeof x === 'string' ? x : x?.id);
+    const v = ids.some((id) => id && protDeadly(id));
+    if (protDeadlyCache.size > 200) protDeadlyCache.clear();
+    protDeadlyCache.set(key, v);
+    return v;
+  }
+  // Nächster tödlicher Treffer, der mich treffen kann (geteilt: egal wie weit; sonst Boss in KOH_RANGE) und den kein Key of Hope deckt
+  function protUpcoming(st, now) {
+    hookBossEvents();
+    const ents = window.dmo?.net?.state?.entities, me = ents?.get?.(st?.me?.partner?.entityId) || controlled(st);
+    const mine = new Set([st?.me?.tamerEntityId, st?.me?.partner?.entityId].filter(Boolean));
+    let hit = null;
+    for (const [src, log] of bossSkillLog) for (const [sid, e] of log) {
+      if (e.phase !== 'cast' || !protDeadly(sid)) continue;
+      const left = e.castEnd - now; if (left < -50) continue; // schon eingeschlagen: verdeckt sonst den nächsten (Nachprüfung 3.2.15)
+      const b = ents?.get?.(src), sk = content()?.skills?.[sid], shared = !!sk?.share || KOH_SHARED.has(sid);
+      if (!shared && b && me && Math.hypot(b.x - me.x, b.y - me.y) > KOH_RANGE) continue;
+      // geteilt, Ziel bekannt und nicht ich: nur, wenn ich im Kreis um das Ziel stehe (hineingelaufen) – Linien/Flächen am Boss immer (Review 3.2.15)
+      if (shared && e.dst && !mine.has(e.dst)) { const d0 = ents?.get?.(e.dst); if (!d0 || !me || Math.hypot(d0.x - me.x, d0.y - me.y) > (Number(sk?.radius) || 64) + 24) continue; }
+      const claim = kohState.claims.get(src);
+      if (claim && e.castEnd <= claim.at + KOH_COVER_MS && kohClaimValid(claim, now)) continue; // ein Clavis hat gezündet
+      if (!hit || left < hit.left) hit = { src, sid, left, castEnd: e.castEnd };
+    }
+    return hit;
+  }
+  // Schutz zurückhalten: tödlicher Treffer angesagt, oder ein Boss mit so einem Treffer ist nah
+  function protHold(st, now) {
+    if (protUpcoming(st, now)) return true;
+    const ents = window.dmo?.net?.state?.entities, me = ents?.get?.(st?.me?.partner?.entityId) || controlled(st), mapId = st?.world?.mapId;
+    if (!ents || !me) return false;
+    let hold = false;
+    ents.forEach?.((e) => { if (!hold && e.kind === KIND.Mob && (e.flags & FLAG.Boss) && e.hp > 0 && Math.hypot(e.x - me.x, e.y - me.y) <= PROT_NEAR && protDeadlySpecies(e.defId, mapId)) hold = true; });
+    return hold;
+  }
+  // Schutz bald fällig (ms bis zum Zünden) – dann keine Skills mit Cast davor (der Tastendruck ginge sonst verloren)
+  const protCanFire = (st, o) => { const p = st?.me?.partner; return !!o && !!p && !p.fainted && !p.evolving && o.s.cdLeft <= 0 && o.s.skill.unlocked !== false && p.ds >= protCost(o); };
+  // DS, die für den Schutz zurückbleiben müssen (Boss mit tödlichem Treffer nah, Schutz bereit) – sonst verbrauchte die Rotation sie (Review 3.2.15)
+  // auch, wenn die DS gerade darunter liegen oder die Abklingzeit bald endet – sonst fräße die Rotation die Regeneration (Nachprüfung)
+  function protReserve(st, now) {
+    const o = protSlot(st), p = st?.me?.partner;
+    if (!o || !p || p.fainted || o.s.skill.unlocked === false || o.s.cdLeft > PROT_SAVE_MS || !protHold(st, now)) return 0;
+    return protCost(o);
+  }
+  function protSoon(st, now) {
+    const o = protSlot(st); if (!protCanFire(st, o)) return null;
+    const h = protUpcoming(st, now);
+    return h ? h.left : null;
+  }
+  function protStep(st, now) {
+    const p = st?.me?.partner;
+    if (!p || p.fainted || p.evolving) return null;
+    const o = protSlot(st); if (!o) return null;
+    const hit = protUpcoming(st, now);
+    if (!hit || hit.left > PROT_LEAD_MS || hit.left < -50) return null; // nach dem Einschlag nützt er nichts mehr
+    // schon gedrückt: bestätigt, sobald die Abklingzeit läuft; sonst nach PROT_CONFIRM_MS noch einmal (höchstens 3×)
+    if (protState.src === hit.src && Math.abs(protState.castEnd - hit.castEnd) < 1000) {
+      // bestätigt: Abklingzeit läuft oder die DS sind um die Kosten gesunken (die Abklingzeit kommt manchmal später an)
+      const paid = protCost(o) > 0 && (Number(p.ds) || 0) <= protState.ds - protCost(o) * 0.8;
+      if (o.s.cdLeft > 0 || paid || protState.tries >= 3 || now - protState.at < PROT_CONFIRM_MS) return null;
+    } else protState.tries = 0;
+    const name = content()?.skills?.[hit.sid]?.name || hit.sid, key = `${hit.src}|${Math.round(hit.castEnd / 1000)}`;
+    if (o.s.cdLeft > 0 || o.s.skill.unlocked === false || p.ds < protCost(o)) {
+      if (protState.warned !== key) { protState.warned = key; logEvent('warn', `${o.s.skill.name} nicht bereit gegen ${name} (${o.s.cdLeft > 0 ? `Abklingzeit ${Math.ceil(o.s.cdLeft / 1000)} s` : 'zu wenig DS'})`); }
+      return null;
+    }
+    if (!bot.can('Digit' + o.k, 300, now)) return null;
+    if (bot.hit('Digit' + o.k, now) === false) return null; // Taste zurückgehalten (Eingabesperre): nächster Takt versucht es wieder
+    bot.lastPress.skill = now;
+    if (protState.tries === 0) protState.ds = Number(p.ds) || 0;
+    protState.src = hit.src; protState.castEnd = hit.castEnd; protState.at = now; protState.tries++;
+    logEvent('warn', `${o.s.skill.name} gegen ${name}${protState.tries > 1 ? ` (${protState.tries}. Versuch)` : ''}`);
+    return `${o.s.skill.name} gegen ${name}`;
+  }
+  setInterval(() => {
+    if (!bot.on || !bossSkillLog.size) return;
+    digibotCore.run('Schutz-Skill', 100, () => { const st = getStore()?.getState?.(); if (st) protStep(st, Date.now()); });
+  }, 50);
   // Dungeon/Raid-Betrieb (auch für Mitläufer: Gruppen-Modus „Dungeon“ oder eine Raid-/Dungeon-Map)
   const dungeonLike = (st) => !!cfg.dungeon || (group.role() === 'follower' && !accounts.mirror && groupLeaderMode() === 'dungeon') || isRaidMap((st || getStore()?.getState?.())?.world?.mapId);
   const kohOn = () => !!cfg.koh || dungeonLike();

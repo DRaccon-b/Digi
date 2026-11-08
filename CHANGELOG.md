@@ -2,6 +2,21 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.15 – Clown Trick getimt: Piedmon allein gegen tödliche Treffer
+- **Eigene Unverwundbarkeit (Piedmon: Clown Trick, 2 s) zündet jetzt kurz vor dem Einschlag eines tödlichen Treffers**
+  (ca. 0,7 s vorher): Catastrophe Cannon (240 % Max-HP, geteilt – allein trifft er voll), Black-Rain-Hülle, Infermon-Ladeschuss
+  und alle Boss-Treffer mit „geteilt“ oder ≥ 100 % Max-HP. Vorher drückte der Bot Clown Trick als Tank-Buff, sobald er bereit
+  war – beim großen Treffer lief er dann meist schon ab.
+- Steht ein Boss mit so einem Treffer in der Nähe, wird Clown Trick nicht mehr frei verbraucht; kurz vor dem Zünden keine
+  Skills mit Cast (der Tastendruck ginge sonst verloren). Ist Clown Trick in der Abklingzeit, steht das im Protokoll.
+- Key of Hope einer Clavis-Gruppe geht vor (ist der Treffer schon geblockt, zündet Piedmon nicht).
+- Die 300 DS für Clown Trick bleiben übrig: solange ein Boss mit tödlichem Treffer nah ist, drückt der Bot keine anderen
+  Skills, die die DS darunter drücken würden (Heilen ausgenommen) – auch wenn die DS gerade darunter liegen oder die
+  Abklingzeit in höchstens 10 s endet, damit sie sich anspart. Kommt die Abklingzeit nach dem Druck nicht an (Taste
+  verloren), drückt er nach 0,35 s noch einmal (höchstens 3×); nach dem Einschlag nicht mehr. Ein Treffer auf einen weit
+  entfernten Mitspieler löst nichts aus. Ist der Skill am Tasten-Schalter aus, fasst der Bot ihn nicht an.
+- Tests: clowntest (neu, mit verlorenem Tastendruck und DS-Reserve über und unter den Kosten).
+
 ## 3.2.14 – Inventar voll: wahlweise bei Zudomon verschrotten
 - **Einstellungen → Food → „Inventar voll: verkaufen oder verschrotten“, neue Auswahl „Was tun“:** „Beim Händler verkaufen
   (Bits)“ wie bisher oder **„Bei Zudomon verschrotten (Digizoid)“**. Dann läuft der Bot zur Schmiede (Zudomon), öffnet sie
