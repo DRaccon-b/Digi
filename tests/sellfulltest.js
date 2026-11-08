@@ -4,6 +4,7 @@
 // B: Haken aus – kein Verkauf. C: Inventar nicht voll – kein Verkauf.
 // D: voll, aber nichts mit der gewählten Seltenheit – kein Weg zum Händler, Hinweis im Protokoll.
 // E: gebundenes Teil wird nicht verkauft. F (Review): Favorit und Teil eines Ausrüstungs-Sets bleiben.
+// H (3.2.14): Verschrotten bei Zudomon (Forge-NPC, Test: Elecmon) statt Verkaufen – nur Common-Teile, gibt Digizoid.
 // G (Review): Bot während des Verkaufslaufs gestoppt, Inventar wieder frei, neu gestartet – kein alter Lauf mehr.
 const fs = require('fs');
 const makeWorld = require('./gw');
@@ -13,18 +14,23 @@ const results = [];
 const check = (name, ok, info) => { results.push(!!ok); console.log((ok ? 'OK     ' : 'FEHLER ') + name, info ?? ''); };
 const ring = (uid, rarity, extra = {}) => ({ itemId: 'gear_ring', qty: 1, gear: { uid, rarity }, ...extra });
 
-async function run(tag, { inv, cfg = {}, ms = 30000, mid = null } = {}) {
+async function run(tag, { inv, cfg = {}, ms = 30000, mid = null, forge = false } = {}) {
   const G = makeWorld({ slot: 0, tag, noHash: true, accounts: { leader: 0, list: [{ user: 'solo' }] }, mobs: [],
     quests: { q00_meet_gennai: { state: 3, counters: [] }, q02_first_steps: { state: 3, counters: [] } },
     setup({ content }) {
       content.items.feast = { name: 'Feast', price: 1200, stack: 99, kind: 'consumable', sell: 300 };
       content.items.gear_ring = { name: 'Iron Ring', kind: 'gear', gear: { slot: 'ring' }, sell: 100 };
-      content.npcs.elecmon.shop = { items: [{ itemId: 'feast' }] };
+      if (forge) content.npcs.elecmon.forge = true; else content.npcs.elecmon.shop = { items: [{ itemId: 'feast' }] };
     } });
   const cmds = G.w.dmo.game.scene.getScene('world').deps.commands;
   const calls = [];
   cmds.talk = (npc) => { calls.push(`talk ${npc}`); G.store.setState({ dialog: { npc } }); };
-  cmds.chooseDialog = (id) => { calls.push(`choose ${id}`); if (id === 'shop') G.store.setState({ shop: { npc: 'elecmon' } }); };
+  cmds.chooseDialog = (id) => { calls.push(`choose ${id}`); if (id === 'shop' && !forge) G.store.setState({ shop: { npc: 'elecmon' } }); if (id === 'open' && forge) G.store.setState({ forge: { npc: 'elecmon', npcName: 'Elecmon' } }); };
+  cmds.command = (name, a) => { calls.push(`${name} ${a?.npc} ${a?.slot} ${a?.uid}`); if (name !== 'forgeSalvage') return;
+    const s = G.store.getState(), it = s.me.inventory[a.slot]; if (!it?.gear || it.gear.uid !== a.uid) return;
+    const inventory = s.me.inventory.slice(); inventory[a.slot] = null; const k = inventory.findIndex((x) => x?.itemId === 'blue_digizoid');
+    if (k >= 0) inventory[k] = { ...inventory[k], qty: inventory[k].qty + 1 }; else inventory[inventory.findIndex((x) => !x)] = { itemId: 'blue_digizoid', qty: 1 };
+    G.store.setState({ me: { ...s.me, inventory } }); };
   cmds.sell = (slot, qty) => { const s = G.store.getState(), it = s.me.inventory[slot]; calls.push(`sell ${slot} ${it?.gear?.uid || it?.itemId} ${qty}`);
     if (!it || it.bound) return;
     const inventory = s.me.inventory.slice(); inventory[slot] = null;
@@ -45,7 +51,7 @@ async function run(tag, { inv, cfg = {}, ms = 30000, mid = null } = {}) {
     if (mid && /Verkaufen: Reise/.test(G.status())) { const f = mid; mid = null; await f(G, calls); continue; }
     const map = G.store.getState().world.mapId;
     if (map === 'primary_village') left = true;
-    if (left && calls.includes('closeShop') && map === 'native_forest' && !/Verkauf/.test(G.status())) { back = true; break; }
+    if (left && (calls.includes('closeShop') || calls.some((c) => /^forgeSalvage/.test(c))) && map === 'native_forest' && !/Verkauf|Verschrott/.test(G.status())) { back = true; break; }
     await wait(200);
   }
   const s = G.store.getState(), p = G.ents.get('p:me') || {}, t = G.ents.get('t:me') || {};
@@ -83,6 +89,11 @@ async function run(tag, { inv, cfg = {}, ms = 30000, mid = null } = {}) {
     calls.push('restart'); btn.click(); await wait(300); } });
   const after = G2.calls.slice(G2.calls.indexOf('restart') + 1);
   check('G: nach Stopp/Start mit freiem Platz kein alter Verkaufslauf', G2.calls.includes('restart') && !after.length && !/Verkauf/.test(G2.sts.split(' | ').pop() || ''), G2.calls.join(',') + ' · ' + G2.sts.slice(-160));
+  const H = await run('H', { inv: full(), forge: true, cfg: { sellHow: 'salvage' } });
+  console.log('H', H.calls.join(','), H.inv);
+  check('H: Verschrotten – Zudomon (Forge) geöffnet, nur die Common-Teile, Digizoid erhalten, nichts verkauft', H.calls.includes('talk elecmon') && H.calls.includes('choose open')
+    && H.calls.includes('forgeSalvage elecmon 0 c1') && H.calls.includes('forgeSalvage elecmon 3 c2') && !H.calls.some((c) => /^sell|r1/.test(c)) && H.inv === 'blue_digizoid,feast,r1,-', H.calls.join(',') + ' · ' + H.inv);
+  check('H: zurück zum Startpunkt, Bot läuft weiter', H.back && H.home && H.running, H.sts);
   console.log(results.every(Boolean) ? 'OK – Verkaufen bei vollem Inventar' : 'FEHLER');
   process.exit(results.every(Boolean) ? 0 : 1);
 })();

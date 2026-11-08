@@ -2,6 +2,15 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.14 – Inventar voll: wahlweise bei Zudomon verschrotten
+- **Einstellungen → Food → „Inventar voll: verkaufen oder verschrotten“, neue Auswahl „Was tun“:** „Beim Händler verkaufen
+  (Bits)“ wie bisher oder **„Bei Zudomon verschrotten (Digizoid)“**. Dann läuft der Bot zur Schmiede (Zudomon), öffnet sie
+  und verschrottet alle Ausrüstungsteile der angehakten Seltenheiten – je nach Tier gibt es Blue (T1–5), Red (T6–8) oder
+  Gold Digizoid (T9–11), mehr für höhere Seltenheit und höheres Tier. Danach zurück zum Startpunkt und weiter.
+- Favoriten und Teile eines Ausrüstungs-Sets bleiben auch beim Verschrotten; gebundene Teile werden verschrottet (verkaufen
+  geht mit ihnen nicht).
+- Tests: sellfulltest (Fall H: Verschrotten).
+
 ## 3.2.13 – Raids Beelzebumon und Mother D-Reaper, Raid-Tür mit Fremden
 - **Dungeon-Reiter → Modus: neu „Beelzebumon-Raid (Lv 121)“ und „Mother-D-Reaper-Raid (Lv 130)“.** Der Bot reist zur
   Tür-Map (Deva Mountain bzw. D-Reaper Shinjuku), geht durchs Raid-Portal und hinein, nimmt Adds (IceDevimon, ADR-01 Jeri)

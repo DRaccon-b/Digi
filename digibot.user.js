@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.13
+// @version      3.2.14
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -192,7 +192,7 @@ function digibotConfig(saved, defaults) {
   out.farmChannels=[...new Set((out.farmChannels||[]).filter(x=>Number.isInteger(x)&&x>=1&&x<=100))];
   out.sellRar=[...new Set((out.sellRar||[]).filter(x=>Number.isInteger(x)&&x>=0&&x<DIGIBOT_GEAR_RAR.length))].sort((a,b)=>a-b);
   for(const k of ['cardSel','cardNamed'])if(Object.hasOwn(saved,k)){if(Array.isArray(saved[k]))out[k]=[...new Set(saved[k].filter(x=>typeof x==='string'&&x.length<200))].slice(0,300);else issues.push(k);}
-  const enums={farmMode:['boss','named','cards'],apOrder:['near','sweep'],apSweepDir:['up','down'],dgMode:['easy','hard','apocalymon','malomyotismon','beelzemon','d_reaper']};
+  const enums={farmMode:['boss','named','cards'],apOrder:['near','sweep'],apSweepDir:['up','down'],dgMode:['easy','hard','apocalymon','malomyotismon','beelzemon','d_reaper'],sellHow:['sell','salvage']};
   for(const [k,vals]of Object.entries(enums))if(!vals.includes(out[k])){out[k]=defaults[k];issues.push(k);}
   return {value:out,issues};
 }
@@ -1528,6 +1528,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     foodAutoMap: '',      // Einkaufs-Map: '' = Händler auf der aktuellen Map (sonst Dream Ruins), sonst feste Map-ID
     sellFull: false,      // Inventar voll: Ausrüstung der gewählten Seltenheiten beim nächsten Händler verkaufen, danach weiter (3.2.12)
     sellRar: [0, 1],      // … diese Seltenheiten (gear.rarity: 0 Common … 4 Legendary)
+    sellHow: 'sell',      // 'sell' = beim Händler verkaufen (Bits), 'salvage' = bei Zudomon verschrotten (Digizoid) (3.2.14)
     // Ausweichen (3.2.0, Reiter Einstellungen → Ausweichen) – Standardwerte = bisherige Konstanten
     dodgeMargin: 28,      // Sicherheitsabstand zu Kreisen/Strahlen (px)
     dodgeEdge: 8,         // Kantenreserve an der Angriffsposition (etwa Körperbreite, px)
@@ -1789,7 +1790,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.13'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.14'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2034,9 +2035,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           ${slider('foodAutoMin', 'Nachkaufen unter', 1, 99, (v) => `${v} Stück`)}
           <div class="digibot__apcfg"><label>Einkaufs-Map<select data-apsel="foodAutoMap"></select></label></div>
           <div class="digibot__hint">„aktuelle Map“: kaufen beim Food-Händler der Map, auf der der Bot gerade ist – gibt es dort keinen, in Dream Ruins (Händler Tentomon).</div>`, true)}
-        ${grp('sellfull', 'Verkaufen bei vollem Inventar', `
-          ${check('sellFull', 'Ausrüstung verkaufen, wenn das Inventar voll ist', 'Ist kein Platz im Inventar mehr frei, schiebt der Bot einen Verkauf ein: zum nächsten Händler (auf der aktuellen Map, sonst die nächste Map mit Händler), alle Ausrüstungsteile der angehakten Seltenheiten verkaufen, zurück zum Startpunkt – danach geht es in der Betriebsart weiter. Tränke, Food, Material, Karten und Quest-Gegenstände verkauft er nie, gebundene Teile auch nicht. Nicht im Kampf, nicht im Dungeon/Raid und nicht, solange ein Event oder Weltboss ansteht. Mitläufer verkaufen nur bei einem Händler auf ihrer Map.')}
-          <div class="digibot__hint" style="margin:4px 0 2px">Diese Seltenheiten verkaufen:</div>
+        ${grp('sellfull', 'Inventar voll: verkaufen oder verschrotten', `
+          ${check('sellFull', 'Ausrüstung loswerden, wenn das Inventar voll ist', 'Ist kein Platz im Inventar mehr frei, schiebt der Bot einen Gang ein: verkaufen beim nächsten Händler (auf der aktuellen Map, sonst die nächste Map mit Händler) oder verschrotten bei Zudomon (gibt Blue/Red/Gold Digizoid je nach Tier), jeweils alle Ausrüstungsteile der angehakten Seltenheiten, dann zurück zum Startpunkt – danach geht es in der Betriebsart weiter. Tränke, Food, Material, Karten und Quest-Gegenstände nie; gebundene Teile werden nicht verkauft, aber verschrottet. Nicht im Kampf, nicht im Dungeon/Raid und nicht, solange ein Event oder Weltboss ansteht. Mitläufer verkaufen nur bei einem Händler auf ihrer Map.')}
+          <div class="digibot__apcfg"><label>Was tun<select data-apsel="sellHow"><option value="sell">Beim Händler verkaufen (Bits)</option><option value="salvage">Bei Zudomon verschrotten (Digizoid)</option></select></label></div>
+          <div class="digibot__hint" style="margin:4px 0 2px">Diese Seltenheiten:</div>
           <div class="digibot__sellrar">${DIGIBOT_GEAR_RAR.map((n, i) => `<label class="digibot__skill digibot__chk"><input type="checkbox" data-sellrar="${i}" ${(cfg.sellRar || []).includes(i) ? 'checked' : ''}><span>${n}</span></label>`).join('')}</div>`, true)}
         </div>
         <div data-spage="dodge">
@@ -7918,23 +7920,28 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Seltenheiten verkaufen (shopSell je Platz), zurück zum Startpunkt, weiter wie vorher. Verkauft wird nur, was der Server
   // annimmt: keine Quest-Gegenstände, nichts Gebundenes/Unverkäufliches – und nur Ausrüstung (Tränke, Food, Material nie).
   // Favoriten und Teile eines Ausrüstungs-Sets (gear.fav/gear.tags, wie beim Zerlegen in der Schmiede) bleiben auch.
+  // 3.2.14: wahlweise verschrotten bei Zudomon (NPC mit forge): Dialog „open“ → Schmiede (st.forge), je Teil forgeSalvage
+  // {npc, slot, uid}; das Spiel legt das Digizoid auf einen Stapel bzw. in den frei gewordenen Platz. Gebundenes geht dort.
+  const salvageOn = () => (sell.run?.how || cfg.sellHow) === 'salvage';
+  const sellWord = () => (salvageOn() ? 'Verschrotten' : 'Verkaufen');
   const SELL_STEP_MS = 700, SELL_CONFIRM_MS = 3000, SELL_RETRY_MS = 10 * 60000, SELL_GIVEUP = 4, SELL_WALK_TRIES = 3;
-  const sell = { run: null, ban: 0, talkAt: 0, tries: 0, pend: null, sold: [], bits0: 0, fail: new Set(), done: false, home: null, homing: 0, walkStuck: 0,
-    reset() { this.talkAt = 0; this.tries = 0; this.pend = null; this.sold = []; this.bits0 = 0; this.fail = new Set(); this.done = false; this.home = null; this.homing = 0; this.walkStuck = 0; } };
+  const sell = { run: null, ban: 0, talkAt: 0, tries: 0, openTries: 0, pend: null, sold: [], bits0: 0, fail: new Set(), done: false, home: null, homing: 0, walkStuck: 0,
+    reset() { this.talkAt = 0; this.tries = 0; this.openTries = 0; this.pend = null; this.sold = []; this.bits0 = 0; this.fail = new Set(); this.done = false; this.home = null; this.homing = 0; this.walkStuck = 0; } };
   const invFull = (me) => Array.isArray(me?.inventory) && me.inventory.length > 0 && !me.inventory.some((x) => !x?.itemId);
   const sellKey = (it, slot) => it?.gear?.uid || `${slot}:${it?.itemId}`;
   function sellItems(me) {
     const C = content(), rar = new Set(cfg.sellRar || []);
     return (me?.inventory || []).map((it, slot) => ({ it, slot })).filter(({ it, slot }) => {
       const d = it?.gear ? C?.items?.[it.itemId] : null;
-      return !!d && rar.has(Number(it.gear.rarity) || 0) && !it.bound && !it.gear.fav && !(it.gear.tags?.length) && !d.noDiscard && d.kind !== 'quest' && !(d.sell <= 0) && !sell.fail.has(sellKey(it, slot));
+      if (!d || !rar.has(Number(it.gear.rarity) || 0) || it.gear.fav || it.gear.tags?.length || d.kind === 'quest' || sell.fail.has(sellKey(it, slot))) return false;
+      return salvageOn() ? !!d.gear : !it.bound && !d.noDiscard && !(d.sell <= 0);
     });
   }
-  const sellNpc = (mapId) => (world.maps[mapId]?.npcs || []).find((x) => content()?.npcs?.[x.npcId]?.shop)?.npcId || null;
+  const sellNpc = (mapId) => (world.maps[mapId]?.npcs || []).find((x) => (salvageOn() ? content()?.npcs?.[x.npcId]?.forge : content()?.npcs?.[x.npcId]?.shop))?.npcId || null;
   function sellTarget(st) {
     const cur = st?.world?.mapId, here = cur && sellNpc(cur);
     if (here) return { mapId: cur, npcId: here };
-    if (group.role() === 'follower') return null; // Mitläufer verlassen die Gruppe nicht für einen Händler
+    if (group.role() === 'follower') return null; // Mitläufer verlassen die Gruppe nicht für einen Händler/Zudomon
     let best = null;
     for (const m of Object.keys(world.maps)) {
       const n = sellNpc(m); if (!n || !mapOpen(st, m)) continue;
@@ -7945,75 +7952,83 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const rarNames = () => (cfg.sellRar || []).map((x) => DIGIBOT_GEAR_RAR[x]).join(', ') || 'keine';
   function sellAutoStep(st, now) {
     if (!cfg.sellFull || cfg.foodBuy) { sell.run = null; return null; }
-    if (sell.run && inCombat(st) && !st.shop && !st.dialog) return null; // angegriffen: erst abwehren, danach weiter
+    if (sell.run && inCombat(st) && !st.shop && !st.forge && !st.dialog) return null; // angegriffen: erst abwehren, danach weiter
     if (!sell.run) {
       if (sell.ban > now || world.state !== 'ready' || inCombat(st) || dungeonLike(st) || bot.resting) return null;
       if ((cfg.hunt && hunt.goal) || (cfg.wboss && wb.goal) || autopilot.mapTalk || food.auto) return null;
       if (!invFull(st.me)) return null;
       sell.fail = new Set();
       const items = sellItems(st.me);
-      if (!items.length) { sell.ban = now + SELL_RETRY_MS; logEvent('warn', `Inventar voll – keine Ausrüstung mit den gewählten Seltenheiten (${rarNames()}) zum Verkaufen`); return null; }
+      const salv = salvageOn(), who = salv ? 'Zudomon' : 'Händler';
+      if (!items.length) { sell.ban = now + SELL_RETRY_MS; logEvent('warn', `Inventar voll – keine Ausrüstung mit den gewählten Seltenheiten (${rarNames()}) zum ${salv ? 'Verschrotten' : 'Verkaufen'}`); return null; }
       const tgt = sellTarget(st);
-      if (!tgt) { sell.ban = now + SELL_RETRY_MS; logEvent('warn', `Inventar voll – ${group.role() === 'follower' ? 'kein Händler auf dieser Map (Mitläufer)' : 'kein erreichbarer Händler'}`); return null; }
-      sell.reset(); sell.run = { ...tgt, at: now }; sell.bits0 = Number(st.me?.bits) || 0;
-      logEvent('bot', `Inventar voll: verkaufe ${items.length} Ausrüstung (${rarNames()}) bei ${content()?.npcs?.[tgt.npcId]?.name || tgt.npcId} in ${content()?.maps?.[tgt.mapId]?.name || tgt.mapId}`);
+      if (!tgt) { sell.ban = now + SELL_RETRY_MS; logEvent('warn', `Inventar voll – ${group.role() === 'follower' ? `kein ${who} auf dieser Map (Mitläufer)` : `kein erreichbarer ${who}`}`); return null; }
+      sell.reset(); sell.run = { ...tgt, at: now, how: salv ? 'salvage' : 'sell' }; sell.bits0 = Number(st.me?.bits) || 0;
+      logEvent('bot', `Inventar voll: ${salv ? 'verschrotte' : 'verkaufe'} ${items.length} Ausrüstung (${rarNames()}) bei ${content()?.npcs?.[tgt.npcId]?.name || tgt.npcId} in ${content()?.maps?.[tgt.mapId]?.name || tgt.mapId}`);
     }
     const r = sellStep(st, now, sell.run.mapId, sell.run.npcId);
     if (r !== true) return r;
+    const word = sellWord();
     sell.run = null; autopilot.nav = null; autopilot.route = null;
     const st2 = getStore()?.getState?.() || st;
-    if (invFull(st2.me)) { sell.ban = now + SELL_RETRY_MS; logEvent('warn', `Verkaufen: Inventar noch voll – nächster Versuch in ${SELL_RETRY_MS / 60000} min`); }
-    else logEvent('bot', 'Verkaufen fertig – weiter wie vorher');
+    if (invFull(st2.me)) { sell.ban = now + SELL_RETRY_MS; logEvent('warn', `${word}: Inventar noch voll – nächster Versuch in ${SELL_RETRY_MS / 60000} min`); }
+    else logEvent('bot', `${word} fertig – weiter wie vorher`);
     return null;
   }
   function sellStep(st, now, mapId, npcId) {
     if (sell.done) return true;
     if (!sell.home) { const me0 = controlled(st); if (st.world?.mapId && me0) sell.home = { mapId: st.world.mapId, x: me0.x, y: me0.y }; }
-    if (sell.homing) return foodReturn(st, now, sell, 'Verkaufen');
+    const salv = salvageOn(), word = sellWord(), open = salv ? st.forge?.npc === npcId : !!st.shop;
+    if (sell.homing) return foodReturn(st, now, sell, word);
     if (world.state !== 'ready') { loadWorld(); return 'Lade Kartendaten…'; }
     const mapName = content()?.maps?.[mapId]?.name || mapId, npcName = content()?.npcs?.[npcId]?.name || npcId;
     const tr = travel(st, mapId, now);
-    if (tr === 'Keine Route' || tr === 'Portal nicht erreichbar') { logEvent('warn', `Verkaufen: kein Weg nach ${mapName} (${tr}) – abgebrochen`); sell.done = true; autopilot.nav = null; return true; }
+    if (tr === 'Keine Route' || tr === 'Portal nicht erreichbar') { logEvent('warn', `${word}: kein Weg nach ${mapName} (${tr}) – abgebrochen`); sell.done = true; autopilot.nav = null; return true; }
     if (tr !== true) return `Reise nach ${mapName} · ${tr}`;
     const npc = world.maps[mapId]?.npcs.find((n) => n.npcId === npcId), me = controlled(st);
     if (!npc || !me) { sell.done = true; return true; }
     const d = Math.hypot(me.x - npc.x, me.y - npc.y);
-    if (d > 48 && !st.dialog && !st.shop) {
+    if (d > 48 && !st.dialog && !open) {
       if (walkTo(st, npc.x, npc.y + 24, now) === 'stuck') {
         autopilot.nav = null;
-        if (++sell.walkStuck >= SELL_WALK_TRIES) { logEvent('warn', 'Verkaufen: Weg zum Händler blockiert – abgebrochen'); sell.done = true; return true; }
-        return 'Weg zum Händler blockiert – plane neu';
+        if (++sell.walkStuck >= SELL_WALK_TRIES) { logEvent('warn', `${word}: Weg zu ${npcName} blockiert – abgebrochen`); sell.done = true; return true; }
+        return `Weg zu ${npcName} blockiert – plane neu`;
       }
       return `Gehe zu ${npcName} (${Math.round(d)} px)`;
     }
-    if (st.shop) { // Shop offen: verkaufen, je Platz erst, wenn der vorige Verkauf verbucht ist (Platz leer oder anderes Teil)
+    if (open) { // Shop/Schmiede offen: je Platz erst, wenn der vorige Verkauf verbucht ist (Platz leer oder anderes Teil)
       if (sell.pend) {
         const p = sell.pend, cur = st.me?.inventory?.[p.slot];
         if (!cur || sellKey(cur, p.slot) !== p.key) { sell.sold.push(p.name); sell.pend = null; }
         else if (now - p.at < SELL_CONFIRM_MS) return 'Verkauf wird verbucht…';
-        else { sell.pend = null; sell.fail.add(p.key); logEvent('warn', `Verkaufen: ${p.name} nimmt der Händler nicht – übersprungen`); }
+        else { sell.pend = null; sell.fail.add(p.key); logEvent('warn', `${word}: ${p.name} nimmt ${npcName} nicht – übersprungen`); }
       }
       const next = sellItems(st.me)[0];
       if (next) {
-        if (now - sell.talkAt < SELL_STEP_MS) return 'Verkaufe…';
+        if (now - sell.talkAt < SELL_STEP_MS) return salv ? 'Verschrotte…' : 'Verkaufe…';
         const name = `${content()?.items?.[next.it.itemId]?.name || next.it.itemId} (${DIGIBOT_GEAR_RAR[Number(next.it.gear.rarity) || 0] || '?'})`;
-        sell.talkAt = now; commands()?.sell?.(next.slot, next.it.qty || 1);
+        sell.talkAt = now;
+        if (salv) commands()?.command?.('forgeSalvage', { npc: npcId, slot: next.slot, uid: next.it.gear.uid });
+        else commands()?.sell?.(next.slot, next.it.qty || 1);
         sell.pend = { slot: next.slot, key: sellKey(next.it, next.slot), at: now, name };
-        return `Verkaufe ${name}`;
+        return `${salv ? 'Verschrotte' : 'Verkaufe'} ${name}`;
       }
-      if (now - sell.talkAt < SELL_STEP_MS) return 'Verkauf wird verbucht…';
-      commands()?.closeShop?.(); commands()?.closeDialog?.();
+      if (now - sell.talkAt < SELL_STEP_MS) return salv ? 'Verschrotten wird verbucht…' : 'Verkauf wird verbucht…';
+      if (salv) { try { getStore()?.getState?.()?.set?.({ forge: null }); } catch { /* Schmiede-Fenster bleibt offen */ } } else commands()?.closeShop?.();
+      commands()?.closeDialog?.();
       const gain = (Number(st.me?.bits) || 0) - sell.bits0;
-      logEvent('bot', `Verkauft: ${sell.sold.length} Teil${sell.sold.length === 1 ? '' : 'e'}${gain > 0 ? ` für ${fmt(gain)} Bits` : ''}`);
-      return foodReturn(st, now, sell, 'Verkaufen');
+      logEvent('bot', `${salv ? 'Verschrottet' : 'Verkauft'}: ${sell.sold.length} Teil${sell.sold.length === 1 ? '' : 'e'}${!salv && gain > 0 ? ` für ${fmt(gain)} Bits` : ''}`);
+      return foodReturn(st, now, sell, word);
     }
     if (st.dialog?.npc === npcId) {
-      if (now - sell.talkAt < FOOD_STEP_MS) return 'Warte auf das Sortiment…';
-      sell.talkAt = now; commands()?.chooseDialog?.('shop'); return 'Öffne den Laden…';
+      if (now - sell.talkAt < FOOD_STEP_MS) return salv ? 'Warte auf die Schmiede…' : 'Warte auf das Sortiment…';
+      // öffnet sich Laden/Schmiede nicht (Spiel lehnt ab), nicht endlos weiter wählen (Review 3.2.14)
+      if (++sell.openTries > SELL_GIVEUP) { logEvent('warn', `${word}: ${npcName} öffnet ${salv ? 'die Schmiede' : 'den Laden'} nicht – abgebrochen`); commands()?.closeDialog?.(); sell.done = true; return true; }
+      sell.talkAt = now; commands()?.chooseDialog?.(salv ? 'open' : 'shop'); return salv ? 'Öffne die Schmiede…' : 'Öffne den Laden…';
     }
     if (st.dialog) { commands()?.closeDialog?.(); return 'Schließe fremden Dialog…'; }
-    if (now - sell.talkAt < FOOD_STEP_MS * 2) return 'Spreche den Händler an…';
-    if (++sell.tries > SELL_GIVEUP) { logEvent('warn', 'Verkaufen: Händler antwortet nicht – abgebrochen'); sell.done = true; return true; }
+    if (now - sell.talkAt < FOOD_STEP_MS * 2) return `Spreche ${npcName} an…`;
+    if (++sell.tries > SELL_GIVEUP) { logEvent('warn', `${word}: ${npcName} antwortet nicht – abgebrochen`); sell.done = true; return true; }
     sell.talkAt = now; commands()?.talk?.(npcId); return `Spreche ${npcName} an…`;
   }
 
@@ -10854,7 +10869,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       // Food kaufen (3.1.8): reisen, kaufen, stoppen – kein Kampf
       if (cfg.foodBuy) { if (group.role() === 'leader') group.noFight = false; /* altes „nicht kämpfen“ nicht weitersenden (3.1.30) */ const fsx = foodStep(st, now); this.status = fsx === true ? 'Food fertig – Bot gestoppt' : `Food: ${fsx}`; if (fsx === true) bot.toggle(true); return; }
       const sax = sellAutoStep(st, now); // Inventar voll: Ausrüstung verkaufen (3.2.12) – Verkauf einschieben, danach weiter; vor dem Food-Nachkauf (der bräuchte freie Plätze)
-      if (sax) { if (group.role() === 'leader') group.noFight = true; this.status = `Verkaufen: ${sax}`; this.attackedId = null; return; }
+      if (sax) { if (group.role() === 'leader') group.noFight = true; this.status = `${sellWord()}: ${sax}`; this.attackedId = null; return; }
       const fax = foodAutoStep(st, now); // Food automatisch nachkaufen (3.2.0) – Einkaufslauf einschieben, danach weiter
       if (fax) { if (group.role() === 'leader') group.noFight = true; this.status = `Food nachkaufen: ${fax}`; this.attackedId = null; return; }
       // Heilen vor Klinge/Seitenregel und vor dem Gruppen-/Autopilot-Zweig: beide kehren mit Status zurück (Umstellen, Klinge
@@ -11582,7 +11597,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const MODE_NAMES = { grind: 'Grinden', auto: 'Autopilot', farm: 'Bosse', dungeon: 'Dungeon', events: 'Nur Event/Weltboss', food: 'Food kaufen' };
   function syncModeScope() {
     const m = modeOf();
-    for (const k of ['dgMode', 'foodHp', 'foodDs', 'foodTamer']) { // feste Selects: angezeigten Wert an cfg angleichen (Neuladen, andere Fenster)
+    for (const k of ['dgMode', 'foodHp', 'foodDs', 'foodTamer', 'sellHow']) { // feste Selects: angezeigten Wert an cfg angleichen (Neuladen, andere Fenster)
       const el = panelQ(`[data-apsel="${k}"]`), v = cfg[k] ?? '';
       if (el && panel.ownerDocument.activeElement !== el && el.value !== v) el.value = v;
     }
@@ -12291,6 +12306,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         cfg[key] = e.target.value;
         if (key === 'apStartMap' || key === 'apOrder' || key === 'apSweepDir') cfg.apSweepMap = ''; // Runde neu beginnen
         if (/^(farm|route)/.test(key)) farm.reset();
+        if (key === 'sellHow') sell.ban = 0; // neuer Weg (Verkaufen/Verschrotten): gleich wieder prüfen (3.2.14)
         saveCfg(); autopilot.reset(); e.target.blur(); questSig = ''; schedule();
         logEvent('auto', `Einstellung: ${e.target.closest('label')?.firstChild?.textContent?.trim() || key} = ${e.target.selectedOptions[0]?.textContent || '–'}`);
         return;
