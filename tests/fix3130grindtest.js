@@ -98,7 +98,7 @@ async function portalBlocked() {
 
 // D) Feldboss mit Add (Add immer aktiv): nach dem Anwählen des Adds den Boss nicht wieder anwählen
 async function bossAdds() {
-  const G = world({ mobs: [], boss: 'alive', adds: true });
+  const G = world({ mobs: [], boss: 'alive', adds: true, cfg: { addFirst: { 'native_forest#bossmon': true } } }); // 3.2.16: Adds zuerst per Einstellung
   const scene = G.w.dmo.game.scene.getScene('world'), sel0 = scene.select, sels = [];
   scene.select = (id) => { sels.push(id); return sel0(id); };
   await G.start();

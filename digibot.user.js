@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.15
+// @version      3.2.16
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -187,7 +187,7 @@ function digibotConfig(saved, defaults) {
   out.skills={...defaults.skills,...skills(out.skills)};out.heal=heals(out.heal);
   out.skillSets=Object.fromEntries(Object.entries(out.skillSets||{}).filter(([,v])=>digibotRecord(v)).map(([k,v])=>[k,{skills:{...defaults.skills,...skills(v.skills)},heal:heals(v.heal),
     role:roles(v.role),aoeN:nums(v.aoeN,2,5),grpHeal:nums(v.grpHeal,30,85),...(Number.isInteger(v.rolesV)?{rolesV:v.rolesV}:{})}]));
-  for(const k of ['open','questOff','wbOff'])out[k]=boolMap(out[k]);
+  for(const k of ['open','questOff','wbOff','addFirst'])out[k]=boolMap(out[k]);
   out.mobs=Object.fromEntries(Object.entries(out.mobs||{}).filter(([,v])=>digibotRecord(v)).map(([k,v])=>[k,boolMap(v)]));
   out.farmChannels=[...new Set((out.farmChannels||[]).filter(x=>Number.isInteger(x)&&x>=1&&x<=100))];
   out.sellRar=[...new Set((out.sellRar||[]).filter(x=>Number.isInteger(x)&&x>=0&&x<DIGIBOT_GEAR_RAR.length))].sort((a,b)=>a-b);
@@ -1401,6 +1401,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     .digibot__seg.three{grid-template-columns:repeat(3,1fr)}
     .digibot__seg.five{grid-template-columns:repeat(5,1fr)}
     .digibot__seg.six{grid-template-columns:repeat(3,1fr)}
+    .digibot__seg.six.digibot__stabs{grid-template-columns:repeat(4,1fr)} /* 7 Unterreiter (3.2.16) */
     .digibot__stabs button{display:flex;flex-direction:column;align-items:center;gap:1px;font-size:10px;padding:3px 1px;line-height:1.1}
     .digibot__stabs button i{font-style:normal;font-size:12px}
     .digibot__tabs button small{font-size:9px;letter-spacing:-.2px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -1432,7 +1433,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   };
   const STYLE_NAMES = { bg: 'Hintergrund', panel: 'Flächen', btn: 'Knöpfe', border: 'Rahmen', border2: 'Rahmen hell', text: 'Schrift', muted: 'Schrift blass', accent: 'Akzent', ok: 'Gut / an', warn: 'Hinweis', danger: 'Gefahr' };
   // Unterreiter unter „Einstellungen“ (3.2.0) – vor dem Panel-HTML, das sie aufzählt
-  const SUB_TABS = [['food', '🍱', 'Food'], ['dodge', '🏃', 'Ausweichen'], ['alerts', '🔔', 'Warnung'], ['times', '⏱', 'Zeiten'], ['events', '🌍', 'Events'], ['style', '🎨', 'Style']];
+  const SUB_TABS = [['food', '🍱', 'Food'], ['adds', '👾', 'Adds'], ['dodge', '🏃', 'Ausweichen'], ['alerts', '🔔', 'Warnung'], ['times', '⏱', 'Zeiten'], ['events', '🌍', 'Events'], ['style', '🎨', 'Style']];
   function applyStyle() {
     if (!panel) return;
     for (const [k, v] of Object.entries(cfg.style || {})) panel.style.setProperty(`--db-${k}`, v);
@@ -1528,6 +1529,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     foodAutoMap: '',      // Einkaufs-Map: '' = Händler auf der aktuellen Map (sonst Dream Ruins), sonst feste Map-ID
     sellFull: false,      // Inventar voll: Ausrüstung der gewählten Seltenheiten beim nächsten Händler verkaufen, danach weiter (3.2.12)
     sellRar: [0, 1],      // … diese Seltenheiten (gear.rarity: 0 Common … 4 Legendary)
+    addFirst: {},         // Einstellungen → Adds (3.2.16): "map#art" -> true/false = Adds zuerst; ohne Eintrag nach den Spieldaten
     sellHow: 'sell',      // 'sell' = beim Händler verkaufen (Bits), 'salvage' = bei Zudomon verschrotten (Digizoid) (3.2.14)
     // Ausweichen (3.2.0, Reiter Einstellungen → Ausweichen) – Standardwerte = bisherige Konstanten
     dodgeMargin: 28,      // Sicherheitsabstand zu Kreisen/Strahlen (px)
@@ -1790,7 +1792,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.15'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.16'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2091,6 +2093,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
             <label>Warteplatz<select data-apsel="eventsIdleMap"></select></label>
           </div>`, true,
           'Haken = diesen Weltboss ansteuern, wenn 🌍 Weltboss an ist (ohne Haken: auslassen). Warteplatz: wohin der Bot geht, solange kein Event und kein Weltboss fällig ist – im Modus „Nur Event/WB“ und wenn der Autopilot mit allen Quests fertig ist und auf Events wartet. Zum Beispiel The Network: dort wird kein Tamer-DS abgezogen. „stehen bleiben“ = dort warten, wo er gerade ist. Ist ein Event/Weltboss fällig, reist er von dort hin und kehrt danach zurück.')}
+        </div>
+        <div data-spage="adds">
+        ${grp('addcfg', 'Adds zuerst angreifen', `<div class="digibot__sub" data-f="addpick"><div class="digibot__none">warte auf Spieldaten…</div></div>`, true,
+          'Je Boss, der Adds ruft: Haken = erst die Adds, dann der Boss; ohne Haken = der Boss zuerst (Adds nur, wenn nichts anderes geht). Vorbelegt nach den Spieldaten: an, wenn die Adds den Boss schützen, heilen oder stärken. Gilt in jeder Betriebsart außer Dungeon/Raid.')}
         </div>
         <div data-spage="style">
         ${grp('stylecfg', 'Farben', `
@@ -7812,10 +7818,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function bossAddsStrengthen(mapId, bossSpecies) {
     for (const b of content()?.spawns?.[mapId]?.bosses || []) {
       if (![b, ...(b.forms || [])].some((fm) => fm.species === bossSpecies)) continue;
-      if ([b.adds, ...(b.moreAdds || [])].some((a) => a && (Number(a.empowerPct) > 0 || Number(a.feedPctPerSec) > 0))) return true;
+      if ([b.adds, ...(b.moreAdds || [])].some((a) => a && (Number(a.empowerPct) > 0 || Number(a.feedPctPerSec) > 0 || a.shieldsBoss || Number(a.empower?.pct) > 0))) return true; // schützen (3.2.16)
     }
     return false;
   }
+  // Einstellungen → Adds (3.2.16): Adds zuerst? Eigene Wahl je Boss, sonst nach den Spieldaten (schützen/heilen/stärken)
+  const addFirstOn = (mapId, sp) => { const v = cfg.addFirst?.[`${mapId}#${sp}`]; return typeof v === 'boolean' ? v : bossAddsStrengthen(mapId, sp); };
   const addSince = new Map(); // Boss-Entity -> wann er zuerst unter seiner Add-Schwelle gesehen wurde
   const ADD_RANGE = 500, ADD_BOSS_NEAR = 640, ADD_RAID_RADIUS = 300;
   const GK_GUARD_NEAR = 400; // Hinukamuy so nah an Gankoomon gelten als seine Schutz-Adds (sie erscheinen ~60 px neben ihm, laufen aber auf Angreifer zu)
@@ -7846,12 +7854,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     if (cfg.dungeon) return null; // Dungeon: Reihenfolge macht dungeonFocus
     if (groupLeader()?.farm) return null; // Leader in der Boss-Rotation: Mitläufer greifen nur sein Ziel an
-    const boss = sc.mobs.filter((m) => m.cat === 'boss').sort((a, b) => a.d - b.d)[0];
+    // Named-Bosse (Pinochimon u. a.) tragen nur das Elite-Flag – sie zählen, wenn ihre Art auf dieser Map Adds ruft (3.2.16)
+    const boss = sc.mobs.filter((m) => m.cat === 'boss' || (m.cat === 'elite' && addSpecies(sc.mapId, m.species).size)).sort((a, b) => a.d - b.d)[0];
     if (!boss || boss.d > ADD_BOSS_NEAR) return null;
-    // Boss-Rotation: nur Adds, die den Boss stärken oder heilen (Tamers-Bosse: empowerPct, feedPctPerSec) – sonst wie bisher
-    // der Boss (3.2.4)
-    if (cfg.farm && !bossAddsStrengthen(sc.mapId, boss.species)) return null;
-    const set = addSpecies(sc.mapId, boss.species), raid = isRaidMap(sc.mapId);
+    const raid = isRaidMap(sc.mapId);
+    // Adds zuerst nur, wenn so eingestellt (Einstellungen → Adds; Standard: Adds schützen/heilen/stärken den Boss) – in jeder
+    // Betriebsart gleich (vorher außerhalb der Rotation immer, in der Rotation nur stärkende) (3.2.16); Raids wie bisher
+    if (!raid && !addFirstOn(sc.mapId, boss.species)) return null;
+    const set = addSpecies(sc.mapId, boss.species);
     // Feld-Adds erst, wenn der Boss die HP-Schwelle erreicht hat, und nur nahe am Boss (sie erscheinen an seinem Punkt) –
     // live: Arukenimon ruft Golemon erst ab 50 %, aber jeder normale Golemon in Tower Forest galt als Add
     // Feld-Adds zusätzlich: erst NACH dem Unterschreiten der Schwelle erschienen (die normalen Monster derselben Art standen
@@ -7872,7 +7882,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (e.levels.size && !e.levels.has(m.level)) return false;
       return Math.hypot(m.x - boss.x, m.y - boss.y) <= ADD_RAID_RADIUS || e.points.some((p) => Math.hypot(m.x - p.x, m.y - p.y) <= 150);
     };
-    return sc.mobs.find((m) => m.cat !== 'boss' && !m.banned && m.d <= ADD_RANGE
+    return sc.mobs.find((m) => m.cat !== 'boss' && m.id !== boss.id && !m.banned && m.d <= ADD_RANGE
       && (fieldAdd(m) || (raid && Math.hypot(m.x - boss.x, m.y - boss.y) <= ADD_RAID_RADIUS))) || null;
   }
   // Abgabe/Gespräch unterwegs (Autopilot) – dann auch keine Adds jagen
@@ -11650,10 +11660,29 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         .sort((a, b) => a.name.localeCompare(b.name)).map((m) => [m.id, `${m.name} · ${content()?.npcs?.[foodShopNpc(m.id)]?.name || foodShopNpc(m.id)}`])]
       : [['', 'aktuelle Map (sonst Dream Ruins)']]);
     renderWbPick(st);
+    renderAddPick();
     fillSelect('eventsIdleMap', world.state === 'ready'
       ? [['', 'stehen bleiben'], ...Object.values(content()?.maps || {}).filter((m) => world.maps[m.id] && !isRaidMap(m.id) && !/^sandbox/.test(m.id) && mapWalkable(st, m.id))
         .sort((a, b) => a.name.localeCompare(b.name)).map((m) => [m.id, `${m.name}${hops(st?.world?.mapId, m.id) === Infinity ? ' – nicht erreichbar' : ''}`])]
       : [['', 'Weltkarte lädt…']]);
+  }
+  // Einstellungen → Adds (3.2.16): je Boss mit Adds (Spieldaten, ohne Raids) ein Haken „Adds zuerst“
+  let addPickSig = '';
+  function renderAddPick() {
+    const el = panelQ('[data-f="addpick"]'); if (!el || !content()?.spawns) return; // Spieldaten noch nicht da: Platzhalter stehen lassen
+    const C = content(), esc = (x) => String(x ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const seen = new Set(), rows = [];
+    for (const b of farmBossList()) {
+      if (seen.has(b.id) || !addSpecies(b.map, b.species).size) continue;
+      seen.add(b.id);
+      const sb = (C?.spawns?.[b.map]?.bosses || []).find((x) => x.species === b.species) || {};
+      const adds = [sb.adds, ...(sb.moreAdds || [])].filter((a) => a?.species);
+      const what = adds.map((a) => `${speciesName(a.species)}${a.shieldsBoss ? ' schützen' : ''}${Number(a.feedPctPerSec) > 0 ? ' heilen' : ''}${Number(a.empowerPct) > 0 || Number(a.empower?.pct) > 0 ? ' stärken' : ''}`).join(', ');
+      rows.push({ name: b.name, map: b.mapName, html: `<label class="digibot__skill digibot__chk" title="${esc(what)}"><input type="checkbox" data-addfirst="${esc(b.id)}"${addFirstOn(b.map, b.species) ? ' checked' : ''}> ${esc(b.name)} · Lv ${b.level} · ${esc(b.mapName)} – ${esc(what)}</label>` });
+    }
+    rows.sort((a, b) => a.name.localeCompare(b.name) || a.map.localeCompare(b.map));
+    const html = rows.length ? rows.map((r) => r.html).join('') : '<div class="digibot__none">Keine Bosse mit Adds in den Spieldaten.</div>';
+    if (html !== addPickSig) { addPickSig = html; el.innerHTML = html; }
   }
   // Einstellungen → Events (3.2.3): je Weltboss der Spieldaten ein Haken (an = ansteuern)
   let wbPickSig = '';
@@ -12424,6 +12453,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         if (key === 'sellHow') sell.ban = 0; // neuer Weg (Verkaufen/Verschrotten): gleich wieder prüfen (3.2.14)
         saveCfg(); autopilot.reset(); e.target.blur(); questSig = ''; schedule();
         logEvent('auto', `Einstellung: ${e.target.closest('label')?.firstChild?.textContent?.trim() || key} = ${e.target.selectedOptions[0]?.textContent || '–'}`);
+        return;
+      }
+      const af = e.target.dataset.addfirst; // Einstellungen → Adds: Adds zuerst je Boss (3.2.16)
+      if (af) {
+        cfg.addFirst = { ...(cfg.addFirst || {}), [af]: e.target.checked }; saveCfg(); e.target.blur(); addPickSig = ''; schedule();
+        logEvent('auto', `Adds bei ${speciesName(af.split('#')[1])}: ${e.target.checked ? 'zuerst' : 'Boss zuerst'}`);
         return;
       }
       const wbSp = e.target.dataset.wbon; // Einstellungen → Events: Weltboss an/aus (3.2.3)

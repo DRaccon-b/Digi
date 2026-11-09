@@ -2,6 +2,15 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.16 – Einstellungen → Adds: je Boss wählen, ob die Adds zuerst kommen
+- **Neuer Reiter Einstellungen → 👾 Adds:** jeder Boss aus den Spieldaten, der Adds ruft (ohne Raids), mit Haken „Adds
+  zuerst“. Haken = erst die Adds, dann der Boss; ohne Haken = der Boss zuerst. Daneben steht, was die Adds tun (schützen,
+  heilen, stärken). Vorbelegt nach den Spieldaten: an, wenn die Adds den Boss schützen, heilen oder stärken, sonst aus.
+  Gilt in jeder Betriebsart gleich (vorher: außerhalb der Boss-Rotation immer Adds zuerst, in der Rotation nur stärkende).
+- **Pinochimon:** Named-Bosse tragen im Spiel nur das Elite-Kennzeichen – die Add-Regel fand ihn darum nicht und der Bot
+  schlug weiter auf den Boss, obwohl seine Pumpkinmon ihn schützen. Jetzt zählt jeder Named, dessen Art auf der Map Adds ruft.
+- Tests: addsettest (neu); addtest, addhptest, fix3130grindtest setzen „Adds zuerst“ jetzt per Einstellung.
+
 ## 3.2.15 – Clown Trick getimt: Piedmon allein gegen tödliche Treffer
 - **Eigene Unverwundbarkeit (Piedmon: Clown Trick, 2 s) zündet jetzt kurz vor dem Einschlag eines tödlichen Treffers**
   (ca. 0,7 s vorher): Catastrophe Cannon (240 % Max-HP, geteilt – allein trifft er voll), Black-Rain-Hülle, Infermon-Ladeschuss

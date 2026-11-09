@@ -29,7 +29,7 @@ const saved = (G) => JSON.parse(G.w.localStorage.getItem('digibot.cfg') || '{}')
     check('A: Skills im Reiter Attacke', !!d.querySelector('[data-page="attack"] [data-rolecfg="2"]') && !d.querySelector('[data-page="mon"] [data-rolecfg]'));
     check('A: Digitation je Map im Reiter Digimon', !!d.querySelector('[data-page="mon"] [data-apsel="levelEvoForm"]') && !d.querySelector('[data-apsel="apEvo"]') && !d.querySelector('[data-apflag="apMapEvo"]') && !d.querySelector('[data-apflag="levelEvo"]'));
     const subs = [...d.querySelectorAll('[data-stab]')].map((b) => b.dataset.stab).join(',');
-    check('A: Unterreiter Food, Ausweichen, Warnung, Zeiten, Events, Style', subs === 'food,dodge,alerts,times,events,style', subs);
+    check('A: Unterreiter Food, Adds, Ausweichen, Warnung, Zeiten, Events, Style', subs === 'food,adds,dodge,alerts,times,events,style', subs); // Adds seit 3.2.16
     d.querySelector('[data-stab="alerts"]').click(); await wait(100);
     check('A: Unterreiter umschalten', d.querySelector('[data-spage="alerts"]').classList.contains('on') && !d.querySelector('[data-spage="food"]').classList.contains('on') && saved(G).stab === 'alerts');
     // B

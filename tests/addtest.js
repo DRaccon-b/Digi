@@ -16,7 +16,7 @@ async function run(farm) {
       { id: 'a:1', kind: 2, defId: 'pumpkinmon', x: 380, y: 360, hp: 300, maxHp: 300, level: 3, flags: 32, targetId: '' },
     ] });
   G.w.localStorage.setItem('digibot.cfg', JSON.stringify({ autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, tab: 'log', lvlDiff: 20,
-    ...(farm ? { farm: true, farmMode: 'boss', farmBosses: ['native_forest#puppetmon'], farmChannels: [1] } : {}) }));
+    ...(farm ? { farm: true, farmMode: 'boss', farmBosses: ['native_forest#puppetmon'], farmChannels: [1] } : { addFirst: { 'native_forest#puppetmon': true } }) })); // 3.2.16: Adds zuerst per Einstellung (Rotation: ohne Haken, harmlose Adds)
   const cmds = G.w.dmo.game.scene.getScene('world').deps.commands;
   cmds.requestBossPins = () => {}; cmds.listChannels = async () => [{ channel: 1, roomId: 'r1', clients: 1, maxClients: 40 }];
   G.w.eval(script);
