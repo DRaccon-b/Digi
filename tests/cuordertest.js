@@ -1,6 +1,6 @@
 // 3.2.11 (Nutzer 03.11.: der Stärkste hilft, die Hintersten zuerst). Leader mit „🤝 Leader erledigt die Quests der Mitläufer“
 // und „📜 Hinterste zuerst“. F1 ist in der Story zurück (1 Story-Quest fertig), F2 weiter (2 fertig).
-// Erwartet: F1 nimmt Story- und Nebenquest selbst an (läuft dabei ohne zu kämpfen, obwohl ein Monster ihn angreift), der
+// Erwartet: F1 nimmt die Story-Quest selbst an (Nebenquest nicht, 3.2.17) (läuft dabei ohne zu kämpfen, obwohl ein Monster ihn angreift), der
 // Leader jagt für F1, F1 gibt selbst ab. F2 ist dabei kurz im Ladebildschirm (darf F1 nicht verdrängen). F2 nimmt erst etwas an, wenn F1 ihn eingeholt hat – dann beide die nächste Story-Quest.
 const fs = require('fs');
 const makeWorld = require('./gw');
@@ -51,13 +51,13 @@ const qs = (W, id) => W.state.me.quests[id]?.state ?? 0;
   }
   const r = { ev, F1: F1.state.me.quests, F2: F2.state.me.quests, Lkills: L.kills, F1kills: F1.kills, F1status: F1.status(), F2status: F2.status(), Lstatus: L.status() };
   console.log(JSON.stringify(r));
-  const okA = ev.f1a != null && ev.f1s != null;
+  const okA = ev.f1a != null && (ev.f1s == null || ev.f1s > ev.f1done); // Nebenquest erst als normaler Mitläufer
   const okB = ev.f1done != null && L.kills >= 3;
   const okC = ev.f2first != null && ev.f2first >= ev.f1done;
   const okD = ev.both != null;
   const okF = !ev.f1stand; // F2 im Ladebildschirm zählt nicht als Story 0
   const okE = !ev.f1fight || ev.f1fight > ev.f1a; // vor dem Annehmen (unterwegs) kein Kampf
-  console.log(okA ? 'OK     A: Nachholer nimmt Story- und Nebenquest selbst an' : 'FEHLER A');
+  console.log(okA ? 'OK     A: Nachholer nimmt die Story-Quest an, die Nebenquest nicht' : 'FEHLER A');
   console.log(okB ? 'OK     B: Leader jagt, Nachholer gibt selbst ab' : 'FEHLER B');
   console.log(okC ? 'OK     C: Weiterer Mitläufer wartet, bis er eingeholt ist' : 'FEHLER C');
   console.log(okD ? 'OK     D: danach nehmen beide die nächste Story-Quest an' : 'FEHLER D');

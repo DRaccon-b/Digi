@@ -2,6 +2,17 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.17 – Hinterste zuerst: Nachholer machen nur noch Story-Quests
+- **„📜 Hinterste zuerst“:** Die Nachholer nehmen nur noch Story-Quests an. Zu Nebenquests laufen sie nicht mehr (Dailies
+  kommen wie bisher per Board aus der Ferne, wenn „Dailies“ an ist), und der Leader jagt für die Nachholer nur noch, was ihre Story-Quests brauchen. Vorher liefen sie (live bei SpencerD) zu
+  Nebenquests, die für die Story nichts bringen. Keine Story-Quest im Spiel setzt eine Nebenquest voraus (Spieldaten 09.11.
+  geprüft), die Kette bleibt also nicht hängen.
+- Fertige Nebenquests im Log geben die Nachholer nur ab, wenn an der Story gerade nichts zu tun ist (z. B. Level-Sperre) –
+  die EXP helfen dann weiter. Offene Nebenquests bleiben liegen.
+- Behoben (Review): Eine offene Nebenquest im Log hielt mit der Regel „erst alles erledigen, dann gemeinsam abgeben“ die
+  Abgabe der Story-Quest zurück; der Nachholer rutschte dann in die normale Planung und jagte die Nebenquest selbst.
+- Tests: custorytest (neu), cuordertest (Nebenquest wird nicht mehr angenommen), a3repeatgrptest (Teil S ohne „Hinterste zuerst“).
+
 ## 3.2.16 – Einstellungen → Adds: je Boss wählen, ob die Adds zuerst kommen
 - **Neuer Reiter Einstellungen → 👾 Adds:** jeder Boss aus den Spieldaten, der Adds ruft (ohne Raids), mit Haken „Adds
   zuerst“. Haken = erst die Adds, dann der Boss; ohne Haken = der Boss zuerst. Daneben steht, was die Adds tun (schützen,

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.16
+// @version      3.2.17
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1792,7 +1792,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.16'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.17'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2000,7 +2000,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         </div>
         <label class="digibot__skill digibot__chk" title="Jedes Gruppenmitglied greift ein anderes Quest-Monster an (statt alle dasselbe). Ist keins mehr frei, hilft man mit. Bosse greifen alle gemeinsam an. Nur beim Folgen, nicht in der Boss-Rotation."><input type="checkbox" data-accspread ${accounts.spread ? 'checked' : ''}><span>🎯 Ziele verteilen: jeder ein anderes Monster</span><em class="digibot__offnote" data-f="spreadoff"></em></label>
         <label class="digibot__skill digibot__chk" title="Der Leader kümmert sich nur um die Quests der Mitläufer (seine eigenen sind egal) und jagt, was ihnen fehlt. Die Mitläufer bleiben stehen und wehren nur Angreifer ab. Abgeben/Annehmen macht man bei ihnen selbst. Nur beim Folgen im Autopilot."><input type="checkbox" data-accserve ${accounts.serve ? 'checked' : ''}><span>🤝 Leader erledigt die Quests der Mitläufer</span></label>
-        <label class="digibot__skill digibot__chk" title="Nur zusammen mit 🤝: Der Leader erledigt zuerst die Quests der Mitläufer, die in der Story am weitesten zurück sind (bei Gleichstand alle davon). Diese nehmen ihre Story- und Nebenquests selbst an, sprechen, reisen und geben ab – ohne unterwegs zu kämpfen – und warten dann am Abgabe-NPC, bis der Leader die Monster erledigt hat. Wer weiter ist, wartet, bis er eingeholt ist, und macht ab dann mit."><input type="checkbox" data-accserveorder ${accounts.serveOrder ? 'checked' : ''}><span>📜 Hinterste zuerst: Nachholer nehmen selbst an und geben ab</span></label>
+        <label class="digibot__skill digibot__chk" title="Nur zusammen mit 🤝: Der Leader erledigt zuerst die Quests der Mitläufer, die in der Story am weitesten zurück sind (bei Gleichstand alle davon). Diese nehmen nur ihre Story-Quests selbst an, sprechen, reisen und geben ab – ohne unterwegs zu kämpfen – und warten dann am Abgabe-NPC, bis der Leader die Monster erledigt hat. Nebenquests nehmen sie nicht an (Dailies nur per Board, wenn „Dailies“ an ist), der Leader jagt dafür auch nichts. Fertige Nebenquests geben sie nur ab, wenn an der Story gerade nichts zu tun ist (z. B. Level-Sperre). Wer weiter ist, wartet, bis er eingeholt ist, und macht ab dann mit."><input type="checkbox" data-accserveorder ${accounts.serveOrder ? 'checked' : ''}><span>📜 Hinterste zuerst: Nachholer nehmen selbst an und geben ab</span></label>
         <div class="digibot__title">Alle Fenster</div>
         <div class="digibot__grpbtns"><button class="digibot__btn" data-act="grp-login" title="Fehlende Gruppenfenster öffnen – dort selbst anmelden und Charakter wählen">⧉ Fenster öffnen</button><button class="digibot__btn" data-act="grp-invite" title="Der Leader lädt sofort alle Gruppenmitglieder in die Party ein, die noch nicht drin sind (geht aus jedem Gruppenfenster). Die Mitläufer nehmen automatisch an.">👥 Party einladen</button></div>
         <div class="digibot__hint">Starten und stoppen über ▶ Start / ■ oben im Leader-Fenster – das gilt für alle Gruppenfenster. Abgeben und Annehmen erledigt der Autopilot des Leaders, die Mitläufer machen es nach.</div>
@@ -5363,6 +5363,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     for (const m of src) {
       for (const [id, q] of Object.entries(m.quests)) {
         if (q.state !== 1 && q.state !== 2) continue;
+        if (cu && !isStory(id)) continue; // Nachholgruppe: nur ihre Story-Quests (3.2.17)
         const def = questDef(C, id), objs = questPhase(def, q).objs;
         const full = (x) => (x.state === 2 ? objs.map((o) => o.count || 1) : objs.map((o, i) => questCount(def, x, i)));
         const cur = out[id];
@@ -5535,7 +5536,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const c = group.cuTasks;
     if (c && c.key === key && now - c.at < 2000) return c.list;
     let list;
-    try { list = questTasks(st); } catch { list = []; }
+    // nur Story-Quests (3.2.17): Nebenquests/Dailies nehmen die Nachholer nicht an – keine Story-Quest setzt eine Nebenquest
+    // voraus. Ist an der Story nichts zu tun (Level-Sperre), geben sie fertige Nebenquests ab (EXP).
+    const busy = (l) => l.some((x) => !x.grind && (x.kind === 'talk' || x.kind === 'reach' || x.kind === 'hunt'));
+    try { list = questTasks(st, { story: true }); if (!busy(list)) list = questTasks(st, { story: true, sideTurnin: true }); } catch { list = []; }
     group.cuTasks = { key, at: now, list };
     return list;
   }
@@ -6525,7 +6529,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return null;
   }
 
-  function questTasks(st) {
+  // opt.story: nur Story-Quests (Nachholer, 3.2.17), opt.sideTurnin: dazu Abgaben fertiger Nebenquests
+  function questTasks(st, opt = {}) {
     const C = content(), me = st?.me, mapId = st?.world?.mapId;
     if (!C || !me || world.state !== 'ready') return [];
     const ix = questIndex(C), lvl = me.partner?.level ?? 1, quests = autopilot.mapTalk ? (me.quests || {}) : planQuests(st);
@@ -6612,6 +6617,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (spot) tasks.push({ key: `grind:${grindTo}`, kind: 'hunt', grind: true, targetLevel: grindTo, species: new Set(spot.species),
         names: spot.names, loc: spot, prio: 50, label: `Grinde bis Lv ${grindTo} (${spot.names})` });
     }
+    // vor den Abgabe-Regeln filtern: offene Nebenquest-Ziele halten sonst die Story-Abgaben zurück (Review 3.2.17)
+    if (opt.story) tasks = tasks.filter((t) => t.questId && (isStory(t.questId) || (opt.sideTurnin && t.purpose === 'turnin')));
     const now = Date.now();
     tasks=tasks.filter(t=>digibotYoungBountyAllowed(st,t,now));
     if(autopilot.bountyReturn)tasks=tasks.filter(t=>digibotIsYoungBounty(t.def)&&t.purpose==='turnin');
@@ -7363,12 +7370,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         t = null; autopilot.reset(); if (mt) mt.n++;
       }
     }
-    if(!mt && t?.def?.pool && questTasks(st).some(o=>!o.def?.pool && !o.grind)){ // Grinden verdrängt Dailies nicht (3.1.30)
+    // Nachholer-Aufgaben (t.own) plant catchupTasks schon nur mit Story-Quests – die ungefilterte Liste darf sie nicht
+    // verwerfen, sonst rutscht der Nachholer in die normale Planung und jagt eine Nebenquest (Review 3.2.17)
+    if(!mt && !t?.own && t?.def?.pool && questTasks(st).some(o=>!o.def?.pool && !o.grind)){ // Grinden verdrängt Dailies nicht (3.1.30)
       autopilot.reset();t=null;
     }
     const sweepM=cfg.apOrder==='sweep'?autopilot.sweepAt:null;
     // in der Abgabe-Phase laufen begonnene Abgaben zu Ende (wie questTasks) – sonst jeden Takt verworfen und neu gewählt (3.1.30)
-    if(cfg.apBatch && !mt && autopilot.batchPhase!=='turnin' && t?.purpose==='turnin' && questTasks(st).some(o=>!o.grind && taskPhase(o)===2 && (!sweepM||digibotQuestOfMap(o,sweepM)))){autopilot.reset();t=null;}
+    if(cfg.apBatch && !mt && !t?.own && autopilot.batchPhase!=='turnin' && t?.purpose==='turnin' && questTasks(st).some(o=>!o.grind && taskPhase(o)===2 && (!sweepM||digibotQuestOfMap(o,sweepM)))){autopilot.reset();t=null;}
     if (!t && mt) { // Abgeben & Annehmen: nur Gespräche auf dieser Map
       t = autopilot.task = questTasks(st).find((o) => o.kind === 'talk' && (o.purpose === 'turnin' || o.purpose === 'accept' || o.purpose === 'objective') && o.loc?.mapId === mt.mapId) || null;
       if (!t) { endMapTalk(); return 'Abgeben & Annehmen fertig'; }

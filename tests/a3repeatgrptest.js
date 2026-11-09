@@ -48,7 +48,8 @@ async function mirror() {
 }
 
 async function serve() {
-  const accounts = { leader: 0, popup: true, mirror: false, serve: true,
+  // ohne „Hinterste zuerst“: Nachholer bekommen seit 3.2.17 nur Story-Quests, hier geht es um das Zusammenführen der Phasen
+  const accounts = { leader: 0, popup: true, mirror: false, serve: true, serveOrder: false,
     list: [{ on: true, user: 'lead', char: 'Lead' }, { on: true, user: 'f1', char: 'F1' }, { on: true, user: 'f2', char: 'F2' }] };
   const respawn = (m) => setTimeout(() => { m.hp = 300; m.targetId = ''; }, 600);
   const L = makeWorld({ slot: 0, accounts, tag: 'L', setup: ({ content }) => { quest(content); content.quests.a3s_g_1.minLevel = 99; }, quests: { ...base }, onKill: respawn });
