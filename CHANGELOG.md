@@ -2,6 +2,23 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.18 – Deva-Runde: sechs Devas Kanal für Kanal hin und zurück
+- **Neu unter Boss-Farmen → Art: „Deva-Runde“.** Auf dem ersten angehakten Kanal Pajramon → Vajramon → Indramon →
+  Kumbhiramon (West Shinjuku) → Sinduramon → Sandiramon (Deva Transit). Dort wechselt der Bot auf den nächsten Kanal und läuft
+  die Reihe rückwärts, auf dem Kanal danach wieder vorwärts – alle angehakten Kanäle der Reihe nach, bis zum Stopp.
+- Ist ein Deva nicht da: An den Wendepunkten Pajramon und Sandiramon wartet der Bot bis 5 min auf den Respawn (dort liegt
+  zwischen zwei Besuchen desselben Kanals am wenigsten Zeit), bei den anderen höchstens 1 min – sonst geht es weiter.
+- Devas, die unterwegs in Sicht kommen, nimmt der Kampf mit (mehr Karten). Was der Bot im aktuellen Kanal-Durchgang schon
+  selbst besiegt hat, gilt an seinem Halt als erledigt – auch an den Wendepunkten wird dann nicht gewartet. Kills anderer
+  Spieler zählen nicht (auch nicht, wenn er den Deva schon gesehen, aber noch nicht angegriffen hatte): Dann gelten die
+  normalen Wartezeiten (Review). Mit nur einem Kanal zählt der gerade besiegte Wendepunkt-Deva nach dem Wenden mit.
+- Ein Deva in Sicht, den der Bot nicht erreicht oder nicht angreifen kann (HP sinken 1 min lang nicht), wird gemieden,
+  und die Runde geht weiter (Review).
+- Verliert er einen Deva aus der Sicht (oder nach einer Ohnmacht), läuft er zum Spawnpunkt und sucht dort, statt ihn
+  gleich zu überspringen (Review).
+- Unter der Auswahl steht die Runde mit dem aktuellen Halt; die Timer zeigen alle sechs Devas je Kanal.
+- Tests: devatest, devaonetest (neu).
+
 ## 3.2.17 – Hinterste zuerst: Nachholer machen nur noch Story-Quests
 - **„📜 Hinterste zuerst“:** Die Nachholer nehmen nur noch Story-Quests an. Zu Nebenquests laufen sie nicht mehr (Dailies
   kommen wie bisher per Board aus der Ferne, wenn „Dailies“ an ist), und der Leader jagt für die Nachholer nur noch, was ihre Story-Quests brauchen. Vorher liefen sie (live bei SpencerD) zu

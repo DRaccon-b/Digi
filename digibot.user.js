@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.17
+// @version      3.2.18
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -192,7 +192,7 @@ function digibotConfig(saved, defaults) {
   out.farmChannels=[...new Set((out.farmChannels||[]).filter(x=>Number.isInteger(x)&&x>=1&&x<=100))];
   out.sellRar=[...new Set((out.sellRar||[]).filter(x=>Number.isInteger(x)&&x>=0&&x<DIGIBOT_GEAR_RAR.length))].sort((a,b)=>a-b);
   for(const k of ['cardSel','cardNamed'])if(Object.hasOwn(saved,k)){if(Array.isArray(saved[k]))out[k]=[...new Set(saved[k].filter(x=>typeof x==='string'&&x.length<200))].slice(0,300);else issues.push(k);}
-  const enums={farmMode:['boss','named','cards'],apOrder:['near','sweep'],apSweepDir:['up','down'],dgMode:['easy','hard','apocalymon','malomyotismon','beelzemon','d_reaper'],sellHow:['sell','salvage']};
+  const enums={farmMode:['boss','named','cards','deva'],apOrder:['near','sweep'],apSweepDir:['up','down'],dgMode:['easy','hard','apocalymon','malomyotismon','beelzemon','d_reaper'],sellHow:['sell','salvage']};
   for(const [k,vals]of Object.entries(enums))if(!vals.includes(out[k])){out[k]=defaults[k];issues.push(k);}
   return {value:out,issues};
 }
@@ -1494,7 +1494,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     farm: false,          // Boss-Rotation: ausgewählte Feldbosse reihum besiegen (Digi-Eier farmen)
     farmBosses: ['tower_forest#arukenimon', 'kaiser_canyon#metalgreymon_spiral'], // "map#art"
     farmChannels: [1, 2], // nur diese Kanäle
-    farmMode: 'boss',     // 'boss' = Boss-Rotation, 'named' = Named-Elite-Runde (Map für Map), 'cards' = Kartenrotation (3.1.40)
+    farmMode: 'boss',     // 'boss' = Boss-Rotation, 'named' = Named-Elite-Runde (Map für Map), 'cards' = Kartenrotation (3.1.40), 'deva' = Deva-Runde (3.2.18)
     cardSel: [],          // Kartenrotation: ausgewählte Common-/Rare-Karten in Prioritäts-Reihenfolge (Item-IDs)
     cardNamed: [],        // Kartenrotation: Karten, deren Named-Gegner mitgenommen werden dürfen (standardmäßig keiner)
     cardForm: '',         // Kartenrotation: Digitation ('' = automatisch die beste für die Karten, sonst Form wie bei der Map-Regel) (3.2.3)
@@ -1792,7 +1792,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.17'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.18'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1953,14 +1953,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
             <label>Art<select data-apsel="farmMode">
               <option value="boss">Boss-Rotation (ausgewählte Bosse)</option>
               <option value="named">Named-Elite-Runde (Map für Map)</option>
-              <option value="cards">Kartenrotation (Karten farmen)</option></select></label>
+              <option value="cards">Kartenrotation (Karten farmen)</option>
+              <option value="deva">Deva-Runde (6 Devas, Kanal für Kanal hin und zurück)</option></select></label>
             <label data-farmmode="named">Start-Map<select data-apsel="routeStart"></select></label>
             <label data-farmmode="named">End-Map<select data-apsel="routeEnd"></select></label>
           </div>
           <div class="digibot__routeinfo" data-farmmode="named" data-f="routeinfo">–</div>
+          <div class="digibot__routeinfo" data-farmmode="deva" data-f="devainfo">–</div>
           <div class="digibot__title">Kanäle</div>
           <div class="digibot__farmch">${[1, 2, 3, 4].map((c) => `<label><input type="checkbox" data-farmch="${c}" ${(cfg.farmChannels || []).includes(c) ? 'checked' : ''}>Ch ${c}</label>`).join('')}</div>`, true,
-          'Gilt für den Modus Bosse. Boss-Rotation: reist zum ausgewählten Boss, der als Nächstes da ist. Named-Elite-Runde: Maps von Start bis Ende ablaufen, je Kanal prüfen (lebt → kämpfen, Respawn unter 2 min → warten, sonst weiter), danach per Digi-Phone zurück. Kanalwechsel nur außerhalb des Kampfes; das Level-Limit gilt für diese Bosse nicht.', 'data-modes="farm"')}
+          'Gilt für den Modus Bosse. Boss-Rotation: reist zum ausgewählten Boss, der als Nächstes da ist. Named-Elite-Runde: Maps von Start bis Ende ablaufen, je Kanal prüfen (lebt → kämpfen, Respawn unter 2 min → warten, sonst weiter), danach per Digi-Phone zurück. Deva-Runde: auf dem ersten Kanal Pajramon → Vajramon → Indramon → Kumbhiramon → Sinduramon → Sandiramon, dort auf den nächsten Kanal und die Reihe rückwärts, dann der nächste Kanal wieder vorwärts. Nicht da: an Pajramon und Sandiramon bis 5 min auf den Respawn warten, bei den anderen höchstens 1 min, sonst weiter. Kanalwechsel nur außerhalb des Kampfes; das Level-Limit gilt für diese Bosse nicht.', 'data-modes="farm"')}
         ${grp('dungeon', 'Dungeon', `
           <div class="digibot__apcfg">
             <label>Modus<select data-apsel="dgMode"><option value="easy">Easy – War Game</option><option value="hard">Hard – Revenge (Gruppe)</option><option value="apocalymon">Apocalymon-Raid</option><option value="malomyotismon">MaloMyotismon-Raid</option><option value="beelzemon">Beelzebumon-Raid (Lv 121)</option><option value="d_reaper">Mother-D-Reaper-Raid (Lv 130)</option></select></label>
@@ -8193,9 +8195,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     firstSeen: new Map(), // Boss-Entity -> wann zuerst gesehen (Spawn-Schutz)
     chBan: new Map(),   // "map#ch" -> bis wann der Kanal gemieden wird (voll, Wechsel klappt nicht)
     route: null,        // Named-Runde: { i, map, skip:Set(ch), back, chSince, chKey, zoneAt, patrol, logged:Set }
+    deva: null,         // Deva-Runde (3.2.18): { passAt, carry, mine:Map(key->Kill), ci, dir, i, key, zoneAt, chKey, chSince }
     opening: null,      // { key, at, tries } – gerade angestoßenes Öffnen eines neuen Kanals
     leave: false,       // Boss-Ziel lebt woanders: nicht kämpfen, sofort hin
-    reset() { this.goal = null; this.fight = null; this.switchTries = 0; this.route = null; this.opening = null; this.chLoading = false; this.chToken = (this.chToken || 0) + 1; }, // hängende Kanalliste verwerfen (3.1.30)
+    reset() { this.goal = null; this.fight = null; this.switchTries = 0; this.route = null; this.deva = null; this.opening = null; this.chLoading = false; this.chToken = (this.chToken || 0) + 1; }, // hängende Kanalliste verwerfen (3.1.30)
   };
   // Boss-Rotation unterwegs zum Boss (andere Map, anderer Kanal oder noch nicht am Spawnpunkt): keine Kämpfe – auch
   // nicht gegen Angreifer, die hinterherlaufen. Am Spawnpunkt darf er sie erledigen, solange der Boss nicht da ist.
@@ -8214,7 +8217,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   const FARM_DEPART = 350;         // … und erst so weit weg wieder als unterwegs (sonst pendelt er an der Grenze: Kampf – zurück – Kampf)
   function farmGoalElsewhere(st, p, now, sc) {
-    if (cfg.farmMode === 'named' || cfg.farmMode === 'cards' || world.state !== 'ready' || !farmChannels().length || !farmSelected().length) return false;
+    if (cfg.farmMode === 'named' || cfg.farmMode === 'cards' || cfg.farmMode === 'deva' || world.state !== 'ready' || !farmChannels().length || !farmSelected().length) return false;
     if (p.maxHp > 0 && p.hp / p.maxHp < 0.5) return false;
     const o = farmPlan(st, now);
     if (!o) return false;
@@ -8592,6 +8595,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const farmSelected = () => {
     if (cfg.farmMode === 'named') return routeList().map((r) => r.boss);
     if (cfg.farmMode === 'cards') return cardNamedBosses();
+    if (cfg.farmMode === 'deva') return devaList();
     const on = new Set(cfg.farmBosses || []);
     return farmBossList().filter((b) => on.has(b.id));
   };
@@ -8940,6 +8944,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       farmSet(b.map, b.index, ch, { up: true, hp });
       // Kampf gegen einen Farm-Boss merken – egal ob der Bot ihn selbst gewählt hat oder er uns angreift
       if (st.target?.id === en.id && farm.fight?.id !== en.id) farm.fight = { key: farmKey(b.map, b.index, ch), id: en.id, ch, map: b.map, pct: hp };
+      if (farm.fight?.id === en.id && st.target?.id === en.id) farm.fight.engaged = true; // selbst angegriffen (Deva-Runde: eigener Kill)
       if (farm.fight?.id === en.id) {farm.fight.pct = hp;farm.fight.x = en.x;farm.fight.y = en.y;if(farm.fight.missingAt){farm.fight.missingAt=0;farm.fight.posDone=false;logEvent('auto',`${b.name} wieder in Sicht – weiter`);}}
     });
     for (const id of farm.firstSeen.keys()) if (!alive.has(id)) farm.firstSeen.delete(id);
@@ -8958,12 +8963,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const b = knownBosses.find(x=>farmKey(x.map,x.index,f.ch)===f.key);
       if (b && confirmed) {
         farm.known.set(f.key, { up: false, readyAt: now + b.respawnMs, at: now, killed: true });
+        if (f.engaged) farm.deva?.mine?.set(f.key, now); // Deva-Runde: eigener Kill (fremde Kills zählen dort nicht als erledigt)
         logEvent('kill', `Boss besiegt: ${b.name} (Ch ${f.ch}) – Respawn in ${Math.round(b.respawnMs / 60000)} min`);
         farm.fight = null; farm.goal = null;
       } else if (b && sameRoom) {
         if (!f.missingAt) { f.missingAt = now; logEvent('warn', `${b.name} (Ch ${f.ch}) bei ${f.pct ?? '?'} % aus der Sicht verloren – suche ihn`); }
         else if (now - f.missingAt > FARM_MISS_MS) {
           farm.known.set(f.key, { up: false, readyAt: now + FARM_MISS_READY_MS, at: now, killed: true });
+          if (f.engaged) farm.deva?.mine?.set(f.key, now);
           digibotCore.record('Boss verschwunden; Tod unbestätigt',{target:f.id,hp:f.pct,map:f.map,channel:f.ch});
           logEvent('kill', `${b.name} (Ch ${f.ch}) nicht wiedergefunden – vermutlich besiegt (Timer ${Math.round(FARM_MISS_READY_MS / 60000)} min)`);
           farm.fight = null; farm.goal = null;
@@ -9259,11 +9266,109 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return `${tag} · prüfe…`;
   }
 
+  // ---------- Deva-Runde (3.2.18, Nutzer 10.11.) ----------
+  // Feste Reihe der sechs A3-Devas: auf dem ersten Kanal vorwärts, am Ende Kanal wechseln und rückwärts, dann der nächste
+  // Kanal wieder vorwärts (alle angehakten Kanäle der Reihe nach). Nicht da: an den Wendepunkten (erster/letzter) bis zum
+  // Respawn warten – dort liegt zwischen zwei Besuchen desselben Kanals am wenigsten Zeit –, sonst höchstens kurz.
+  const DEVA_ORDER = ['pajiramon', 'vajramon', 'indramon', 'kumbhiramon', 'sinduramon', 'sandiramon'];
+  const DEVA_END_WAIT_MS = 300000; // Pajramon/Sandiramon: bis 5 min auf den Respawn warten (Respawn 5 min)
+  const DEVA_MID_WAIT_MS = 60000;  // die anderen: höchstens 1 min
+  const DEVA_STUCK_MS = 60000;     // in Sicht, aber die HP sinken so lange nicht: meiden und weiter
+  function devaList() {
+    const all = farmBossList();
+    return DEVA_ORDER.map((sp) => all.find((b) => b.species === sp && b.named)).filter((b) => b && mapWalkable(null, b.map));
+  }
+  function devaNext(D, list, chs, why) {
+    const b = list[D.i];
+    if (b && why) logEvent('auto', `Deva-Runde Ch ${chs[D.ci]}: ${b.name} ${why} → weiter`);
+    const ni = D.i + D.dir;
+    if (ni < 0 || ni >= list.length) { // Wendepunkt: nächster Kanal, Richtung umkehren, derselbe Deva zuerst
+      const was = chs[D.ci], wk = b ? farmKey(b.map, b.index, was) : '', k = D.mine.get(wk) || 0;
+      D.ci = (D.ci + 1) % chs.length; D.dir = -D.dir;
+      // nur ein Kanal: derselbe Deva steht gleich wieder an – sein Kill aus dem GERADE beendeten Durchgang zählt mit (Review)
+      D.carry = chs[D.ci] === was && k >= D.passAt - 3000 ? wk : '';
+      D.passAt = Date.now();
+      logEvent('map', `Deva-Runde: Kanal fertig → Ch ${chs[D.ci]} ${D.dir > 0 ? 'vorwärts' : 'rückwärts'}`);
+    } else D.i = ni;
+    D.key = '';
+    return 'Deva-Runde: weiter…';
+  }
+  function devaStep(st, sc, now) {
+    const list = devaList();
+    if (!list.length) return 'Deva-Runde: keine Devas in den Spieldaten';
+    const chs = farmChannels();
+    const D = farm.deva ||= { passAt: now, mine: new Map(), ci: 0, dir: 1, i: 0, key: '', zoneAt: 0, chKey: '', chSince: 0 };
+    if (D.ci >= chs.length) D.ci = 0;
+    D.i = Math.max(0, Math.min(D.i, list.length - 1));
+    const ch = chs[D.ci], b = list[D.i], end = D.i === 0 || D.i === list.length - 1;
+    const label = `Deva-Runde Ch ${ch} ${D.dir > 0 ? '→' : '←'} ${D.i + 1}/${list.length} ${b.name}`;
+    const key = `${b.id}#${ch}#${D.dir}`;
+    if (D.key !== key) { Object.assign(D, { key, zoneAt: 0, atkId: null }); logEvent('map', `${label} (${b.mapName})`); }
+    if ((farm.chBan.get(`${b.map}#${ch}`) || 0) > now) return devaNext(D, list, chs, `Ch ${ch} gemieden`);
+    // 1) Map, 2) Kanal
+    if (st.world?.mapId !== b.map) {
+      const tr = travel(st, b.map, now);
+      if (tr === 'Keine Route' || tr === 'Portal nicht erreichbar') return devaNext(D, list, chs, `nicht erreichbar (${tr})`);
+      if (tr !== true) return `${label} · ${tr}`;
+    }
+    const curCh = st.world?.channel ?? 1;
+    if (curCh !== ch) {
+      const sw = farmSwitch(st, sc, b.map, b.mapName, ch, now);
+      if (sw.failed) return devaNext(D, list, chs, `Ch ${ch} nicht verfügbar`);
+      return `${label} · ${sw.status}`;
+    }
+    const chKey = `${b.map}#${curCh}`;
+    if (D.chKey !== chKey) { D.chKey = chKey; D.chSince = now; farm.waitAt = 0; }
+    // 3) sichtbar -> hin und angreifen
+    const seen = farmBossMob(sc, b), boss = seen && seen.reach !== false ? seen : null; // unerreichbar: wie nicht da (Review)
+    if (boss) {
+      D.zoneAt = 0;
+      // in Sicht, aber kein Fortschritt (Kampf lehnt das Ziel ab o. Ä.): nach DEVA_STUCK_MS meiden und weiter (Review)
+      if (D.atkId !== boss.id || boss.hp < D.atkHp) { D.atkId = boss.id; D.atkHp = boss.hp; D.atkAt = now; }
+      else if (now - D.atkAt > DEVA_STUCK_MS) { blacklist.set(boss.id, now + BAN_MS); return devaNext(D, list, chs, 'kein Kampf möglich – gemieden'); }
+      if (farm.fight?.id !== boss.id) farm.fight = { key: farmKey(b.map, b.index, ch), id: boss.id, ch, map: b.map, pct: Math.round(boss.hp / (boss.maxHp || boss.hp || 1) * 100) };
+      if (boss.d > 180) {
+        if (walkTo(st, boss.x, boss.y, now) === 'stuck') blacklist.set(boss.id, now + BAN_MS);
+        return `${label} · laufe hin (${Math.round(boss.d)} px)`;
+      }
+      const scene = worldScene();
+      if (scene && bot.can('select', SELECT_GAP_MS, now)) { bot.lastPress.select = now; scene.select(boss.id); }
+      return `${label} · greife an`;
+    }
+    const s = farmState(b, ch, now);
+    // in diesem Kanal-Durchgang schon selbst besiegt (auch unterwegs von der Kampfroutine mitgenommen) – sonst wartete die
+    // Runde am Wendepunkt bis 5 min auf den Respawn eines gerade besiegten Devas. Nur eigene Kills (Review: fremde Kills
+    // im Timer sahen genauso aus und hoben das Warten auf)
+    const mk = farmKey(b.map, b.index, ch), mt = D.mine.get(mk) || 0;
+    if (mt >= D.passAt - 3000 || (mt && mk === D.carry)) return devaNext(D, list, chs, 'besiegt');
+    // sonst wie immer: zum Spawnpunkt und dort suchen/warten (auch nach Ohnmacht oder aus der Sicht verloren)
+    const wait = end ? DEVA_END_WAIT_MS : DEVA_MID_WAIT_MS;
+    if (s.state === 'down' && s.readyAt - now > wait) return devaNext(D, list, chs, `Respawn in ${fmtClock(s.readyAt - now)} – nicht warten`);
+    if (s.state === 'unknown' && now - D.chSince < NAMED_INFO_WAIT_MS) return `${label} · prüfe Timer…`;
+    // 4) zum Spawnpunkt
+    const p = farmSpot(b), me = controlled(st);
+    if (!p) return devaNext(D, list, chs, 'Spawnpunkt unbekannt');
+    const d = me ? Math.hypot(me.x - p.x, me.y - p.y) : 0;
+    if (d > FARM_NEAR) {
+      if (walkTo(st, p.x, p.y, now) === 'stuck') return devaNext(D, list, chs, 'Spawnpunkt nicht erreichbar');
+      return `${label} · laufe hin (${Math.round(d)} px)`;
+    }
+    D.zoneAt ||= now;
+    if (s.state === 'down') { D.zoneAt = now; return `${label} · warte – Respawn in ${fmtClock(s.readyAt - now)}`; }
+    if (s.state === 'up') {
+      if (now - D.zoneAt > NAMED_SEARCH_MS) return devaNext(D, list, chs, 'lebt laut Timer, aber nicht zu finden');
+      return `${label} · lebt laut Timer – suche…`;
+    }
+    if (now - D.zoneAt > NAMED_UNKNOWN_MS) return devaNext(D, list, chs, 'nicht da');
+    return `${label} · prüfe…`;
+  }
+
   function farmStep(st, sc, now) {
     if (world.state !== 'ready') { loadWorld(); return `Lade Weltkarte… ${world.loaded}/${world.total || '?'}`; }
     if (!farmChannels().length) return 'Keine Kanäle ausgewählt (Reiter Bosse)';
     if (cfg.farmMode === 'named') return namedStep(st, sc, now);
     if (cfg.farmMode === 'cards') return cardStep(st, sc, now);
+    if (cfg.farmMode === 'deva') return devaStep(st, sc, now);
     if (!farmSelected().length) return 'Keine Bosse ausgewählt (Reiter Bosse)';
     const o = farmPlan(st, now);
     if (!o) return 'Kein ausgewählter Boss erreichbar';
@@ -9933,7 +10038,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (group.role() === 'follower') return 'Mitläufer';
     // HP-Grenze auch hier (3.1.46): sonst hielt die Kampfbeginn-Pause die Skills an, obwohl gar nicht gesammelt wird
     { const p = st?.me?.partner; if (p?.maxHp > 0 && p.hp / p.maxHp * 100 < cfg.pullHp) return `HP unter ${cfg.pullHp} %`; }
-    const rotation = cfg.farm && (cfg.farmMode === 'boss' || cfg.farmMode === 'named');
+    const rotation = cfg.farm && (cfg.farmMode === 'boss' || cfg.farmMode === 'named' || cfg.farmMode === 'deva');
     const near = pullBossNear(st, sc, rotation);
     if (near) return near;
     if (rotation) {
@@ -10885,7 +10990,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (this.on) loadWorld(); // Kartendaten (Portale, Zonen, Schutzzonen) für alle Modi
       if (this.on) this.timer = setInterval(() => this.tick(), TICK_MS);
       this.status = this.on ? 'Bot läuft' : 'Bot aus';
-      logEvent('bot', this.on ? `Bot gestartet${cfg.farm ? (cfg.farmMode === 'cards' ? ' (Kartenrotation)' : ' (Boss-Rotation)') : cfg.autopilot ? ' (Quest-Autopilot)' : ''}` : 'Bot gestoppt');
+      logEvent('bot', this.on ? `Bot gestartet${cfg.farm ? (cfg.farmMode === 'cards' ? ' (Kartenrotation)' : cfg.farmMode === 'deva' ? ' (Deva-Runde)' : ' (Boss-Rotation)') : cfg.autopilot ? ' (Quest-Autopilot)' : ''}` : 'Bot gestoppt');
       // Food kaufen betrifft nur dieses Fenster: sonst liefen die Mitläufer im Autopilot los und das stille Food-Ende stoppte sie nie (3.1.30)
       if (group.role() === 'leader' && !quiet && !(this.on && cfg.foodBuy)) {if(this.on)groupPush(true);if(this.on)digibotSend({type:'start',manual:digibotManual===true});else groupSend('stop','bot');}
       schedule();
@@ -11505,7 +11610,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const run = panelQ('[data-act="bot"]');
     run.classList.toggle('on', bot.on);
     const mode = modeOf();
-    run.textContent = `${bot.on ? '■ Stopp' : '▶ Start'} · ${mode === 'farm' ? (cfg.farmMode === 'named' ? 'Named-Elite-Runde' : cfg.farmMode === 'cards' ? 'Kartenrotation' : 'Boss-Rotation') : MODES[mode]}`;
+    run.textContent = `${bot.on ? '■ Stopp' : '▶ Start'} · ${mode === 'farm' ? (cfg.farmMode === 'named' ? 'Named-Elite-Runde' : cfg.farmMode === 'cards' ? 'Kartenrotation' : cfg.farmMode === 'deva' ? 'Deva-Runde' : 'Boss-Rotation') : MODES[mode]}`;
     if(digibotAccountQueue.active)run.textContent='■ Quest-Runde stoppen';
     panelQA('[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
     panelQ('[data-act="hunt"]')?.classList.toggle('on', !!cfg.hunt);
@@ -11769,9 +11874,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     hookBossEvents();
     if (pageOn('attack')) renderBossSkills(st); // Boss-Attacken stehen im Kampf-Reiter
     if (!pageOn('farm')) return;
-    const mode = cfg.farmMode === 'named' || cfg.farmMode === 'cards' ? cfg.farmMode : 'boss';
+    const mode = cfg.farmMode === 'named' || cfg.farmMode === 'cards' || cfg.farmMode === 'deva' ? cfg.farmMode : 'boss';
     panelQA('[data-farmmode]').forEach((el) => el.classList.toggle('hide', el.dataset.farmmode !== mode));
-    fillSelect('farmMode', [['boss', 'Boss-Rotation (ausgewählte Bosse)'], ['named', 'Named-Elite-Runde (Map für Map)'], ['cards', 'Kartenrotation (Karten farmen)']]);
+    fillSelect('farmMode', [['boss', 'Boss-Rotation (ausgewählte Bosse)'], ['named', 'Named-Elite-Runde (Map für Map)'], ['cards', 'Kartenrotation (Karten farmen)'], ['deva', 'Deva-Runde (6 Devas, Kanal für Kanal hin und zurück)']]);
     if (mode === 'cards') renderCards(st);
     const rmAll = routeMaps(), rm = [...new Set(rmAll.map((r) => r.id))].map((id) => { const rs = rmAll.filter((r) => r.id === id); return [id, `${rs[0].name} (${rs[0].range.join('–')}) · ${rs.map((r) => r.boss.name).join(', ')}`]; });
     fillSelect('routeStart', [['', 'niedrigste'], ...rm]);
@@ -11781,6 +11886,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       panelQ('[data-f="routeinfo"]').textContent = !list.length ? 'Keine Maps mit Named Elite gewählt.'
         : `Runde: ${list.length} Named auf ${new Set(list.map((r) => r.id)).size} Maps · ${list[0].name} → ${list[list.length - 1].name}`
           + (bot.on && cfg.farm && R ? ` · jetzt ${R.i + 1}/${list.length} ${list[R.i]?.name || ''}${list[R.i]?.boss ? ` · ${list[R.i].boss.name}` : ''}${R.back ? ' (zurück per Digi-Phone)' : ''}` : '');
+    }
+    if (mode === 'deva') {
+      const list = devaList(), D = farm.deva, chs = farmChannels(), el = panelQ('[data-f="devainfo"]');
+      const txt = !list.length ? 'Keine Devas in den Spieldaten.' : `Runde: ${list.map((b) => b.name).join(' → ')} · Kanäle ${chs.join(', ') || '–'}`
+        + (bot.on && cfg.farm && D && list[D.i] ? ` · jetzt Ch ${chs[D.ci] ?? '?'} ${D.dir > 0 ? 'vorwärts' : 'rückwärts'} · ${list[D.i].name}` : '');
+      if (el && el.textContent !== txt) el.textContent = txt;
     }
     const all = farmBossList();
     const esc = (v) => String(v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -11797,7 +11908,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const now = Date.now(), sel = farmSelected(), chs = farmChannels();
     const curMap = st?.world?.mapId, curCh = st?.world?.channel ?? 1;
     panelQ('[data-f="timers"]').innerHTML = sel.length ? sel.map((b) => {
-      const goal = cfg.farm && bot.on && (cfg.farmMode === 'named'
+      const goal = cfg.farm && bot.on && (cfg.farmMode === 'deva' ? farm.deva && devaList()[farm.deva.i]?.id === b.id : cfg.farmMode === 'named'
         ? farm.route?.map === b.map && (!farm.route?.bossId || farm.route.bossId === b.id) // aktueller Halt, nicht alle Named der Map (3.2.9)
         : farm.goal && farm.goal.map === b.map && farm.goal.index === b.index);
       const rows = chs.map((ch) => {
@@ -11805,7 +11916,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         const banUntil = farm.chBan.get(`${b.map}#${ch}`) || 0, banned = banUntil > now;
         const txt = banned ? `gemieden (noch ${fmtClock(banUntil - now)})` : s.state === 'up' ? `lebt${s.hp != null ? ` (${s.hp} %)` : ''}`
           : s.state === 'down' ? (s.readyAt > now ? `Respawn in ${fmtClock(s.readyAt - now)}` : 'müsste gleich da sein') : 'unbekannt';
-        const mark = (goal && (cfg.farmMode === 'named' ? curMap === b.map && curCh === ch : farm.goal?.ch === ch) ? ' ★' : '') + (curMap === b.map && curCh === ch ? ' · hier' : '');
+        const mark = (goal && (cfg.farmMode === 'deva' ? farmChannels()[farm.deva?.ci] === ch : cfg.farmMode === 'named' ? curMap === b.map && curCh === ch : farm.goal?.ch === ch) ? ' ★' : '') + (curMap === b.map && curCh === ch ? ' · hier' : '');
         return `<div><span>Ch ${ch}</span><span class="${s.state === 'up' ? 'up' : s.state === 'down' ? 'down' : 'unk'}">${txt}${mark}</span></div>`;
       }).join('');
       return `<div class="digibot__timer${goal ? ' goal' : ''}"><b>${esc(b.name)} Lv ${b.level} · ${esc(b.mapName)}</b>${rows}</div>`;
