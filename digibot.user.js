@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.27
+// @version      3.2.28
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1794,7 +1794,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.27'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.28'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -10086,8 +10086,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const RIFT_GIVEUP_MS = 20 * 60000; // so lange darf ein Lauf dauern (Uhr 12 min), dann hinaus – z. B. Guardian solo zu stark (Review)
   const RIFT_NORUN_MS = 60000;       // im Rift ohne Laufzustand so lange warten, dann hinaus (Review)
   const RIFT_CAP_RETRY = 3;          // nach so vielen stabilen Läufen an der Grenze wieder die höhere Tiefe versuchen
-  // Patch-Priorität: Schaden/Tempo zuerst, dann Überleben (Spieldaten 16.11.: 18 Patches, je bis 3 Stapel)
-  const RIFT_PATCH_PRIO = ['overclock', 'rapid_fire', 'quick_compile', 'siphon', 'data_mass', 'firewall'];
+  // Patch-Priorität (alle 18 Patches, Spieldaten 16.11.; Live-Lauf 3.2.28): Arc Spark (30 % Schaden springt im Umkreis 72 px über –
+  // Fläche auch für Einzelziel-Kämpfer), Heilung je Kill, Angriff/Tempo, Lebensraub, Abklingzeit, dann Überleben, Rest
+  const RIFT_PATCH_PRIO = ['arc_spark', 'data_harvest', 'overclock', 'rapid_fire', 'siphon', 'quick_compile', 'momentum', 'crit_routine', 'overflow_shield', 'soul_loop', 'data_mass', 'firewall', 'block_cache', 'targeting', 'ghost_frame', 'static_skin', 'sugar_rush', 'fast_route'];
   const rift = {
     inside: false, cap: 0, runs: 0, stable: 0, visited: new Set(), floorKey: '', patchAt: 0, descendAt: 0, leaveAt: 0, talkAt: 0, talkTries: 0,
     enterAt: 0, enterTries: 0, depth: 0, resultSeen: null, closedUntil: 0, seen: new WeakSet(), warned: '', startAt: 0, noRunAt: 0, giveUp: false, portalNear: 0, capOk: 0,

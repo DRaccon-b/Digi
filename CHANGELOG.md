@@ -2,6 +2,14 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.28 – Digital Rift: Patch-Wahl für alle 18 Patches
+- Live 16.11. (Diaboromon Lv 100, Tiefe 4): stabil in 4:29, 0 Ohnmachten, höchstens 5 Angreifer. Angeboten wurden auch
+  Patches, die die Prioritätsliste nicht kannte (Data Harvest, Overflow Shield, Block Cache, Crit Routine, Fast Route) – dann
+  nahm der Bot einfach das erste. Jetzt kennt er alle 18: Arc Spark (30 % des Schadens springt im Umkreis 72 px über – Fläche
+  auch für Einzelziel-Kämpfer), Data Harvest (3 % Heilung je Kill), Overclock, Rapid Fire, Siphon, Quick Compile, Momentum,
+  Crit Routine, Overflow Shield, Soul Loop, Data Mass, Firewall, Block Cache, Targeting, Ghost Frame, Static Skin, Sugar Rush,
+  Fast Route.
+
 ## 3.2.27 – Digital Rift: sicher ausweichen
 - **Live 16.11. (Tiefe 15, Paladin): beide Tode im Rift passierten beim Ausweichen.**
   - **In Nachbargruppen gelaufen:** Der Fluchtpunkt achtete nur auf Warnflächen – der Bot wich in ruhige Gruppen aus (Rift-
