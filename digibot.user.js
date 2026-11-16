@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.29
+// @version      3.2.30
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1794,7 +1794,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.29'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.30'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -3022,10 +3022,17 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (h) return `Warte außerhalb · heile (${h})`;
     const ents = window.dmo?.net?.state?.entities, from = partner || tamer; if (!ents || !from) return null;
     const mine = new Set([st?.me?.tamerEntityId, st?.me?.partner?.entityId]);
+    // in Schlagweite vom sicheren Platz aus (wie digibotOutsideBasicPlan): auch einen Angreifer am/im Zonenrand schlagen – die
+    // Flächenangriffe liegen meist um die Gegner selbst; die 1 bewegt das Digimon dann nicht (live 16.11.: 4–7 s gewartet, während
+    // ihn 2–3 Gegner aus 20–30 px schlugen, 3.2.30)
+    const C = content(), br = C?.digimon?.[partner?.defId || st?.me?.partner?.species]?.basic?.range ?? DODGE_BASIC_RANGE;
+    const reach = (e) => (Number.isFinite(br) && br > 0 ? br + Math.max(1, Math.min(C?.digimon?.[e.defId]?.radius ?? 7, 7)) - DODGE_BASIC_PAD : 0);
+    const safeHere = !!partner && !zones.some((c) => !digibotDodgeZoneSafe(c, partner, DODGE_EDGE_MARGIN));
     let best = null, bd = Infinity;
     ents.forEach((e) => {
       if (e.kind !== KIND.Mob || e.hp <= 0 || (e.flags & (FLAG.Dead | FLAG.Hidden | FLAG.Untargetable)) || !mine.has(e.targetId) || e.id === target?.id) return;
-      if (zones.some((c) => !digibotDodgeZoneSafe(c, e, DODGE_MARGIN)) || !lineClear(from, e, zones)) return;
+      const inReach = safeHere && Math.hypot(e.x - partner.x, e.y - partner.y) <= reach(e) && !mirrorActive(e.id);
+      if (!inReach && (zones.some((c) => !digibotDodgeZoneSafe(c, e, DODGE_MARGIN)) || !lineClear(from, e, zones))) return;
       const d = Math.hypot(e.x - from.x, e.y - from.y); if (d < bd && d <= 200) { bd = d; best = e; }
     });
     if (!best) return null;
@@ -3150,6 +3157,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const casting=!!partner&&!!(partner.flags&FLAG.Casting);
       if(casting&&near&&target&&dodgeState.basicTarget===target.id&&!zones.some(c=>!digibotDodgeZoneSafe(c,partner,DODGE_EDGE_MARGIN)))return 'Außerhalb der Warnzone · Skill wird gewirkt';
       if(dodgeState.basicTarget&&!(dodgeState.rangedUntil>now)&&!casting)digibotOutsideStop(partner,now);
+      // Rift: erst einen Angreifer in Schlagweite abwehren, bevor der Anmarsch zum Ziel in der Zone den Kampf ruhen lässt (3.2.30)
+      // – auch während eines laufenden Anmarschs (Rift-Gegner verfolgen ohne Leine und holen dabei auf; Review 3.2.30): dann den
+      // Anmarsch beenden, sonst lief er mit dem alten Ziel weiter
+      if (riftMap(cmap) && near && (target || dodgeState.active)) {
+        const rw = riftWaitAct(st, zones, partner, tamer, target, now);
+        if (rw && dodgeState.approachTarget && rw.startsWith('Warte außerhalb · wehre')) { dodgeState.approachTarget = null; dodgeState.approachGoal = null; dodgeState.approachStopped = false; autopilot.nav = null; autopilot.route = null; }
+        if (rw) return rw;
+      }
       const approach=zones.length?digibotDodgeApproach(st,target,tamer,partner,zones,now):null;
       if(approach)return approach;
       const blocked=!!target || dodgeState.active;
@@ -10078,6 +10093,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // vorsichtig spielen (Nutzer 16.11.: „rennt an 1000 Digimon vorbei … dabei stirbt er immer“): unterwegs aufräumen, vor dem
   // nächsten Kampf erholen
   const RIFT_REST_HP = 60;           // unter so viel HP (%) ohne Angreifer erst erholen
+  const RIFT_DROP_HP = 30;           // darunter (ohne Angreifer) auch ein schon gewähltes, ruhiges Ziel fallen lassen (3.2.30)
   const RIFT_REST_MS = 25000;        // höchstens so lange je Pause
   const RIFT_REST_CLOCK_MS = 180000; // nur, solange die Uhr noch so viel Zeit hat
   const RIFT_PORTAL_NEAR = 80;   // so nah ans Portal (Spiel: „at“ bis 112 px)
@@ -11607,6 +11623,24 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         if (cc) { this.status = cc; return; }
       }
 
+      // 2c) Rift, sehr wenig HP, niemand greift an: das ruhige Ziel fallen lassen und sich erholen (live 16.11.: mit 1–12 % HP weiter
+      // auf Archnemon, der zurückschlug – Ohnmacht, 3.2.30); nur im Erholfenster, danach geht es weiter
+      // Angreifer (auch ohne Weg/gesperrte, die trotzdem zuschlagen) beenden ein Erholfenster – danach gilt ein neues (Review 3.2.30)
+      const riftHit = riftMap(st.world?.mapId) && (attackers.length > 0 || !!sc?.mobs?.some((m) => m.attacker));
+      if (riftHit || (riftMap(st.world?.mapId) && hpPct >= RIFT_REST_HP)) rift.restAt = 0;
+      if (riftMap(st.world?.mapId) && hpPct < RIFT_DROP_HP && !riftHit && t?.kind === 'mob' && t.hp > 0 && !riftStore()?.result) {
+        const run = riftStore()?.run;
+        if (run && (run.clockMs ?? Infinity) > RIFT_REST_CLOCK_MS) {
+          rift.restAt ||= now;
+          if (now - rift.restAt < RIFT_REST_MS) {
+            if (this.attackedId || window.dmo?.net?.state?.entities?.get?.(st.me?.partner?.entityId)?.targetId) { this.attackedId = null; if (this.can('stop', 1000, now)) { this.lastPress.stop = now; commands()?.partnerStop?.(); } }
+            this.engage = null;
+            this.status = `Rift: wenig HP (${hpPct.toFixed(0)} %) – lasse ${t.name || 'das Ziel'} und erhole mich`;
+            return;
+          }
+        }
+      }
+
       // 3) Ziel prüfen
       const diff = t ? t.level - p.level : 0;
       // Ziel nicht mehr in der Spielwelt (z. B. Kuramon der Herde am Ei angekommen): nach kurzer Gnadenfrist fallen
@@ -11724,7 +11758,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       }
       if (this.mirrorHold) { this.mirrorHold = false; logEvent('auto', 'Spiegel vorbei – greife wieder an'); }
 
-      if(onFocus||info?.cat==='boss'){
+      // Rift: nur Guardian/markierte Alphas (Boss-Flag) per Anmarsch – normale Gegner greift die 1 direkt an (live 16.11.: lief
+      // 250 px ohne Angriff „zum Boss“, während ihn 2–3 Gegner schlugen, 3.2.30)
+      const riftPlain=riftMap(st.world?.mapId)&&info?.cat!=='boss'&&!(window.dmo?.net?.state?.entities?.get?.(t.id)?.flags&FLAG.Boss);
+      if((onFocus||info?.cat==='boss')&&!riftPlain){
         const walking=digibotBossWalkIn(st,t,now);
         if(walking){this.status=walking;return;}
       }

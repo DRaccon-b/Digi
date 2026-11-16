@@ -2,6 +2,20 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.30 – Digital Rift: beim Ausweichen zurückschlagen, mit wenig HP erholen
+- **Live 16.11. (Dukemon, Tiefe 10):** Beim Ausweichen stand er 4–7 s ohne Ziel („Warte außerhalb, bis der Flächenangriff vorbei
+  ist…“), während ihn 2–3 Gegner aus 20–30 px schlugen. Er wehrte nur Angreifer ab, die selbst außerhalb der Warnzone standen –
+  die Flächenangriffe liegen aber meist um die Gegner. Jetzt greift er einen Angreifer an, den er von seinem sicheren Platz aus
+  treffen kann (Schlagweite), auch wenn der am oder im Zonenrand steht – ohne hineinzulaufen. Das geschieht im Rift auch vor dem
+  Anmarsch zum Ziel in der Zone und auch, wenn ein Angreifer erst während des Anmarschs aufholt (der Anmarsch endet dann).
+- **Kein Boss-Anmarsch für normale Rift-Gegner:** Jedes Rift-Ziel lief über „Laufe über Spiel-Wegfindung zum Boss – Angriff erst
+  bei freiem Zugang“ (bis 160 px ohne Angriff, während Angreifer zuschlugen). Das gilt jetzt nur noch für den Guardian und
+  markierte Alphas (Boss-Flag); normale Gegner greift die 1 direkt an.
+- **Unter 30 % HP:** Greift ihn niemand an, lässt er auch ein schon gewähltes, ruhiges Ziel fallen und erholt sich (Erholfenster
+  wie bisher, 25 s) – live griff er mit 1–12 % HP weiter Archnemon an, der zurückschlug (Ohnmacht). Jeder Angreifer beendet das
+  Erholfenster, danach gilt ein neues – sonst blieb der alte Zeitstempel stehen und er erholte sich nach einem Kampf nicht mehr.
+- Tests: riftdodgetest (Fälle 4–8).
+
 ## 3.2.29 – Digital Rift: Guilmon Bread nachkaufen
 - **Live 16.11. (Dukemon Lv 130, Tiefe 10, stabil in 7:34, 44 Shards):** Über 3 min gingen an Ruhemodus und Erholungspausen
   verloren – auf F1 lag Guilmon Bread (heilt 45 000 HP), davon waren nur noch 2 Stück da. Jetzt kauft der Bot vor jedem Lauf bei
