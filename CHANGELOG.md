@@ -2,6 +2,24 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.19 – Digital Rift: solo starten, clearen, endlos wiederholen
+- **Neu unter Dungeon → Modus: „Digital Rift (solo, endlos)“** (Spiel-Update 16.11.). Der Bot geht zu Clockmon (Rift Warden,
+  Primary Village), öffnet den Rift und betritt die gewählte Tiefe. Im Lauf sucht er die Gegner Zelle für Zelle ab (die Karte
+  wird je Etage neu gebaut), besiegt sie, bis das Signal das Portal öffnet, steigt ab und besiegt auf der 3. Etage den Guardian.
+  Danach verlässt er den Rift und startet den nächsten Lauf – bis zum Stopp.
+- **Tiefe:** „höchstmögliche“ = die tiefste freigeschaltete Tiefe, für die das Level des aktiven Digimons reicht (Tiefe 1–5:
+  Lv 41/65/75/99/120, ab Tiefe 6: Lv 130); nach einem instabilen Lauf (Uhr abgelaufen) eine Tiefe weniger. Oder eine feste
+  Tiefe (Regler) – geht die nicht (nicht freigeschaltet, Level zu niedrig), stoppt der Bot mit Hinweis.
+- **Zielwahl im Rift:** Guardian, markierter Alpha (Alpha-Jagd-Etagen), Angreifer, Heiler/Schildgeber der Hinterreihe, dann der
+  nächste Gegner. Ist das Portal offen, wehrt er nur noch Angreifer ab und geht nach unten.
+- **Patches:** Angriff und Tempo zuerst (Overclock, Rapid Fire, Quick Compile, Siphon), dann Überleben.
+- Das Verlassen des Rifts zählt nicht als Rauswurf (keine 15-min-Sperre).
+- Sicherungen (Review): Dauert ein Lauf über 20 min (z. B. Guardian solo zu stark – er heilt sich bei jeder Ohnmacht um 25 %)
+  oder kommt im Rift 1 min kein Laufzustand, verlässt der Bot den Rift; bei „höchstmöglich“ geht der nächste Lauf eine Tiefe
+  flacher, nach 3 stabilen Läufen versucht er wieder die höhere. Steckt er auf dem Weg zu Portal oder Guardian fest, plant er
+  den Weg neu. Meldet das Spiel „zu weit vom Portal“, geht er näher heran. „Rifts geschlossen“ zählt nicht als Fehlversuch.
+- Tests: rifttest (neu).
+
 ## 3.2.18 – Deva-Runde: sechs Devas Kanal für Kanal hin und zurück
 - **Neu unter Boss-Farmen → Art: „Deva-Runde“.** Auf dem ersten angehakten Kanal Pajramon → Vajramon → Indramon →
   Kumbhiramon (West Shinjuku) → Sinduramon → Sandiramon (Deva Transit). Dort wechselt der Bot auf den nächsten Kanal und läuft

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.18
+// @version      3.2.19
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -171,7 +171,7 @@ function digibotConfig(saved, defaults) {
   const bounds={width:[300,900],radius:[80,2000],grpDist:[60,1500],lvlDiff:[-100,100],hpPot:[0,100],dsPot:[0,100],tdsPot:[0,100],pullMax:[2,8],pullHp:[30,90],
     foodAutoMin:[1,99],dodgeMargin:[8,80],dodgeEdge:[0,40],dodgeHold:[60,600],dodgeSoonMs:[300,3000],dodgeSoonPad:[0,200],dodgeLateK:[1,3],dodgeLatePad:[0,4000],
     dodgeLateAbort:[0,8000],dodgeRetap:[200,3000],dodgeWalk:[60,300],dodgeSearch:[150,600],dodgeHuge:[300,1500],pullDodgeLeash:[0,150],pullDodgeMargin:[0,60],
-    stopLevel:[0,150],stopAfterMin:[0,720],stopFaints:[0,50],stopBits:[0,100000000],potCdMs:[500,10000],huntLeadMin:[0.5,30],huntQuestLeadMin:[0.5,30],wbLeadMin:[1,30],huntIdleMin:[0.5,10],huntStallMin:[1,15],grpWaitMin:[1,10]};
+    stopLevel:[0,150],stopAfterMin:[0,720],stopFaints:[0,50],stopBits:[0,100000000],potCdMs:[500,10000],huntLeadMin:[0.5,30],huntQuestLeadMin:[0.5,30],wbLeadMin:[1,30],huntIdleMin:[0.5,10],huntStallMin:[1,15],grpWaitMin:[1,10],riftDepth:[1,100]};
   const boolMap=v=>Object.fromEntries(Object.entries(digibotRecord(v)?digibotClean(v):{}).filter(([,x])=>typeof x==='boolean'));
   const skills=v=>Object.fromEntries(Object.entries(boolMap(v)).filter(([k])=>/^[2-6]$/.test(k)));
   const heals=v=>Object.fromEntries(Object.entries(digibotRecord(v)?digibotClean(v):{}).filter(([k,x])=>/^[2-6]$/.test(k)&&typeof x==='number').map(([k,x])=>[k,Math.max(0,Math.min(100,x))]));
@@ -192,7 +192,7 @@ function digibotConfig(saved, defaults) {
   out.farmChannels=[...new Set((out.farmChannels||[]).filter(x=>Number.isInteger(x)&&x>=1&&x<=100))];
   out.sellRar=[...new Set((out.sellRar||[]).filter(x=>Number.isInteger(x)&&x>=0&&x<DIGIBOT_GEAR_RAR.length))].sort((a,b)=>a-b);
   for(const k of ['cardSel','cardNamed'])if(Object.hasOwn(saved,k)){if(Array.isArray(saved[k]))out[k]=[...new Set(saved[k].filter(x=>typeof x==='string'&&x.length<200))].slice(0,300);else issues.push(k);}
-  const enums={farmMode:['boss','named','cards','deva'],apOrder:['near','sweep'],apSweepDir:['up','down'],dgMode:['easy','hard','apocalymon','malomyotismon','beelzemon','d_reaper'],sellHow:['sell','salvage']};
+  const enums={farmMode:['boss','named','cards','deva'],apOrder:['near','sweep'],apSweepDir:['up','down'],dgMode:['easy','hard','apocalymon','malomyotismon','beelzemon','d_reaper','rift'],riftDepthMode:['max','fixed'],sellHow:['sell','salvage']};
   for(const [k,vals]of Object.entries(enums))if(!vals.includes(out[k])){out[k]=defaults[k];issues.push(k);}
   return {value:out,issues};
 }
@@ -615,7 +615,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   let dgObsMap = '';
   function dgObserveMap(st, now) { // 3.1.20: Rauswurf merken, auch wenn der Raumstand schon zurückgesetzt wurde
     const m = st?.world?.mapId || ''; if (m === dgObsMap) return; const prev = dgObsMap; dgObsMap = m;
-    if (prev && isRaidMap(prev) && !isRaidMap(m) && !dg.cleared && !(st?.raid?.cleared)) dgNoteExit(now, prev);
+    if (prev && isRaidMap(prev) && !isRaidMap(m) && !riftMap(prev) && !dg.cleared && !(st?.raid?.cleared)) dgNoteExit(now, prev); // Rift: Ende = Hinausgehen (3.2.19)
   }
   function digibotObserve() {
     const st=window.dmo?.store?.getState?.();
@@ -1501,6 +1501,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     dungeon: false,       // Dungeon-Modus (Kera): betreten, Räume räumen, Boss, raus
     dgMode: 'easy',       // 'easy' = War Game, 'hard' = Revenge (allein kaum zu schaffen), 'apocalymon' / 'malomyotismon' / 'beelzemon' / 'd_reaper' = Raid
     dgBreak: true,        // Optionales Brechbares (Mail Server bei Diaboromon) zerstören – alle dasselbe Ziel; aus = nur der Boss (3.1.1).
+    riftDepthMode: 'max', // Digital Rift (3.2.19): 'max' = tiefste freigeschaltete, für die das Partner-Level reicht; 'fixed' = riftDepth
+    riftDepth: 1,
     dgRetry: false,       // Nach einem gescheiterten Lauf (rausgeflogen) neu betreten, bis DG_TRIES Versuche – aus: Bot stoppt (3.1.5)
     dgFlareCover: false,  // Ultimate Flare: Platten als Deckung nutzen, wenn näher – aus: nur hinter Armageddemon, dort weiter angreifen (3.1.18)
     dgRing: false,        // Warnkreise: zur Nahkampfposition auf der freien Seite des Bosses ausweichen (3.1.19) – live 28.10. zwei Tote bei Cannon Volley → Standard aus (3.1.20)
@@ -1792,7 +1794,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.18'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.19'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1965,9 +1967,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           'Gilt für den Modus Bosse. Boss-Rotation: reist zum ausgewählten Boss, der als Nächstes da ist. Named-Elite-Runde: Maps von Start bis Ende ablaufen, je Kanal prüfen (lebt → kämpfen, Respawn unter 2 min → warten, sonst weiter), danach per Digi-Phone zurück. Deva-Runde: auf dem ersten Kanal Pajramon → Vajramon → Indramon → Kumbhiramon → Sinduramon → Sandiramon, dort auf den nächsten Kanal und die Reihe rückwärts, dann der nächste Kanal wieder vorwärts. Nicht da: an Pajramon und Sandiramon bis 5 min auf den Respawn warten, bei den anderen höchstens 1 min, sonst weiter. Kanalwechsel nur außerhalb des Kampfes; das Level-Limit gilt für diese Bosse nicht.', 'data-modes="farm"')}
         ${grp('dungeon', 'Dungeon', `
           <div class="digibot__apcfg">
-            <label>Modus<select data-apsel="dgMode"><option value="easy">Easy – War Game</option><option value="hard">Hard – Revenge (Gruppe)</option><option value="apocalymon">Apocalymon-Raid</option><option value="malomyotismon">MaloMyotismon-Raid</option><option value="beelzemon">Beelzebumon-Raid (Lv 121)</option><option value="d_reaper">Mother-D-Reaper-Raid (Lv 130)</option></select></label>
+            <label>Modus<select data-apsel="dgMode"><option value="easy">Easy – War Game</option><option value="hard">Hard – Revenge (Gruppe)</option><option value="apocalymon">Apocalymon-Raid</option><option value="malomyotismon">MaloMyotismon-Raid</option><option value="beelzemon">Beelzebumon-Raid (Lv 121)</option><option value="d_reaper">Mother-D-Reaper-Raid (Lv 130)</option><option value="rift">Digital Rift (solo, endlos)</option></select></label>
+            <label data-dgmode="rift">Tiefe<select data-apsel="riftDepthMode"><option value="max">höchstmögliche</option><option value="fixed">feste Tiefe</option></select></label>
             ${check('dgRetry', 'Nach gescheitertem Lauf neu betreten (bis 3×)', 'Aus: Der Bot stoppt nach einem gescheiterten Lauf, Neustart über den Leader. Nach einem Rauswurf wartet er ohnehin 15 min (manueller Start hebt das auf).')}
           </div>
+          <div data-dgmode="rift">${slider('riftDepth', 'Feste Tiefe', 1, 30, (v) => `Tiefe ${v} (Lv ${v <= 5 ? [41, 65, 75, 99, 120][v - 1] : 130})`, 0, 1)}
+            <div class="digibot__hint">Solo: Der Bot geht zu Clockmon (Primary Village), öffnet den Rift und läuft ihn ab – Gegner suchen und besiegen, bis das Signal das Portal öffnet, absteigen, auf der 3. Etage den Guardian besiegen, hinaus und von vorn, bis du stoppst. „höchstmögliche“: die tiefste freigeschaltete Tiefe, für die das Level des aktiven Digimons reicht (Tiefe 1–5: Lv 41/65/75/99/120, ab 6: Lv 130); nach einem instabilen Lauf (Uhr abgelaufen) eine Tiefe weniger. Patches: Angriff/Tempo zuerst.</div></div>
           <div data-dgmode="beelzemon d_reaper"><div class="digibot__hint">Tamers-Raid, auch mit Fremden in der Party: Nur der Party-Leader kann ihn öffnen – ist das ein Mitspieler, wartet der Bot an der Tür, bis er offen ist. Ist der Bot Leader, wartet er, bis alle Mitspieler bereit an der Tür stehen (höchstens 20 min). Geteilte Treffer (mind. 3 im Kreis) nimmt er mit den Mitspielern zusammen, Adds und Greifhände zuerst. Voraussetzung: Beelzebumon – Quest „The Broken Promise“ angenommen, Mega; Mother D-Reaper – Quest des Raids angenommen. Nach dem Sieg geht der Bot hinaus und stoppt.</div></div>
           <div data-dgmode="hard">
             <div class="digibot__title">Hard – Diaboromon (Raum 3)</div>
@@ -9532,6 +9537,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   function dungeonFocus(sc) {
     if (!cfg.dungeon || !sc) return null;
+    if (riftMap(sc.mapId)) return riftFocus(sc); // Digital Rift (3.2.19)
     const st = getStore()?.getState?.(), raid = dgRaid(sc.mapId);
     if (st && !raid && plainRaid(sc.mapId)) return raidFocus(sc);
     if (!st || !raid) return null;
@@ -9611,6 +9617,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Laufen ohne Ziel: zur Tür, betreten, in den Raum, durchs Tor, zum Ausgang. Liefert den Status.
   function dungeonStep(st, sc, now) {
     const mapId = st.world?.mapId, raid = dgRaid(mapId);
+    if (riftMap(mapId)) return riftStep(st, sc, now); // Digital Rift (3.2.19)
+    if (cfg.dgMode === 'rift') return riftOutside(st, now);
     if (!raid && plainRaid(mapId)) return raidStep(st, now, plainRaid(mapId));
     if (!raid) return dungeonOutside(st, now);
     if (!dg.inside) { dg.inside = true; dg.insideAt = now; dg.doorAt = 0; dg.enterTries = 0; dg.herd = { low: false, lowAt: 0, back: false, backAt: 0, seen: new Set(), lastSpawn: 0, note: '' }; dg.kite = { at: 0, done: false, best: Infinity, bestAt: 0, side: 0 }; logEvent('bot', `Dungeon betreten: ${content()?.maps?.[mapId]?.name || mapId}`); }
@@ -9993,7 +10001,228 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (!dg.evoWarned) { dg.evoWarned = true; logEvent('warn', `Dungeon: Digitation zu ${evo} klappt nicht – gehe in der aktuellen Form`); }
     return false;
   }
+  // ---------- Digital Rift (3.2.19, Nutzer 16.11.: solo starten, clearen, endlos wiederholen) ----------
+  // Spiel (Client 16.11.): Clockmon (rift_warden) in Primary Village – Dialog „open“ -> Rift-Fenster (window.dmo.rift: warden, view
+  // {deepest, party[{level, problem}], iLead, blocked}) -> riftEnter{depth}. Im Lauf (run): 3 Etagen, Signal 0–100 % aus Kills,
+  // Portal öffnet bei n/3 (riftDescend am Portal, nur der Leiter), Patch-Angebot (patch {offerId, offers}) -> riftPatch{offer,pick},
+  // letzte Etage bei vollem Signal Guardian (run.guardian 'called'). Ende: result -> raidLeave -> zurück nach Primary Village.
+  // Die Karte wird je Etage neu gebaut (scene.riftFog.rift.layout.cells) – world.maps['rift_sector'] ist nur ein Platzhalter.
+  const RIFT_NPC = 'rift_warden';
+  const RIFT_LEVELS = [41, 65, 75, 99, 120]; // Partner-Level je Tiefe 1–5, ab Tiefe 6: 130
+  const riftNeedLv = (d) => (d >= 1 && d <= 5 ? RIFT_LEVELS[d - 1] : 130);
+  const riftMap = (mapId) => !!mapId && !!content()?.spawns?.[mapId]?.raid?.rift;
+  const riftStore = () => { try { return window.dmo?.rift?.getState?.() || null; } catch { return null; } };
+  const RIFT_FOCUS_R = 450;      // so weit (Weglänge) sucht der Rift-Modus Gegner; Angreifer immer
+  const RIFT_PORTAL_NEAR = 80;   // so nah ans Portal (Spiel: „at“ bis 112 px)
+  const RIFT_CELL_NEAR = 70;     // Zelle gilt als abgesucht, wenn man so nah an ihrer Mitte war
+  const RIFT_STEP_MS = 1500, RIFT_ENTER_MS = 4000, RIFT_ENTER_TRIES = 5, RIFT_TALK_TRIES = 8, RIFT_LEAVE_MS = 2500;
+  const RIFT_GIVEUP_MS = 20 * 60000; // so lange darf ein Lauf dauern (Uhr 12 min), dann hinaus – z. B. Guardian solo zu stark (Review)
+  const RIFT_NORUN_MS = 60000;       // im Rift ohne Laufzustand so lange warten, dann hinaus (Review)
+  const RIFT_CAP_RETRY = 3;          // nach so vielen stabilen Läufen an der Grenze wieder die höhere Tiefe versuchen
+  // Patch-Priorität: Schaden/Tempo zuerst, dann Überleben (Spieldaten 16.11.: 18 Patches, je bis 3 Stapel)
+  const RIFT_PATCH_PRIO = ['overclock', 'rapid_fire', 'quick_compile', 'siphon', 'data_mass', 'firewall'];
+  const rift = {
+    inside: false, cap: 0, runs: 0, stable: 0, visited: new Set(), floorKey: '', patchAt: 0, descendAt: 0, leaveAt: 0, talkAt: 0, talkTries: 0,
+    enterAt: 0, enterTries: 0, depth: 0, resultSeen: null, closedUntil: 0, seen: new WeakSet(), warned: '', startAt: 0, noRunAt: 0, giveUp: false, portalNear: 0, capOk: 0,
+    reset() { Object.assign(this, { noRunAt: 0, giveUp: false, portalNear: 0, capOk: 0, inside: false, cap: 0, visited: new Set(), floorKey: '', patchAt: 0, descendAt: 0, leaveAt: 0, talkAt: 0, talkTries: 0, enterAt: 0, enterTries: 0, depth: 0, resultSeen: null, closedUntil: 0, warned: '', startAt: 0 }); },
+  };
+  const riftWarn = (why) => { if (rift.warned !== why) { rift.warned = why; logEvent('warn', `Rift: ${why}`); } };
+  // Hinweise des Spiels (System-Chat, code rift_*) – eigene Merkliste, damit checkRefusals sie nicht verschluckt
+  function riftNotices(st) {
+    const chat = Array.isArray(st?.chat) ? st.chat : st?.chat?.messages || st?.chat?.lines || [], out = [];
+    for (let i = Math.max(0, chat.length - 15); i < chat.length; i++) {
+      const m = chat[i];
+      if (!m || typeof m !== 'object' || rift.seen.has(m)) continue;
+      rift.seen.add(m);
+      if (typeof m.code === 'string' && m.code.startsWith('rift_') && (!m.ts || Math.abs(Date.now() - m.ts) < REFUSAL_FRESH_MS)) out.push(m.code);
+    }
+    return out;
+  }
+  const riftLayout = () => worldScene()?.riftFog?.rift?.layout || null;
+  // Tiefe wählen: fest (Panel) oder die tiefste freigeschaltete, für die das Partner-Level reicht (nach einem instabilen Lauf
+  // höchstens eine weniger als dort)
+  function riftDepthPick(st, view) {
+    const deepest = Math.max(1, Number(view?.deepest) || 1);
+    const me = (view?.party || []).find((p) => p?.leader) || (view?.party || [])[0];
+    const lv = Number(me?.level) || Number(st?.me?.partner?.level) || 1;
+    if (cfg.riftDepthMode === 'fixed') {
+      const d = Math.max(1, Math.round(Number(cfg.riftDepth) || 1));
+      const why = d > deepest ? `Tiefe ${d} ist noch nicht freigeschaltet (bis ${deepest})` : riftNeedLv(d) > lv ? `Tiefe ${d} braucht Partner Lv ${riftNeedLv(d)} (hast ${lv})` : '';
+      return { depth: d, why };
+    }
+    let d = 0;
+    for (let i = 1; i <= deepest; i++) if (riftNeedLv(i) <= lv) d = i;
+    if (rift.cap) d = Math.min(d, rift.cap);
+    return d >= 1 ? { depth: d, why: '' } : { depth: 1, why: `Partner Lv ${lv} reicht für keine Tiefe (Tiefe 1 ab Lv ${RIFT_LEVELS[0]})` };
+  }
+  // Zielwahl im Rift: Guardian, markierter Alpha, Angreifer, Heiler/Schildgeber der Hinterreihe, dann der nächste Gegner. Steht das
+  // Portal offen (nicht letzte Etage), nur noch Angreifer – dann geht es nach unten.
+  function riftFocus(sc) {
+    const st = getStore()?.getState?.(), R = riftStore(), run = R?.run;
+    if (!st || !run || R.result) return sc.attackers.find((m) => !safeHeld(m.id)) || null;
+    const fl = run.floor || { n: 1, of: 3 }, last = fl.n >= fl.of, ents = window.dmo?.net?.state?.entities;
+    const portalOpen = !last && !!run.portal?.open;
+    const marks = new Set((run.alphaMarks || []).map((a) => a?.id).filter(Boolean));
+    const role = (m) => (st.effects?.[m.id] || []).some((e) => e?.id === 'rift_role_mender' || e?.id === 'rift_role_warder');
+    const score = (m) => {
+      const boss = !!(ents?.get?.(m.id)?.flags & FLAG.Boss) || m.cat === 'boss';
+      const dist = m.pd ?? m.d;
+      if (boss) return last && run.guardian === 'called' ? dist / 100 : m.attacker ? 1000 + dist / 100 : Infinity;
+      if (portalOpen) return m.attacker ? 100 + dist / 100 : Infinity;
+      if (!m.attacker && !(dist <= RIFT_FOCUS_R)) return Infinity;
+      return (marks.has(m.id) ? 10 : m.attacker ? 100 : role(m) ? 200 : 300) + dist / 100;
+    };
+    const list = sc.mobs.filter((m) => !m.banned && m.reach !== false && !safeHeld(m.id) && score(m) < Infinity).sort((a, b) => score(a) - score(b));
+    const cur = st.target, keep = cur && list.find((m) => m.id === cur.id);
+    if (keep && Math.floor(score(keep) / 100) <= Math.floor(score(list[0]) / 100)) return keep; // nicht hin und her
+    return list[0] || null;
+  }
+  // Im Rift ohne Ziel: Patch wählen, Guardian, Portal, Alpha, sonst die nächste noch nicht abgesuchte Zelle
+  function riftStep(st, sc, now) {
+    const R = riftStore(), run = R?.run, me = controlled(st);
+    if (!rift.inside) { rift.inside = true; rift.startAt = now; rift.noRunAt = 0; rift.giveUp = false; rift.portalNear = 0; rift.visited = new Set(); rift.floorKey = ''; rift.enterTries = 0; rift.talkTries = 0; logEvent('bot', `Rift betreten${run?.depth ? `: Tiefe ${run.depth}` : ''}`); }
+    for (const code of riftNotices(st)) if (code === 'rift_portal_far') { rift.descendAt = 0; rift.portalNear = 40; } // näher heran
+    if (R?.result) return riftAfter(st, R.result, now);
+    // aufgeben: Lauf zu lang (z. B. Guardian heilt sich bei jeder Ohnmacht) oder kein Laufzustand – hinaus, nächster Lauf eine Tiefe flacher
+    if (!run) rift.noRunAt ||= now; else rift.noRunAt = 0;
+    if (rift.giveUp || now - rift.startAt > RIFT_GIVEUP_MS || (rift.noRunAt && now - rift.noRunAt > RIFT_NORUN_MS)) return riftLeave(now, run ? 'Lauf dauert zu lange' : 'kein Laufzustand');
+    if (!R) return 'Rift: Laufzustand fehlt (Spiel neu laden?)';
+    if (!run) return 'Rift: warte auf den Laufzustand…';
+    if (R.floorUi?.going) return `Rift: Etage ${R.floorUi.going.to ?? '?'}/${R.floorUi.going.of ?? 3} lädt…`;
+    if (R.patch?.offerId && now - rift.patchAt > RIFT_STEP_MS) {
+      const offers = R.patch.offers || [];
+      const rank = (o) => { const i = RIFT_PATCH_PRIO.indexOf(o?.id); return (i < 0 ? 50 : i) + (Number(o?.stacks) >= 3 ? 100 : 0); };
+      let pick = 0; offers.forEach((o, i) => { if (rank(o) < rank(offers[pick])) pick = i; });
+      rift.patchAt = now;
+      try { commands()?.command?.('riftPatch', { offer: R.patch.offerId, pick }); } catch { /* ignore */ }
+      logEvent('bot', `Rift: Patch ${offers[pick]?.name || offers[pick]?.id || pick + 1}`);
+      return 'Rift: wähle Patch…';
+    }
+    if (!me) return 'Rift: warte auf die Spielfigur…';
+    const fl = run.floor || { n: 1, of: 3 }, last = fl.n >= fl.of, lay = riftLayout();
+    const fk = `${run.depth}|${fl.n}|${lay?.cells?.length || 0}`;
+    if (rift.floorKey !== fk) { rift.floorKey = fk; rift.visited = new Set(); rift.descendAt = 0; logEvent('map', `Rift: Etage ${fl.n}/${fl.of}${run.objective === 'hunt' ? ' (Alpha-Jagd)' : ''}`); }
+    const clock = run.clockMs != null ? ` · Uhr ${fmtClock(Math.max(0, run.clockMs))}` : '';
+    const tag = `Rift T${run.depth ?? '?'} · Etage ${fl.n}/${fl.of} · Signal ${Math.round(run.signal || 0)} %${clock}`;
+    // feststecken: Weg neu planen (sonst meldet walkTo für dasselbe Ziel dauerhaft „stuck“, Review)
+    const go = (x, y, what) => { if (walkTo(st, x, y, now) === 'stuck') { autopilot.nav = null; return null; } return `${tag} · ${what} (${Math.round(Math.hypot(me.x - x, me.y - y))} px)`; };
+    // Guardian gerufen: zur Arena
+    if (last && run.guardian === 'called') {
+      const g = lay?.guardian || worldScene()?.map?.spawns?.guardian;
+      if (g && Math.hypot(me.x - g.x, me.y - g.y) > 60) return go(g.x, g.y, 'Guardian – laufe hin') || `${tag} · Weg zum Guardian blockiert`;
+      return `${tag} · warte auf den Guardian`;
+    }
+    // Portal offen: hin und absteigen
+    if (!last && run.portal?.open && run.portal.x != null) {
+      const d = Math.hypot(me.x - run.portal.x, me.y - run.portal.y);
+      if (d > (rift.portalNear || RIFT_PORTAL_NEAR)) return go(run.portal.x, run.portal.y, 'zum Portal') || `${tag} · Weg zum Portal blockiert`;
+      if (now - rift.descendAt > 3000) { rift.descendAt = now; try { commands()?.command?.('riftDescend', {}); } catch { /* ignore */ } logEvent('bot', `Rift: steige ab (Etage ${fl.n} → ${fl.n + 1})`); }
+      return `${tag} · steige ab…`;
+    }
+    // Alpha-Jagd: zum markierten Alpha
+    const mark = (run.alphaMarks || []).filter((a) => a?.x != null).sort((a, b) => Math.hypot(me.x - a.x, me.y - a.y) - Math.hypot(me.x - b.x, me.y - b.y))[0];
+    if (mark && Math.hypot(me.x - mark.x, me.y - mark.y) > 120) { const s = go(mark.x, mark.y, 'zum markierten Alpha'); if (s) return s; }
+    // erkunden: abgesuchte Zellen merken, dann die nächste offene (Lager zuletzt)
+    const cells = (lay?.cells || []).filter((c) => c?.rect);
+    if (!cells.length) return `${tag} · keine Kartendaten – warte`;
+    const mid = (c) => ({ x: c.rect.x + c.rect.w / 2, y: c.rect.y + c.rect.h / 2 });
+    for (const c of cells) { const p = mid(c); if (Math.hypot(me.x - p.x, me.y - p.y) <= RIFT_CELL_NEAR || inRect({ x: c.rect.x + 24, y: c.rect.y + 24, w: c.rect.w - 48, h: c.rect.h - 48 }, me)) rift.visited.add(c.id); }
+    const open = cells.filter((c) => !rift.visited.has(c.id) && c.role !== 'camp')
+      .sort((a, b) => Math.hypot(me.x - mid(a).x, me.y - mid(a).y) - Math.hypot(me.x - mid(b).x, me.y - mid(b).y));
+    if (!open.length) { rift.visited = new Set(); return `${tag} · alles abgesucht – suche erneut`; }
+    const c = open[0], p = mid(c);
+    const s = go(p.x, p.y, `erkunde ${c.role?.startsWith('deadend') ? 'Sackgasse' : c.role === 'branch' ? 'Abzweig' : c.role === 'main' ? 'Hauptweg' : c.role || 'Zelle'} ${rift.visited.size + 1}/${cells.length}`);
+    if (!s) { rift.visited.add(c.id); return `${tag} · Zelle nicht erreichbar – nächste`; }
+    return s;
+  }
+  // Lauf vorbei: Ergebnis merken, dann hinaus (raidLeave) – der nächste Lauf beginnt bei Clockmon
+  function riftAfter(st, res, now) {
+    if (rift.resultSeen !== res) {
+      rift.resultSeen = res; rift.runs++; if (res.stable) rift.stable++;
+      const d = Number(res.depth) || rift.depth || 0;
+      if (cfg.riftDepthMode !== 'fixed' && !res.stable && d > 1) { rift.cap = d - 1; rift.capOk = 0; logEvent('warn', `Rift: Tiefe ${d} nicht stabil geschafft – nächster Lauf höchstens Tiefe ${rift.cap}`); }
+      else if (rift.cap && res.stable && d >= rift.cap && ++rift.capOk >= RIFT_CAP_RETRY) { logEvent('bot', `Rift: ${rift.capOk}× stabil auf Tiefe ${d} – versuche wieder die höhere`); rift.cap = 0; rift.capOk = 0; }
+      const loot = res.loot || {}, t = Number(res.timeMs) || 0;
+      logEvent('kill', `Rift Tiefe ${d}: ${res.stable ? 'stabil geschafft' : 'geschafft, aber instabil'}${t ? ` in ${fmtClock(t)}` : ''}${loot.shards ? ` · ${loot.shards} Shards` : ''}${loot.bits ? ` · ${loot.bits} Bits` : ''} (Lauf ${rift.runs})`);
+      rift.leaveAt = now;
+    }
+    if (now - rift.leaveAt >= RIFT_LEAVE_MS) {
+      rift.leaveAt = now + RIFT_LEAVE_MS;
+      try { if (commands()?.raidLeave) commands().raidLeave(); else commands()?.command?.('raidLeave', {}); } catch { /* ignore */ }
+    }
+    return `Rift geschafft (${res.stable ? 'stabil' : 'instabil'}) – verlasse den Rift…`;
+  }
+  function riftLeave(now, why) {
+    if (!rift.giveUp) {
+      rift.giveUp = true; rift.leaveAt = 0;
+      const d = riftStore()?.run?.depth || rift.depth;
+      if (cfg.riftDepthMode !== 'fixed' && d > 1) { rift.cap = d - 1; rift.capOk = 0; }
+      logEvent('warn', `Rift: ${why} – verlasse den Rift${cfg.riftDepthMode !== 'fixed' && d > 1 ? `, nächster Lauf höchstens Tiefe ${d - 1}` : ''}`);
+    }
+    if (now - rift.leaveAt >= RIFT_LEAVE_MS) { rift.leaveAt = now; try { if (commands()?.raidLeave) commands().raidLeave(); else commands()?.command?.('raidLeave', {}); } catch { /* ignore */ } }
+    return `Rift: ${why} – verlasse den Rift…`;
+  }
+  // Außerhalb: zu Clockmon, Rift-Fenster öffnen, Tiefe wählen, betreten
+  function riftOutside(st, now) {
+    if (rift.inside) { rift.inside = false; rift.talkTries = 0; rift.enterTries = 0; rift.talkAt = 0; rift.enterAt = 0; rift.warned = ''; }
+    const R = riftStore();
+    if (!R) return 'Rift: Spiel kennt den Digital Rift nicht (Seite neu laden?)';
+    for (const code of riftNotices(st)) {
+      if (code === 'rift_closed') { rift.closedUntil = now + 60000; rift.enterTries = 0; riftWarn('Rifts gerade geschlossen – warte 1 min'); }
+      else if ((code === 'rift_level' || code === 'rift_depth_locked') && cfg.riftDepthMode !== 'fixed' && rift.depth > 1) { rift.cap = rift.depth - 1; logEvent('warn', `Rift: Tiefe ${rift.depth} geht nicht (${code === 'rift_level' ? 'Partner-Level' : 'nicht freigeschaltet'}) – nehme Tiefe ${rift.cap}`); rift.enterTries = 0; }
+      else if (code === 'rift_level' || code === 'rift_depth_locked') { logEvent('warn', `Rift: feste Tiefe ${rift.depth} geht nicht (${code === 'rift_level' ? 'Partner-Level zu niedrig' : 'nicht freigeschaltet'}) – Bot gestoppt`); notify('Rift: Tiefe geht nicht – Bot gestoppt.', 'stop'); bot.toggle(true); return 'Rift: Tiefe geht nicht – Bot gestoppt'; }
+    }
+    if (st.me?.partner?.fainted) return 'Rift: Partner bewusstlos – warte';
+    if (world.state !== 'ready') { loadWorld(); return 'Lade Kartendaten…'; }
+    if (rift.closedUntil > now) return `Rift geschlossen – nächster Versuch in ${fmtClock(rift.closedUntil - now)}`;
+    if (R.result && !R.warden && typeof R.set === 'function') R.set({ result: null }); // altes Ergebnisfenster („Stay“) – sonst öffnet das Rift-Fenster nicht
+    const loc = (world.npcAt.get(RIFT_NPC) || [])[0];
+    if (!loc) return 'Rift: Clockmon nicht in den Kartendaten gefunden';
+    const tr = travel(st, loc.mapId, now);
+    if (tr !== true) return `Rift: Reise nach ${content()?.maps?.[loc.mapId]?.name || loc.mapId} · ${tr}`;
+    const me = controlled(st);
+    if (!me) return 'Rift: warte auf die Spielfigur…';
+    const d = Math.hypot(me.x - loc.x, me.y - loc.y);
+    if (d > 48 && !st.dialog) { // auch bei offenem Rift-Fenster (sonst „zu weit weg“ beim Betreten, Review)
+      if (walkTo(st, loc.x, loc.y + 24, now) === 'stuck') autopilot.nav = null;
+      return `Rift: gehe zu Clockmon (${Math.round(d)} px)`;
+    }
+    if (R.warden && R.view) {
+      const v = R.view, pick = riftDepthPick(st, v);
+      if (pick.why) {
+        if (cfg.riftDepthMode === 'fixed') { logEvent('warn', `Rift: ${pick.why} – Bot gestoppt`); notify('Rift: Tiefe geht nicht – Bot gestoppt.', 'stop'); bot.toggle(true); return `Rift: ${pick.why}`; }
+        riftWarn(pick.why); return `Rift: ${pick.why}`;
+      }
+      const bad = (v.party || []).filter((p) => p?.problem);
+      if (bad.length) return `Rift: ${bad.map((p) => `${p.name || '?'} ${p.problem === 'level' ? 'Level zu niedrig' : p.problem === 'far' ? 'zu weit weg' : p.problem}`).join(', ')}`;
+      if (v.blocked) return `Rift: gesperrt (${v.blocked})`;
+      if (v.iLead === false) return 'Rift: nur der Party-Leader kann den Rift öffnen';
+      if (now - rift.enterAt > RIFT_ENTER_MS) {
+        if (rift.enterTries >= RIFT_ENTER_TRIES) { logEvent('warn', `Rift: Spiel lässt nicht hinein (Tiefe ${pick.depth}) – Bot gestoppt`); notify('Rift: Spiel lässt nicht hinein – Bot gestoppt.', 'stop'); bot.toggle(true); return 'Rift: Spiel lässt nicht hinein – Bot gestoppt'; }
+        rift.enterAt = now; rift.enterTries++; rift.depth = pick.depth;
+        try { commands()?.command?.('riftEnter', { depth: pick.depth }); } catch { /* ignore */ }
+        if (rift.enterTries === 1) logEvent('bot', `Rift: betrete Tiefe ${pick.depth} (Partner Lv ${st.me?.partner?.level ?? '?'}, freigeschaltet bis ${v.deepest ?? '?'})`);
+      }
+      return `Rift: betrete Tiefe ${pick.depth}…`;
+    }
+    if (st.dialog?.npc === RIFT_NPC) {
+      if (now - rift.talkAt > RIFT_STEP_MS) { rift.talkAt = now; commands()?.chooseDialog?.('open'); }
+      return 'Rift: öffne das Rift-Fenster…';
+    }
+    if (st.dialog) { commands()?.closeDialog?.(); return 'Rift: schließe fremden Dialog…'; }
+    if (now - rift.talkAt < RIFT_STEP_MS * 2) return 'Rift: spreche Clockmon an…';
+    if (rift.talkTries >= RIFT_TALK_TRIES) { rift.talkTries = 0; rift.closedUntil = now + 60000; riftWarn('Clockmon antwortet nicht – nächster Versuch in 1 min'); return 'Rift: Clockmon antwortet nicht'; }
+    rift.talkAt = now; rift.talkTries++; commands()?.talk?.(RIFT_NPC);
+    return 'Rift: spreche Clockmon an…';
+  }
+  function riftLabel() {
+    const run = riftStore()?.run;
+    if (run) return `Rift: Tiefe ${run.depth ?? '?'} · Etage ${run.floor?.n ?? '?'}/${run.floor?.of ?? 3} · Signal ${Math.round(run.signal || 0)} %`;
+    return `Rift: zu Clockmon · ${rift.runs} Läufe (${rift.stable} stabil)`;
+  }
+
   function dungeonLabel() {
+    if (cfg.dgMode === 'rift' || riftMap(getStore()?.getState?.()?.world?.mapId)) return riftLabel();
     const h = dg.hud;
     if (!dg.inside || !h) return 'Dungeon: zur Tür / betreten';
     return h.room >= h.rooms ? 'Dungeon: alle Räume frei – zum Ausgang' : `Dungeon: Raum ${h.room + 1}/${h.rooms}${h.pulled ? ' · Kampf' : ''} · Stürze ${h.deaths}/${h.deathLimit}`;
@@ -10986,6 +11215,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       // sonst fehlt z. B. eine Map, die beim letzten Lauf noch nichts zu tun hatte, inzwischen aber schon)
       if (this.on && cfg.apOrder === 'sweep' && cfg.apSweepMap) { cfg.apSweepMap = ''; saveCfg(); }
       if (this.on && cfg.dungeon && !dg.inside) dg.reset(); // alter Lauf (geschafft/Fehlversuche/Raum-Stand) zählt nicht
+      if (this.on) rift.reset(); // Digital Rift: Tiefen-Grenze und Zähler neu (3.2.19)
       if (this.on && !digibotChallengeResume && (!quiet || digibotManual === true)) dgExit.manualAt = Date.now(); // Start von Hand hebt die Wiedereinstiegs-Sperre auf (3.1.20)
       if (this.on) loadWorld(); // Kartendaten (Portale, Zonen, Schutzzonen) für alle Modi
       if (this.on) this.timer = setInterval(() => this.tick(), TICK_MS);
@@ -11855,7 +12085,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const MODE_NAMES = { grind: 'Grinden', auto: 'Autopilot', farm: 'Bosse', dungeon: 'Dungeon', events: 'Nur Event/Weltboss', food: 'Food kaufen' };
   function syncModeScope() {
     const m = modeOf();
-    for (const k of ['dgMode', 'foodHp', 'foodDs', 'foodTamer', 'sellHow']) { // feste Selects: angezeigten Wert an cfg angleichen (Neuladen, andere Fenster)
+    for (const k of ['dgMode', 'riftDepthMode', 'foodHp', 'foodDs', 'foodTamer', 'sellHow']) { // feste Selects: angezeigten Wert an cfg angleichen (Neuladen, andere Fenster)
       const el = panelQ(`[data-apsel="${k}"]`), v = cfg[k] ?? '';
       if (el && panel.ownerDocument.activeElement !== el && el.value !== v) el.value = v;
     }

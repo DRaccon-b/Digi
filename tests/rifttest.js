@@ -1,0 +1,162 @@
+// 3.2.19 (Nutzer 16.11.): Digital Rift – solo starten, clearen, endlos wiederholen.
+// Ablauf im Spiel: Clockmon (rift_warden) in Primary Village ansprechen -> Dialog „open“ -> Rift-Fenster (window.dmo.rift:
+// warden/view) -> riftEnter{depth}. Im Rift 3 Etagen: Monster (erst in der Nähe sichtbar) füllen das Signal; Portal öffnet bei
+// n/3, riftDescend am Portal; Patch-Angebot bei 33 % -> riftPatch{offer,pick}; letzte Etage bei 100 % Guardian -> besiegen ->
+// riftResult -> raidLeave -> zurück in Primary Village -> nächster Lauf.
+// A: Tiefe „höchstmöglich“: freigeschaltet 5, Partner Lv 110 -> Tiefe 4 (Lv 99), nicht 5 (Lv 120).
+// B: Patch-Wahl nach Priorität (overclock vor data_mass/firewall).
+// C: drei Etagen, zweimal abgestiegen, Guardian besiegt, raidLeave gesendet.
+// D: danach zweiter Lauf gestartet.
+// E (zweiter Durchgang, feste Tiefe 2): riftEnter mit Tiefe 2.
+const { JSDOM, VirtualConsole } = require('jsdom');
+const fs = require('fs');
+const script = fs.readFileSync(process.argv[2], 'utf8');
+
+function world({ cfg, deepest = 5, level = 110, until }) {
+  const dom = new JSDOM('<!doctype html><body></body>', { runScripts: 'outside-only', url: 'https://play.digimmo.com.br/', pretendToBeVisual: true, virtualConsole: new VirtualConsole() });
+  const w = dom.window;
+  w.HTMLCanvasElement.prototype.getContext = () => null;
+  const tmj = (objs) => ({ layers: [{ type: 'objectgroup', name: 'objects', objects: objs }] });
+  const P = (k, v) => ({ name: k, type: 'string', value: v });
+  const PV = 'primary_village', RS = 'rift_sector';
+  const MAPS = {
+    [PV]: tmj([{ type: 'npc', name: 'rift_warden', x: 808, y: 792, properties: [P('npcId', 'rift_warden')] }, { type: 'spawn', name: 'from_rift', x: 808, y: 824 }]),
+    [RS]: tmj([{ type: 'spawn', name: 'camp', x: 584, y: 904 }]), // Platzhalter wie im Spiel – der Bot darf ihn im Lauf nicht benutzen
+  };
+  const content = {
+    digimon: { bearmon_rift: { name: 'Bearmon' }, cherrymon: { name: 'Cherrymon' } },
+    items: {}, npcs: { rift_warden: { name: 'Clockmon, Rift Warden' } }, quests: {}, dailyById: {},
+    maps: { [PV]: { id: PV, name: 'Primary Village', safe: true }, [RS]: { id: RS, name: 'Digital Rift', levelRange: [130, 130] } },
+    spawns: { [PV]: { zones: {} }, [RS]: { zones: {}, raid: { id: 'rift', gate: { mapId: PV, portal: 'rift' }, party: { min: 1, max: 5, minLevel: 1 }, deathLimit: 1000, landing: 'camp', rift: true } } },
+  };
+  const log = [], L = (s) => { log.push(s); if (process.env.V) console.log('   * ' + s); };
+  const sent = { enter: [], patch: [], descend: 0, leave: 0, talk: 0, open: 0 };
+  let state = {}; const subs = [];
+  const store = { getState: () => state, setState: (p) => { state = { ...state, ...p }; subs.forEach((f) => f()); }, subscribe: (f) => subs.push(f) };
+  let rs = { warden: null, view: null, run: null, patch: null, result: null, floorUi: { going: null } };
+  const rift = { getState: () => ({ ...rs, set: (p) => { rs = { ...rs, ...p }; } }), setState: (p) => { rs = { ...rs, ...p }; } };
+  const ents = new Map(), hidden = new Map();
+  let mapId = PV, floor = 0, signal = 0, guardianUp = false, runs = 0;
+  // Rift-Etage: drei Zellen, je ein Monster am Rand (erst sichtbar, wenn man näher als 260 px kommt)
+  const CELLS = [{ id: 'c0_1', role: 'camp', rect: { x: 100, y: 100, w: 200, h: 200 } }, { id: 'c1_1', role: 'main', rect: { x: 700, y: 100, w: 200, h: 200 } },
+    { id: 'c1_2', role: 'branch', rect: { x: 700, y: 700, w: 200, h: 200 } }, { id: 'c0_2', role: 'deadend:pond', rect: { x: 100, y: 700, w: 200, h: 200 } }];
+  const scene = {
+    deps: { content, commands: null, assetsBase: '/assets/', manifest: { maps: Object.fromEntries(Object.keys(MAPS).map((m) => [m, { tmj: `maps/${m}.tmj` }])) } },
+    map: { grid: { w: 120, h: 120, tile: 16, blocked: new Uint8Array(120 * 120) }, portals: [], spawns: {}, zones: {} },
+    controlledId: () => 't:me',
+    tapGround: (x, y) => { goal = { x, y }; },
+    select: (id) => { const e = ents.get(id); store.setState({ target: e ? { id, kind: 'mob', name: content.digimon[e.defId].name, level: e.level, hp: e.hp, maxHp: e.maxHp } : null }); },
+    telegraphs: { active: [], mirrors: [] }, mechB: { lines: [] }, riftFog: null,
+  };
+  const setRun = (p) => { rs = { ...rs, run: { ...rs.run, ...p } }; };
+  function floorStart(n) {
+    floor = n; guardianUp = false; hidden.clear();
+    [[790, 160], [800, 780], [160, 790]].forEach(([x, y], i) => hidden.set(`m:${n}:${i}`, { id: `m:${n}:${i}`, kind: 2, defId: 'bearmon_rift', level: 57, x, y, hp: 400, maxHp: 400, flags: 32, targetId: '' }));
+    scene.riftFog = { rift: { layout: { cells: CELLS, guardian: { x: 800, y: 500 } } } };
+    rs = { ...rs, warden: null, view: null, result: null, floorUi: { going: null }, run: { depth: sent.enter[sent.enter.length - 1], running: true, signal, clockMs: 600000, floor: { n, of: 3 }, portal: { x: 400, y: 500, open: false }, guardian: 'hidden', objective: 'purge', alphaMarks: [] } };
+  }
+  function loadMap(id, sp) {
+    mapId = id;
+    for (const k of [...ents.keys()]) if (k !== 't:me' && k !== 'p:me') ents.delete(k);
+    const t = ents.get('t:me'), p = ents.get('p:me');
+    t.x = sp.x; t.y = sp.y; p.x = sp.x + 10; p.y = sp.y;
+    if (id !== RS) scene.riftFog = null;
+    store.setState({ screen: 'world', world: { mapId: id, mapName: content.maps[id].name, channel: 1, roomId: `${id}-1` }, target: null, dialog: null });
+    L(`Map ${id}${id === RS ? ` Etage ${floor}` : ''}`);
+  }
+  ents.set('t:me', { id: 't:me', kind: 0, x: 808, y: 900, hp: 1, flags: 0, targetId: '' });
+  ents.set('p:me', { id: 'p:me', kind: 1, x: 818, y: 900, hp: 1, flags: 0, targetId: '' });
+  let goal = null;
+  setInterval(() => {
+    const t = ents.get('t:me');
+    if (mapId === RS) for (const [id, m] of hidden) if (Math.hypot(m.x - t.x, m.y - t.y) < 260) { hidden.delete(id); ents.set(id, m); }
+    if (!goal || state.screen !== 'world') return;
+    const dx = goal.x - t.x, dy = goal.y - t.y, d = Math.hypot(dx, dy);
+    if (d <= 25) { t.x = goal.x; t.y = goal.y; goal = null; } else { t.x += (dx / d) * 25; t.y += (dy / d) * 25; }
+    const p = ents.get('p:me'); p.x = t.x + 10; p.y = t.y;
+  }, 50);
+  const near = (x, y, r) => { const t = ents.get('t:me'); return Math.hypot(t.x - x, t.y - y) <= r; };
+  const commands = {
+    talk(npc) { sent.talk++; if (npc === 'rift_warden' && mapId === PV && near(808, 792, 60)) store.setState({ dialog: { npc, node: { id: 'root', choices: [{ id: 'open', action: 'openRift' }, { id: 'bye' }] } } }); },
+    chooseDialog(c) {
+      if (c === 'open' && state.dialog?.npc === 'rift_warden') { sent.open++; store.setState({ dialog: null }); rs = { ...rs, warden: { npc: 'rift_warden' }, view: { deepest, party: [{ name: 'me', level, problem: '', leader: true }], iLead: true, blocked: null, depths: [] } }; }
+    },
+    closeDialog() { store.setState({ dialog: null }); },
+    command(name, args) {
+      if (name === 'riftEnter') {
+        sent.enter.push(args.depth); L(`riftEnter Tiefe ${args.depth}`);
+        if (until && until(sent)) return;
+        runs++; signal = 0; store.setState({ screen: 'loading' });
+        setTimeout(() => { floorStart(1); loadMap(RS, { x: 200, y: 200 }); }, 300);
+      } else if (name === 'riftPatch') {
+        sent.patch.push(rs.patch?.offers?.[args.pick]?.id); L(`Patch ${rs.patch?.offers?.[args.pick]?.id}`); rs = { ...rs, patch: null };
+      } else if (name === 'riftDescend') {
+        if (!rs.run?.portal?.open || !near(rs.run.portal.x, rs.run.portal.y, 112)) return;
+        sent.descend++; L('riftDescend'); store.setState({ screen: 'loading' });
+        setTimeout(() => { floorStart(floor + 1); loadMap(RS, { x: 200, y: 200 }); }, 300);
+      } else if (name === 'raidLeave') commands.raidLeave();
+    },
+    raidLeave() { sent.leave++; L('raidLeave'); rs = { ...rs, result: null, run: null }; store.setState({ screen: 'loading' }); setTimeout(() => loadMap(PV, { x: 808, y: 824 }), 300); },
+    requestBossPins() {}, requestMapInfo() {}, partnerFollow() {}, partnerStop() {},
+  };
+  scene.deps.commands = commands;
+  w.fetch = async (url) => ({ ok: true, status: 200, json: async () => MAPS[url.match(/maps\/(\w+)\.tmj/)[1]] });
+  w.dmo = { store, rift, net: { state: { entities: ents }, connected: true, transferring: false }, game: { scene: { getScene: (k) => (k === 'world' ? scene : null) } } };
+  w.addEventListener('keydown', (e) => {
+    if (e.code !== 'Digit1' || !state.target) return;
+    const m = ents.get(state.target.id);
+    if (!m || m.hp <= 0 || mapId !== RS) return;
+    const t = ents.get('t:me');
+    if (Math.hypot(m.x - t.x, m.y - t.y) > 320) return;
+    m.hp = Math.max(0, m.hp - 200);
+    store.setState({ target: { ...state.target, hp: m.hp } });
+    if (m.hp > 0) return;
+    ents.delete(m.id);
+    if (m.flags & 16) { // Guardian
+      L('Guardian besiegt'); rs = { ...rs, run: null, patch: null, result: { stable: true, depth: rs.run.depth, timeMs: 200000, loot: { shards: 40 } } };
+      return;
+    }
+    signal = Math.min(100, signal + 12); L(`Kill ${m.id} Signal ${signal}`);
+    setRun({ signal, portal: { ...rs.run.portal, open: floor < 3 && signal >= Math.round(100 * floor / 3) } });
+    if (signal >= 33 && !rs.patchDone) { rs = { ...rs, patchDone: true, patch: { offerId: 'o1', source: 'signal', offers: [{ id: 'data_mass' }, { id: 'overclock' }, { id: 'firewall' }] } }; }
+    if (floor === 3 && signal >= 100 && !guardianUp) {
+      guardianUp = true; setRun({ guardian: 'called' }); L('Guardian erscheint');
+      ents.set('g:1', { id: 'g:1', kind: 2, defId: 'cherrymon', level: 60, x: 800, y: 500, hp: 1200, maxHp: 1200, flags: 16 | 32, targetId: '' });
+    }
+  }, true);
+  store.setState({ screen: 'world', inputFocus: 'game', cooldowns: {}, chat: [], world: { mapId: PV, channel: 1, roomId: `${PV}-1` }, target: null,
+    me: { tamerEntityId: 't:me', tamerDs: 300, tamerMaxDs: 360, hotbar: ['cmd:attack'], inventory: [], quests: {}, bits: 5000,
+      partner: { entityId: 'p:me', name: 'Piemon', species: 'piedmon_dm', level, hp: 30000, maxHp: 30000, ds: 500, maxDs: 700, exp: 1, expNext: 100, skills: [] } } });
+  loadMap(PV, { x: 808, y: 900 });
+  w.localStorage.setItem('digibot.cfg', JSON.stringify({ dungeon: true, dgMode: 'rift', hpPot: 0, dsPot: 0, tdsPot: 0, lvlDiff: 3, tab: 'log', ...cfg }));
+  w.eval(script);
+  return { w, sent, log, status: () => w.document.querySelector('[data-f="status"]')?.textContent || '', get runs() { return runs; } };
+}
+
+(async () => {
+  const W = world({ cfg: { riftDepthMode: 'max' } });
+  await new Promise((r) => setTimeout(r, 900));
+  W.w.document.querySelector('[data-act="bot"]').click();
+  const tEnd = Date.now() + 150000;
+  while (Date.now() < tEnd && W.sent.enter.length < 2) await new Promise((r) => setTimeout(r, 300));
+  const st1 = W.status(); W.w.close();
+  console.log(JSON.stringify({ sent: W.sent, status: st1 }));
+  if (!process.env.V) console.log(W.log.slice(-30).join('\n'));
+  const okA = W.sent.enter[0] === 4;
+  const okB = W.sent.patch[0] === 'overclock';
+  const okC = W.sent.descend === 2 && W.log.includes('Guardian besiegt') && W.sent.leave >= 1;
+  const okD = W.sent.enter.length >= 2;
+  const W2 = world({ cfg: { riftDepthMode: 'fixed', riftDepth: 2 }, until: () => true });
+  await new Promise((r) => setTimeout(r, 900));
+  W2.w.document.querySelector('[data-act="bot"]').click();
+  const t2 = Date.now() + 30000;
+  while (Date.now() < t2 && !W2.sent.enter.length) await new Promise((r) => setTimeout(r, 300));
+  W2.w.close();
+  const okE = W2.sent.enter[0] === 2;
+  console.log(okA ? 'OK     A: höchstmögliche Tiefe nach Partner-Level (4)' : `FEHLER A: ${W.sent.enter[0]}`);
+  console.log(okB ? 'OK     B: Patch overclock gewählt' : `FEHLER B: ${W.sent.patch.join(',')}`);
+  console.log(okC ? 'OK     C: 3 Etagen, Guardian besiegt, Rift verlassen' : `FEHLER C: descend ${W.sent.descend} leave ${W.sent.leave}`);
+  console.log(okD ? 'OK     D: zweiter Lauf gestartet' : 'FEHLER D');
+  console.log(okE ? 'OK     E: feste Tiefe 2' : `FEHLER E: ${W2.sent.enter.join(',')}`);
+  process.exit(okA && okB && okC && okD && okE ? 0 : 1);
+})();
