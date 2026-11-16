@@ -10,6 +10,8 @@
 // E (zweiter Durchgang, feste Tiefe 2): riftEnter mit Tiefe 2.
 // F (Nutzer 16.11.: „der Heiler zuerst“): Etage 1 – ein Angreifer greift an, ein Heiler (Rolle rift_role_mender) steht dahinter:
 //    der Bot nimmt zuerst den Heiler.
+// G (Nutzer 16.11.: „rennt quer über die Map zum Heiler einer anderen Gruppe“): ein zweiter Heiler steht weit weg bei einer
+//    anderen Gruppe – nach dem nahen Heiler kommt der Angreifer dran, nicht der ferne Heiler.
 const { JSDOM, VirtualConsole } = require('jsdom');
 const fs = require('fs');
 const script = fs.readFileSync(process.argv[2], 'utf8');
@@ -58,13 +60,14 @@ function world({ cfg, deepest = 5, level = 110, until }) {
     if (n === 1 && runs === 1) { // F: Angreifer vorn, Heiler dahinter (beide gleich sichtbar)
       ents.set('a:att', { id: 'a:att', kind: 2, defId: 'bearmon_rift', level: 57, x: 330, y: 200, hp: 400, maxHp: 400, flags: 32, targetId: 'p:me' });
       ents.set('h:heal', { id: 'h:heal', kind: 2, defId: 'bearmon_rift', level: 57, x: 420, y: 330, hp: 400, maxHp: 400, flags: 0, targetId: '' });
-      store.setState({ effects: { ...(state.effects || {}), 'h:heal': [{ id: 'rift_role_mender' }] } });
+      ents.set('h:far', { id: 'h:far', kind: 2, defId: 'bearmon_rift', level: 57, x: 720, y: 560, hp: 400, maxHp: 400, flags: 0, targetId: '' });
+      store.setState({ effects: { ...(state.effects || {}), 'h:heal': [{ id: 'rift_role_mender' }], 'h:far': [{ id: 'rift_role_mender' }] } });
     }
     rs = { ...rs, warden: null, view: null, result: null, floorUi: { going: null }, run: { depth: sent.enter[sent.enter.length - 1], running: true, signal, clockMs: 600000, floor: { n, of: 3 }, portal: { x: 400, y: 500, open: false }, guardian: 'hidden', objective: 'purge', alphaMarks: [] } };
   }
   function loadMap(id, sp) {
     mapId = id;
-    for (const k of [...ents.keys()]) if (k !== 't:me' && k !== 'p:me' && !(id === RS && /^(a:att|h:heal)$/.test(k))) ents.delete(k);
+    for (const k of [...ents.keys()]) if (k !== 't:me' && k !== 'p:me' && !(id === RS && /^(a:att|h:heal|h:far)$/.test(k))) ents.delete(k);
     const t = ents.get('t:me'), p = ents.get('p:me');
     t.x = sp.x; t.y = sp.y; p.x = sp.x + 10; p.y = sp.y;
     if (id !== RS) scene.riftFog = null;
@@ -162,11 +165,14 @@ function world({ cfg, deepest = 5, level = 110, until }) {
   const okE = W2.sent.enter[0] === 2;
   const fsel = W.sent.sel.filter((x) => x === 'a:att' || x === 'h:heal');
   const okF = fsel[0] === 'h:heal';
+  const gsel = W.sent.sel.filter((x) => x === 'a:att' || x === 'h:far');
+  const okG = gsel[0] === 'a:att';
   console.log(okA ? 'OK     A: höchstmögliche Tiefe nach Partner-Level (4)' : `FEHLER A: ${W.sent.enter[0]}`);
   console.log(okB ? 'OK     B: Patch overclock gewählt' : `FEHLER B: ${W.sent.patch.join(',')}`);
   console.log(okC ? 'OK     C: 3 Etagen, Guardian besiegt, Rift verlassen' : `FEHLER C: descend ${W.sent.descend} leave ${W.sent.leave}`);
   console.log(okD ? 'OK     D: zweiter Lauf gestartet' : 'FEHLER D');
   console.log(okE ? 'OK     E: feste Tiefe 2' : `FEHLER E: ${W2.sent.enter.join(',')}`);
   console.log(okF ? 'OK     F: Heiler zuerst' : `FEHLER F: ${fsel.join(',')}`);
-  process.exit(okA && okB && okC && okD && okE && okF ? 0 : 1);
+  console.log(okG ? 'OK     G: ferner Heiler einer anderen Gruppe nicht vorgezogen' : `FEHLER G: ${gsel.join(',')}`);
+  process.exit(okA && okB && okC && okD && okE && okF && okG ? 0 : 1);
 })();

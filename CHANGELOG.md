@@ -2,10 +2,17 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.21 – Digital Rift: nur den Heiler der laufenden Gruppe vorziehen
+- **Rift-Zielwahl (Nutzer 16.11.: „rennt quer über die Map zu einer Gruppe, nur um dort den Heiler anzugreifen“):** Der Heiler
+  hat nur noch Vorrang, wenn er zur Gruppe gehört, mit der der Bot gerade kämpft – höchstens 260 px von ihm oder von einem
+  Angreifer entfernt. Heiler anderer Gruppen zählen wie normale Gegner.
+- Live bestätigt: Das Spiel trägt die Rollen als Effekte rift_role_mender/warder/artillery/caller am Gegner.
+- Tests: rifttest (Fall G: ferner Heiler einer anderen Gruppe).
+
 ## 3.2.20 – Digital Rift: Heiler zuerst
 - **Rift-Zielwahl (Nutzer 16.11.):** Heiler der Hinterreihe (Rolle „mender“, heilt die Frontreihe um 4,5 % pro Sekunde) greift der
   Bot jetzt vor allen Angreifern an – nur ein gerufener Guardian und ein markierter Alpha gehen vor. Weil Heiler hinten stehen,
-  sucht er sie etwas weiter (650 statt 450 px). Schildgeber (warder) bleiben nach den Angreifern.
+  sucht er sie etwas weiter (650 statt 450 px; in 3.2.21 ersetzt). Schildgeber (warder) bleiben nach den Angreifern.
 - Live-Lauf 16.11. (Tiefe 12, Beelzemon Lv 130): Etage 1 mit Patch und Abstieg geklappt, auf Etage 2 bei 73 % Signal mehrfach
   bewusstlos (Gegner Lv 130).
 - Tests: rifttest (Fall F: Heiler vor Angreifer).

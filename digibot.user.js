@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.20
+// @version      3.2.21
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1794,7 +1794,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.20'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.21'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -10013,6 +10013,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const riftMap = (mapId) => !!mapId && !!content()?.spawns?.[mapId]?.raid?.rift;
   const riftStore = () => { try { return window.dmo?.rift?.getState?.() || null; } catch { return null; } };
   const RIFT_FOCUS_R = 450;      // so weit (Weglänge) sucht der Rift-Modus Gegner; Angreifer immer
+  const RIFT_PACK_R = 260;       // Heiler zählt zur laufenden Gruppe: so nah bei mir oder bei einem Angreifer
   const RIFT_PORTAL_NEAR = 80;   // so nah ans Portal (Spiel: „at“ bis 112 px)
   const RIFT_CELL_NEAR = 70;     // Zelle gilt als abgesucht, wenn man so nah an ihrer Mitte war
   const RIFT_STEP_MS = 1500, RIFT_ENTER_MS = 4000, RIFT_ENTER_TRIES = 5, RIFT_TALK_TRIES = 8, RIFT_LEAVE_MS = 2500;
@@ -10065,13 +10066,17 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const marks = new Set((run.alphaMarks || []).map((a) => a?.id).filter(Boolean));
     const hasRole = (m, r) => (st.effects?.[m.id] || []).some((e) => e?.id === r);
     const mender = (m) => hasRole(m, 'rift_role_mender'), warder = (m) => hasRole(m, 'rift_role_warder');
+    // gehört zur Gruppe, mit der ich gerade kämpfe: nah bei mir oder nah an einem Angreifer (Hinterreihe ~100–200 px hinter der
+    // Front) – nicht quer über die Map zum Heiler einer anderen Gruppe laufen (Nutzer 16.11.)
+    const att = sc.attackers || [];
+    const inFight = (m) => (m.pd ?? m.d) <= RIFT_PACK_R || att.some((a) => Math.hypot(a.x - m.x, a.y - m.y) <= RIFT_PACK_R);
     const score = (m) => {
       const boss = !!(ents?.get?.(m.id)?.flags & FLAG.Boss) || m.cat === 'boss';
       const dist = m.pd ?? m.d;
       if (boss) return last && run.guardian === 'called' ? dist / 100 : m.attacker ? 1000 + dist / 100 : Infinity;
       if (portalOpen) return m.attacker ? 100 + dist / 100 : Infinity;
-      // Heiler (mender, heilt die Frontreihe 4,5 %/s) vor allen Angreifern – Nutzer 16.11.; er steht hinten, darum etwas weiter suchen
-      if (mender(m) && dist <= RIFT_FOCUS_R + 200) return (marks.has(m.id) ? 10 : 50) + dist / 100;
+      // Heiler (mender, heilt die Frontreihe 4,5 %/s) der laufenden Gruppe vor allen Angreifern (Nutzer 16.11.)
+      if (mender(m) && inFight(m)) return (marks.has(m.id) ? 10 : 50) + dist / 100;
       if (!m.attacker && !(dist <= RIFT_FOCUS_R)) return Infinity;
       return (marks.has(m.id) ? 10 : m.attacker ? 100 : warder(m) ? 200 : 300) + dist / 100;
     };
