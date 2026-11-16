@@ -26,11 +26,13 @@
 //    Gegner im Suchradius – trotzdem erst der andere Gegner.
 // O (Nutzer 16.11.: Event „auch aus dem Rift hin“): 🎯 Event an, mitten im Lauf beginnt die Alter Hunt in Primary Village –
 //    der Bot verlässt den Rift, greift den Event-Boss an und startet erst danach den nächsten Lauf.
+// P (Live 16.11.: Etage 1 brauchte 1:40 mit 40 s Erkunden): eine Sackgasse liegt näher als eine Hauptweg-Zelle – der Bot
+//    erkundet zuerst den Hauptweg (dort 1–2 Gruppen je Zelle, in Sackgassen höchstens eine).
 const { JSDOM, VirtualConsole } = require('jsdom');
 const fs = require('fs');
 const script = fs.readFileSync(process.argv[2], 'utf8');
 
-function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = false, lowHp = false, mid = false, guard = false, guardNear = false, evt = false }) {
+function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = false, lowHp = false, mid = false, guard = false, guardNear = false, evt = false, mainFirst = false }) {
   const dom = new JSDOM('<!doctype html><body></body>', { runScripts: 'outside-only', url: 'https://play.digimmo.com.br/', pretendToBeVisual: true, virtualConsole: new VirtualConsole() });
   const w = dom.window;
   w.HTMLCanvasElement.prototype.getContext = () => null;
@@ -58,6 +60,8 @@ function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = f
   // Rift-Etage: drei Zellen, je ein Monster am Rand (erst sichtbar, wenn man näher als 260 px kommt)
   const CELLS = [{ id: 'c0_1', role: 'camp', rect: { x: 100, y: 100, w: 200, h: 200 } }, { id: 'c1_1', role: 'main', rect: { x: 700, y: 100, w: 200, h: 200 } },
     { id: 'c1_2', role: 'branch', rect: { x: 700, y: 700, w: 200, h: 200 } }, { id: 'c0_2', role: 'deadend:pond', rect: { x: 100, y: 700, w: 200, h: 200 } }];
+  const CELLS_P = [{ id: 'p0', role: 'camp', rect: { x: 100, y: 100, w: 200, h: 200 } }, { id: 'pd', role: 'deadend:well', rect: { x: 100, y: 450, w: 200, h: 200 } },
+    { id: 'pm', role: 'main', rect: { x: 500, y: 300, w: 200, h: 200 } }];
   const scene = {
     deps: { content, commands: null, assetsBase: '/assets/', manifest: { maps: Object.fromEntries(Object.keys(MAPS).map((m) => [m, { tmj: `maps/${m}.tmj` }])) } },
     map: { grid: { w: 120, h: 120, tile: 16, blocked: new Uint8Array(120 * 120) }, portals: [], spawns: {}, zones: {} },
@@ -70,7 +74,7 @@ function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = f
   function floorStart(n) {
     floor = n; guardianUp = false; hidden.clear();
     [[790, 160], [800, 780], [160, 790]].forEach(([x, y], i) => hidden.set(`m:${n}:${i}`, { id: `m:${n}:${i}`, kind: 2, defId: 'bearmon_rift', level: 57, x, y, hp: 400, maxHp: 400, flags: 32, targetId: '' }));
-    scene.riftFog = { rift: { layout: { cells: CELLS, guardian: { x: 800, y: 500 } } } };
+    scene.riftFog = { rift: { layout: { cells: mainFirst ? CELLS_P : CELLS, guardian: { x: 800, y: 500 } } } };
     if (n === 1 && runs === 1) { // F: Angreifer vorn, Heiler dahinter (beide gleich sichtbar)
       ents.set('a:att', { id: 'a:att', kind: 2, defId: 'bearmon_rift', level: 57, x: 330, y: 200, hp: 400, maxHp: 400, flags: 32, targetId: 'p:me' });
       ents.set('h:heal', { id: 'h:heal', kind: 2, defId: 'bearmon_rift', level: 57, x: 420, y: 330, hp: 400, maxHp: 400, flags: 0, targetId: '' });
@@ -195,6 +199,13 @@ function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = f
   while (Date.now() < t2 && !W2.sent.enter.length) await new Promise((r) => setTimeout(r, 300));
   W2.w.close();
   const okE = W2.sent.enter[0] === 2;
+  const W10 = world({ cfg: { riftDepthMode: 'max' }, mainFirst: true, until: (s) => s.enter.length > 1 });
+  await new Promise((r) => setTimeout(r, 900));
+  W10.w.document.querySelector('[data-act="bot"]').click();
+  let firstExplore = ''; const t10 = Date.now() + 30000;
+  while (Date.now() < t10 && !firstExplore) { const m = /erkunde ([A-Za-zÄÖÜäöü]+)/.exec(W10.status()); if (m) firstExplore = m[1]; await new Promise((r) => setTimeout(r, 200)); }
+  W10.w.close();
+  const okP = firstExplore === 'Hauptweg';
   const W3 = world({ cfg: { riftDepthMode: 'max' }, hunt: true, until: (s) => s.enter.length > 1 });
   await new Promise((r) => setTimeout(r, 900));
   W3.w.document.querySelector('[data-act="bot"]').click();
@@ -265,6 +276,7 @@ function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = f
   console.log(okM ? 'OK     M: Guardian weit weg – erst die Gegner auf dem Weg' : `FEHLER M: ${s7.join(',')}`);
   console.log(okN ? 'OK     N: Guardian nah – trotzdem erst der andere Gegner' : `FEHLER N: ${s8.join(',')}`);
   console.log(okO ? 'OK     O: Event im Rift – hinaus und Event-Boss angegriffen' : `FEHLER O: leave ${W9.sent.leave} enter ${W9.sent.enter.length} descend ${W9.sent.descend} sel ${W9.sent.sel.join(',')}`);
+  console.log(okP ? 'OK     P: erst Hauptweg, Sackgasse zuletzt' : `FEHLER P: zuerst ${firstExplore || '–'}`);
   console.log(okL ? `OK     L: Suchradius 150 gilt im Rift (angegriffen bei ${W6.sent.midD} px)` : `FEHLER L: angegriffen bei ${W6.sent.midD} px`);
-  process.exit(okA && okB && okC && okD && okE && okF && okG && okH && okI && okJ && okK && okL && okM && okN && okO ? 0 : 1);
+  process.exit(okA && okB && okC && okD && okE && okF && okG && okH && okI && okJ && okK && okL && okM && okN && okO && okP ? 0 : 1);
 })();

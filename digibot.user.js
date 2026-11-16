@@ -10218,8 +10218,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (!cells.length) return `${tag} · keine Kartendaten – warte`;
     const mid = (c) => ({ x: c.rect.x + c.rect.w / 2, y: c.rect.y + c.rect.h / 2 });
     for (const c of cells) { const p = mid(c); if (Math.hypot(me.x - p.x, me.y - p.y) <= RIFT_CELL_NEAR || inRect({ x: c.rect.x + 24, y: c.rect.y + 24, w: c.rect.w - 48, h: c.rect.h - 48 }, me)) rift.visited.add(c.id); }
+    // Hauptweg und Abzweige zuerst (1–2 Gruppen je Zelle), Sackgassen zuletzt (höchstens eine) – live 16.11.: 40 s Erkunden auf
+    // Etage 1 (3.2.28); Aufschlag in px auf die Entfernung
+    const rolePen = (c) => (String(c.role || '').startsWith('deadend') ? 450 : c.role === 'branch' ? 60 : 0);
     const open = cells.filter((c) => !rift.visited.has(c.id) && c.role !== 'camp')
-      .sort((a, b) => Math.hypot(me.x - mid(a).x, me.y - mid(a).y) - Math.hypot(me.x - mid(b).x, me.y - mid(b).y));
+      .sort((a, b) => Math.hypot(me.x - mid(a).x, me.y - mid(a).y) + rolePen(a) - Math.hypot(me.x - mid(b).x, me.y - mid(b).y) - rolePen(b));
     if (!open.length) { rift.visited = new Set(); return `${tag} · alles abgesucht – suche erneut`; }
     const c = open[0], p = mid(c);
     const s = go(p.x, p.y, `erkunde ${c.role?.startsWith('deadend') ? 'Sackgasse' : c.role === 'branch' ? 'Abzweig' : c.role === 'main' ? 'Hauptweg' : c.role || 'Zelle'} ${rift.visited.size + 1}/${cells.length}`);
