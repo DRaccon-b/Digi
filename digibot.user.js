@@ -10081,14 +10081,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const score = (m) => {
       const boss = !!(ents?.get?.(m.id)?.flags & FLAG.Boss) || m.cat === 'boss';
       const dist = m.pd ?? m.d;
-      // markierter Alpha (Alpha-Jagd): trägt das Boss-Flag, ohne ihn öffnet das Portal nie – immer zuerst (live 16.11., 3.2.22)
-      // nur nah (laufende Gruppe) vorziehen – weit weg kämpft sich der Bot Gruppe für Gruppe hin, statt durchzurennen (3.2.23)
-      if (marks.has(m.id) && dist <= riftPackR()) return 5 + dist / 100;
-      // Guardian: nah sofort, weiter weg wie jeder andere Gegner – sonst rannte er an allen vorbei zu ihm (Nutzer 16.11., 3.2.25)
-      if (boss && last && run.guardian === 'called') { if (dist <= riftPackR()) return dist / 100; if (!m.attacker && !(dist <= riftFocusR())) return Infinity; return (m.attacker ? 100 : 300) + dist / 100; }
+      // markierter Alpha (Alpha-Jagd, Boss-Flag) und gerufener Guardian: erst, wenn im Suchradius kein anderer Gegner mehr steht –
+      // „er soll sich immer zuerst um die anderen Mobs kümmern“ (Nutzer 16.11., 3.2.25); weiter weg läuft riftStep hin und
+      // kämpft sich dabei Gruppe für Gruppe durch
+      if (marks.has(m.id) || (boss && last && run.guardian === 'called')) return m.attacker || dist <= riftFocusR() ? 400 + dist / 100 : Infinity;
       // andere Boss-Flag-Gegner (Alphas außerhalb der Jagd) wie normale Gegner – vorher nie angegriffen
-      // Portal offen: Angreifer und Gegner in der Nähe erst erledigen, dann hin (vorher rannte er durch und zog alles mit)
-      if (portalOpen) return m.attacker ? 100 + dist / 100 : dist <= riftPackR() ? 300 + dist / 100 : Infinity;
+      // Portal offen: Angreifer und alle Gegner im Suchradius erst erledigen, dann hin (vorher rannte er durch und zog alles mit)
+      if (portalOpen) return m.attacker ? 100 + dist / 100 : dist <= riftFocusR() ? 300 + dist / 100 : Infinity;
       // Heiler (mender, heilt die Frontreihe 4,5 %/s) der laufenden Gruppe vor allen Angreifern (Nutzer 16.11.)
       if (mender(m) && inFight(m)) return (marks.has(m.id) ? 10 : 50) + dist / 100;
       if (!m.attacker && !(dist <= riftFocusR())) return Infinity;

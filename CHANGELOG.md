@@ -4,9 +4,11 @@ Alle Änderungen an DigiBot, neueste zuerst.
 
 ## 3.2.25 – Digital Rift: zum Guardian durchkämpfen
 - **Nutzer 16.11.: „Sobald der Boss gespawnt ist, rennt er immer noch direkt zu ihm, ohne die Gegner auf dem Weg zu töten.“**
-  Den gerufenen Guardian zog die Zielwahl in jeder Entfernung vor. Jetzt wie beim Alpha: nah (Nahbereich, höchstens 260 px)
-  sofort, weiter weg wie jeder andere Gegner – der Bot kämpft sich Gruppe für Gruppe zu ihm durch.
-- Tests: rifttest (Fall M: Guardian weit weg, Gegner nah).
+  Den gerufenen Guardian zog die Zielwahl in jeder Entfernung vor.
+- **„Er soll sich immer zuerst um die anderen Mobs kümmern.“** Markierter Alpha und gerufener Guardian kommen jetzt zuletzt:
+  erst, wenn im Suchradius kein anderer Gegner mehr steht – auch wenn sie nah sind oder angreifen. Weiter weg läuft der Bot hin
+  und kämpft sich dabei Gruppe für Gruppe durch. Bei offenem Portal räumt er den ganzen Suchradius ab (vorher nur 260 px).
+- Tests: rifttest (Fall M: Guardian weit weg, Gegner nah; Fall N: Guardian nah, trotzdem erst der andere Gegner).
 
 ## 3.2.24 – Digital Rift: Suchradius aus dem Panel
 - **Nutzer 16.11.: „wieso pullt er 100 Mobs“.** Im Rift suchte der Bot sein nächstes Ziel fest bis 450 px weit und lief dabei
