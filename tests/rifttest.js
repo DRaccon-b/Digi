@@ -30,11 +30,13 @@
 //    erkundet zuerst den Hauptweg (dort 1–2 Gruppen je Zelle, in Sackgassen höchstens eine).
 // Q (Live 16.11., Lauf 3: lief 280 px einem fernen Angreifer hinterher, während ihn nahe Gegner schlugen – 1 → 6 Angreifer):
 //    Ziel ist ein Angreifer 300 px weg, ein zweiter greift direkt daneben an – der Bot wechselt zum nahen.
+// R (Live 16.11.: nur noch 2 Guilmon Bread, Ruhemodus kostete über 3 min): F1 = Guilmon Bread, 2 Stück, 100 Shards – vor dem
+//    Betreten kauft der Bot bei Clockmon nach (10 für 30 Shards), bis mindestens 20 da sind, und betritt erst dann den Rift.
 const { JSDOM, VirtualConsole } = require('jsdom');
 const fs = require('fs');
 const script = fs.readFileSync(process.argv[2], 'utf8');
 
-function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = false, lowHp = false, mid = false, guard = false, guardNear = false, evt = false, mainFirst = false, farKeep = false }) {
+function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = false, lowHp = false, mid = false, guard = false, guardNear = false, evt = false, mainFirst = false, farKeep = false, bread = false }) {
   const dom = new JSDOM('<!doctype html><body></body>', { runScripts: 'outside-only', url: 'https://play.digimmo.com.br/', pretendToBeVisual: true, virtualConsole: new VirtualConsole() });
   const w = dom.window;
   w.HTMLCanvasElement.prototype.getContext = () => null;
@@ -52,7 +54,7 @@ function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = f
     spawns: { [PV]: { zones: {} }, [RS]: { zones: {}, raid: { id: 'rift', gate: { mapId: PV, portal: 'rift' }, party: { min: 1, max: 5, minLevel: 1 }, deathLimit: 1000, landing: 'camp', rift: true } } },
   };
   const log = [], L = (s) => { log.push(s); if (process.env.V) console.log('   * ' + s); };
-  const sent = { enter: [], patch: [], descend: 0, leave: 0, talk: 0, open: 0, sel: [] };
+  const sent = { enter: [], patch: [], descend: 0, leave: 0, talk: 0, open: 0, sel: [], buy: 0, buyBeforeEnter: 0 };
   let state = {}; const subs = [];
   const store = { getState: () => state, setState: (p) => { state = { ...state, ...p }; subs.forEach((f) => f()); }, subscribe: (f) => subs.push(f) };
   let rs = { warden: null, view: null, run: null, patch: null, result: null, floorUi: { going: null } };
@@ -133,6 +135,13 @@ function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = f
     },
     closeDialog() { store.setState({ dialog: null }); },
     command(name, args) {
+      if (name === 'riftShopBuy') {
+        const inv = state.me.inventory, q = (id) => inv.filter((i) => i.itemId === id).reduce((n, i) => n + i.qty, 0);
+        if (args?.offer !== 'guilmon_bread' || args?.npc !== 'rift_warden' || q('rift_shard') < 30) return;
+        sent.buy++; if (!sent.enter.length) sent.buyBeforeEnter++;
+        store.setState({ me: { ...state.me, inventory: [{ itemId: 'guilmon_bread', qty: q('guilmon_bread') + 10 }, { itemId: 'rift_shard', qty: q('rift_shard') - 30 }] } });
+        return;
+      }
       if (name === 'riftEnter') {
         sent.enter.push(args.depth); L(`riftEnter Tiefe ${args.depth}`);
         if (until && until(sent)) return;
@@ -179,6 +188,7 @@ function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = f
   store.setState({ screen: 'world', inputFocus: 'game', cooldowns: {}, chat: [], world: { mapId: PV, channel: 1, roomId: `${PV}-1` }, target: null,
     me: { tamerEntityId: 't:me', tamerDs: 300, tamerMaxDs: 360, hotbar: ['cmd:attack'], inventory: [], quests: {}, bits: 5000,
       partner: { entityId: 'p:me', name: 'Piemon', species: 'piedmon_dm', level, hp: 30000, maxHp: 30000, ds: 500, maxDs: 700, exp: 1, expNext: 100, skills: [] } } });
+  if (bread) store.setState({ me: { ...state.me, hotbar: ['cmd:attack', null, null, null, null, null, null, null, 'item:guilmon_bread'], inventory: [{ itemId: 'guilmon_bread', qty: 2 }, { itemId: 'rift_shard', qty: 100 }] } });
   if (lowHp) store.setState({ me: { ...state.me, partner: { ...state.me.partner, hp: 9000 } } });
   loadMap(PV, { x: 808, y: 900 });
   w.localStorage.setItem('digibot.cfg', JSON.stringify({ dungeon: true, dgMode: 'rift', hpPot: 0, dsPot: 0, tdsPot: 0, lvlDiff: 3, tab: 'log', ...cfg }));
@@ -206,6 +216,13 @@ function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = f
   while (Date.now() < t2 && !W2.sent.enter.length) await new Promise((r) => setTimeout(r, 300));
   W2.w.close();
   const okE = W2.sent.enter[0] === 2;
+  const W12 = world({ cfg: { riftDepthMode: 'max' }, bread: true, until: () => true });
+  await new Promise((r) => setTimeout(r, 900));
+  W12.w.document.querySelector('[data-act="bot"]').click();
+  const t12 = Date.now() + 25000;
+  while (Date.now() < t12 && !W12.sent.enter.length) await new Promise((r) => setTimeout(r, 200));
+  W12.w.close();
+  const okR = W12.sent.buyBeforeEnter === 2 && W12.sent.enter.length >= 1;
   const W11 = world({ cfg: { riftDepthMode: 'max' }, farKeep: true, until: (s) => s.enter.length > 1 });
   await new Promise((r) => setTimeout(r, 900));
   W11.w.document.querySelector('[data-act="bot"]').click();
@@ -292,6 +309,7 @@ function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = f
   console.log(okO ? 'OK     O: Event im Rift – hinaus und Event-Boss angegriffen' : `FEHLER O: leave ${W9.sent.leave} enter ${W9.sent.enter.length} descend ${W9.sent.descend} sel ${W9.sent.sel.join(',')}`);
   console.log(okP ? 'OK     P: erst Hauptweg, Sackgasse zuletzt' : `FEHLER P: zuerst ${firstExplore || '–'}`);
   console.log(okQ ? 'OK     Q: vom fernen Angreifer zum nahen gewechselt' : `FEHLER Q: ${W11.sent.sel.join(',')}`);
+  console.log(okR ? 'OK     R: Guilmon Bread vor dem Lauf nachgekauft (2×10)' : `FEHLER R: Käufe ${W12.sent.buyBeforeEnter}, betreten ${W12.sent.enter.length}`);
   console.log(okL ? `OK     L: Suchradius 150 gilt im Rift (angegriffen bei ${W6.sent.midD} px)` : `FEHLER L: angegriffen bei ${W6.sent.midD} px`);
-  process.exit(okA && okB && okC && okD && okE && okF && okG && okH && okI && okJ && okK && okL && okM && okN && okO && okP && okQ ? 0 : 1);
+  process.exit(okA && okB && okC && okD && okE && okF && okG && okH && okI && okJ && okK && okL && okM && okN && okO && okP && okQ && okR ? 0 : 1);
 })();

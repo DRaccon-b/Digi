@@ -2,6 +2,13 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.29 – Digital Rift: Guilmon Bread nachkaufen
+- **Live 16.11. (Dukemon Lv 130, Tiefe 10, stabil in 7:34, 44 Shards):** Über 3 min gingen an Ruhemodus und Erholungspausen
+  verloren – auf F1 lag Guilmon Bread (heilt 45 000 HP), davon waren nur noch 2 Stück da. Jetzt kauft der Bot vor jedem Lauf bei
+  Clockmon nach (10 Stück für 30 Shards, ohne Wochenlimit), bis mindestens 20 da sind – wenn Guilmon Bread auf F1–F3 liegt und
+  die Shards reichen. Kommt ein Kauf nicht an, versucht er es höchstens 4-mal je Besuch.
+- Tests: rifttest (Fall R).
+
 ## 3.2.28 – Digital Rift: Patch-Wahl für alle 18 Patches, Hauptweg zuerst erkunden
 - Live 16.11. (Diaboromon Lv 100, Tiefe 4): stabil in 4:29, 0 Ohnmachten, höchstens 5 Angreifer. Angeboten wurden auch
   Patches, die die Prioritätsliste nicht kannte (Data Harvest, Overflow Shield, Block Cache, Crit Routine, Fast Route) – dann

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.28
+// @version      3.2.29
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1794,7 +1794,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.28'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.29'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -10272,7 +10272,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   // Außerhalb: zu Clockmon, Rift-Fenster öffnen, Tiefe wählen, betreten
   function riftOutside(st, now) {
-    if (rift.inside) { rift.inside = false; rift.talkTries = 0; rift.enterTries = 0; rift.talkAt = 0; rift.enterAt = 0; rift.warned = ''; }
+    if (rift.inside) { rift.inside = false; rift.talkTries = 0; rift.enterTries = 0; rift.talkAt = 0; rift.enterAt = 0; rift.warned = ''; rift.breadTries = 0; rift.breadAt = 0; }
     const R = riftStore();
     if (!R) return 'Rift: Spiel kennt den Digital Rift nicht (Seite neu laden?)';
     for (const code of riftNotices(st)) {
@@ -10297,6 +10297,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       return `Rift: gehe zu Clockmon (${Math.round(d)} px)`;
     }
     if (R.warden && R.view) {
+      const bt = riftBreadTopup(st, R, now); if (bt) return bt; // Heilbrot nachkaufen (3.2.29)
       const v = R.view, pick = riftDepthPick(st, v);
       if (pick.why) {
         if (cfg.riftDepthMode === 'fixed') { logEvent('warn', `Rift: ${pick.why} – Bot gestoppt`); notify('Rift: Tiefe geht nicht – Bot gestoppt.', 'stop'); bot.toggle(true); return `Rift: ${pick.why}`; }
@@ -10323,6 +10324,21 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (rift.talkTries >= RIFT_TALK_TRIES) { rift.talkTries = 0; rift.closedUntil = now + 60000; riftWarn('Clockmon antwortet nicht – nächster Versuch in 1 min'); return 'Rift: Clockmon antwortet nicht'; }
     rift.talkAt = now; rift.talkTries++; commands()?.talk?.(RIFT_NPC);
     return 'Rift: spreche Clockmon an…';
+  }
+  // Guilmon Bread (heilt 45 000 HP) liegt auf einer Trank-Taste: vor dem Lauf bei Clockmon nachkaufen (10 Stück für 30 Shards, ohne
+  // Wochenlimit), bis RIFT_BREAD_MIN da sind – live 16.11.: nur noch 2 Stück, der Ruhemodus kostete über 3 min je Lauf (3.2.29)
+  const RIFT_BREAD = 'guilmon_bread', RIFT_BREAD_MIN = 20, RIFT_BREAD_COST = 30, RIFT_BREAD_TRIES = 4;
+  function riftBreadTopup(st, R, now) {
+    const me = st?.me, hb = me?.hotbar || [];
+    if (![8, 9, 10].some((i) => hb[i] === 'item:' + RIFT_BREAD)) return null;
+    const have = itemCount(me, RIFT_BREAD), shards = itemCount(me, 'rift_shard');
+    if (have >= RIFT_BREAD_MIN || shards < RIFT_BREAD_COST || rift.breadTries >= RIFT_BREAD_TRIES) return null;
+    if (rift.breadAt && now - rift.breadAt < 2500) return `Rift: kaufe Guilmon Bread (${have} da)…`;
+    if (rift.breadAt && have <= rift.breadHave) rift.breadTries++; // letzter Kauf kam nicht an
+    rift.breadAt = now; rift.breadHave = have;
+    try { commands()?.command?.('riftShopBuy', { npc: R.warden.npc, offer: RIFT_BREAD }); } catch { /* ignore */ }
+    logEvent('bot', `Rift: kaufe 10× Guilmon Bread für ${RIFT_BREAD_COST} Shards (${have} da, ${shards} Shards)`);
+    return `Rift: kaufe Guilmon Bread (${have} da)…`;
   }
   function riftLabel() {
     const run = riftStore()?.run;
