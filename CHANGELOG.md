@@ -2,6 +2,21 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.26 – Alter Hunt erkennen, Event auch aus dem Rift
+- **Alter Hunt (Spiel-Update 16.11.):** Die Mega-Jagd ist beendet, seit 16.11. läuft die „Alter Hunt“ (Bosse Lv 130, je Wochentag
+  ein anderer). Der Bot griff in der Event-Liste die beendete Mega-Jagd und übersah die Alter Hunt. Jetzt nimmt er das laufende
+  Jagd-Event, sonst das als Nächstes beginnende. Die neuen Chat-Meldungen (alter_warning, alter_appeared, alter_defeated,
+  alter_left, auch für das Sonntags-Paar) lösen sofort eine Abfrage aus und dienen als Rückfall: Nennt die Event-Liste die
+  Jagd nicht, geht der Bot nach der Chat-Meldung (Boss, Map, Kanal) hin.
+- **Event auch aus dem Rift (Nutzer 16.11.):** Ist 🎯 Event an und läuft der Rift-Modus, verlässt der Bot den Rift, sobald die
+  Jagd läuft oder im eingestellten Vorlauf ansteht, kämpft beim Event und startet danach den nächsten Rift-Lauf. Die Tiefe
+  bleibt dabei gleich (kein Rückschritt wie bei einem Abbruch).
+- Review: Ende-Meldungen des Sonntags-Paars (alter_defeated_pair/alter_left_pair) werden erkannt; „ein Zwilling gefallen“
+  (alter_twin_down) gilt als laufende Jagd gegen den anderen Drachen, nicht als neue Ankündigung. Im Rift-Modus zieht es den Bot
+  nicht zum Weltboss. Mit wenig HP fängt er im Rift keinen ruhigen Gegner neu an, sondern erholt sich erst; am markierten Alpha
+  wartet er höchstens 30 s, wenn er ihn nicht anwählen kann.
+- Tests: alterhunttest (neu, Fälle A–D), rifttest (Fall O: Event im Rift).
+
 ## 3.2.25 – Digital Rift: zum Guardian durchkämpfen
 - **Nutzer 16.11.: „Sobald der Boss gespawnt ist, rennt er immer noch direkt zu ihm, ohne die Gegner auf dem Weg zu töten.“**
   Den gerufenen Guardian zog die Zielwahl in jeder Entfernung vor.

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.25
+// @version      3.2.26
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -201,7 +201,7 @@ function digibotConfig(saved, defaults) {
 const CDIGI_HUNT_DEFAULTS=Object.freeze({id:'mega_hunt',slotMs:7200000,warnMs:300000,channel:1});
 function digibotHuntPolicy(content, server) {
   const candidates=[content?.hunt,...(Array.isArray(content?.events)?content.events:[])];
-  const def=candidates.find(x=>x?.id==='mega_hunt')||CDIGI_HUNT_DEFAULTS;
+  const def=candidates.find(x=>x?.id==='alter_hunt')||candidates.find(x=>x?.id==='mega_hunt')||CDIGI_HUNT_DEFAULTS; // Alter Hunt ab 16.11. (3.2.26)
   const valid=(n,f)=>Number.isFinite(n)&&n>0?n:f;
   return {channel:Number.isInteger(server?.channel)&&server.channel>0?server.channel:valid(def.channel,1),
     slotMs:valid(server?.slot?.endMs-server?.slot?.startMs,valid(def.slotMs,7200000)),
@@ -1794,7 +1794,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.25'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.26'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -8266,7 +8266,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     let pending;try{pending=c.requestEvents();}catch{hunt.busy=false;return;}
     Promise.resolve(pending).then(list=>{
       if(token!==hunt.pollToken || !Array.isArray(list))return;
-      const event=list.find(x=>x?.id==='mega_hunt'||/_hunt$/.test(x?.boss||''));
+      // Jagd-Events (Mega-Jagd bis 16.11., Alter Hunt danach, 3.2.26): das laufende zuerst, sonst das als Nächstes beginnende –
+      // vorher griff find() die beendete mega_hunt und übersah die Alter Hunt
+      const isHunt=(x)=>x&&(x.id==='mega_hunt'||x.id==='alter_hunt'||x.kind==='hunt'||/_hunt$/.test(x.boss||'')||/_hunt$/.test(x.next?.boss||''));
+      const rank=(x)=>x.state==='up'&&x.boss?0:x.next?.startMs?1+Math.max(0,x.next.startMs-(x.now||Date.now()))/1e9:x.state==='soon'?1.5:9;
+      const event=list.filter(isHunt).sort((a,b)=>rank(a)-rank(b))[0];
       hunt.info=event||null;
       if(event?.now)hunt.skew=event.now-Date.now();
     }).catch(()=>{}).finally(()=>{if(token===hunt.pollToken)hunt.busy=false;});
@@ -8287,13 +8291,39 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function huntGoal(now) {
     const e = hunt.info, sn = now + hunt.skew;
     const policy=digibotHuntPolicy(content(),e);
-    if (!e) return null;
+    const g0 = e ? huntGoalEv(e, sn, policy) : null;
+    return g0 || huntChatGoal(now, policy);
+  }
+  function huntGoalEv(e, sn, policy) {
     if (e.state === 'up' && e.boss && e.mapId && (!e.slot?.endMs || sn < e.slot.endMs)) return { boss: e.boss, mapId: e.mapId, ch: policy.channel, key: `${e.slot?.key || ''}|${e.boss}`, up: true };
     const n = e.next;
     // Ziel bekannt, sobald einer der eingestellten Vorläufe greift (Aufbruch regelt huntStep je Betriebsart) (3.2.8)
     const lead = Math.max(policy.leadMs, (Math.max(Number(cfg.huntLeadMin) || 0, Number(cfg.huntQuestLeadMin) || 0)) * 60000);
     if (n?.boss && n.mapId && n.startMs && n.startMs - sn <= lead && n.startMs - sn > -120000) return { boss: n.boss, mapId: n.mapId, ch: policy.channel, key: `next@${n.startMs}|${n.boss}`, up: false, at: n.startMs - hunt.skew };
     return null;
+  }
+  // Chat als Rückfall (3.2.26, live 16.11.): alter_warning {boss, map, ch, min} / alter_appeared {boss, map, ch}, Ende mit
+  // alter_defeated / alter_left – auch für Paare (*_pair). Die Event-Abfrage nennt die Alter Hunt nicht immer.
+  const HUNT_CHAT = new Set(['hunt_warning', 'hunt_appeared', 'hunt_defeated', 'hunt_left', 'alter_warning', 'alter_appeared', 'alter_defeated', 'alter_left', 'alter_warning_pair', 'alter_appeared_pair', 'alter_defeated_pair', 'alter_left_pair', 'alter_twin_down']);
+  const HUNT_CHAT_UP_MS = 20 * 60000; // so lange gilt „erschienen“ ohne Ende-Meldung
+  function huntChatNote(st, now) {
+    const chat = Array.isArray(st?.chat) ? st.chat : [];
+    for (let i = Math.max(0, chat.length - 30); i < chat.length; i++) {
+      const m = chat[i]; if (!m || !HUNT_CHAT.has(m.code) || !(m.ts > (hunt.chatTs || 0))) continue;
+      hunt.chatTs = m.ts; const p = m.params || {};
+      if (/_(defeated|left)(_pair)?$/.test(m.code)) { if (hunt.chat) logEvent('auto', `Event: ${m.code.includes('defeated') ? 'Boss besiegt' : 'Boss ist weg'} (Chat)`); hunt.chat = null; continue; }
+      if (!p.boss || !p.map) continue;
+      // alter_twin_down {boss (gefallen), twin (lebt noch), map, ch}: die Jagd läuft weiter – Ziel ist der Zwilling (Review)
+      const twin = m.code === 'alter_twin_down';
+      const up = twin || /appeared/.test(m.code), at = up ? m.ts : m.ts + (Number(p.min) || 5) * 60000;
+      hunt.chat = { boss: twin && p.twin ? p.twin : p.boss, mapId: p.map, ch: Number(p.ch) || 1, up, at, ts: twin && hunt.chat?.up ? hunt.chat.ts : m.ts };
+    }
+  }
+  function huntChatGoal(now, policy) {
+    const c = hunt.chat; if (!c) return null;
+    if (c.up) return now - c.ts < HUNT_CHAT_UP_MS ? { boss: c.boss, mapId: c.mapId, ch: c.ch || policy.channel, key: `chat@${c.ts}|${c.boss}`, up: true } : null;
+    if (now > c.at + 120000) return null;
+    return { boss: c.boss, mapId: c.mapId, ch: c.ch || policy.channel, key: `chat@${c.at}|${c.boss}`, up: false, at: c.at };
   }
   // Suchpunkte: Mitten der Jagdgebiete (Zonen) der Map, sonst ihre Spawn-Punkte
   function huntWaypoints(mapId) {
@@ -8331,7 +8361,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // (keine Jagd, Boss in Sicht – dann kämpft der normale Ablauf – oder erst Angreifer abwehren)
   function huntStep(st, sc, now) {
     if (!cfg.hunt) return null;
-    const warn=(st.chat||[]).filter(m=>['hunt_warning','hunt_appeared','hunt_defeated','hunt_left','worldboss_warning'].includes(m?.code)).pop();
+    const warn=(st.chat||[]).filter(m=>HUNT_CHAT.has(m?.code)||m?.code==='worldboss_warning').pop();
+    huntChatNote(st, now);
     if (warn?.ts && warn.ts > hunt.warnTs) { hunt.warnTs = warn.ts; hunt.polledAt = 0; } // Warnung im Chat: gleich nachfragen
     if (now-hunt.polledAt>(hunt.goal?HUNT_POLL_ACTIVE_MS:HUNT_POLL_MS) || hunt.busy&&now-(hunt.requestAt||0)>=HUNT_REQUEST_TIMEOUT_MS)huntPoll(now);
     const g = huntGoal(now), C = content();
@@ -10093,6 +10124,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (!m.attacker && !(dist <= riftFocusR())) return Infinity;
       return (m.attacker ? 100 : warder(m) ? 200 : 300) + dist / 100; // ferner markierter Alpha: wie jeder andere (3.2.23)
     };
+    // erholen (riftStep): wenig HP, niemand greift an – keinen neuen, ruhigen Gegner anfangen (Review 3.2.26)
+    const pp0 = st.me?.partner, hp0 = pp0?.maxHp ? pp0.hp / pp0.maxHp * 100 : 100, now0 = Date.now();
+    if (hp0 < RIFT_REST_HP && !att.length && (run.clockMs ?? Infinity) > RIFT_REST_CLOCK_MS && (!rift.restAt || now0 - rift.restAt < RIFT_REST_MS) && !(st.target && sc.mobs.some((m) => m.id === st.target.id))) return null;
     const list = sc.mobs.filter((m) => !m.banned && m.reach !== false && !safeHeld(m.id) && score(m) < Infinity).sort((a, b) => score(a) - score(b));
     const cur = st.target, keep = cur && list.find((m) => m.id === cur.id);
     if (keep && Math.floor(score(keep) / 100) <= Math.floor(score(list[0]) / 100)) return keep; // nicht hin und her
@@ -10150,7 +10184,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const mark = (run.alphaMarks || []).filter((a) => a?.x != null).sort((a, b) => Math.hypot(me.x - a.x, me.y - a.y) - Math.hypot(me.x - b.x, me.y - b.y))[0];
     // dort bleiben, bis er sichtbar ist und die Zielwahl ihn nimmt – nicht schon in 120 px Abstand wieder erkunden gehen (live 16.11.)
     if (mark && Math.hypot(me.x - mark.x, me.y - mark.y) > 40) { const s = go(mark.x, mark.y, 'zum markierten Alpha'); if (s) return s; }
-    if (mark) return `${tag} · am markierten Alpha`;
+    if (mark) { rift.markAt ||= now; if (now - rift.markAt < 30000) return `${tag} · am markierten Alpha`; } else rift.markAt = 0; // nicht wählbar: nach 30 s weiter erkunden (Review)
     // erkunden: abgesuchte Zellen merken, dann die nächste offene (Lager zuletzt)
     const cells = (lay?.cells || []).filter((c) => c?.rect);
     if (!cells.length) return `${tag} · keine Kartendaten – warte`;
@@ -10181,15 +10215,27 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     return `Rift geschafft (${res.stable ? 'stabil' : 'instabil'}) – verlasse den Rift…`;
   }
-  function riftLeave(now, why) {
+  function riftLeave(now, why, keepDepth = false) {
     if (!rift.giveUp) {
       rift.giveUp = true; rift.leaveAt = 0;
       const d = riftStore()?.run?.depth || rift.depth;
-      if (cfg.riftDepthMode !== 'fixed' && d > 1) { rift.cap = d - 1; rift.capOk = 0; }
-      logEvent('warn', `Rift: ${why} – verlasse den Rift${cfg.riftDepthMode !== 'fixed' && d > 1 ? `, nächster Lauf höchstens Tiefe ${d - 1}` : ''}`);
+      const lower = !keepDepth && cfg.riftDepthMode !== 'fixed' && d > 1;
+      if (lower) { rift.cap = d - 1; rift.capOk = 0; }
+      logEvent(keepDepth ? 'bot' : 'warn', `Rift: ${why} – verlasse den Rift${lower ? `, nächster Lauf höchstens Tiefe ${d - 1}` : ''}`);
     }
     if (now - rift.leaveAt >= RIFT_LEAVE_MS) { rift.leaveAt = now; try { if (commands()?.raidLeave) commands().raidLeave(); else commands()?.command?.('raidLeave', {}); } catch { /* ignore */ } }
     return `Rift: ${why} – verlasse den Rift…`;
+  }
+  // Event im Rift-Modus (3.2.26): läuft die Jagd oder steht sie im Vorlauf an, den Rift verlassen – draußen übernimmt huntStep
+  const riftEvOn = () => !!(cfg.dungeon && cfg.dgMode === 'rift' && cfg.hunt);
+  function riftEventDue(st, now) {
+    huntChatNote(st, now);
+    if (now - hunt.polledAt > HUNT_POLL_MS) huntPoll(now);
+    const g = huntGoal(now); if (!g || g.key === hunt.skipKey) return null;
+    const lead = Math.max(0.5, Number(cfg.huntLeadMin) || 6) * 60000;
+    if (!g.up && g.at - now > lead) return null;
+    const name = content()?.digimon?.[g.boss]?.name || g.boss;
+    return riftLeave(now, `Event ${name}${g.up ? ' läuft' : ` in ${Math.max(0, Math.round((g.at - now) / 60000))} min`}`, true);
   }
   // Außerhalb: zu Clockmon, Rift-Fenster öffnen, Tiefe wählen, betreten
   function riftOutside(st, now) {
@@ -10203,6 +10249,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     if (st.me?.partner?.fainted) return 'Rift: Partner bewusstlos – warte';
     if (world.state !== 'ready') { loadWorld(); return 'Lade Kartendaten…'; }
+    if (riftEvOn() && hunt.goal) return 'Rift: Event läuft – danach weiter'; // Event zuerst (3.2.26)
     if (rift.closedUntil > now) return `Rift geschlossen – nächster Versuch in ${fmtClock(rift.closedUntil - now)}`;
     if (R.result && !R.warden && typeof R.set === 'function') R.set({ result: null }); // altes Ergebnisfenster („Stay“) – sonst öffnet das Rift-Fenster nicht
     const loc = (world.npcAt.get(RIFT_NPC) || [])[0];
@@ -10434,7 +10481,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
 
   function pickTarget(sc, resting) {
     if (!sc) return null;
-    if (cfg.dungeon) { const att = sc.attackers.filter((m) => !safeHeld(m.id)); return (resting ? null : dungeonFocus(sc)) || att[0] || null; }
+    if (cfg.dungeon) { const att = sc.attackers.filter((m) => !safeHeld(m.id)); const hf0 = resting || !riftEvOn() ? null : huntFocus(sc); return (hf0 && !safeHeld(hf0.id) ? hf0 : null) || (resting ? null : dungeonFocus(sc)) || att[0] || null; } // Rift-Modus: Event-Boss (3.2.26)
     const hf = resting ? null : huntFocus(sc) || wbFocus(sc) || digibotSharedFocus(sc); // Event-/Weltboss vor allem anderen
     if (hf && !safeHeld(hf.id)) return hf;
     const focus = resting ? null : focusAssist(sc);
@@ -11397,15 +11444,21 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         this.resting = true;
         logEvent('warn', `Ruhemodus: HP ${hpPct.toFixed(0)} % und kein Trank auf F1`);
       }
-      // 1c) Event (Mega-Jagd): hinreisen, warten, suchen – geht jedem Modus vor (nicht im Dungeon)
-      if (!cfg.dungeon && world.state === 'ready') {
+      // 1c) Event (Mega-Jagd/Alter Hunt): hinreisen, warten, suchen – geht jedem Modus vor (nicht im Dungeon; im Rift-Modus schon,
+      // dann vorher hinaus – Nutzer 16.11., 3.2.26)
+      const riftEv = cfg.dungeon && cfg.dgMode === 'rift' && cfg.hunt;
+      if (riftEv && world.state === 'ready' && riftMap(st.world?.mapId)) {
+        const rs = riftEventDue(st, now);
+        if (rs) { this.status = `Event: ${rs}`; return; }
+      }
+      if ((!cfg.dungeon || riftEv) && world.state === 'ready' && !riftMap(st.world?.mapId)) {
         const hv = huntStep(st, sc, now);
         // Event läuft oder steht an: das Feldboss-Ziel der Lern-Route verwerfen (sonst Boss-Tränke über das ganze Event und
         // danach erst die Fahrt zum veralteten Boss) und die Lern-Route pausieren – auch auf dem Weg zur Event-Map
         const huntOn = !!(cfg.hunt && hunt.goal);
         // Weltboss: nur, wenn kein Event läuft oder ansteht (das Event geht vor)
-        const wv = !huntOn ? wbStep(st, sc, now) : null;
-        const wbOn = !huntOn && !!(cfg.wboss && wb.goal);
+        const wv = !huntOn && !cfg.dungeon ? wbStep(st, sc, now) : null; // Rift-Modus: nur das Event, kein Weltboss (Review 3.2.26)
+        const wbOn = !huntOn && !cfg.dungeon && !!(cfg.wboss && wb.goal);
         if ((huntOn || wbOn) && lr.boss) { lr.boss = null; lr.chainAt = 0; }
         // Leader: ein altes „nicht kämpfen“ (Abgabe-Weg) nicht über Reise/Suche/Warten weitersenden (3.1.30)
         if ((hv || wv || hunt.selAt === now) && group.role() === 'leader') group.noFight = false;
