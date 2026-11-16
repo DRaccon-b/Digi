@@ -2,6 +2,16 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.23 – Digital Rift: vorsichtig spielen
+- **Nutzer 16.11.: „Er rennt an 1000 Digimon vorbei, nur um den Alpha zu besiegen – dabei stirbt er immer. Er soll vorsichtig
+  spielen.“** Rift-Gegner verfolgen ohne Leine; wer durchrennt, zieht ganze Gruppen hinter sich her.
+  - Den markierten Alpha zieht der Bot nur noch vor, wenn er nah ist (260 px). Weiter weg kämpft er sich Gruppe für Gruppe hin.
+  - Steht das Portal offen, erledigt er erst Angreifer und Gegner in seiner Nähe und geht dann hin.
+  - Hat er unter 60 % HP und greift ihn niemand an, wartet er bis zu 25 s, bevor er weiterläuft (nur, solange die Uhr noch über
+    3 min hat).
+- Live 16.11. (3.2.22): Alpha-Jagd klappt – Etage 1 nach 48 s, markierter Alpha besiegt, abgestiegen.
+- Tests: rifttest (Fälle I/J/K).
+
 ## 3.2.22 – Digital Rift: markierten Alpha angreifen
 - **Alpha-Jagd-Etagen (live 16.11., Tiefe 10 und 15):** Auf diesen Etagen öffnet das Portal erst, wenn die markierten Alphas tot
   sind. Der Alpha trägt im Spiel das Boss-Flag – die Rift-Zielwahl nahm Boss-Gegner nur als Guardian oder Angreifer und schloss

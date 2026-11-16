@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.22
+// @version      3.2.23
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1794,7 +1794,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.22'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.23'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -10014,6 +10014,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const riftStore = () => { try { return window.dmo?.rift?.getState?.() || null; } catch { return null; } };
   const RIFT_FOCUS_R = 450;      // so weit (Weglänge) sucht der Rift-Modus Gegner; Angreifer immer
   const RIFT_PACK_R = 260;       // Heiler zählt zur laufenden Gruppe: so nah bei mir oder bei einem Angreifer
+  // vorsichtig spielen (Nutzer 16.11.: „rennt an 1000 Digimon vorbei … dabei stirbt er immer“): unterwegs aufräumen, vor dem
+  // nächsten Kampf erholen
+  const RIFT_REST_HP = 60;           // unter so viel HP (%) ohne Angreifer erst erholen
+  const RIFT_REST_MS = 25000;        // höchstens so lange je Pause
+  const RIFT_REST_CLOCK_MS = 180000; // nur, solange die Uhr noch so viel Zeit hat
   const RIFT_PORTAL_NEAR = 80;   // so nah ans Portal (Spiel: „at“ bis 112 px)
   const RIFT_CELL_NEAR = 70;     // Zelle gilt als abgesucht, wenn man so nah an ihrer Mitte war
   const RIFT_STEP_MS = 1500, RIFT_ENTER_MS = 4000, RIFT_ENTER_TRIES = 5, RIFT_TALK_TRIES = 8, RIFT_LEAVE_MS = 2500;
@@ -10056,7 +10061,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (rift.cap) d = Math.min(d, rift.cap);
     return d >= 1 ? { depth: d, why: '' } : { depth: 1, why: `Partner Lv ${lv} reicht für keine Tiefe (Tiefe 1 ab Lv ${RIFT_LEVELS[0]})` };
   }
-  // Zielwahl im Rift: Guardian, markierter Alpha, Heiler (mender), Angreifer, Schildgeber (warder), dann der nächste Gegner. Steht das
+  // Zielwahl im Rift: Guardian, markierter Alpha (nah), Heiler (mender), Angreifer, Schildgeber (warder), dann der nächste Gegner. Steht das
   // Portal offen (nicht letzte Etage), nur noch Angreifer – dann geht es nach unten.
   function riftFocus(sc) {
     const st = getStore()?.getState?.(), R = riftStore(), run = R?.run;
@@ -10074,14 +10079,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const boss = !!(ents?.get?.(m.id)?.flags & FLAG.Boss) || m.cat === 'boss';
       const dist = m.pd ?? m.d;
       // markierter Alpha (Alpha-Jagd): trägt das Boss-Flag, ohne ihn öffnet das Portal nie – immer zuerst (live 16.11., 3.2.22)
-      if (marks.has(m.id)) return 5 + dist / 100;
+      // nur nah (laufende Gruppe) vorziehen – weit weg kämpft sich der Bot Gruppe für Gruppe hin, statt durchzurennen (3.2.23)
+      if (marks.has(m.id) && dist <= RIFT_PACK_R) return 5 + dist / 100;
       if (boss && last && run.guardian === 'called') return dist / 100; // Guardian
       // andere Boss-Flag-Gegner (Alphas außerhalb der Jagd) wie normale Gegner – vorher nie angegriffen
-      if (portalOpen) return m.attacker ? 100 + dist / 100 : Infinity;
+      // Portal offen: Angreifer und Gegner in der Nähe erst erledigen, dann hin (vorher rannte er durch und zog alles mit)
+      if (portalOpen) return m.attacker ? 100 + dist / 100 : dist <= RIFT_PACK_R ? 300 + dist / 100 : Infinity;
       // Heiler (mender, heilt die Frontreihe 4,5 %/s) der laufenden Gruppe vor allen Angreifern (Nutzer 16.11.)
       if (mender(m) && inFight(m)) return (marks.has(m.id) ? 10 : 50) + dist / 100;
       if (!m.attacker && !(dist <= RIFT_FOCUS_R)) return Infinity;
-      return (marks.has(m.id) ? 10 : m.attacker ? 100 : warder(m) ? 200 : 300) + dist / 100;
+      return (m.attacker ? 100 : warder(m) ? 200 : 300) + dist / 100; // ferner markierter Alpha: wie jeder andere (3.2.23)
     };
     const list = sc.mobs.filter((m) => !m.banned && m.reach !== false && !safeHeld(m.id) && score(m) < Infinity).sort((a, b) => score(a) - score(b));
     const cur = st.target, keep = cur && list.find((m) => m.id === cur.id);
@@ -10116,6 +10123,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const clock = run.clockMs != null ? ` · Uhr ${fmtClock(Math.max(0, run.clockMs))}` : '';
     const tag = `Rift T${run.depth ?? '?'} · Etage ${fl.n}/${fl.of} · Signal ${Math.round(run.signal || 0)} %${clock}`;
     // feststecken: Weg neu planen (sonst meldet walkTo für dasselbe Ziel dauerhaft „stuck“, Review)
+    // erholen: wenig HP und niemand greift an – nicht in die nächste Gruppe laufen
+    const pp = st.me?.partner, hpPct = pp?.maxHp ? pp.hp / pp.maxHp * 100 : 100;
+    if (hpPct < RIFT_REST_HP && !(sc?.attackers?.length) && (run.clockMs ?? Infinity) > RIFT_REST_CLOCK_MS) {
+      rift.restAt ||= now;
+      if (now - rift.restAt < RIFT_REST_MS) return `${tag} · erhole mich (HP ${Math.round(hpPct)} %)`;
+    } else if (hpPct >= RIFT_REST_HP || sc?.attackers?.length) rift.restAt = 0;
     const go = (x, y, what) => { if (walkTo(st, x, y, now) === 'stuck') { autopilot.nav = null; return null; } return `${tag} · ${what} (${Math.round(Math.hypot(me.x - x, me.y - y))} px)`; };
     // Guardian gerufen: zur Arena
     if (last && run.guardian === 'called') {

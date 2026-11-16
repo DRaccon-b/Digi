@@ -14,11 +14,15 @@
 //    anderen Gruppe – nach dem nahen Heiler kommt der Angreifer dran, nicht der ferne Heiler.
 // H (live 16.11., Tiefe 10): Alpha-Jagd-Etage – der markierte Alpha trägt das Boss-Flag und steht 110 px neben dem Bot (greift
 //    nicht an): der Bot greift ihn an (vorher ausgeschlossen, er lief erkunden).
+// I (Nutzer 16.11.: „rennt an 1000 Digimon vorbei nur um den Alpha zu besiegen – dabei stirbt er immer“): der markierte
+//    Alpha steht weit weg, ein Gegner nah – erst der nahe Gegner (vorsichtig durchkämpfen).
+// J: Portal offen, ein Gegner (greift nicht an) steht nah am Weg – erst den Gegner, dann absteigen.
+// K: wenig HP, niemand greift an – der Bot wartet und erholt sich, statt weiterzulaufen.
 const { JSDOM, VirtualConsole } = require('jsdom');
 const fs = require('fs');
 const script = fs.readFileSync(process.argv[2], 'utf8');
 
-function world({ cfg, deepest = 5, level = 110, until, hunt = false }) {
+function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = false, lowHp = false }) {
   const dom = new JSDOM('<!doctype html><body></body>', { runScripts: 'outside-only', url: 'https://play.digimmo.com.br/', pretendToBeVisual: true, virtualConsole: new VirtualConsole() });
   const w = dom.window;
   w.HTMLCanvasElement.prototype.getContext = () => null;
@@ -66,11 +70,17 @@ function world({ cfg, deepest = 5, level = 110, until, hunt = false }) {
       store.setState({ effects: { ...(state.effects || {}), 'h:heal': [{ id: 'rift_role_mender' }], 'h:far': [{ id: 'rift_role_mender' }] } });
     }
     rs = { ...rs, warden: null, view: null, result: null, floorUi: { going: null }, run: { depth: sent.enter[sent.enter.length - 1], running: true, signal, clockMs: 600000, floor: { n, of: 3 }, portal: { x: 400, y: 500, open: false }, guardian: 'hidden', objective: hunt ? 'hunt' : 'purge', alphaMarks: [] } };
+    if (caution && n === 1) { // I/J: Alpha weit weg, naher Gegner; Portal von Anfang an offen, Gegner am Weg
+      ents.set('al:2', { id: 'al:2', kind: 2, defId: 'bearmon_rift', level: 57, x: 520, y: 420, hp: 1200, maxHp: 1200, flags: 16 | 32, targetId: '' });
+      ents.set('n:near', { id: 'n:near', kind: 2, defId: 'bearmon_rift', level: 57, x: 330, y: 260, hp: 400, maxHp: 400, flags: 0, targetId: '' });
+      rs = { ...rs, run: { ...rs.run, objective: 'hunt', alphaMarks: [{ id: 'al:2', x: 520, y: 420 }] } };
+    }
+    if (caution && n === 2) { signal = 40; rs = { ...rs, run: { ...rs.run, signal: 40, portal: { x: 400, y: 600, open: true } } }; ents.set('n:path', { id: 'n:path', kind: 2, defId: 'bearmon_rift', level: 57, x: 330, y: 380, hp: 400, maxHp: 400, flags: 0, targetId: '' }); }
     if (hunt && n === 1) { ents.set('al:1', { id: 'al:1', kind: 2, defId: 'bearmon_rift', level: 57, x: 250, y: 300, hp: 1200, maxHp: 1200, flags: 16 | 32, targetId: '' }); rs = { ...rs, run: { ...rs.run, alphaMarks: [{ id: 'al:1', x: 250, y: 300 }] } }; }
   }
   function loadMap(id, sp) {
     mapId = id;
-    for (const k of [...ents.keys()]) if (k !== 't:me' && k !== 'p:me' && !(id === RS && /^(a:att|h:heal|h:far|al:1)$/.test(k))) ents.delete(k);
+    for (const k of [...ents.keys()]) if (k !== 't:me' && k !== 'p:me' && !(id === RS && /^(a:att|h:heal|h:far|al:1|al:2|n:near|n:path)$/.test(k))) ents.delete(k);
     const t = ents.get('t:me'), p = ents.get('p:me');
     t.x = sp.x; t.y = sp.y; p.x = sp.x + 10; p.y = sp.y;
     if (id !== RS) scene.riftFog = null;
@@ -105,7 +115,7 @@ function world({ cfg, deepest = 5, level = 110, until, hunt = false }) {
         sent.patch.push(rs.patch?.offers?.[args.pick]?.id); L(`Patch ${rs.patch?.offers?.[args.pick]?.id}`); rs = { ...rs, patch: null };
       } else if (name === 'riftDescend') {
         if (!rs.run?.portal?.open || !near(rs.run.portal.x, rs.run.portal.y, 112)) return;
-        sent.descend++; L('riftDescend'); store.setState({ screen: 'loading' });
+        sent.descend++; sent.sel.push('DESCEND'); L('riftDescend'); store.setState({ screen: 'loading' });
         setTimeout(() => { floorStart(floor + 1); loadMap(RS, { x: 200, y: 200 }); }, 300);
       } else if (name === 'raidLeave') commands.raidLeave();
     },
@@ -125,6 +135,7 @@ function world({ cfg, deepest = 5, level = 110, until, hunt = false }) {
     store.setState({ target: { ...state.target, hp: m.hp } });
     if (m.hp > 0) return;
     ents.delete(m.id);
+    if (m.id === 'al:2') { setRun({ alphaMarks: [], signal: 33, portal: { ...rs.run.portal, open: true } }); signal = 33; L('Alpha besiegt'); return; }
     if (m.flags & 16) { // Guardian
       L('Guardian besiegt'); rs = { ...rs, run: null, patch: null, result: { stable: true, depth: rs.run.depth, timeMs: 200000, loot: { shards: 40 } } };
       return;
@@ -140,6 +151,7 @@ function world({ cfg, deepest = 5, level = 110, until, hunt = false }) {
   store.setState({ screen: 'world', inputFocus: 'game', cooldowns: {}, chat: [], world: { mapId: PV, channel: 1, roomId: `${PV}-1` }, target: null,
     me: { tamerEntityId: 't:me', tamerDs: 300, tamerMaxDs: 360, hotbar: ['cmd:attack'], inventory: [], quests: {}, bits: 5000,
       partner: { entityId: 'p:me', name: 'Piemon', species: 'piedmon_dm', level, hp: 30000, maxHp: 30000, ds: 500, maxDs: 700, exp: 1, expNext: 100, skills: [] } } });
+  if (lowHp) store.setState({ me: { ...state.me, partner: { ...state.me.partner, hp: 9000 } } });
   loadMap(PV, { x: 808, y: 900 });
   w.localStorage.setItem('digibot.cfg', JSON.stringify({ dungeon: true, dgMode: 'rift', hpPot: 0, dsPot: 0, tdsPot: 0, lvlDiff: 3, tab: 'log', ...cfg }));
   w.eval(script);
@@ -173,6 +185,23 @@ function world({ cfg, deepest = 5, level = 110, until, hunt = false }) {
   while (Date.now() < t3 && !W3.sent.sel.includes('al:1')) await new Promise((r) => setTimeout(r, 300));
   W3.w.close();
   const okH = W3.sent.sel.includes('al:1');
+  const W4 = world({ cfg: { riftDepthMode: 'max' }, caution: true, until: (s) => s.enter.length > 1 });
+  await new Promise((r) => setTimeout(r, 900));
+  W4.w.document.querySelector('[data-act="bot"]').click();
+  const t4 = Date.now() + 90000;
+  while (Date.now() < t4 && W4.sent.descend < 2) await new Promise((r) => setTimeout(r, 300));
+  W4.w.close();
+  const s4 = W4.sent.sel;
+  const okI = s4.indexOf('n:near') >= 0 && (s4.indexOf('al:2') < 0 || s4.indexOf('n:near') < s4.indexOf('al:2'));
+  const d2 = s4.indexOf('DESCEND', s4.indexOf('DESCEND') + 1);
+  const okJ = s4.indexOf('n:path') >= 0 && (d2 < 0 || s4.indexOf('n:path') < d2);
+  const W5 = world({ cfg: { riftDepthMode: 'max' }, lowHp: true, until: (s) => s.enter.length > 1 });
+  await new Promise((r) => setTimeout(r, 900));
+  W5.w.document.querySelector('[data-act="bot"]').click();
+  const t5 = Date.now() + 30000; let rested = false;
+  while (Date.now() < t5 && !rested) { rested = /erhole/.test(W5.status()); await new Promise((r) => setTimeout(r, 300)); }
+  W5.w.close();
+  const okK = rested;
   const fsel = W.sent.sel.filter((x) => x === 'a:att' || x === 'h:heal');
   const okF = fsel[0] === 'h:heal';
   const gsel = W.sent.sel.filter((x) => x === 'a:att' || x === 'h:far');
@@ -185,5 +214,8 @@ function world({ cfg, deepest = 5, level = 110, until, hunt = false }) {
   console.log(okF ? 'OK     F: Heiler zuerst' : `FEHLER F: ${fsel.join(',')}`);
   console.log(okG ? 'OK     G: ferner Heiler einer anderen Gruppe nicht vorgezogen' : `FEHLER G: ${gsel.join(',')}`);
   console.log(okH ? 'OK     H: markierter Alpha (Boss-Flag) wird angegriffen' : `FEHLER H: ${W3.sent.sel.join(',')}`);
-  process.exit(okA && okB && okC && okD && okE && okF && okG && okH ? 0 : 1);
+  console.log(okI ? 'OK     I: erst der nahe Gegner, dann der ferne Alpha' : `FEHLER I: ${s4.join(',')}`);
+  console.log(okJ ? 'OK     J: Gegner am Weg vor dem Abstieg erledigt' : `FEHLER J: ${s4.join(',')}`);
+  console.log(okK ? 'OK     K: wenig HP – erholt sich vor dem Weiterlaufen' : 'FEHLER K');
+  process.exit(okA && okB && okC && okD && okE && okF && okG && okH && okI && okJ && okK ? 0 : 1);
 })();
