@@ -2,6 +2,14 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.20 – Digital Rift: Heiler zuerst
+- **Rift-Zielwahl (Nutzer 16.11.):** Heiler der Hinterreihe (Rolle „mender“, heilt die Frontreihe um 4,5 % pro Sekunde) greift der
+  Bot jetzt vor allen Angreifern an – nur ein gerufener Guardian und ein markierter Alpha gehen vor. Weil Heiler hinten stehen,
+  sucht er sie etwas weiter (650 statt 450 px). Schildgeber (warder) bleiben nach den Angreifern.
+- Live-Lauf 16.11. (Tiefe 12, Beelzemon Lv 130): Etage 1 mit Patch und Abstieg geklappt, auf Etage 2 bei 73 % Signal mehrfach
+  bewusstlos (Gegner Lv 130).
+- Tests: rifttest (Fall F: Heiler vor Angreifer).
+
 ## 3.2.19 – Digital Rift: solo starten, clearen, endlos wiederholen
 - **Neu unter Dungeon → Modus: „Digital Rift (solo, endlos)“** (Spiel-Update 16.11.). Der Bot geht zu Clockmon (Rift Warden,
   Primary Village), öffnet den Rift und betritt die gewählte Tiefe. Im Lauf sucht er die Gegner Zelle für Zelle ab (die Karte

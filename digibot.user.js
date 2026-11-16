@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.19
+// @version      3.2.20
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1794,7 +1794,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.19'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.20'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -10055,7 +10055,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (rift.cap) d = Math.min(d, rift.cap);
     return d >= 1 ? { depth: d, why: '' } : { depth: 1, why: `Partner Lv ${lv} reicht für keine Tiefe (Tiefe 1 ab Lv ${RIFT_LEVELS[0]})` };
   }
-  // Zielwahl im Rift: Guardian, markierter Alpha, Angreifer, Heiler/Schildgeber der Hinterreihe, dann der nächste Gegner. Steht das
+  // Zielwahl im Rift: Guardian, markierter Alpha, Heiler (mender), Angreifer, Schildgeber (warder), dann der nächste Gegner. Steht das
   // Portal offen (nicht letzte Etage), nur noch Angreifer – dann geht es nach unten.
   function riftFocus(sc) {
     const st = getStore()?.getState?.(), R = riftStore(), run = R?.run;
@@ -10063,14 +10063,17 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const fl = run.floor || { n: 1, of: 3 }, last = fl.n >= fl.of, ents = window.dmo?.net?.state?.entities;
     const portalOpen = !last && !!run.portal?.open;
     const marks = new Set((run.alphaMarks || []).map((a) => a?.id).filter(Boolean));
-    const role = (m) => (st.effects?.[m.id] || []).some((e) => e?.id === 'rift_role_mender' || e?.id === 'rift_role_warder');
+    const hasRole = (m, r) => (st.effects?.[m.id] || []).some((e) => e?.id === r);
+    const mender = (m) => hasRole(m, 'rift_role_mender'), warder = (m) => hasRole(m, 'rift_role_warder');
     const score = (m) => {
       const boss = !!(ents?.get?.(m.id)?.flags & FLAG.Boss) || m.cat === 'boss';
       const dist = m.pd ?? m.d;
       if (boss) return last && run.guardian === 'called' ? dist / 100 : m.attacker ? 1000 + dist / 100 : Infinity;
       if (portalOpen) return m.attacker ? 100 + dist / 100 : Infinity;
+      // Heiler (mender, heilt die Frontreihe 4,5 %/s) vor allen Angreifern – Nutzer 16.11.; er steht hinten, darum etwas weiter suchen
+      if (mender(m) && dist <= RIFT_FOCUS_R + 200) return (marks.has(m.id) ? 10 : 50) + dist / 100;
       if (!m.attacker && !(dist <= RIFT_FOCUS_R)) return Infinity;
-      return (marks.has(m.id) ? 10 : m.attacker ? 100 : role(m) ? 200 : 300) + dist / 100;
+      return (marks.has(m.id) ? 10 : m.attacker ? 100 : warder(m) ? 200 : 300) + dist / 100;
     };
     const list = sc.mobs.filter((m) => !m.banned && m.reach !== false && !safeHeld(m.id) && score(m) < Infinity).sort((a, b) => score(a) - score(b));
     const cur = st.target, keep = cur && list.find((m) => m.id === cur.id);

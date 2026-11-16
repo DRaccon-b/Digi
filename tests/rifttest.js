@@ -8,6 +8,8 @@
 // C: drei Etagen, zweimal abgestiegen, Guardian besiegt, raidLeave gesendet.
 // D: danach zweiter Lauf gestartet.
 // E (zweiter Durchgang, feste Tiefe 2): riftEnter mit Tiefe 2.
+// F (Nutzer 16.11.: „der Heiler zuerst“): Etage 1 – ein Angreifer greift an, ein Heiler (Rolle rift_role_mender) steht dahinter:
+//    der Bot nimmt zuerst den Heiler.
 const { JSDOM, VirtualConsole } = require('jsdom');
 const fs = require('fs');
 const script = fs.readFileSync(process.argv[2], 'utf8');
@@ -30,7 +32,7 @@ function world({ cfg, deepest = 5, level = 110, until }) {
     spawns: { [PV]: { zones: {} }, [RS]: { zones: {}, raid: { id: 'rift', gate: { mapId: PV, portal: 'rift' }, party: { min: 1, max: 5, minLevel: 1 }, deathLimit: 1000, landing: 'camp', rift: true } } },
   };
   const log = [], L = (s) => { log.push(s); if (process.env.V) console.log('   * ' + s); };
-  const sent = { enter: [], patch: [], descend: 0, leave: 0, talk: 0, open: 0 };
+  const sent = { enter: [], patch: [], descend: 0, leave: 0, talk: 0, open: 0, sel: [] };
   let state = {}; const subs = [];
   const store = { getState: () => state, setState: (p) => { state = { ...state, ...p }; subs.forEach((f) => f()); }, subscribe: (f) => subs.push(f) };
   let rs = { warden: null, view: null, run: null, patch: null, result: null, floorUi: { going: null } };
@@ -45,7 +47,7 @@ function world({ cfg, deepest = 5, level = 110, until }) {
     map: { grid: { w: 120, h: 120, tile: 16, blocked: new Uint8Array(120 * 120) }, portals: [], spawns: {}, zones: {} },
     controlledId: () => 't:me',
     tapGround: (x, y) => { goal = { x, y }; },
-    select: (id) => { const e = ents.get(id); store.setState({ target: e ? { id, kind: 'mob', name: content.digimon[e.defId].name, level: e.level, hp: e.hp, maxHp: e.maxHp } : null }); },
+    select: (id) => { sent.sel.push(id); const e = ents.get(id); store.setState({ target: e ? { id, kind: 'mob', name: content.digimon[e.defId].name, level: e.level, hp: e.hp, maxHp: e.maxHp } : null }); },
     telegraphs: { active: [], mirrors: [] }, mechB: { lines: [] }, riftFog: null,
   };
   const setRun = (p) => { rs = { ...rs, run: { ...rs.run, ...p } }; };
@@ -53,11 +55,16 @@ function world({ cfg, deepest = 5, level = 110, until }) {
     floor = n; guardianUp = false; hidden.clear();
     [[790, 160], [800, 780], [160, 790]].forEach(([x, y], i) => hidden.set(`m:${n}:${i}`, { id: `m:${n}:${i}`, kind: 2, defId: 'bearmon_rift', level: 57, x, y, hp: 400, maxHp: 400, flags: 32, targetId: '' }));
     scene.riftFog = { rift: { layout: { cells: CELLS, guardian: { x: 800, y: 500 } } } };
+    if (n === 1 && runs === 1) { // F: Angreifer vorn, Heiler dahinter (beide gleich sichtbar)
+      ents.set('a:att', { id: 'a:att', kind: 2, defId: 'bearmon_rift', level: 57, x: 330, y: 200, hp: 400, maxHp: 400, flags: 32, targetId: 'p:me' });
+      ents.set('h:heal', { id: 'h:heal', kind: 2, defId: 'bearmon_rift', level: 57, x: 420, y: 330, hp: 400, maxHp: 400, flags: 0, targetId: '' });
+      store.setState({ effects: { ...(state.effects || {}), 'h:heal': [{ id: 'rift_role_mender' }] } });
+    }
     rs = { ...rs, warden: null, view: null, result: null, floorUi: { going: null }, run: { depth: sent.enter[sent.enter.length - 1], running: true, signal, clockMs: 600000, floor: { n, of: 3 }, portal: { x: 400, y: 500, open: false }, guardian: 'hidden', objective: 'purge', alphaMarks: [] } };
   }
   function loadMap(id, sp) {
     mapId = id;
-    for (const k of [...ents.keys()]) if (k !== 't:me' && k !== 'p:me') ents.delete(k);
+    for (const k of [...ents.keys()]) if (k !== 't:me' && k !== 'p:me' && !(id === RS && /^(a:att|h:heal)$/.test(k))) ents.delete(k);
     const t = ents.get('t:me'), p = ents.get('p:me');
     t.x = sp.x; t.y = sp.y; p.x = sp.x + 10; p.y = sp.y;
     if (id !== RS) scene.riftFog = null;
@@ -153,10 +160,13 @@ function world({ cfg, deepest = 5, level = 110, until }) {
   while (Date.now() < t2 && !W2.sent.enter.length) await new Promise((r) => setTimeout(r, 300));
   W2.w.close();
   const okE = W2.sent.enter[0] === 2;
+  const fsel = W.sent.sel.filter((x) => x === 'a:att' || x === 'h:heal');
+  const okF = fsel[0] === 'h:heal';
   console.log(okA ? 'OK     A: höchstmögliche Tiefe nach Partner-Level (4)' : `FEHLER A: ${W.sent.enter[0]}`);
   console.log(okB ? 'OK     B: Patch overclock gewählt' : `FEHLER B: ${W.sent.patch.join(',')}`);
   console.log(okC ? 'OK     C: 3 Etagen, Guardian besiegt, Rift verlassen' : `FEHLER C: descend ${W.sent.descend} leave ${W.sent.leave}`);
   console.log(okD ? 'OK     D: zweiter Lauf gestartet' : 'FEHLER D');
   console.log(okE ? 'OK     E: feste Tiefe 2' : `FEHLER E: ${W2.sent.enter.join(',')}`);
-  process.exit(okA && okB && okC && okD && okE ? 0 : 1);
+  console.log(okF ? 'OK     F: Heiler zuerst' : `FEHLER F: ${fsel.join(',')}`);
+  process.exit(okA && okB && okC && okD && okE && okF ? 0 : 1);
 })();
