@@ -10157,7 +10157,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (hp0 < RIFT_REST_HP && !att.length && (run.clockMs ?? Infinity) > RIFT_REST_CLOCK_MS && (!rift.restAt || now0 - rift.restAt < RIFT_REST_MS) && !(st.target && sc.mobs.some((m) => m.id === st.target.id))) return null;
     const list = sc.mobs.filter((m) => !m.banned && m.reach !== false && !safeHeld(m.id) && score(m) < Infinity).sort((a, b) => score(a) - score(b));
     const cur = st.target, keep = cur && list.find((m) => m.id === cur.id);
-    if (keep && Math.floor(score(keep) / 100) <= Math.floor(score(list[0]) / 100)) return keep; // nicht hin und her
+    // behalten nur, wenn es nicht deutlich weiter weg ist (≤ 120 px mehr) – sonst lief er einem fernen Angreifer hinterher, während
+    // nahe frei zuschlugen (live 16.11., 1 → 6 Angreifer, 3.2.28); sonst nicht hin und her
+    if (keep && Math.floor(score(keep) / 100) <= Math.floor(score(list[0]) / 100) && score(keep) - score(list[0]) <= 1.2) return keep;
     return list[0] || null;
   }
   // Im Rift ohne Ziel: Patch wählen, Guardian, Portal, Alpha, sonst die nächste noch nicht abgesuchte Zelle

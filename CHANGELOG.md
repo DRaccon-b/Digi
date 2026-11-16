@@ -11,7 +11,10 @@ Alle Änderungen an DigiBot, neueste zuerst.
   Fast Route.
 - **Erkunden (Live: Etage 1 brauchte 1:40, davon 40 s Laufen):** Der Bot nahm die nächste unbesuchte Zelle, auch Sackgassen
   (laut Spieldaten höchstens eine Gruppe, oft keine). Jetzt erst Hauptweg und Abzweige (1–2 Gruppen je Zelle), Sackgassen zuletzt.
-- Tests: rifttest (Fall P).
+- **Ziel behalten (Live, Lauf 3: lief 200–280 px einem fernen Angreifer hinterher, während nahe Gegner zuschlugen – 1 → 6
+  Angreifer):** Das aktuelle Ziel blieb, solange es in derselben Stufe war, auch wenn ein anderer Angreifer direkt daneben stand;
+  auf dem Weg zum Ziel greift der Bot nicht an. Jetzt behält er es nur, wenn es höchstens ~120 px weiter weg ist als das beste.
+- Tests: rifttest (Fälle P, Q).
 
 ## 3.2.27 – Digital Rift: sicher ausweichen
 - **Live 16.11. (Tiefe 15, Paladin): beide Tode im Rift passierten beim Ausweichen.**
