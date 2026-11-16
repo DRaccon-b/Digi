@@ -2,6 +2,19 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.27 – Digital Rift: sicher ausweichen
+- **Live 16.11. (Tiefe 15, Paladin): beide Tode im Rift passierten beim Ausweichen.**
+  - **In Nachbargruppen gelaufen:** Der Fluchtpunkt achtete nur auf Warnflächen – der Bot wich in ruhige Gruppen aus (Rift-
+    Gegner greifen ab 64 px an und verfolgen ohne Leine), in 8 s hingen 11 Angreifer an ihm. Jetzt meidet er im Rift
+    Fluchtpunkte im Umkreis von 120 px um Gegner, die ihn noch nicht angreifen.
+  - **Untätig gewartet:** Bei „Warte außerhalb, bis der Flächenangriff vorbei ist“ schlugen ihn 3 Gegner, 50 % → 0 in 5 s.
+    Jetzt heilt er sich beim Warten (Heil-Skill), und steht ein Angreifer selbst außerhalb der Warnzone und ist frei erreichbar,
+    nimmt er ihn als Ziel.
+- Als „ruhig“ zählen nur Gegner ohne Ziel – nicht das eigene Ziel und nicht Gegner, die einen Mitspieler angreifen (sonst wiche
+  der Bot in der Gruppe vom Boss weg, Review). Auch sichere Lücken in Warnflächen werden nach Nähe zu Gruppen bewertet.
+- Nur auf Rift-Karten; das Ausweichen überall sonst bleibt unverändert.
+- Tests: riftdodgetest (neu).
+
 ## 3.2.26 – Alter Hunt erkennen, Event auch aus dem Rift
 - **Alter Hunt (Spiel-Update 16.11.):** Die Mega-Jagd ist beendet, seit 16.11. läuft die „Alter Hunt“ (Bosse Lv 130, je Wochentag
   ein anderer). Der Bot griff in der Event-Liste die beendete Mega-Jagd und übersah die Alter Hunt. Jetzt nimmt er das laufende
