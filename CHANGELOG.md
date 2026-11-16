@@ -2,6 +2,13 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.24 – Digital Rift: Suchradius aus dem Panel
+- **Nutzer 16.11.: „wieso pullt er 100 Mobs“.** Im Rift suchte der Bot sein nächstes Ziel fest bis 450 px weit und lief dabei
+  durch andere Gruppen, die sich dann mit anhängten. Jetzt gilt der Suchradius aus dem Panel (Kampf → Zielwahl) auch im Rift,
+  höchstens 450 px. Kleiner = vorsichtiger: Er nimmt nur Gegner in der Nähe und räumt Gruppe für Gruppe ab. Heiler-, Alpha- und
+  Portal-Nahbereich (260 px) werden mit verkleinert.
+- Tests: rifttest (Fall L: Suchradius 150).
+
 ## 3.2.23 – Digital Rift: vorsichtig spielen
 - **Nutzer 16.11.: „Er rennt an 1000 Digimon vorbei, nur um den Alpha zu besiegen – dabei stirbt er immer. Er soll vorsichtig
   spielen.“** Rift-Gegner verfolgen ohne Leine; wer durchrennt, zieht ganze Gruppen hinter sich her.

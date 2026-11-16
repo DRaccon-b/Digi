@@ -18,11 +18,13 @@
 //    Alpha steht weit weg, ein Gegner nah – erst der nahe Gegner (vorsichtig durchkämpfen).
 // J: Portal offen, ein Gegner (greift nicht an) steht nah am Weg – erst den Gegner, dann absteigen.
 // K: wenig HP, niemand greift an – der Bot wartet und erholt sich, statt weiterzulaufen.
+// L (Nutzer 16.11.: Suchradius runterstellen): Suchradius im Panel 150 – einen Gegner (greift nicht an) nimmt der Bot erst,
+//    wenn er höchstens 150 px entfernt ist (vorher fest 450 px im Rift).
 const { JSDOM, VirtualConsole } = require('jsdom');
 const fs = require('fs');
 const script = fs.readFileSync(process.argv[2], 'utf8');
 
-function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = false, lowHp = false }) {
+function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = false, lowHp = false, mid = false }) {
   const dom = new JSDOM('<!doctype html><body></body>', { runScripts: 'outside-only', url: 'https://play.digimmo.com.br/', pretendToBeVisual: true, virtualConsole: new VirtualConsole() });
   const w = dom.window;
   w.HTMLCanvasElement.prototype.getContext = () => null;
@@ -55,7 +57,7 @@ function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = f
     map: { grid: { w: 120, h: 120, tile: 16, blocked: new Uint8Array(120 * 120) }, portals: [], spawns: {}, zones: {} },
     controlledId: () => 't:me',
     tapGround: (x, y) => { goal = { x, y }; },
-    select: (id) => { sent.sel.push(id); const e = ents.get(id); store.setState({ target: e ? { id, kind: 'mob', name: content.digimon[e.defId].name, level: e.level, hp: e.hp, maxHp: e.maxHp } : null }); },
+    select: (id) => { if (id === 'n:mid' && sent.midD == null) { const tm = ents.get('t:me'), e0 = ents.get(id); if (e0) sent.midD = Math.round(Math.hypot(e0.x - tm.x, e0.y - tm.y)); } sent.sel.push(id); const e = ents.get(id); store.setState({ target: e ? { id, kind: 'mob', name: content.digimon[e.defId].name, level: e.level, hp: e.hp, maxHp: e.maxHp } : null }); },
     telegraphs: { active: [], mirrors: [] }, mechB: { lines: [] }, riftFog: null,
   };
   const setRun = (p) => { rs = { ...rs, run: { ...rs.run, ...p } }; };
@@ -70,6 +72,7 @@ function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = f
       store.setState({ effects: { ...(state.effects || {}), 'h:heal': [{ id: 'rift_role_mender' }], 'h:far': [{ id: 'rift_role_mender' }] } });
     }
     rs = { ...rs, warden: null, view: null, result: null, floorUi: { going: null }, run: { depth: sent.enter[sent.enter.length - 1], running: true, signal, clockMs: 600000, floor: { n, of: 3 }, portal: { x: 400, y: 500, open: false }, guardian: 'hidden', objective: hunt ? 'hunt' : 'purge', alphaMarks: [] } };
+    if (mid && n === 1) ents.set('n:mid', { id: 'n:mid', kind: 2, defId: 'bearmon_rift', level: 57, x: 500, y: 200, hp: 400, maxHp: 400, flags: 0, targetId: '' });
     if (caution && n === 1) { // I/J: Alpha weit weg, naher Gegner; Portal von Anfang an offen, Gegner am Weg
       ents.set('al:2', { id: 'al:2', kind: 2, defId: 'bearmon_rift', level: 57, x: 520, y: 420, hp: 1200, maxHp: 1200, flags: 16 | 32, targetId: '' });
       ents.set('n:near', { id: 'n:near', kind: 2, defId: 'bearmon_rift', level: 57, x: 330, y: 260, hp: 400, maxHp: 400, flags: 0, targetId: '' });
@@ -80,7 +83,7 @@ function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = f
   }
   function loadMap(id, sp) {
     mapId = id;
-    for (const k of [...ents.keys()]) if (k !== 't:me' && k !== 'p:me' && !(id === RS && /^(a:att|h:heal|h:far|al:1|al:2|n:near|n:path)$/.test(k))) ents.delete(k);
+    for (const k of [...ents.keys()]) if (k !== 't:me' && k !== 'p:me' && !(id === RS && /^(a:att|h:heal|h:far|al:1|al:2|n:near|n:path|n:mid)$/.test(k))) ents.delete(k);
     const t = ents.get('t:me'), p = ents.get('p:me');
     t.x = sp.x; t.y = sp.y; p.x = sp.x + 10; p.y = sp.y;
     if (id !== RS) scene.riftFog = null;
@@ -202,6 +205,13 @@ function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = f
   while (Date.now() < t5 && !rested) { rested = /erhole/.test(W5.status()); await new Promise((r) => setTimeout(r, 300)); }
   W5.w.close();
   const okK = rested;
+  const W6 = world({ cfg: { riftDepthMode: 'max', radius: 150 }, mid: true, until: (s) => s.enter.length > 1 });
+  await new Promise((r) => setTimeout(r, 900));
+  W6.w.document.querySelector('[data-act="bot"]').click();
+  const t6 = Date.now() + 60000;
+  while (Date.now() < t6 && W6.sent.midD == null) await new Promise((r) => setTimeout(r, 300));
+  W6.w.close();
+  const okL = W6.sent.midD != null && W6.sent.midD <= 165;
   const fsel = W.sent.sel.filter((x) => x === 'a:att' || x === 'h:heal');
   const okF = fsel[0] === 'h:heal';
   const gsel = W.sent.sel.filter((x) => x === 'a:att' || x === 'h:far');
@@ -217,5 +227,6 @@ function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = f
   console.log(okI ? 'OK     I: erst der nahe Gegner, dann der ferne Alpha' : `FEHLER I: ${s4.join(',')}`);
   console.log(okJ ? 'OK     J: Gegner am Weg vor dem Abstieg erledigt' : `FEHLER J: ${s4.join(',')}`);
   console.log(okK ? 'OK     K: wenig HP – erholt sich vor dem Weiterlaufen' : 'FEHLER K');
-  process.exit(okA && okB && okC && okD && okE && okF && okG && okH && okI && okJ && okK ? 0 : 1);
+  console.log(okL ? `OK     L: Suchradius 150 gilt im Rift (angegriffen bei ${W6.sent.midD} px)` : `FEHLER L: angegriffen bei ${W6.sent.midD} px`);
+  process.exit(okA && okB && okC && okD && okE && okF && okG && okH && okI && okJ && okK && okL ? 0 : 1);
 })();

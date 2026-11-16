@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.23
+// @version      3.2.24
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1794,7 +1794,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.23'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.24'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -10012,7 +10012,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const riftNeedLv = (d) => (d >= 1 && d <= 5 ? RIFT_LEVELS[d - 1] : 130);
   const riftMap = (mapId) => !!mapId && !!content()?.spawns?.[mapId]?.raid?.rift;
   const riftStore = () => { try { return window.dmo?.rift?.getState?.() || null; } catch { return null; } };
-  const RIFT_FOCUS_R = 450;      // so weit (Weglänge) sucht der Rift-Modus Gegner; Angreifer immer
+  const RIFT_FOCUS_R = 450;      // so weit (Weglänge) sucht der Rift-Modus Gegner höchstens; Angreifer immer
+  // Suchradius im Panel gilt auch im Rift – kleiner = vorsichtiger, Gruppe für Gruppe (Nutzer 16.11., 3.2.24)
+  const riftFocusR = () => Math.min(RIFT_FOCUS_R, Number(cfg.radius) || RIFT_FOCUS_R);
+  const riftPackR = () => Math.min(RIFT_PACK_R, riftFocusR());
   const RIFT_PACK_R = 260;       // Heiler zählt zur laufenden Gruppe: so nah bei mir oder bei einem Angreifer
   // vorsichtig spielen (Nutzer 16.11.: „rennt an 1000 Digimon vorbei … dabei stirbt er immer“): unterwegs aufräumen, vor dem
   // nächsten Kampf erholen
@@ -10074,20 +10077,20 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // gehört zur Gruppe, mit der ich gerade kämpfe: nah bei mir oder nah an einem Angreifer (Hinterreihe ~100–200 px hinter der
     // Front) – nicht quer über die Map zum Heiler einer anderen Gruppe laufen (Nutzer 16.11.)
     const att = sc.attackers || [];
-    const inFight = (m) => (m.pd ?? m.d) <= RIFT_PACK_R || att.some((a) => Math.hypot(a.x - m.x, a.y - m.y) <= RIFT_PACK_R);
+    const inFight = (m) => (m.pd ?? m.d) <= riftPackR() || att.some((a) => Math.hypot(a.x - m.x, a.y - m.y) <= RIFT_PACK_R);
     const score = (m) => {
       const boss = !!(ents?.get?.(m.id)?.flags & FLAG.Boss) || m.cat === 'boss';
       const dist = m.pd ?? m.d;
       // markierter Alpha (Alpha-Jagd): trägt das Boss-Flag, ohne ihn öffnet das Portal nie – immer zuerst (live 16.11., 3.2.22)
       // nur nah (laufende Gruppe) vorziehen – weit weg kämpft sich der Bot Gruppe für Gruppe hin, statt durchzurennen (3.2.23)
-      if (marks.has(m.id) && dist <= RIFT_PACK_R) return 5 + dist / 100;
+      if (marks.has(m.id) && dist <= riftPackR()) return 5 + dist / 100;
       if (boss && last && run.guardian === 'called') return dist / 100; // Guardian
       // andere Boss-Flag-Gegner (Alphas außerhalb der Jagd) wie normale Gegner – vorher nie angegriffen
       // Portal offen: Angreifer und Gegner in der Nähe erst erledigen, dann hin (vorher rannte er durch und zog alles mit)
-      if (portalOpen) return m.attacker ? 100 + dist / 100 : dist <= RIFT_PACK_R ? 300 + dist / 100 : Infinity;
+      if (portalOpen) return m.attacker ? 100 + dist / 100 : dist <= riftPackR() ? 300 + dist / 100 : Infinity;
       // Heiler (mender, heilt die Frontreihe 4,5 %/s) der laufenden Gruppe vor allen Angreifern (Nutzer 16.11.)
       if (mender(m) && inFight(m)) return (marks.has(m.id) ? 10 : 50) + dist / 100;
-      if (!m.attacker && !(dist <= RIFT_FOCUS_R)) return Infinity;
+      if (!m.attacker && !(dist <= riftFocusR())) return Infinity;
       return (m.attacker ? 100 : warder(m) ? 200 : 300) + dist / 100; // ferner markierter Alpha: wie jeder andere (3.2.23)
     };
     const list = sc.mobs.filter((m) => !m.banned && m.reach !== false && !safeHeld(m.id) && score(m) < Infinity).sort((a, b) => score(a) - score(b));
