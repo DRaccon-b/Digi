@@ -12,11 +12,13 @@
 //    der Bot nimmt zuerst den Heiler.
 // G (Nutzer 16.11.: „rennt quer über die Map zum Heiler einer anderen Gruppe“): ein zweiter Heiler steht weit weg bei einer
 //    anderen Gruppe – nach dem nahen Heiler kommt der Angreifer dran, nicht der ferne Heiler.
+// H (live 16.11., Tiefe 10): Alpha-Jagd-Etage – der markierte Alpha trägt das Boss-Flag und steht 110 px neben dem Bot (greift
+//    nicht an): der Bot greift ihn an (vorher ausgeschlossen, er lief erkunden).
 const { JSDOM, VirtualConsole } = require('jsdom');
 const fs = require('fs');
 const script = fs.readFileSync(process.argv[2], 'utf8');
 
-function world({ cfg, deepest = 5, level = 110, until }) {
+function world({ cfg, deepest = 5, level = 110, until, hunt = false }) {
   const dom = new JSDOM('<!doctype html><body></body>', { runScripts: 'outside-only', url: 'https://play.digimmo.com.br/', pretendToBeVisual: true, virtualConsole: new VirtualConsole() });
   const w = dom.window;
   w.HTMLCanvasElement.prototype.getContext = () => null;
@@ -63,11 +65,12 @@ function world({ cfg, deepest = 5, level = 110, until }) {
       ents.set('h:far', { id: 'h:far', kind: 2, defId: 'bearmon_rift', level: 57, x: 720, y: 560, hp: 400, maxHp: 400, flags: 0, targetId: '' });
       store.setState({ effects: { ...(state.effects || {}), 'h:heal': [{ id: 'rift_role_mender' }], 'h:far': [{ id: 'rift_role_mender' }] } });
     }
-    rs = { ...rs, warden: null, view: null, result: null, floorUi: { going: null }, run: { depth: sent.enter[sent.enter.length - 1], running: true, signal, clockMs: 600000, floor: { n, of: 3 }, portal: { x: 400, y: 500, open: false }, guardian: 'hidden', objective: 'purge', alphaMarks: [] } };
+    rs = { ...rs, warden: null, view: null, result: null, floorUi: { going: null }, run: { depth: sent.enter[sent.enter.length - 1], running: true, signal, clockMs: 600000, floor: { n, of: 3 }, portal: { x: 400, y: 500, open: false }, guardian: 'hidden', objective: hunt ? 'hunt' : 'purge', alphaMarks: [] } };
+    if (hunt && n === 1) { ents.set('al:1', { id: 'al:1', kind: 2, defId: 'bearmon_rift', level: 57, x: 250, y: 300, hp: 1200, maxHp: 1200, flags: 16 | 32, targetId: '' }); rs = { ...rs, run: { ...rs.run, alphaMarks: [{ id: 'al:1', x: 250, y: 300 }] } }; }
   }
   function loadMap(id, sp) {
     mapId = id;
-    for (const k of [...ents.keys()]) if (k !== 't:me' && k !== 'p:me' && !(id === RS && /^(a:att|h:heal|h:far)$/.test(k))) ents.delete(k);
+    for (const k of [...ents.keys()]) if (k !== 't:me' && k !== 'p:me' && !(id === RS && /^(a:att|h:heal|h:far|al:1)$/.test(k))) ents.delete(k);
     const t = ents.get('t:me'), p = ents.get('p:me');
     t.x = sp.x; t.y = sp.y; p.x = sp.x + 10; p.y = sp.y;
     if (id !== RS) scene.riftFog = null;
@@ -163,6 +166,13 @@ function world({ cfg, deepest = 5, level = 110, until }) {
   while (Date.now() < t2 && !W2.sent.enter.length) await new Promise((r) => setTimeout(r, 300));
   W2.w.close();
   const okE = W2.sent.enter[0] === 2;
+  const W3 = world({ cfg: { riftDepthMode: 'max' }, hunt: true, until: (s) => s.enter.length > 1 });
+  await new Promise((r) => setTimeout(r, 900));
+  W3.w.document.querySelector('[data-act="bot"]').click();
+  const t3 = Date.now() + 40000;
+  while (Date.now() < t3 && !W3.sent.sel.includes('al:1')) await new Promise((r) => setTimeout(r, 300));
+  W3.w.close();
+  const okH = W3.sent.sel.includes('al:1');
   const fsel = W.sent.sel.filter((x) => x === 'a:att' || x === 'h:heal');
   const okF = fsel[0] === 'h:heal';
   const gsel = W.sent.sel.filter((x) => x === 'a:att' || x === 'h:far');
@@ -174,5 +184,6 @@ function world({ cfg, deepest = 5, level = 110, until }) {
   console.log(okE ? 'OK     E: feste Tiefe 2' : `FEHLER E: ${W2.sent.enter.join(',')}`);
   console.log(okF ? 'OK     F: Heiler zuerst' : `FEHLER F: ${fsel.join(',')}`);
   console.log(okG ? 'OK     G: ferner Heiler einer anderen Gruppe nicht vorgezogen' : `FEHLER G: ${gsel.join(',')}`);
-  process.exit(okA && okB && okC && okD && okE && okF && okG ? 0 : 1);
+  console.log(okH ? 'OK     H: markierter Alpha (Boss-Flag) wird angegriffen' : `FEHLER H: ${W3.sent.sel.join(',')}`);
+  process.exit(okA && okB && okC && okD && okE && okF && okG && okH ? 0 : 1);
 })();

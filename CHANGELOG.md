@@ -2,6 +2,14 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.22 – Digital Rift: markierten Alpha angreifen
+- **Alpha-Jagd-Etagen (live 16.11., Tiefe 10 und 15):** Auf diesen Etagen öffnet das Portal erst, wenn die markierten Alphas tot
+  sind. Der Alpha trägt im Spiel das Boss-Flag – die Rift-Zielwahl nahm Boss-Gegner nur als Guardian oder Angreifer und schloss
+  ihn deshalb aus; der Bot stand 115 px daneben und ging erkunden, das Signal blieb bei 0 %. Jetzt kommt der markierte Alpha
+  immer zuerst, und der Bot bleibt bei ihm, bis er sichtbar ist. Andere Boss-Flag-Gegner zählen wie normale Gegner.
+- Live 16.11.: Tiefe 13 stabil in 5:46 (83 Shards + 120 Erst-Clear, 3 Gold Digizoid), danach Tiefe 15 freigeschaltet.
+- Tests: rifttest (Fall H: markierter Alpha mit Boss-Flag).
+
 ## 3.2.21 – Digital Rift: nur den Heiler der laufenden Gruppe vorziehen
 - **Rift-Zielwahl (Nutzer 16.11.: „rennt quer über die Map zu einer Gruppe, nur um dort den Heiler anzugreifen“):** Der Heiler
   hat nur noch Vorrang, wenn er zur Gruppe gehört, mit der der Bot gerade kämpft – höchstens 260 px von ihm oder von einem

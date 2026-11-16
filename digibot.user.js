@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.21
+// @version      3.2.22
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1794,7 +1794,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.21'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.22'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -10073,7 +10073,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const score = (m) => {
       const boss = !!(ents?.get?.(m.id)?.flags & FLAG.Boss) || m.cat === 'boss';
       const dist = m.pd ?? m.d;
-      if (boss) return last && run.guardian === 'called' ? dist / 100 : m.attacker ? 1000 + dist / 100 : Infinity;
+      // markierter Alpha (Alpha-Jagd): trägt das Boss-Flag, ohne ihn öffnet das Portal nie – immer zuerst (live 16.11., 3.2.22)
+      if (marks.has(m.id)) return 5 + dist / 100;
+      if (boss && last && run.guardian === 'called') return dist / 100; // Guardian
+      // andere Boss-Flag-Gegner (Alphas außerhalb der Jagd) wie normale Gegner – vorher nie angegriffen
       if (portalOpen) return m.attacker ? 100 + dist / 100 : Infinity;
       // Heiler (mender, heilt die Frontreihe 4,5 %/s) der laufenden Gruppe vor allen Angreifern (Nutzer 16.11.)
       if (mender(m) && inFight(m)) return (marks.has(m.id) ? 10 : 50) + dist / 100;
@@ -10129,7 +10132,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     // Alpha-Jagd: zum markierten Alpha
     const mark = (run.alphaMarks || []).filter((a) => a?.x != null).sort((a, b) => Math.hypot(me.x - a.x, me.y - a.y) - Math.hypot(me.x - b.x, me.y - b.y))[0];
-    if (mark && Math.hypot(me.x - mark.x, me.y - mark.y) > 120) { const s = go(mark.x, mark.y, 'zum markierten Alpha'); if (s) return s; }
+    // dort bleiben, bis er sichtbar ist und die Zielwahl ihn nimmt – nicht schon in 120 px Abstand wieder erkunden gehen (live 16.11.)
+    if (mark && Math.hypot(me.x - mark.x, me.y - mark.y) > 40) { const s = go(mark.x, mark.y, 'zum markierten Alpha'); if (s) return s; }
+    if (mark) return `${tag} · am markierten Alpha`;
     // erkunden: abgesuchte Zellen merken, dann die nächste offene (Lager zuletzt)
     const cells = (lay?.cells || []).filter((c) => c?.rect);
     if (!cells.length) return `${tag} · keine Kartendaten – warte`;
