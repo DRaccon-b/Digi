@@ -183,5 +183,13 @@ const check = (id, ok, okText, bad) => { res.push(ok); console.log(ok ? `OK     
   const opts = sel ? [...sel.options] : [];
   check('U', !!sel && opts.length === 12 && sel.value === 'egg_gazimon' && opts[0].value === 'none' && opts[0].textContent === 'keins', 'Ziel-Auswahl im Panel', () => sel ? `${opts.length} Optionen, Wert ${sel.value}, erste ${opts[0]?.value}/${opts[0]?.textContent}` : 'Auswahl fehlt');
   WU.w.close();
+  // B: feste Tiefe 2, Ziel Gazimon-Ei (ab Tiefe 6) -> betritt Tiefe 6
+  const WB = await go({ cfg: { riftDepthMode: 'fixed', riftDepth: 2, riftTarget: 'egg_gazimon' }, deepest: 10, level: 130, scans: [], until: () => true }, (W) => W.sent.enter.length, 25000);
+  check('B', WB.sent.enter[0] === 6, 'Mindesttiefe 6 hebt feste Tiefe 2 an', () => `betreten ${WB.sent.enter.join(',') || '–'}`);
+  WB.w.close();
+  // C: Ziel Dorumon-Ei (ab Tiefe 25), freigeschaltet nur bis 10 -> Tiefe 10 wie sonst, Warnung
+  const WC = await go({ cfg: { riftDepthMode: 'max', riftTarget: 'egg_dorumon' }, deepest: 10, level: 130, scans: [], until: () => true }, (W) => W.sent.enter.length && /braucht Tiefe 25/.test(W.text()), 25000);
+  check('C', WC.sent.enter[0] === 10 && /braucht Tiefe 25/.test(WC.text()), 'Ziel zu tief – normal weiter mit Warnung', () => `betreten ${WC.sent.enter.join(',') || '–'}, Warnung ${/braucht Tiefe 25/.test(WC.text())}`);
+  WC.w.close();
   process.exit(res.every(Boolean) ? 0 : 1);
 })();

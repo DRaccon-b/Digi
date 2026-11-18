@@ -10146,16 +10146,27 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const deepest = Math.max(1, Number(view?.deepest) || 1);
     const me = (view?.party || []).find((p) => p?.leader) || (view?.party || [])[0];
     const lv = Number(me?.level) || Number(st?.me?.partner?.level) || 1;
+    let pick;
     if (cfg.riftDepthMode === 'fixed') {
       const d = Math.max(1, Math.round(Number(cfg.riftDepth) || 1));
       const why = d > deepest ? `Tiefe ${d} ist noch nicht freigeschaltet (bis ${deepest})` : riftNeedLv(d) > lv ? `Tiefe ${d} braucht Partner Lv ${riftNeedLv(d)} (hast ${lv})` : '';
-      return { depth: d, why };
+      pick = { depth: d, why };
+    } else {
+      let d = 0;
+      for (let i = 1; i <= deepest; i++) if (riftNeedLv(i) <= lv) d = i;
+      if (rift.cap) d = Math.min(d, rift.cap);
+      pick = d >= 1 ? { depth: d, why: '' } : { depth: 1, why: `Partner Lv ${lv} reicht für keine Tiefe (Tiefe 1 ab Lv ${RIFT_LEVELS[0]})` };
     }
-    let d = 0;
-    for (let i = 1; i <= deepest; i++) if (riftNeedLv(i) <= lv) d = i;
-    if (rift.cap) d = Math.min(d, rift.cap);
-    return d >= 1 ? { depth: d, why: '' } : { depth: 1, why: `Partner Lv ${lv} reicht für keine Tiefe (Tiefe 1 ab Lv ${RIFT_LEVELS[0]})` };
+    // Ziel-Ei (3.2.31): mindestens dessen Tiefe – geht die nicht (nicht freigeschaltet / Level), normal weiter und einmal warnen
+    const tg = riftTarget();
+    if (!tg) return { ...pick, targetOk: false };
+    const md = tg.minDepth || 1;
+    const no = md > deepest ? `nicht freigeschaltet, bis ${deepest}` : riftNeedLv(md) > lv ? `Partner Lv ${riftNeedLv(md)} nötig, hast ${lv}` : '';
+    if (no) { riftWarn(`Ziel ${tg.name} braucht Tiefe ${md} (${no}) – spiele normal`); return { ...pick, targetOk: false }; }
+    if (pick.depth < md) return { depth: md, why: '', targetOk: true };
+    return { ...pick, targetOk: !pick.why };
   }
+  const riftTarget = () => DIGIBOT_RIFT_TARGETS[cfg.riftTarget] || null;
   // Zielwahl im Rift: Guardian, markierter Alpha (nah), Heiler (mender), Angreifer, Schildgeber (warder), dann der nächste Gegner. Steht das
   // Portal offen (nicht letzte Etage), nur noch Angreifer – dann geht es nach unten.
   function riftFocus(sc) {
@@ -10342,7 +10353,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (v.iLead === false) return 'Rift: nur der Party-Leader kann den Rift öffnen';
       if (now - rift.enterAt > RIFT_ENTER_MS) {
         if (rift.enterTries >= RIFT_ENTER_TRIES) { logEvent('warn', `Rift: Spiel lässt nicht hinein (Tiefe ${pick.depth}) – Bot gestoppt`); notify('Rift: Spiel lässt nicht hinein – Bot gestoppt.', 'stop'); bot.toggle(true); return 'Rift: Spiel lässt nicht hinein – Bot gestoppt'; }
-        rift.enterAt = now; rift.enterTries++; rift.depth = pick.depth;
+        rift.enterAt = now; rift.enterTries++; rift.depth = pick.depth; rift.targetOk = !!pick.targetOk;
         try { commands()?.command?.('riftEnter', { depth: pick.depth }); } catch { /* ignore */ }
         if (rift.enterTries === 1) logEvent('bot', `Rift: betrete Tiefe ${pick.depth} (Partner Lv ${st.me?.partner?.level ?? '?'}, freigeschaltet bis ${v.deepest ?? '?'})`);
       }
