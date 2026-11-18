@@ -169,7 +169,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 async function go(opts, done, ms) {
   const W = world(opts);
   await wait(900);
-  if (opts.start !== false) W.w.document.querySelector('[data-act="bot"]').click();
+  if (opts.start !== false) { W.w.document.querySelector('[data-act="bot"]').click(); await wait(1200); } // Knopftext erst nach dem nächsten Zeichnen
   const end = Date.now() + ms;
   while (Date.now() < end && !(done && done(W))) await wait(200);
   return W;
@@ -191,5 +191,22 @@ const check = (id, ok, okText, bad) => { res.push(ok); console.log(ok ? `OK     
   const WC = await go({ cfg: { riftDepthMode: 'max', riftTarget: 'egg_dorumon' }, deepest: 10, level: 130, scans: [], until: () => true }, (W) => W.sent.enter.length && /braucht Tiefe 25/.test(W.text()), 25000);
   check('C', WC.sent.enter[0] === 10 && /braucht Tiefe 25/.test(WC.text()), 'Ziel zu tief – normal weiter mit Warnung', () => `betreten ${WC.sent.enter.join(',') || '–'}, Warnung ${/braucht Tiefe 25/.test(WC.text())}`);
   WC.w.close();
+  const base = { cfg: { riftDepthMode: 'max', riftTarget: 'egg_gazimon' }, deepest: 10, level: 130, until: () => true };
+  // D: Sukamon-Scan bei 100 % -> hält vor dem Betreten an
+  const WD = await go({ ...base, scans: [{ species: 'sukamon_rift', pct: 100 }] }, (W) => !W.on() || W.sent.enter.length, 20000);
+  check('D', !WD.sent.enter.length && !WD.on() && /100 %/.test(WD.text()), 'Ziel-Scan 100 % – Bot hält an', () => `betreten ${WD.sent.enter.length}, an ${WD.on()}, Status ${WD.status()}`);
+  WD.w.close();
+  // E: Ziel-Scan 40 %, fremde Art 100 % -> betritt
+  const WE = await go({ ...base, scans: [{ species: 'sukamon_rift', pct: 40 }, { species: 'kunemon', pct: 100 }] }, (W) => W.sent.enter.length || !W.on(), 20000);
+  check('E', WE.sent.enter.length >= 1 && WE.on(), 'Ziel-Scan unter 100 % – betritt (fremde 100 % zählen nicht)', () => `betreten ${WE.sent.enter.length}, an ${WE.on()}`);
+  WE.w.close();
+  // F: Scan-Stand kommt nie -> betritt trotzdem, warnt
+  const WF = await go({ ...base }, (W) => W.sent.enter.length && /nicht lesbar/.test(W.text()), 25000);
+  check('F', WF.sent.enter.length >= 1 && /nicht lesbar/.test(WF.text()), 'Scan-Stand nicht lesbar – betritt mit Warnung', () => `betreten ${WF.sent.enter.length}, Warnung ${/nicht lesbar/.test(WF.text())}`);
+  WF.w.close();
+  // E2: alter Stand 100 % vom letzten Fenster, neuer Stand (nach 500 ms) 10 % -> betritt
+  const WE2 = await go({ ...base, staleScans: [{ species: 'sukamon_rift', pct: 100 }], scans: [{ species: 'sukamon_rift', pct: 10 }], scansDelay: 500 }, (W) => W.sent.enter.length || !W.on(), 20000);
+  check('E2', WE2.sent.enter.length >= 1 && WE2.on(), 'alter Scan-Stand führt nicht zum Halt', () => `betreten ${WE2.sent.enter.length}, an ${WE2.on()}`);
+  WE2.w.close();
   process.exit(res.every(Boolean) ? 0 : 1);
 })();

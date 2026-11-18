@@ -10316,8 +10316,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   // Außerhalb: zu Clockmon, Rift-Fenster öffnen, Tiefe wählen, betreten
   function riftOutside(st, now) {
-    if (rift.inside) { rift.inside = false; rift.talkTries = 0; rift.enterTries = 0; rift.talkAt = 0; rift.enterAt = 0; rift.warned = ''; rift.breadTries = 0; rift.breadAt = 0; }
+    if (rift.inside) { rift.inside = false; rift.talkTries = 0; rift.enterTries = 0; rift.talkAt = 0; rift.enterAt = 0; rift.warned = ''; rift.breadTries = 0; rift.breadAt = 0; rift.scanFresh = false; }
     const R = riftStore();
+    // Scan-Stand (3.2.31): das Spiel holt ihn beim Öffnen des Clockmon-Fensters (riftScans) – vorher den alten Stand verwerfen,
+    // sonst hielte ein schon umgewandelter 100-%-Scan den Bot an
+    if (R && !R.warden && !rift.scanFresh) { rift.scanFresh = true; rift.scanWaitAt = 0; try { R.set?.({ scans: null }); } catch { /* ignore */ } }
     if (!R) return 'Rift: Spiel kennt den Digital Rift nicht (Seite neu laden?)';
     for (const code of riftNotices(st)) {
       if (code === 'rift_closed') { rift.closedUntil = now + 60000; rift.enterTries = 0; riftWarn('Rifts gerade geschlossen – warte 1 min'); }
@@ -10342,6 +10345,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     if (R.warden && R.view) {
       const bt = riftBreadTopup(st, R, now); if (bt) return bt; // Heilbrot nachkaufen (3.2.29)
+      const sc = riftScanCheck(R, now); if (sc) return sc; // Ziel-Scan bei 100 %: anhalten (3.2.31)
       const v = R.view, pick = riftDepthPick(st, v);
       if (pick.why) {
         if (cfg.riftDepthMode === 'fixed') { logEvent('warn', `Rift: ${pick.why} – Bot gestoppt`); notify('Rift: Tiefe geht nicht – Bot gestoppt.', 'stop'); bot.toggle(true); return `Rift: ${pick.why}`; }
@@ -10357,7 +10361,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         try { commands()?.command?.('riftEnter', { depth: pick.depth }); } catch { /* ignore */ }
         if (rift.enterTries === 1) logEvent('bot', `Rift: betrete Tiefe ${pick.depth} (Partner Lv ${st.me?.partner?.level ?? '?'}, freigeschaltet bis ${v.deepest ?? '?'})`);
       }
-      return `Rift: betrete Tiefe ${pick.depth}…`;
+      const tg = riftTarget();
+      return `Rift: betrete Tiefe ${pick.depth}…${tg ? ` · Ziel ${tg.name}${rift.scanPct != null ? ` (Scan ${Math.floor(rift.scanPct)} %)` : ''}` : ''}`;
     }
     if (st.dialog?.npc === RIFT_NPC) {
       if (now - rift.talkAt > RIFT_STEP_MS) { rift.talkAt = now; commands()?.chooseDialog?.('open'); }
@@ -10383,6 +10388,26 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     try { commands()?.command?.('riftShopBuy', { npc: R.warden.npc, offer: RIFT_BREAD }); } catch { /* ignore */ }
     logEvent('bot', `Rift: kaufe 10× Guilmon Bread für ${RIFT_BREAD_COST} Shards (${have} da, ${shards} Shards)`);
     return `Rift: kaufe Guilmon Bread (${have} da)…`;
+  }
+  // Ziel-Ei (3.2.31, Nutzer 18.11.): hat ein Scan einer Ziel-Art 100 %, anhalten – umwandeln macht der Nutzer bei Clockmon.
+  // Kommt der Stand nicht (3 s), weiterspielen und einmal warnen – nie wegen eines fehlenden Stands anhalten.
+  const RIFT_SCAN_WAIT_MS = 3000;
+  function riftScanCheck(R, now) {
+    const tg = riftTarget();
+    if (!tg) return null;
+    if (!Array.isArray(R.scans)) {
+      rift.scanWaitAt ||= now;
+      if (now - rift.scanWaitAt < RIFT_SCAN_WAIT_MS) return 'Rift: lese Scan-Stand…';
+      riftWarn('Scan-Stand nicht lesbar – spiele weiter');
+      return null;
+    }
+    const mine = R.scans.filter((s) => tg.species.includes(s?.species));
+    const full = mine.find((s) => Number(s.pct) >= 100);
+    rift.scanPct = mine.length ? Math.max(...mine.map((s) => Number(s.pct) || 0)) : 0;
+    if (!full) return null;
+    const txt = `Rift: Scan ${content()?.digimon?.[full.species]?.name || full.species} bei 100 % – bei Clockmon umwandeln (${tg.name})`;
+    logEvent('warn', txt); notify(txt, 'stop'); bot.toggle(true);
+    return txt;
   }
   function riftLabel() {
     const run = riftStore()?.run;
