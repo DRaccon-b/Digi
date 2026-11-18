@@ -1,6 +1,11 @@
 // 3.2.31 (Nutzer 18.11.): Digital Rift – Ziel-Ei/-Code wählen. Der Bot spielt mindestens die Mindesttiefe des Ziels, startet
 // Läufe mit falschem Biom sofort neu und hält an, sobald ein Scan des Ziels bei Clockmon 100 % hat (umwandeln macht der Nutzer).
 // U: Ziel-Auswahl im Panel (12 Optionen, „keins“ zuerst, gespeicherter Wert angezeigt).
+// B: feste Tiefe 2, Ziel Gazimon-Ei (ab Tiefe 6) -> riftEnter Tiefe 6.  C: Ziel Dorumon-Ei (ab 25), freigeschaltet bis 10 -> Tiefe 10 + Warnung.
+// D: Sukamon-Scan 100 % -> Bot hält vor dem Betreten an.  E: Ziel-Scan 40 %, fremde Art 100 % -> betritt.
+// F: Scan-Stand kommt nie -> betritt nach 3 s mit Warnung.  E2: alter 100-%-Stand vom letzten Fenster, neuer 10 % -> betritt.
+// A: Biome verdant, frost, circuit -> zweimal Neustart, Abstieg erst im 3. Lauf.  G: ohne Ziel kein Neustart.
+// H: Lauf ohne Biom-Angabe -> kein Neustart.  C2: Ziel zu tief -> kein Biom-Neustart.
 const { JSDOM, VirtualConsole } = require('jsdom');
 const fs = require('fs');
 const script = fs.readFileSync(process.argv[2], 'utf8');
@@ -208,5 +213,22 @@ const check = (id, ok, okText, bad) => { res.push(ok); console.log(ok ? `OK     
   const WE2 = await go({ ...base, staleScans: [{ species: 'sukamon_rift', pct: 100 }], scans: [{ species: 'sukamon_rift', pct: 10 }], scansDelay: 500 }, (W) => W.sent.enter.length || !W.on(), 20000);
   check('E2', WE2.sent.enter.length >= 1 && WE2.on(), 'alter Scan-Stand führt nicht zum Halt', () => `betreten ${WE2.sent.enter.length}, an ${WE2.on()}`);
   WE2.w.close();
+  const sc10 = [{ species: 'sukamon_rift', pct: 10 }];
+  // A: Biome verdant, frost, circuit -> zweimal neu gestartet, erst im dritten Lauf abgestiegen
+  const WA = await go({ ...base, scans: sc10, biomes: ['verdant', 'frost', 'circuit'], until: (s) => s.enter.length > 3 }, (W) => W.sent.descendAt != null, 120000);
+  check('A', WA.sent.enter.length >= 3 && WA.sent.leave >= 2 && WA.sent.descendAt === 3 && /passt nicht/.test(WA.text()), 'falsches Biom – Neustart bis Circuit', () => `betreten ${WA.sent.enter.length}, verlassen ${WA.sent.leave}, Abstieg im Lauf ${WA.sent.descendAt}, Text ${/passt nicht/.test(WA.text())}`);
+  WA.w.close();
+  // G: kein Ziel, Biom verdant -> erster Lauf steigt ab, kein Neustart
+  const WG = await go({ cfg: { riftDepthMode: 'max' }, deepest: 10, level: 130, biomes: ['verdant'], until: (s) => s.enter.length > 1 }, (W) => W.sent.descendAt != null, 60000);
+  check('G', WG.sent.descendAt === 1 && WG.sent.leave === 0, 'ohne Ziel kein Biom-Neustart', () => `Abstieg im Lauf ${WG.sent.descendAt}, verlassen ${WG.sent.leave}`);
+  WG.w.close();
+  // H: Ziel gesetzt, Lauf ohne Biom-Angabe -> kein Neustart
+  const WH = await go({ ...base, scans: sc10, biomes: [], until: (s) => s.enter.length > 1 }, (W) => W.sent.descendAt != null, 60000);
+  check('H', WH.sent.descendAt === 1 && WH.sent.leave === 0, 'Biom unbekannt – kein Neustart', () => `Abstieg im Lauf ${WH.sent.descendAt}, verlassen ${WH.sent.leave}`);
+  WH.w.close();
+  // C2: Ziel zu tief (Dorumon, bis 10), Biom verdant -> kein Neustart
+  const WC2 = await go({ cfg: { riftDepthMode: 'max', riftTarget: 'egg_dorumon' }, deepest: 10, level: 130, scans: [], biomes: ['verdant'], until: (s) => s.enter.length > 1 }, (W) => W.sent.descendAt != null, 60000);
+  check('C2', WC2.sent.descendAt === 1 && WC2.sent.leave === 0, 'Ziel zu tief – kein Biom-Neustart', () => `Abstieg im Lauf ${WC2.sent.descendAt}, verlassen ${WC2.sent.leave}`);
+  WC2.w.close();
   process.exit(res.every(Boolean) ? 0 : 1);
 })();

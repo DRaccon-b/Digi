@@ -10314,6 +10314,24 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const name = content()?.digimon?.[g.boss]?.name || g.boss;
     return riftLeave(now, `Event ${name}${g.up ? ' läuft' : ` in ${Math.max(0, Math.round((g.at - now) / 60000))} min`}`, true);
   }
+  // Ziel-Ei (3.2.31, Nutzer 18.11.): das Biom bestimmt, welche Digimon kommen – passt es auf Etage 1 nicht zum Ziel, sofort hinaus
+  // und neu betreten (Tiefe bleibt). Ohne Biom-Angabe, ohne erreichbare Zieltiefe oder ab Etage 2 nie abbrechen.
+  function riftBiomeDue(st, now) {
+    const tg = riftTarget(), R = riftStore(), run = R?.run;
+    if (!tg || !run || R.result || !rift.targetOk || !run.biome) return null;
+    const key = `${rift.enterAt}|${run.depth}`;
+    if (rift.biomeKey !== key) { rift.biomeKey = key; rift.giveUp = false; rift.biomeOk = null; rift.biomeFloor = 0; } // neuer Lauf
+    const n = run.floor?.n || 1;
+    if (rift.biomeFloor !== n) { rift.biomeFloor = n; logEvent('map', `Rift: Biom ${run.biome} (Etage ${n})`); }
+    if (n !== 1 || rift.biomeOk) return null;
+    if (!tg.biomes.includes(run.biome)) {
+      rift.biomeResets = (rift.biomeResets || 0) + 1;
+      return riftLeave(now, `Biom ${run.biome} passt nicht zu ${tg.name} – Neustart ${rift.biomeResets}`, true);
+    }
+    rift.biomeOk = true; rift.biomeResets = 0;
+    logEvent('bot', `Rift: Biom ${run.biome} passt zu ${tg.name}`);
+    return null;
+  }
   // Außerhalb: zu Clockmon, Rift-Fenster öffnen, Tiefe wählen, betreten
   function riftOutside(st, now) {
     if (rift.inside) { rift.inside = false; rift.talkTries = 0; rift.enterTries = 0; rift.talkAt = 0; rift.enterAt = 0; rift.warned = ''; rift.breadTries = 0; rift.breadAt = 0; rift.scanFresh = false; }
@@ -11568,6 +11586,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (riftEv && world.state === 'ready' && riftMap(st.world?.mapId)) {
         const rs = riftEventDue(st, now);
         if (rs) { this.status = `Event: ${rs}`; return; }
+      }
+      if (cfg.dungeon && cfg.dgMode === 'rift' && cfg.riftTarget !== 'none' && world.state === 'ready' && riftMap(st.world?.mapId)) {
+        const rb = riftBiomeDue(st, now); // Ziel-Ei: falsches Biom -> Neustart (3.2.31)
+        if (rb) { this.status = rb; return; }
       }
       if ((!cfg.dungeon || riftEv) && world.state === 'ready' && !riftMap(st.world?.mapId)) {
         const hv = huntStep(st, sc, now);
