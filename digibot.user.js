@@ -10161,8 +10161,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const tg = riftTarget();
     if (!tg) return { ...pick, targetOk: false };
     const md = tg.minDepth || 1;
-    const no = md > deepest ? `nicht freigeschaltet, bis ${deepest}` : riftNeedLv(md) > lv ? `Partner Lv ${riftNeedLv(md)} nötig, hast ${lv}` : '';
-    if (no) { riftWarn(`Ziel ${tg.name} braucht Tiefe ${md} (${no}) – spiele normal`); return { ...pick, targetOk: false }; }
+    // rift.cap: das Spiel hat die Tiefe abgelehnt (rift_level/rift_depth_locked) oder ein Lauf dort war instabil – dann nicht wieder
+    // hinauf erzwingen (sonst endlos riftEnter auf dieselbe abgelehnte Tiefe, Review 3.2.31)
+    const no = md > deepest ? `nicht freigeschaltet, bis ${deepest}` : riftNeedLv(md) > lv ? `Partner Lv ${riftNeedLv(md)} nötig, hast ${lv}`
+      : cfg.riftDepthMode !== 'fixed' && rift.cap && rift.cap < md ? `gerade höchstens Tiefe ${rift.cap}` : '';
+    if (no) {
+      // eigenes Merkfeld: riftWarn kennt nur die letzte Meldung – abwechselnd mit „Partner Lv … reicht für keine Tiefe“ flutete es das Log
+      const w = `Ziel ${tg.name} braucht Tiefe ${md} (${no}) – spiele normal`;
+      if (rift.targetWarned !== w) { rift.targetWarned = w; logEvent('warn', `Rift: ${w}`); }
+      return { ...pick, targetOk: false };
+    }
     if (pick.depth < md) return { depth: md, why: '', targetOk: true };
     return { ...pick, targetOk: !pick.why };
   }
@@ -10320,12 +10328,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const tg = riftTarget(), R = riftStore(), run = R?.run;
     if (!tg || !run || R.result || !rift.targetOk || !run.biome) return null;
     const key = `${rift.enterAt}|${run.depth}`;
-    if (rift.biomeKey !== key) { rift.biomeKey = key; rift.giveUp = false; rift.biomeOk = null; rift.biomeFloor = 0; } // neuer Lauf
+    // neuer Lauf: auch die Betreten-/Ansprech-Zähler zurück – bricht er schon im ersten Takt ab, läuft riftStep nie (rift.inside bleibt
+    // aus), sonst zählten Neustarts als Fehlversuche und nach 5 stoppte er mit „Spiel lässt nicht hinein“ (Review 3.2.31)
+    if (rift.biomeKey !== key) { Object.assign(rift, { biomeKey: key, giveUp: false, biomeOk: null, biomeFloor: 0, biomeLeft: false, enterTries: 0, talkTries: 0, breadTries: 0, breadAt: 0, scanFresh: false, warned: '' }); }
     const n = run.floor?.n || 1;
     if (rift.biomeFloor !== n) { rift.biomeFloor = n; logEvent('map', `Rift: Biom ${run.biome} (Etage ${n})`); }
     if (n !== 1 || rift.biomeOk) return null;
     if (!tg.biomes.includes(run.biome)) {
-      rift.biomeResets = (rift.biomeResets || 0) + 1;
+      if (!rift.biomeLeft) { rift.biomeLeft = true; rift.biomeResets = (rift.biomeResets || 0) + 1; } // einmal je Neustart, nicht je Takt
       return riftLeave(now, `Biom ${run.biome} passt nicht zu ${tg.name} – Neustart ${rift.biomeResets}`, true);
     }
     rift.biomeOk = true; rift.biomeResets = 0;

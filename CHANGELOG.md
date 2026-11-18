@@ -13,7 +13,9 @@ Alle Änderungen an DigiBot, neueste zuerst.
   Etage 2 bricht er nie ab.
 - **Scan-Stand:** Das Spiel liefert ihn beim Öffnen des Clockmon-Fensters. Hat ein Scan einer Ziel-Art 100 %, hält der Bot an und
   meldet es – umwandeln musst du selbst. Kommt der Stand nicht, spielt er weiter und warnt (nie ein falscher Halt).
-- Tests: riftzieltest (U, A–H, C2, E2).
+- **Review:** Biom-Neustarts zählten als Fehlversuche beim Betreten (nach 5 stoppte er mit „Spiel lässt nicht hinein“); lehnt das
+  Spiel die Zieltiefe ab, geht er jetzt eine Tiefe herunter statt sie endlos neu zu versuchen; Warnung nur einmal im Log.
+- Tests: riftzieltest (U, A–H, C2, E2, W, X).
 
 ## 3.2.30 – Digital Rift: beim Ausweichen zurückschlagen, mit wenig HP erholen
 - **Live 16.11. (Dukemon, Tiefe 10):** Beim Ausweichen stand er 4–7 s ohne Ziel („Warte außerhalb, bis der Flächenangriff vorbei

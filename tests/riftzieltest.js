@@ -6,11 +6,13 @@
 // F: Scan-Stand kommt nie -> betritt nach 3 s mit Warnung.  E2: alter 100-%-Stand vom letzten Fenster, neuer 10 % -> betritt.
 // A: Biome verdant, frost, circuit -> zweimal Neustart, Abstieg erst im 3. Lauf.  G: ohne Ziel kein Neustart.
 // H: Lauf ohne Biom-Angabe -> kein Neustart.  C2: Ziel zu tief -> kein Biom-Neustart.
+// Review 3.2.31: A mit 6 falschen Biomen (vorher Stopp nach 5, Zähler je Takt); W: Ziel-Warnung nur einmal im Log (Lv 30);
+// X: Spiel lehnt die Zieltiefe ab (rift_level) -> eine Tiefe weniger statt endlos dieselbe.
 const { JSDOM, VirtualConsole } = require('jsdom');
 const fs = require('fs');
 const script = fs.readFileSync(process.argv[2], 'utf8');
 
-function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = false, lowHp = false, mid = false, guard = false, guardNear = false, evt = false, mainFirst = false, farKeep = false, bread = false, biomes = [], scans, staleScans = null, scansDelay = 0 }) {
+function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = false, lowHp = false, mid = false, guard = false, guardNear = false, evt = false, mainFirst = false, farKeep = false, bread = false, biomes = [], scans, staleScans = null, scansDelay = 0, refuse = 0 }) {
   const dom = new JSDOM('<!doctype html><body></body>', { runScripts: 'outside-only', url: 'https://play.digimmo.com.br/', pretendToBeVisual: true, virtualConsole: new VirtualConsole() });
   const w = dom.window;
   w.HTMLCanvasElement.prototype.getContext = () => null;
@@ -118,6 +120,7 @@ function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = f
       }
       if (name === 'riftEnter') {
         sent.enter.push(args.depth); L(`riftEnter Tiefe ${args.depth}`);
+        if (refuse && args.depth >= refuse) { store.setState({ chat: [...(state.chat || []), { kind: 'system', code: 'rift_level', ts: Date.now() }] }); return; }
         if (until && until(sent)) return;
         runs++; signal = 0; store.setState({ screen: 'loading' });
         setTimeout(() => { floorStart(1); loadMap(RS, { x: 200, y: 200 }); }, 300);
@@ -129,7 +132,8 @@ function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = f
         setTimeout(() => { floorStart(floor + 1); loadMap(RS, { x: 200, y: 200 }); }, 300);
       } else if (name === 'raidLeave') commands.raidLeave();
     },
-    raidLeave() { sent.leave++; L('raidLeave'); rs = { ...rs, result: null, run: null }; store.setState({ screen: 'loading' }); setTimeout(() => loadMap(PV, { x: 808, y: 824 }), 300); },
+    // wie im Spiel: der Laufzustand bleibt bis zum Kartenwechsel stehen (Bot taktet dazwischen weiter)
+    raidLeave() { sent.leave++; L('raidLeave'); setTimeout(() => { rs = { ...rs, result: null, run: null }; store.setState({ screen: 'loading' }); setTimeout(() => loadMap(PV, { x: 808, y: 824 }), 150); }, 600); },
     requestBossPins() {}, requestMapInfo() {}, partnerFollow() {}, partnerStop() {},
     async requestEvents() { const now = Date.now(); return [{ id: 'mega_hunt', now, slot: null, state: 'idle', next: null }, ...(evtUp ? [{ id: 'alter_hunt', now, slot: { key: 'e1', startMs: now - 1000, endMs: now + 3600000 }, boss: 'tyrantkabuterimon_hunt', mapId: PV, channel: 1, state: 'up' }] : [])]; },
   };
@@ -199,7 +203,7 @@ const check = (id, ok, okText, bad) => { res.push(ok); console.log(ok ? `OK     
   const base = { cfg: { riftDepthMode: 'max', riftTarget: 'egg_gazimon' }, deepest: 10, level: 130, until: () => true };
   // D: Sukamon-Scan bei 100 % -> hält vor dem Betreten an
   const WD = await go({ ...base, scans: [{ species: 'sukamon_rift', pct: 100 }] }, (W) => !W.on() || W.sent.enter.length, 20000);
-  check('D', !WD.sent.enter.length && !WD.on() && /100 %/.test(WD.text()), 'Ziel-Scan 100 % – Bot hält an', () => `betreten ${WD.sent.enter.length}, an ${WD.on()}, Status ${WD.status()}`);
+  check('D', !WD.sent.enter.length && !WD.on() && /bei Clockmon umwandeln/.test(WD.text()), 'Ziel-Scan 100 % – Bot hält an', () => `betreten ${WD.sent.enter.length}, an ${WD.on()}, Status ${WD.status()}`);
   WD.w.close();
   // E: Ziel-Scan 40 %, fremde Art 100 % -> betritt
   const WE = await go({ ...base, scans: [{ species: 'sukamon_rift', pct: 40 }, { species: 'kunemon', pct: 100 }] }, (W) => W.sent.enter.length || !W.on(), 20000);
@@ -215,8 +219,10 @@ const check = (id, ok, okText, bad) => { res.push(ok); console.log(ok ? `OK     
   WE2.w.close();
   const sc10 = [{ species: 'sukamon_rift', pct: 10 }];
   // A: Biome verdant, frost, circuit -> zweimal neu gestartet, erst im dritten Lauf abgestiegen
-  const WA = await go({ ...base, scans: sc10, biomes: ['verdant', 'frost', 'circuit'], until: (s) => s.enter.length > 3 }, (W) => W.sent.descendAt != null, 120000);
-  check('A', WA.sent.enter.length >= 3 && WA.sent.leave >= 2 && WA.sent.descendAt === 3 && /passt nicht/.test(WA.text()), 'falsches Biom – Neustart bis Circuit', () => `betreten ${WA.sent.enter.length}, verlassen ${WA.sent.leave}, Abstieg im Lauf ${WA.sent.descendAt}, Text ${/passt nicht/.test(WA.text())}`);
+  // (Review 3.2.31: nach 5 Neustarts stoppte er mit „Spiel lässt nicht hinein“; Zähler stieg je Takt) -> 6 falsche Biome
+  const WA = await go({ ...base, scans: sc10, biomes: ['verdant', 'frost', 'verdant', 'frost', 'autumn', 'frost', 'circuit'], until: (s) => s.enter.length > 7 }, (W) => W.sent.descendAt != null || !W.on(), 180000);
+  const ta = WA.text(), nums = [...ta.matchAll(/Neustart (\d+)/g)].map((m) => +m[1]), maxN = nums.length ? Math.max(...nums) : 0;
+  check('A', WA.sent.descendAt === 7 && WA.on() && maxN === 6, 'falsches Biom – 6 Neustarts bis Circuit, Zähler einmal je Neustart', () => `betreten ${WA.sent.enter.length}, verlassen ${WA.sent.leave}, Abstieg im Lauf ${WA.sent.descendAt}, an ${WA.on()}, höchster Neustart ${maxN}, Status ${WA.status()}`);
   WA.w.close();
   // G: kein Ziel, Biom verdant -> erster Lauf steigt ab, kein Neustart
   const WG = await go({ cfg: { riftDepthMode: 'max' }, deepest: 10, level: 130, biomes: ['verdant'], until: (s) => s.enter.length > 1 }, (W) => W.sent.descendAt != null, 60000);
@@ -230,5 +236,14 @@ const check = (id, ok, okText, bad) => { res.push(ok); console.log(ok ? `OK     
   const WC2 = await go({ cfg: { riftDepthMode: 'max', riftTarget: 'egg_dorumon' }, deepest: 10, level: 130, scans: [], biomes: ['verdant'], until: (s) => s.enter.length > 1 }, (W) => W.sent.descendAt != null, 60000);
   check('C2', WC2.sent.descendAt === 1 && WC2.sent.leave === 0, 'Ziel zu tief – kein Biom-Neustart', () => `Abstieg im Lauf ${WC2.sent.descendAt}, verlassen ${WC2.sent.leave}`);
   WC2.w.close();
+  // W (Review 3.2.31): Partner Lv 30 – zwei Warnungen wechselten sich je Takt ab und fluteten das Log
+  const WW = await go({ cfg: { riftDepthMode: 'max', riftTarget: 'egg_gazimon' }, deepest: 10, level: 30, scans: [] }, null, 8000);
+  const nWarn = WW.w.document.querySelectorAll('.digibot__log div').length ? [...WW.w.document.querySelectorAll('.digibot__log div')].filter((d) => /braucht Tiefe 6/.test(d.textContent)).length : (WW.text().match(/braucht Tiefe 6/g) || []).length;
+  check('W', nWarn === 1, 'Ziel-Warnung nur einmal im Log', () => `${nWarn}× „braucht Tiefe 6“`);
+  WW.w.close();
+  // X (Review 3.2.31): Spiel lehnt die Zieltiefe ab (rift_level) -> nicht endlos dieselbe Tiefe, sondern eine weniger, normal weiter
+  const WX = await go({ ...base, deepest: 6, scans: [], refuse: 6, until: (s) => s.enter.length > 1 }, (W) => W.sent.enter.length > 3, 40000);
+  check('X', WX.sent.enter.length > 3 && WX.sent.enter[0] === 6 && WX.sent.enter.slice(1).every((d) => d < 6), 'abgelehnte Zieltiefe – eine Tiefe weniger', () => `betreten ${WX.sent.enter.join(',')}`);
+  WX.w.close();
   process.exit(res.every(Boolean) ? 0 : 1);
 })();
