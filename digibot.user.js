@@ -165,6 +165,21 @@ const DIGIBOT_ROLE_NAME={attack:'Angriff',aoe:'AoE',atkbuff:'Angriffs-Buff',tank
   utilsup:'Utility-Support',heal:'Heal',grpheal:'Gruppen-Heal',koh:'Key of Hope'};
 // Seltenheiten der Ausrüstung wie im Spiel (gear.rarity 0–4) – Verkaufen bei vollem Inventar (3.2.12)
 const DIGIBOT_GEAR_RAR=['Common','Uncommon','Rare','Epic','Legendary'];
+// Digital Rift (3.2.31, Nutzer 18.11.): Ziel-Ei/-Code. Scan-Arten, Biome und Mindesttiefe aus den Spieldaten vom 16.11. (content-*.js:
+// Scan-Tabelle P1/kl, Biom-Pools a1). Fest hier, weil das Lazy-Modul über scene.deps.content nicht erreichbar ist.
+const DIGIBOT_RIFT_TARGETS={
+  egg_tapirmon:{name:'Tapirmon-Ei',species:['tapirmon_rift','unimon','marineangemon_rift'],biomes:['dusk','autumn','frost'],minDepth:1},
+  egg_kunemon:{name:'Kunemon-Ei',species:['kunemon','kuwagamon','okuwamon','grankuwagamon_rift'],biomes:['verdant','circuit'],minDepth:1},
+  egg_gazimon:{name:'Gazimon-Ei',species:['sukamon_rift','vademon_rift'],biomes:['circuit','dusk'],minDepth:6},
+  egg_dorumon:{name:'Dorumon-Ei',species:['alphamon_rift'],biomes:['dusk'],minDepth:25},
+  code_jewelbeemon:{name:'Jewelbeemon-Code',species:['jewelbeemon_rift'],biomes:['verdant'],minDepth:1},
+  code_parrotmon:{name:'Parrotmon-Code',species:['parrotmon_rift'],biomes:['autumn'],minDepth:1},
+  code_brachiomon:{name:'Brachiomon-Code',species:['brachiomon_rift'],biomes:['frost'],minDepth:6},
+  code_craniummon:{name:'Craniummon-Code',species:['craniummon_rift'],biomes:['circuit'],minDepth:25},
+  code_veedramon:{name:'Veedramon-Code',species:['aeroveedramon_rift'],biomes:['autumn'],minDepth:25},
+  code_mistymon:{name:'Mistymon-Code',species:['mistymon_rift'],biomes:['autumn'],minDepth:25},
+  code_megidramon:{name:'Megidramon-Code',species:['megidramon'],biomes:['autumn'],minDepth:25},
+};
 function digibotConfig(saved, defaults) {
   const out=JSON.parse(JSON.stringify(defaults)), issues=[];
   if(!digibotRecord(saved))return {value:out,issues:['Ungültiges Einstellungsformat']};
@@ -192,7 +207,7 @@ function digibotConfig(saved, defaults) {
   out.farmChannels=[...new Set((out.farmChannels||[]).filter(x=>Number.isInteger(x)&&x>=1&&x<=100))];
   out.sellRar=[...new Set((out.sellRar||[]).filter(x=>Number.isInteger(x)&&x>=0&&x<DIGIBOT_GEAR_RAR.length))].sort((a,b)=>a-b);
   for(const k of ['cardSel','cardNamed'])if(Object.hasOwn(saved,k)){if(Array.isArray(saved[k]))out[k]=[...new Set(saved[k].filter(x=>typeof x==='string'&&x.length<200))].slice(0,300);else issues.push(k);}
-  const enums={farmMode:['boss','named','cards','deva'],apOrder:['near','sweep'],apSweepDir:['up','down'],dgMode:['easy','hard','apocalymon','malomyotismon','beelzemon','d_reaper','rift'],riftDepthMode:['max','fixed'],sellHow:['sell','salvage']};
+  const enums={farmMode:['boss','named','cards','deva'],apOrder:['near','sweep'],apSweepDir:['up','down'],dgMode:['easy','hard','apocalymon','malomyotismon','beelzemon','d_reaper','rift'],riftDepthMode:['max','fixed'],riftTarget:['none',...Object.keys(DIGIBOT_RIFT_TARGETS)],sellHow:['sell','salvage']};
   for(const [k,vals]of Object.entries(enums))if(!vals.includes(out[k])){out[k]=defaults[k];issues.push(k);}
   return {value:out,issues};
 }
@@ -1502,6 +1517,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     dgMode: 'easy',       // 'easy' = War Game, 'hard' = Revenge (allein kaum zu schaffen), 'apocalymon' / 'malomyotismon' / 'beelzemon' / 'd_reaper' = Raid
     dgBreak: true,        // Optionales Brechbares (Mail Server bei Diaboromon) zerstören – alle dasselbe Ziel; aus = nur der Boss (3.1.1).
     riftDepthMode: 'max', // Digital Rift (3.2.19): 'max' = tiefste freigeschaltete, für die das Partner-Level reicht; 'fixed' = riftDepth
+    riftTarget: 'none',   // Digital Rift (3.2.31): Ziel-Ei/-Code (DIGIBOT_RIFT_TARGETS) – Mindesttiefe, Biom-Neustart, Halt bei 100 % Scan
     riftDepth: 1,
     dgRetry: false,       // Nach einem gescheiterten Lauf (rausgeflogen) neu betreten, bis DG_TRIES Versuche – aus: Bot stoppt (3.1.5)
     dgFlareCover: false,  // Ultimate Flare: Platten als Deckung nutzen, wenn näher – aus: nur hinter Armageddemon, dort weiter angreifen (3.1.18)
@@ -1969,10 +1985,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           <div class="digibot__apcfg">
             <label>Modus<select data-apsel="dgMode"><option value="easy">Easy – War Game</option><option value="hard">Hard – Revenge (Gruppe)</option><option value="apocalymon">Apocalymon-Raid</option><option value="malomyotismon">MaloMyotismon-Raid</option><option value="beelzemon">Beelzebumon-Raid (Lv 121)</option><option value="d_reaper">Mother-D-Reaper-Raid (Lv 130)</option><option value="rift">Digital Rift (solo, endlos)</option></select></label>
             <label data-dgmode="rift">Tiefe<select data-apsel="riftDepthMode"><option value="max">höchstmögliche</option><option value="fixed">feste Tiefe</option></select></label>
+            <label data-dgmode="rift">Ziel<select data-apsel="riftTarget"><option value="none">keins</option>${Object.entries(DIGIBOT_RIFT_TARGETS).map(([k, t]) => `<option value="${k}">${t.name}${t.minDepth > 1 ? ` (ab Tiefe ${t.minDepth})` : ''}</option>`).join('')}</select></label>
             ${check('dgRetry', 'Nach gescheitertem Lauf neu betreten (bis 3×)', 'Aus: Der Bot stoppt nach einem gescheiterten Lauf, Neustart über den Leader. Nach einem Rauswurf wartet er ohnehin 15 min (manueller Start hebt das auf).')}
           </div>
           <div data-dgmode="rift">${slider('riftDepth', 'Feste Tiefe', 1, 30, (v) => `Tiefe ${v} (Lv ${v <= 5 ? [41, 65, 75, 99, 120][v - 1] : 130})`, 0, 1)}
-            <div class="digibot__hint">Solo: Der Bot geht zu Clockmon (Primary Village), öffnet den Rift und läuft ihn ab – Gegner suchen und besiegen, bis das Signal das Portal öffnet, absteigen, auf der 3. Etage den Guardian besiegen, hinaus und von vorn, bis du stoppst. „höchstmögliche“: die tiefste freigeschaltete Tiefe, für die das Level des aktiven Digimons reicht (Tiefe 1–5: Lv 41/65/75/99/120, ab 6: Lv 130); nach einem instabilen Lauf (Uhr abgelaufen) eine Tiefe weniger. Patches: Angriff/Tempo zuerst.</div></div>
+            <div class="digibot__hint">Solo: Der Bot geht zu Clockmon (Primary Village), öffnet den Rift und läuft ihn ab – Gegner suchen und besiegen, bis das Signal das Portal öffnet, absteigen, auf der 3. Etage den Guardian besiegen, hinaus und von vorn, bis du stoppst. „höchstmögliche“: die tiefste freigeschaltete Tiefe, für die das Level des aktiven Digimons reicht (Tiefe 1–5: Lv 41/65/75/99/120, ab 6: Lv 130); nach einem instabilen Lauf (Uhr abgelaufen) eine Tiefe weniger. Patches: Angriff/Tempo zuerst. Ziel: mindestens dessen Tiefe; ein Lauf im falschen Biom wird sofort neu gestartet; hat ein passender Scan bei Clockmon 100 %, hält der Bot an – umwandeln musst du selbst.</div></div>
           <div data-dgmode="beelzemon d_reaper"><div class="digibot__hint">Tamers-Raid, auch mit Fremden in der Party: Nur der Party-Leader kann ihn öffnen – ist das ein Mitspieler, wartet der Bot an der Tür, bis er offen ist. Ist der Bot Leader, wartet er, bis alle Mitspieler bereit an der Tür stehen (höchstens 20 min). Geteilte Treffer (mind. 3 im Kreis) nimmt er mit den Mitspielern zusammen, Adds und Greifhände zuerst. Voraussetzung: Beelzebumon – Quest „The Broken Promise“ angenommen, Mega; Mother D-Reaper – Quest des Raids angenommen. Nach dem Sieg geht der Bot hinaus und stoppt.</div></div>
           <div data-dgmode="hard">
             <div class="digibot__title">Hard – Diaboromon (Raum 3)</div>
@@ -12253,7 +12270,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const MODE_NAMES = { grind: 'Grinden', auto: 'Autopilot', farm: 'Bosse', dungeon: 'Dungeon', events: 'Nur Event/Weltboss', food: 'Food kaufen' };
   function syncModeScope() {
     const m = modeOf();
-    for (const k of ['dgMode', 'riftDepthMode', 'foodHp', 'foodDs', 'foodTamer', 'sellHow']) { // feste Selects: angezeigten Wert an cfg angleichen (Neuladen, andere Fenster)
+    for (const k of ['dgMode', 'riftDepthMode', 'riftTarget', 'foodHp', 'foodDs', 'foodTamer', 'sellHow']) { // feste Selects: angezeigten Wert an cfg angleichen (Neuladen, andere Fenster)
       const el = panelQ(`[data-apsel="${k}"]`), v = cfg[k] ?? '';
       if (el && panel.ownerDocument.activeElement !== el && el.value !== v) el.value = v;
     }
