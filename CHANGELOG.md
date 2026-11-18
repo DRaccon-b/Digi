@@ -2,6 +2,19 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.31 – Digital Rift: Ziel-Ei mit Biom-Check
+- **Nutzer 18.11.:** Im Panel (Dungeon → Digital Rift) gibt es jetzt **Ziel**: keins (wie bisher) oder eines der Eier/Codes aus
+  den Scans – Tapirmon-, Kunemon-, Gazimon- und Dorumon-Ei, Jewelbeemon-, Parrotmon-, Brachiomon-, Craniummon-, Veedramon-,
+  Mistymon- und Megidramon-Code (Spieldaten 16.11.).
+- **Tiefe:** mindestens die Tiefe, ab der der Scan zählt (Gazimon/Brachiomon 6, Dorumon und die schweren Codes 25), auch über
+  der festen Tiefe. Geht die nicht (nicht freigeschaltet, Level), warnt er einmal und spielt normal weiter.
+- **Biom:** Gleich auf Etage 1 prüft er das Biom des Laufs. Passt es nicht zum Ziel (z. B. Gazimon-Ei: Circuit oder Dusk), verlässt
+  er den Rift sofort und betritt ihn neu – ohne die Tiefe herabzustufen. Ohne Biom-Angabe, ohne erreichbare Zieltiefe und ab
+  Etage 2 bricht er nie ab.
+- **Scan-Stand:** Das Spiel liefert ihn beim Öffnen des Clockmon-Fensters. Hat ein Scan einer Ziel-Art 100 %, hält der Bot an und
+  meldet es – umwandeln musst du selbst. Kommt der Stand nicht, spielt er weiter und warnt (nie ein falscher Halt).
+- Tests: riftzieltest (U, A–H, C2, E2).
+
 ## 3.2.30 – Digital Rift: beim Ausweichen zurückschlagen, mit wenig HP erholen
 - **Live 16.11. (Dukemon, Tiefe 10):** Beim Ausweichen stand er 4–7 s ohne Ziel („Warte außerhalb, bis der Flächenangriff vorbei
   ist…“), während ihn 2–3 Gegner aus 20–30 px schlugen. Er wehrte nur Angreifer ab, die selbst außerhalb der Warnzone standen –
