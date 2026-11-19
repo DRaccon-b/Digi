@@ -193,6 +193,21 @@ const PARTS = {
     check('G-T', !!closed && !!l && !!h && l.t - closed <= 8000 && h.t - closed <= 8000, 'Tank weg – keine Sperre', () => `Tank zu ${closed ? 'ja' : 'nein'}, Leader ${l ? l.t - closed : '–'} ms, Heiler ${h ? h.t - closed : '–'} ms`);
     R.close();
   },
+  async heal() {
+    // Ziel greift nie an -> Sperre läuft bis zum Sicherheitsnetz; währenddessen Heiler-Position prüfen
+    let best = null;
+    const R = await fight({ fights: ['dd', 'tank', 'healer'], aggro: 'never' }, (R) => {
+      const [, Tk, H] = R.wins, m = R.G.mobs.get('m:a');
+      if (m && /hinter dem Tank/.test(H.status())) {
+        const dx = Tk.T.x - m.x, dy = Tk.T.y - m.y, d = Math.hypot(dx, dy) || 1, sx = Tk.T.x + dx / d * 90, sy = Tk.T.y + dy / d * 90;
+        const off = Math.hypot(H.T.x - sx, H.T.y - sy), farther = Math.hypot(H.T.x - m.x, H.T.y - m.y) > Math.hypot(Tk.T.x - m.x, Tk.T.y - m.y);
+        if (!best || off < best.off) best = { off: Math.round(off), farther };
+      }
+      return hitsOf(R, 2).length;
+    }, 30000);
+    check('G-H', !!best && best.off <= 50 && best.farther, `Heiler hinter dem Tank (${best?.off} px vom Platz)`, () => (best ? `${best.off} px vom Platz, weiter weg als der Tank: ${best.farther}` : 'nie „hinter dem Tank“ gesehen'));
+    R.close();
+  },
   async notank() {
     const R = await fight({ fights: ['dd', 'dd', 'dd'], aggro: 'never' }, (R) => hitsOf(R, 0).length, 20000);
     const l = hitsOf(R, 0)[0];

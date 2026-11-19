@@ -10278,9 +10278,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // Gruppe (3.2.32, Nutzer 18.11.): Mitläufer erkunden nicht selbst, steigen nicht ab und laufen nicht zum Guardian/Alpha –
     // sie folgen dem Leader im Gruppenabstand (Absteigen nimmt das Spiel die Party mit)
     if (FL) {
-      const who = FL.name || 'dem Leader';
-      if (FL.mapId !== st.world?.mapId) return `${tag} · warte auf ${who}`;
-      const a = riftAnchor(FL);
+      // Heiler (3.2.32): zwischen den Kämpfen beim Tank statt beim Leader
+      const tk = fightOf(group.slot()) === 'healer' ? riftTank(st, now) : null, anc = tk && !tk.me && tk.peer ? tk.peer : FL;
+      const who = anc.name || (anc === FL ? 'dem Leader' : 'dem Tank');
+      if (anc.mapId !== st.world?.mapId) return `${tag} · warte auf ${who}`;
+      const a = riftAnchor(anc);
       if (!a) return `${tag} · folge ${who}`;
       if (Math.hypot(me.x - a.x, me.y - a.y) > followDist()) return go(a.x, a.y, `folge ${who}`) || `${tag} · folge ${who} – Weg blockiert`;
       return `${tag} · folge ${who}`;
@@ -10334,8 +10336,19 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const id = riftCallId();
     return (id && sc.mobs.find((m) => m.id === id && !m.banned && !safeHeld(m.id))) || null;
   }
-  // Heiler während der Sperre: Platz hinter dem Tank (Teil 4)
-  function riftHealerSpot() { return null; }
+  // Heiler während der Sperre (3.2.32): RIFT_HEAL_BACK px hinter dem Tank auf der Linie Ziel → Tank, also vom Ziel abgewandt.
+  // Liegt der Platz in einer Warnzone, beim Tank im Gruppenabstand bleiben.
+  function riftHealerSpot(st, tankG, t, now) {
+    const me = controlled(st), a = tankG?.peer ? riftAnchor(tankG.peer) : null, te = window.dmo?.net?.state?.entities?.get?.(t?.id) || t;
+    if (!me || !a || !Number.isFinite(te?.x)) return null;
+    const dx = a.x - te.x, dy = a.y - te.y, d = Math.hypot(dx, dy) || 1;
+    const spot = { x: a.x + dx / d * RIFT_HEAL_BACK, y: a.y + dy / d * RIFT_HEAL_BACK };
+    let zones = []; try { zones = dangerZones(); } catch { /* ignore */ }
+    const safe = !zones.some((z) => !digibotDodgeZoneSafe(z, spot, DODGE_MARGIN));
+    const p = safe ? spot : a, dist = Math.hypot(me.x - p.x, me.y - p.y);
+    if (dist > (safe ? 30 : followDist()) && walkTo(st, p.x, p.y, now) === 'stuck') autopilot.nav = null;
+    return `Rift: Heiler hinter dem Tank – warte, bis ${t.name || 'das Ziel'} den Tank angreift`;
+  }
   // Gruppe im Rift (3.2.32): Mitläufer mit laufendem Leader-Bot im Rift-Modus folgen ihm statt selbst zu spielen
   function riftFollower(now = Date.now()) {
     if (group.role() !== 'follower' || accounts.mirror || cfg.dgMode !== 'rift') return null;
