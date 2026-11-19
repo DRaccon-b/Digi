@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.33
+// @version      3.2.34
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1816,7 +1816,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.33'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.34'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -5374,9 +5374,15 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // Kartenwechsel immer nachführen – auch außerhalb des Rifts, sonst startete die Kulanz beim 2. Lauf nicht (Review 3.2.32)
     const mapId = st?.world?.mapId;
     if (riftTankMap.id !== mapId) { riftTankMap.id = mapId; riftTankMap.at = now; }
-    if (!group.active() || accounts.mirror || !cfg.dungeon || cfg.dgMode !== 'rift' || !riftMap(mapId)) return null;
+    // eben gestartet: die Mitläufer-Bots starten erst ~1 s nach dem Leader – ihr „Bot an“ kommt später (3.2.34, Test G-F1 unter Last)
+    if (bot.on && !riftTankMap.botOn) riftTankMap.botAt = now;
+    riftTankMap.botOn = !!bot.on;
+    // in allen Betriebsarten (3.2.34, Nutzer 19.11.: „alle Gegner egal welche“) – im Rift-Modus aber nur im Rift selbst
+    if (!group.active() || accounts.mirror) return null;
+    const inRift = cfg.dungeon && cfg.dgMode === 'rift';
+    if (inRift && !riftMap(mapId)) return null;
     // ohne Leader (Fenster zu, Bot aus) keine Gruppenregeln – Mitläufer spielen dann wie solo (Review 3.2.32)
-    if (group.role() !== 'leader' && !riftFollower(now)) return null;
+    if (group.role() !== 'leader' && !(inRift ? riftFollower(now) : groupLeader(now)?.bot)) return null;
     const s = tankSlot();
     if (s < 0 || !accounts.list[s]?.on) return null;
     if (s === group.slot()) return { slot: s, me: true, ents: [st.me?.tamerEntityId, st.me?.partner?.entityId].filter(Boolean), peer: null };
@@ -5384,10 +5390,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // gerade die Karte gewechselt (Betreten/Abstieg): die Meldung des Tanks nennt bis zu 1 s lang noch die alte Map – 3 s lang trotzdem
     // als aktiv zählen, sonst fiel die Sperre genau beim Kampfbeginn weg (Test riftgrouptest)
     const sameMap = p?.mapId === mapId || now - riftTankMap.at < RIFT_TANK_MAP_GRACE_MS;
-    if (!fresh(p, now) || !p.bot || !sameMap || (p.mapId === mapId && ((p.channel ?? 1) !== (st.world?.channel ?? 1) || !p.inWorld)) || !(p.hp > 0) || !Array.isArray(p.ents)) return null;
+    const botOk = p?.bot || (bot.on && now - (riftTankMap.botAt || 0) < RIFT_TANK_START_GRACE_MS);
+    if (!fresh(p, now) || !botOk || !sameMap || (p.mapId === mapId && ((p.channel ?? 1) !== (st.world?.channel ?? 1) || !p.inWorld)) || !(p.hp > 0) || !Array.isArray(p.ents)) return null;
     return { slot: s, me: false, ents: p.ents, peer: p };
   }
-  const riftTankMap = { id: null, at: 0 }, RIFT_TANK_MAP_GRACE_MS = 3000;
+  const riftTankMap = { id: null, at: 0, botOn: false, botAt: 0 }, RIFT_TANK_MAP_GRACE_MS = 3000, RIFT_TANK_START_GRACE_MS = 5000;
   // angesagtes Ziel: Leader – eigene Ansage; Mitläufer – Ansage des Leaders
   const riftCallId = (now = Date.now()) => (group.role() === 'leader' ? group.call?.id ?? null : groupLeader(now)?.callId ?? null);
   function groupTargets() {
@@ -5738,6 +5745,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const L = groupLeader(now);
     if (!L || L.pulling) return null;
     const ents = window.dmo?.net?.state?.entities;
+    // mit Tank: die Ansage des Leaders (er greift selbst erst nach dem Tank an) – 3.2.34
+    if (L.callId) { const c = ents?.get?.(L.callId); if (c && c.kind === KIND.Mob && c.hp > 0) return c.id; }
     for (const id of [...(L.ents || [])].reverse()) { // Digimon zuerst
       const tid = ents?.get?.(id)?.targetId, m = tid && ents.get(tid);
       if (m && m.kind === KIND.Mob && m.hp > 0) return m.id;
@@ -11925,6 +11934,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           // Mitläufer: vor dem nächsten Kampf prüfen, ob ein Gespräch nachzumachen oder aufzuholen ist
           const folBusy = group.role() === 'follower' && autopilot.task && PASSIVE(autopilot.task) && !taskDone(st, autopilot.task);
           const next = noFight || folBusy ? null : pickTarget(sc, this.resting);
+          if (!next && group.role() === 'leader' && group.call && !riftMap(st.world?.mapId)) group.call = null; // keine Ansage ohne Ziel (3.2.34)
           if (next) {
             if (this.can('select', SELECT_GAP_MS, now)) { this.lastPress.select = now; scene.select(next.id); kickTick(); } // gleich angreifen, nicht erst im nächsten Takt
             this.status = (pull.on || pull.refill) && !next.attacker ? `${pull.on ? 'Sammle' : 'Hole nach'} ${pull.count + 1}/${cfg.pullMax}: ${speciesName(next.species)}`
@@ -11989,6 +11999,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       //     ein Ziel erst an, wenn es schon jemanden aus der Gruppe angreift (meist den Tank). Greift es mich selbst an, sofort wehren.
       //     Sicherheitsnetz: RIFT_TANK_WAIT_MS nach dem Angriff des Tanks trotzdem – nichts bleibt hängen.
       const tankG = riftTank(st, now);
+      // Leader: sein Ziel ist die Ansage für die Gruppe (in allen Modi; im Rift setzt riftGroupFocus sie schon) – 3.2.34
+      if (group.role() === 'leader') { if (tankG) { if (group.call?.id !== t.id) group.call = { id: t.id, at: now }; } else group.call = null; }
       if (tankG && !tankG.me && !info?.self) {
         const tgt = window.dmo?.net?.state?.entities?.get?.(t.id)?.targetId || '';
         const grp = groupEntityIds();
@@ -12749,7 +12761,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       }
       return `<div class="digibot__gcard${lead ? ' lead' : ''}${p ? '' : ' off'}">
         <header><span>${p ? '●' : '○'} ${esc(name)}</span><b class="role">${lead ? 'Leader' : 'folgt'}</b>
-          <select data-accfight="${i}" title="Kampfrolle im Digital Rift: der Tank greift zuerst an, alle anderen danach">${DIGIBOT_FIGHT.map((f) => `<option value="${f}"${fightOf(i) === f ? ' selected' : ''}>${DIGIBOT_FIGHT_NAME[f]}</option>`).join('')}</select></header>
+          <select data-accfight="${i}" title="Kampfrolle (alle Modi): der Tank greift zuerst an, alle anderen erst, wenn das Ziel jemanden aus der Gruppe angreift (höchstens 4–8 s)">${DIGIBOT_FIGHT.map((f) => `<option value="${f}"${fightOf(i) === f ? ' selected' : ''}>${DIGIBOT_FIGHT_NAME[f]}</option>`).join('')}</select></header>
         <div class="where">${esc(where)}</div>
         ${p?.hp != null ? `<div class="hpb" title="HP ${p.hp} %"><i style="width:${p.hp}%"></i></div>` : ''}
         ${p ? `<div class="st" title="${esc(p.bot ? p.status : 'Bot aus')}">${esc(p.bot ? p.status : 'Bot aus')}</div>` : ''}${sync}

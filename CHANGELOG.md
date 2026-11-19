@@ -2,6 +2,15 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.34 – Gruppe: Tank zuerst in allen Modi
+- **Nutzer 19.11.:** Die Kampfrollen (Tank/DD/Heiler, Reiter Gruppe) gelten jetzt in allen Betriebsarten und bei allen Gegnern – nicht nur
+  im Digital Rift. Ist ein Tank aktiv (Fenster da, Bot an, gleiche Map und gleicher Kanal), wird das Ziel des Leaders zur Ansage: der
+  Tank greift es zuerst an, alle anderen (auch der Leader) erst, wenn es jemanden aus der Gruppe angreift – höchstens 4 s nach dem
+  Tank-Angriff bzw. 8 s nach Wartebeginn. Wer selbst angegriffen wird, wehrt sich sofort. „Ziele verteilen“ ruht, solange ein Tank
+  aktiv ist. Ohne Tank (alle DD) bleibt alles wie bisher. Hinweis: beim Questen macht das die Gruppe langsamer (gewollt).
+  Nach dem Start gilt der Tank 5 s lang als aktiv, auch wenn sein Bot den Start noch nicht gemeldet hat.
+- Tests: riftgrouptest (G-F1, G-F0).
+
 ## 3.2.33 – Kartenrotation: in der Gruppe weiterfarmen, bis alle voll sind
 - **Nutzer 19.11.:** Bisher hörte die Kartenrotation auf, sobald der Leader seine ausgewählten Karten voll hatte – auch wenn ein
   Gruppenmitglied noch nicht fertig war. Neue Option im Reiter Bosse → Karten auswählen: **„Gruppe: weiterfarmen, bis alle voll

@@ -30,14 +30,14 @@ const CELLS = [{ id: 'c0_1', role: 'camp', rect: { x: 100, y: 100, w: 200, h: 20
 
 // Gemeinsame Rift-Welt für n Bot-Fenster (Slot 0 = Leader). fights: Kampfrolle je Slot. mobs(floor): Gegner der Etage.
 // hp: Partner-HP je Slot · effects: Effekte je Gegner (z. B. Mender) · bread: Slots mit Guilmon Bread auf F1 · enterOnce: Leader darf nur einmal betreten
-function groupWorld({ fights, mobs = () => [], aggro = 'first', cfg = {}, hp = [], effects = {}, bread = [], enterOnce = false }) {
+function groupWorld({ fights, mobs = () => [], aggro = 'first', cfg = {}, hp = [], effects = {}, bread = [], enterOnce = false, field = false }) {
   const n = fights.length;
   const G = { rs: { run: null, patch: null, result: null, floorUi: { going: null } }, floor: 0, mapOf: [], mobs: new Map(), hidden: new Map(), players: new Map(), wins: [] };
   const accounts = { leader: 0, popup: true, mirror: false, spread: false, dungeon: true, list: fights.map((f, i) => ({ on: true, user: 'u' + i, char: 'Char' + i, fight: f })) };
   const party = { id: 'P', members: fights.map((_, i) => ({ charId: 'c' + i, name: 'Char' + i, partnerEntityId: 'p:' + i })) };
   const content = {
     digimon: { bearmon_rift: { name: 'Bearmon' } }, items: {}, npcs: { rift_warden: { name: 'Clockmon, Rift Warden' } }, quests: {}, dailyById: {},
-    maps: { [PV]: { id: PV, name: 'Primary Village', safe: true }, [RS]: { id: RS, name: 'Digital Rift', levelRange: [130, 130] } },
+    maps: { [PV]: { id: PV, name: 'Primary Village', safe: !field }, [RS]: { id: RS, name: 'Digital Rift', levelRange: [130, 130] } },
     spawns: { [PV]: { zones: {} }, [RS]: { zones: {}, raid: { id: 'rift', gate: { mapId: PV, portal: 'rift' }, party: { min: 1, max: 5, minLevel: 1 }, deathLimit: 1000, landing: 'camp', rift: true } } },
   };
   const tmj = (objs) => ({ layers: [{ type: 'objectgroup', name: 'objects', objects: objs }] });
@@ -73,7 +73,7 @@ function groupWorld({ fights, mobs = () => [], aggro = 'first', cfg = {}, hp = [
     const rift = { getState: () => ({ ...G.rs, ...own, set: (p) => { const { warden, view, scans, ...rest } = p; if ('warden' in p) own.warden = warden; if ('view' in p) own.view = view; if ('scans' in p) own.scans = scans; G.rs = { ...G.rs, ...rest }; } }) };
     const mapNow = () => G.mapOf[slot];
     // Entities: alle Spieler auf meiner Map + Gegner, wenn ich im Rift bin
-    const list = () => { const out = []; for (const [id, e] of G.players) { const s = Number(id.split(':')[1]); if (G.mapOf[s] === mapNow()) out.push([id, e]); } if (mapNow() === RS) for (const [id, m] of G.mobs) out.push([id, m]); return out; };
+    const list = () => { const out = []; for (const [id, e] of G.players) { const s = Number(id.split(':')[1]); if (G.mapOf[s] === mapNow()) out.push([id, e]); } if (mapNow() === RS || (field && mapNow() === PV)) for (const [id, m] of G.mobs) out.push([id, m]); return out; };
     const ents = { get: (id) => list().find(([k]) => k === id)?.[1], has: (id) => list().some(([k]) => k === id), forEach: (f) => list().forEach(([k, v]) => f(v, k)), keys: () => list().map(([k]) => k)[Symbol.iterator](), values: () => list().map(([, v]) => v)[Symbol.iterator](), entries: () => list()[Symbol.iterator](), [Symbol.iterator]: () => list()[Symbol.iterator](), get size() { return list().length; } };
     let goal = null;
     const scene = {
@@ -123,7 +123,7 @@ function groupWorld({ fights, mobs = () => [], aggro = 'first', cfg = {}, hp = [
     w.addEventListener('keydown', (e) => {
       if (e.code !== 'Digit1' || !state.target) return;
       const m = G.mobs.get(state.target.id);
-      if (!m || m.hp <= 0 || mapNow() !== RS || Math.hypot(m.x - T.x, m.y - T.y) > 320) return;
+      if (!m || m.hp <= 0 || (mapNow() !== RS && !(field && mapNow() === PV)) || Math.hypot(m.x - T.x, m.y - T.y) > 320) return;
       keys.push({ t: Date.now(), id: m.id }); E(slot, 'hit', m.id);
       aggroOn(m, slot);
       m.hp = Math.max(0, m.hp - 40);
@@ -142,6 +142,7 @@ function groupWorld({ fights, mobs = () => [], aggro = 'first', cfg = {}, hp = [
     w.localStorage.setItem('digibot.accounts', JSON.stringify(accounts));
     w.localStorage.setItem('digibot.cfg', JSON.stringify({ dungeon: true, dgMode: 'rift', autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, lvlDiff: 3, tab: 'acc', ...cfg }));
   }
+  if (field) for (const m of mobs(1)) G.mobs.set(m.id, { kind: 2, defId: 'bearmon_rift', level: 130, hp: 600, maxHp: 600, flags: 0, targetId: '', ...m }); // normale Map (Grinden): Gegner in Primary Village
   for (const W of G.wins) W.w.eval(script);
   return { G, wins: G.wins, ev, start: () => G.wins[0].w.document.querySelector('[data-act="bot"]').click(), close: () => { for (const W of G.wins) W.w.close(); } };
 }
@@ -280,6 +281,24 @@ const PARTS = {
     const after = (s) => R.ev.find((e) => e.t > second && e.what === 'hit' && e.slot === s);
     const tk = after(1), l = after(0), h = after(2);
     check('G-2', !!second && !!tk && !!l && !!h && tk.t < l.t && tk.t < h.t, 'zweiter Lauf: Tank greift wieder zuerst an', () => `2. Lauf ${!!second}, Tank ${tk ? tk.t - second : '–'}, Leader ${l ? l.t - second : '–'}, Heiler ${h ? h.t - second : '–'} ms`);
+    R.close();
+  },
+  // 3.2.34 (Nutzer 19.11.: „alle Gegner egal welche“, in allen Modi): Grinden auf einer normalen Map
+  async field() {
+    const R = groupWorld({ fights: ['dd', 'tank', 'healer'], field: true, aggro: 'first', cfg: { dungeon: false, autopilot: false, farm: false, radius: 400 }, mobs: () => [{ id: 'm:f', x: 900, y: 960 }] });
+    await wait(1500); R.start(); const t0 = Date.now();
+    while (Date.now() - t0 < 25000 && !(hitsOf(R, 0).length && hitsOf(R, 2).length)) await wait(150);
+    const tk = hitsOf(R, 1)[0], l = hitsOf(R, 0)[0], h = hitsOf(R, 2)[0], ag = R.ev.find((e) => e.what === 'aggro' && e.id === 'm:f');
+    check('G-F1', !!tk && !!l && !!h && tk.t < l.t && tk.t < h.t && !!ag && ag.slot === 1 && l.t >= ag.t && h.t >= ag.t, 'Grinden: Tank greift zuerst an, die anderen danach',
+      () => `Tank ${tk ? tk.t - t0 : '–'}, Leader ${l ? l.t - t0 : '–'}, Heiler ${h ? h.t - t0 : '–'} ms, Aggro ${ag ? `Slot ${ag.slot} ${ag.t - t0}` : '–'}, Status L: ${R.wins[0].status()}`);
+    R.close();
+  },
+  async fieldnotank() {
+    const R = groupWorld({ fights: ['dd', 'dd'], field: true, aggro: 'never', cfg: { dungeon: false, autopilot: false, farm: false, radius: 400 }, mobs: () => [{ id: 'm:f', x: 900, y: 960 }] });
+    await wait(1500); R.start(); const t0 = Date.now();
+    while (Date.now() - t0 < 15000 && !hitsOf(R, 0).length) await wait(150);
+    const l = hitsOf(R, 0)[0];
+    check('G-F0', !!l && l.t - t0 <= 6000, `Grinden ohne Tank: Leader greift sofort an (+${l ? l.t - t0 : '–'} ms)`, () => `Leader-Treffer ${l ? l.t - t0 : '–'} ms, Status ${R.wins[0].status()}`);
     R.close();
   },
   async notank() {
