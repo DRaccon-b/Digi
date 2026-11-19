@@ -10,6 +10,11 @@
 //  gone   G-T: Tank-Fenster weg -> keine Sperre mehr.
 //  notank G-0: ohne Tank greift der Leader wie bisher sofort an.
 //  heal   G-H: Heiler steht während der Sperre ~90 px hinter dem Tank (vom Ziel abgewandt).
+// Review 3.2.32:
+//  rest   G-R: Tank mit 40 % HP – kein neues ruhiges Ziel, Erholpause.   left G-L: Leader draußen -> Mitläufer geht nach ~10 s hinaus.
+//  mender G-M: Pack greift den Tank an, daneben ein Mender – keine Endlos-Sperre, Leader/DD helfen.
+//  noleader G-NL: Leader weg -> Tank/DD greifen wie solo an.   bread G-B: Mitläufer kauft Brot nach (Leader wartet), betritt nicht selbst.
+//  second G-2: im zweiten Lauf greift der Tank wieder zuerst an.
 const { JSDOM, VirtualConsole } = require('jsdom');
 const { BroadcastChannel } = require('worker_threads');
 const { spawn } = require('child_process');
@@ -24,7 +29,8 @@ const CELLS = [{ id: 'c0_1', role: 'camp', rect: { x: 100, y: 100, w: 200, h: 20
   { id: 'c1_2', role: 'branch', rect: { x: 700, y: 700, w: 200, h: 200 } }, { id: 'c0_2', role: 'deadend:pond', rect: { x: 100, y: 700, w: 200, h: 200 } }];
 
 // Gemeinsame Rift-Welt für n Bot-Fenster (Slot 0 = Leader). fights: Kampfrolle je Slot. mobs(floor): Gegner der Etage.
-function groupWorld({ fights, mobs = () => [], aggro = 'first', cfg = {} }) {
+// hp: Partner-HP je Slot · effects: Effekte je Gegner (z. B. Mender) · bread: Slots mit Guilmon Bread auf F1 · enterOnce: Leader darf nur einmal betreten
+function groupWorld({ fights, mobs = () => [], aggro = 'first', cfg = {}, hp = [], effects = {}, bread = [], enterOnce = false }) {
   const n = fights.length;
   const G = { rs: { run: null, patch: null, result: null, floorUi: { going: null } }, floor: 0, mapOf: [], mobs: new Map(), hidden: new Map(), players: new Map(), wins: [] };
   const accounts = { leader: 0, popup: true, mirror: false, spread: false, dungeon: true, list: fights.map((f, i) => ({ on: true, user: 'u' + i, char: 'Char' + i, fight: f })) };
@@ -95,10 +101,18 @@ function groupWorld({ fights, mobs = () => [], aggro = 'first', cfg = {} }) {
       chooseDialog(c) { if (c === 'open' && state.dialog?.npc === 'rift_warden') { sent.open++; store.setState({ dialog: null }); own = { ...own, warden: { npc: 'rift_warden' }, view: { deepest: 10, party: fights.map((_, i) => ({ name: 'Char' + i, level: 130, problem: '', leader: i === 0 })), iLead: slot === 0, blocked: null, depths: [] } }; } },
       closeDialog() { store.setState({ dialog: null }); },
       command(name, args) {
-        if (name === 'riftEnter') { sent.enter++; E(slot, 'riftEnter'); if (slot !== 0) return; for (const W of G.wins) W.closeWarden(); setTimeout(() => { floorStart(1); moveAll(RS, { x: 200, y: 200 }); }, 300); }
+        if (name === 'riftShopBuy') {
+          const inv = state.me.inventory, q = (id) => inv.filter((i) => i.itemId === id).reduce((k, i) => k + i.qty, 0);
+          if (args?.offer !== 'guilmon_bread' || q('rift_shard') < 30) return;
+          sent.buy = (sent.buy || 0) + 1; E(slot, 'buy');
+          store.setState({ me: { ...state.me, inventory: [{ itemId: 'guilmon_bread', qty: q('guilmon_bread') + 10 }, { itemId: 'rift_shard', qty: q('rift_shard') - 30 }] } });
+          return;
+        }
+        if (name === 'riftEnter') { sent.enter++; E(slot, 'riftEnter'); if (slot !== 0 || (enterOnce && G.entered)) return; G.entered = true; for (const W of G.wins) W.closeWarden(); setTimeout(() => { floorStart(1); moveAll(RS, { x: 200, y: 200 }); }, 300); }
         else if (name === 'riftDescend') { sent.descend++; E(slot, 'riftDescend'); }
-        else if (name === 'raidLeave') { sent.leave++; E(slot, 'raidLeave'); }
+        else if (name === 'raidLeave') { sent.leave++; E(slot, 'raidLeave'); if (mapNow() === RS && !W.leaving) { W.leaving = true; setTimeout(() => { W.leaving = false; load(PV, { x: 808 + slot * 14, y: 824 }); }, 600); } }
       },
+      raidLeave() { base.command('raidLeave', {}); },
       requestBossPins() {}, requestMapInfo() {}, partnerFollow() {}, partnerStop() {}, async requestEvents() { return [{ id: 'mega_hunt', now: Date.now(), slot: null, state: 'idle', next: null }]; },
     };
     const commands = new Proxy(base, { get: (o, k) => (k in o ? o[k] : () => {}) });
@@ -115,11 +129,13 @@ function groupWorld({ fights, mobs = () => [], aggro = 'first', cfg = {} }) {
       m.hp = Math.max(0, m.hp - 40);
       if (m.hp <= 0) { G.mobs.delete(m.id); E(slot, 'kill', m.id); }
     }, true);
-    store.setState({ screen: 'world', inputFocus: 'game', cooldowns: {}, chat: [], target: null, effects: {},
+    store.setState({ screen: 'world', inputFocus: 'game', cooldowns: {}, chat: [], target: null, effects: { ...effects },
       session: { username: 'u' + slot, characters: [{ id: 'c' + slot, name: 'Char' + slot }] },
       party: { ...party, members: party.members.map((m, i) => ({ ...m, me: i === slot })) },
       me: { tamerEntityId: T.id, tamerDs: 300, tamerMaxDs: 360, hotbar: ['cmd:attack'], inventory: [], quests: {}, bits: 5000,
-        partner: { entityId: Pp.id, name: 'Dukemon', species: 'gallantmon', level: 130, hp: 30000, maxHp: 30000, ds: 500, maxDs: 700, exp: 1, expNext: 100, skills: [] } } });
+        partner: { entityId: Pp.id, name: 'Dukemon', species: 'gallantmon', level: 130, hp: hp[slot] ?? 30000, maxHp: 30000, ds: 500, maxDs: 700, exp: 1, expNext: 100, skills: [] } } });
+    Pp.hp = hp[slot] ?? 30000;
+    if (bread.includes(slot)) store.setState({ me: { ...state.me, hotbar: ['cmd:attack', null, null, null, null, null, null, null, 'item:guilmon_bread'], inventory: [{ itemId: 'guilmon_bread', qty: 2 }, { itemId: 'rift_shard', qty: 100 }] } });
     const W = { slot, w, store, sent, keys, T, P: Pp, load, closeWarden: () => { own = { ...own, warden: null, view: null }; }, status: () => w.document.querySelector('[data-f="status"]')?.textContent || '' };
     G.wins.push(W);
     load(PV, { x: 808 + slot * 14, y: 900 });
@@ -206,6 +222,64 @@ const PARTS = {
       return hitsOf(R, 2).length;
     }, 30000);
     check('G-H', !!best && best.off <= 50 && best.farther, `Heiler hinter dem Tank (${best?.off} px vom Platz)`, () => (best ? `${best.off} px vom Platz, weiter weg als der Tank: ${best.farther}` : 'nie „hinter dem Tank“ gesehen'));
+    R.close();
+  },
+  // Review 3.2.32 ---------------------------------------------------------------------------------------------------------
+  async rest() { // R1: Tank (Mitläufer) mit 40 % HP – kein neues ruhiges Ziel, erst erholen
+    const R = await fight({ fights: ['dd', 'tank', 'dd'], hp: [30000, 12000, 30000], aggro: 'first' }, () => false, 9000);
+    const n = R.ev.filter((e) => e.what === 'hit').length;
+    check('G-R', n === 0 && /erhol/.test(R.wins[1].status() + R.wins[0].status()), 'Tank mit 40 % HP – niemand greift ein ruhiges Ziel an, Erholpause', () => `${n} Treffer, Status Tank: ${R.wins[1].status()} · Leader: ${R.wins[0].status()}`);
+    R.close();
+  },
+  async left() { // R2: Leader verlässt den Rift ohne Ergebnis (Biom-Neustart, Zeitlimit) -> Mitläufer geht auch hinaus
+    const R = groupWorld({ fights: ['dd', 'dd'], enterOnce: true });
+    const [L, F] = R.wins;
+    await wait(1500); R.start();
+    let t = Date.now(), moved = 0;
+    while (Date.now() - t < 40000) {
+      if (!moved && R.G.mapOf[0] === RS && R.G.mapOf[1] === RS) { await wait(2500); L.load(PV, { x: 808, y: 824 }); moved = Date.now(); }
+      if (moved && F.sent.leave) break;
+      await wait(250);
+    }
+    check('G-L', !!moved && F.sent.leave >= 1 && Date.now() - moved <= 25000, `Leader draußen – Mitläufer geht nach ${moved ? Math.round((Date.now() - moved) / 1000) : '–'} s hinaus`, () => `Leader draußen ${!!moved}, Mitläufer raidLeave ${F.sent.leave}, Status F: ${F.status()}`);
+    R.close();
+  },
+  async mender() { // R3: Pack greift den Tank an, Leader würde den Mender (greift niemanden an) ansagen -> keine Endlos-Sperre
+    const R = await fight({ fights: ['dd', 'tank', 'dd'], aggro: 'first', extra: [{ id: 'm:x', x: 300, y: 250, targetId: 'p:1' }, { id: 'm:h', x: 380, y: 290 }], effects: { 'm:h': [{ id: 'rift_role_mender' }] } }, (R) => hitsOf(R, 0).length && hitsOf(R, 2).length, 20000);
+    const l = hitsOf(R, 0)[0], d = hitsOf(R, 2)[0];
+    check('G-M', !!l && !!d && l.t - R.inRift <= 9000 && d.t - R.inRift <= 9000, `Tank kämpft gegen das Pack – Leader/DD helfen (+${l ? l.t - R.inRift : '–'} / +${d ? d.t - R.inRift : '–'} ms)`, () => `Leader ${l ? `${l.t - R.inRift} ms ${l.id}` : '–'}, DD ${d ? `${d.t - R.inRift} ms ${d.id}` : '–'}`);
+    R.close();
+  },
+  async noleader() { // R4: Leader-Fenster weg -> Tank und DD spielen wie solo weiter (greifen ruhige Gegner an)
+    let closed = 0;
+    const R = await fight({ fights: ['dd', 'tank', 'dd'], aggro: 'never' }, (R) => { if (!closed) { closed = Date.now(); R.wins[0].w.close(); } return hitsOf(R, 1).length && hitsOf(R, 2).length; }, 25000);
+    const tk = hitsOf(R, 1)[0], d = hitsOf(R, 2)[0];
+    check('G-NL', !!tk && !!d && tk.t - closed <= 14000 && d.t - closed <= 14000, 'ohne Leader greifen Tank und DD wieder selbst an', () => `Tank ${tk ? tk.t - closed : '–'} ms, DD ${d ? d.t - closed : '–'} ms nach Schließen des Leaders`);
+    R.close();
+  },
+  async bread() { // R5: Mitläufer mit Guilmon Bread auf F1 kauft bei Clockmon nach, betritt aber nicht selbst
+    const R = groupWorld({ fights: ['dd', 'dd'], bread: [1], enterOnce: true });
+    const F = R.wins[1];
+    await wait(1500); R.start();
+    const t = Date.now();
+    while (Date.now() - t < 25000 && !F.sent.buy) await wait(250);
+    check('G-B', F.sent.buy >= 1 && F.sent.enter === 0, 'Mitläufer kauft Guilmon Bread nach', () => `Käufe ${F.sent.buy || 0}, betreten ${F.sent.enter}, Status F: ${F.status()}`);
+    R.close();
+  },
+  async second() { // R6: zweiter Lauf – Tank greift wieder zuerst an (Kulanz nach Kartenwechsel auch beim 2. Betreten)
+    const R = groupWorld({ fights: ['dd', 'tank', 'healer'], aggro: 'first', mobs: (k) => (k === 1 ? [{ id: 'm:a', x: 330, y: 230 }] : []) });
+    await wait(1500); R.start();
+    let t = Date.now(), ended = 0, second = 0;
+    while (Date.now() - t < 60000) {
+      const ent = R.ev.filter((e) => e.slot === 0 && e.what === 'riftEnter');
+      if (!ended && R.G.mapOf.every((m) => m === RS)) { await wait(3000); R.G.rs = { ...R.G.rs, run: null, result: { stable: true, depth: 10, timeMs: 100000, loot: {} } }; ended = Date.now(); }
+      if (ended && !second && ent.length >= 2) second = ent[1].t;
+      if (second && R.ev.some((e) => e.t > second && e.what === 'hit' && e.slot === 0) && R.ev.some((e) => e.t > second && e.what === 'hit' && e.slot === 2)) break;
+      await wait(200);
+    }
+    const after = (s) => R.ev.find((e) => e.t > second && e.what === 'hit' && e.slot === s);
+    const tk = after(1), l = after(0), h = after(2);
+    check('G-2', !!second && !!tk && !!l && !!h && tk.t < l.t && tk.t < h.t, 'zweiter Lauf: Tank greift wieder zuerst an', () => `2. Lauf ${!!second}, Tank ${tk ? tk.t - second : '–'}, Leader ${l ? l.t - second : '–'}, Heiler ${h ? h.t - second : '–'} ms`);
     R.close();
   },
   async notank() {

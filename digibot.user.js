@@ -5262,7 +5262,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   // Was ein anderes Fenster sofort wissen muss (Ziel, Aufgabe, Gespräche, Kampf, Map, Quests) – Position nicht
   const groupSig = (m) => JSON.stringify([m.targetId, m.task?.key, m.talks?.[m.talks.length - 1]?.key, m.busy, m.done?.[m.done.length - 1],
-    m.fight, m.mapId, m.channel, m.bot, m.noFight, m.inWorld, m.quests, m.objective, m.reservation,m.tamer,m.partyId, m.kohAt != null && m.kohAt <= Date.now(), m.davis, m.davisAt, m.kohMoreOff, Object.keys(m.gsk || {}).sort().join(), !!m.pulling, m.prog, (m.catchup || []).join(), m.callId]);
+    m.fight, m.mapId, m.channel, m.bot, m.noFight, m.inWorld, m.quests, m.objective, m.reservation,m.tamer,m.partyId, m.kohAt != null && m.kohAt <= Date.now(), m.davis, m.davisAt, m.kohMoreOff, Object.keys(m.gsk || {}).sort().join(), !!m.pulling, m.prog, (m.catchup || []).join(), m.callId, !!m.riftBusy]);
   function groupPush(force = false) {
     if (!group.active() || !group.bus) return;
     const st = getStore()?.getState?.(), now = Date.now();
@@ -5308,6 +5308,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       catchup: serveOrderOn() ? catchupList(now) : null, // Leader: Slots der Nachholgruppe
       pulling: group.role() === 'leader' && pull.on && Date.now() - pull.startAt <= PULL_MAX_MS, // Pull-Modus: ich sammle gerade Monster – Mitläufer übernehmen meine Ziele nicht
       callId: group.role() === 'leader' ? group.call?.id ?? null : null, // Rift mit Tank (3.2.32): angesagtes Ziel des Leaders
+      riftBusy: !!group.riftBusy && group.role() === 'follower', // Mitläufer kauft gerade bei Clockmon ein – Leader wartet kurz (Review 3.2.32)
     };
   }
   const fresh = (p, now) => !!p && now - p.seen < GROUP_STALE_MS;
@@ -5367,15 +5368,18 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Rift-Gruppe mit Tank (3.2.32, Nutzer 18.11.): Tank aktiv = frisches Fenster mit laufendem Bot, in der Welt, gleiche Map und
   // gleicher Kanal wie ich, Digimon nicht bewusstlos. Sonst gibt es keine Sperre – nichts darf hängen bleiben.
   function riftTank(st = getStore()?.getState?.(), now = Date.now()) {
-    if (!group.active() || accounts.mirror || !cfg.dungeon || cfg.dgMode !== 'rift' || !riftMap(st?.world?.mapId)) return null;
+    // Kartenwechsel immer nachführen – auch außerhalb des Rifts, sonst startete die Kulanz beim 2. Lauf nicht (Review 3.2.32)
+    const mapId = st?.world?.mapId;
+    if (riftTankMap.id !== mapId) { riftTankMap.id = mapId; riftTankMap.at = now; }
+    if (!group.active() || accounts.mirror || !cfg.dungeon || cfg.dgMode !== 'rift' || !riftMap(mapId)) return null;
+    // ohne Leader (Fenster zu, Bot aus) keine Gruppenregeln – Mitläufer spielen dann wie solo (Review 3.2.32)
+    if (group.role() !== 'leader' && !riftFollower(now)) return null;
     const s = tankSlot();
     if (s < 0 || !accounts.list[s]?.on) return null;
     if (s === group.slot()) return { slot: s, me: true, ents: [st.me?.tamerEntityId, st.me?.partner?.entityId].filter(Boolean), peer: null };
     const p = group.peers.get(s);
     // gerade die Karte gewechselt (Betreten/Abstieg): die Meldung des Tanks nennt bis zu 1 s lang noch die alte Map – 3 s lang trotzdem
     // als aktiv zählen, sonst fiel die Sperre genau beim Kampfbeginn weg (Test riftgrouptest)
-    const mapId = st.world?.mapId;
-    if (riftTankMap.id !== mapId) { riftTankMap.id = mapId; riftTankMap.at = now; }
     const sameMap = p?.mapId === mapId || now - riftTankMap.at < RIFT_TANK_MAP_GRACE_MS;
     if (!fresh(p, now) || !p.bot || !sameMap || (p.mapId === mapId && ((p.channel ?? 1) !== (st.world?.channel ?? 1) || !p.inWorld)) || !(p.hp > 0) || !Array.isArray(p.ents)) return null;
     return { slot: s, me: false, ents: p.ents, peer: p };
@@ -10242,12 +10246,19 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Im Rift ohne Ziel: Patch wählen, Guardian, Portal, Alpha, sonst die nächste noch nicht abgesuchte Zelle
   function riftStep(st, sc, now) {
     const R = riftStore(), run = R?.run, me = controlled(st);
+    group.riftBusy = false; // im Rift kauft niemand ein
     if (!rift.inside) { rift.inside = true; rift.startAt = now; rift.noRunAt = 0; rift.giveUp = false; rift.portalNear = 0; rift.visited = new Set(); rift.floorKey = ''; rift.enterTries = 0; rift.talkTries = 0; logEvent('bot', `Rift betreten${run?.depth ? `: Tiefe ${run.depth}` : ''}`); }
     for (const code of riftNotices(st)) if (code === 'rift_portal_far') { rift.descendAt = 0; rift.portalNear = 40; } // näher heran
     if (R?.result) return riftAfter(st, R.result, now);
     // aufgeben: Lauf zu lang (z. B. Guardian heilt sich bei jeder Ohnmacht) oder kein Laufzustand – hinaus, nächster Lauf eine Tiefe flacher
     if (!run) rift.noRunAt ||= now; else rift.noRunAt = 0;
     const FL = riftFollower(now); // Mitläufer mit Leader: nicht allein aufgeben (3.2.32)
+    // Leader ist draußen (Biom-Neustart, Aufgeben, Ohnmacht) – nach RIFT_FOLLOW_AWAY_MS ebenfalls hinaus, sonst wartete der Mitläufer
+    // ohne Ende im alten Lauf und der Leader draußen auf ihn (Review 3.2.32)
+    if (FL && FL.mapId !== st.world?.mapId) {
+      rift.awayAt ||= now;
+      if (now - rift.awayAt > RIFT_FOLLOW_AWAY_MS) return riftLeave(now, `${FL.name || 'der Leader'} ist nicht mehr im Rift`, true);
+    } else rift.awayAt = 0;
     if (!FL && (rift.giveUp || now - rift.startAt > RIFT_GIVEUP_MS || (rift.noRunAt && now - rift.noRunAt > RIFT_NORUN_MS))) return riftLeave(now, run ? 'Lauf dauert zu lange' : 'kein Laufzustand');
     if (!R) return 'Rift: Laufzustand fehlt (Spiel neu laden?)';
     if (!run) return 'Rift: warte auf den Laufzustand…';
@@ -10275,6 +10286,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (now - rift.restAt < RIFT_REST_MS) return `${tag} · erhole mich (HP ${Math.round(hpPct)} %)`;
     } else if (hpPct >= RIFT_REST_HP || sc?.attackers?.length) rift.restAt = 0;
     const go = (x, y, what) => { if (walkTo(st, x, y, now) === 'stuck') { autopilot.nav = null; return null; } return `${tag} · ${what} (${Math.round(Math.hypot(me.x - x, me.y - y))} px)`; };
+    // Leader mit Tank: der Tank erholt sich – nicht weiterlaufen und neue Gegner ziehen (Review 3.2.32)
+    if (!FL && group.role() === 'leader' && riftTankResting(st, sc, now)) return `${tag} · warte, bis der Tank sich erholt hat`;
     // Gruppe (3.2.32, Nutzer 18.11.): Mitläufer erkunden nicht selbst, steigen nicht ab und laufen nicht zum Guardian/Alpha –
     // sie folgen dem Leader im Gruppenabstand (Absteigen nimmt das Spiel die Party mit)
     if (FL) {
@@ -10325,16 +10338,42 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // nehmen dieses Ziel – der Tank greift es an, die anderen warten in der Sperre (Takt 3c), bis es jemanden aus der Gruppe angreift
   const RIFT_TANK_WAIT_MS = 4000; // Sicherheitsnetz: so lange nach dem Angriff des Tanks warten die anderen höchstens
   const RIFT_HEAL_BACK = 90;      // Heiler: so weit hinter dem Tank (vom Ziel abgewandt)
+  const RIFT_TANK_HOLD_MS = 8000;    // Sperre höchstens so lange ab Wartebeginn, auch wenn der Tank das Ziel nie angreift (Review 3.2.32)
+  const RIFT_FOLLOW_AWAY_MS = 10000;
+  const RIFT_SHOP_WAIT_MS = 20000;   // Leader wartet so lange auf Mitläufer, die bei Clockmon einkaufen // Mitläufer: so lange darf der Leader außerhalb des Rifts sein, dann auch hinaus
   function riftGroupFocus(sc) {
-    const own = sc.mobs.filter((m) => m.self && !m.banned && m.reach !== false && !safeHeld(m.id)).sort((a, b) => (a.pd ?? a.d) - (b.pd ?? b.d))[0] || null;
+    const st = getStore()?.getState?.(), now = Date.now(), dist = (m) => m.pd ?? m.d;
+    const usable = (m) => !m.banned && m.reach !== false && !safeHeld(m.id);
+    const own = sc.mobs.filter((m) => m.self && usable(m)).sort((a, b) => dist(a) - dist(b))[0] || null;
+    // erholen wie solo (riftFocus): wenig HP und niemand greift an – kein neues ruhiges Ziel (Review 3.2.32)
+    if (!own && riftRestNow(st, sc, now)) return null;
     if (group.role() === 'leader') {
-      const pick = own || riftFocus(sc);
+      // Tank erholt sich (wenig HP, niemand greift an): nichts Neues ansagen (Review 3.2.32)
+      if (!own && riftTankResting(st, sc, now)) { group.call = null; return null; }
+      // erst, was den Tank schon angreift (der Tank kämpft dagegen) – sonst sagte der Leader z. B. einen Mender an, den der Tank nie
+      // angreift, und alle anderen standen in der Sperre (Review 3.2.32)
+      const tk = riftTank(st, now), onTank = tk ? sc.mobs.filter((m) => usable(m) && tk.ents.includes(window.dmo?.net?.state?.entities?.get?.(m.id)?.targetId)).sort((a, b) => dist(a) - dist(b))[0] : null;
+      const pick = own || onTank || riftFocus(sc);
       group.call = pick ? { id: pick.id, at: group.call?.id === pick.id ? group.call.at : Date.now() } : null;
       return pick;
     }
     if (own) return own;
     const id = riftCallId();
     return (id && sc.mobs.find((m) => m.id === id && !m.banned && !safeHeld(m.id))) || null;
+  }
+  // Erholregel aus riftFocus/riftStep für die Gruppe (Review 3.2.32): unter RIFT_REST_HP, niemand greift an, Uhr hat noch Zeit, im
+  // Erholfenster (rift.restAt setzt riftStep beim Warten)
+  function riftRestNow(st, sc, now) {
+    const pp = st?.me?.partner, hp = pp?.maxHp ? pp.hp / pp.maxHp * 100 : 100, run = riftStore()?.run;
+    return hp < RIFT_REST_HP && !(sc?.attackers?.length) && (run?.clockMs ?? Infinity) > RIFT_REST_CLOCK_MS && (!rift.restAt || now - rift.restAt < RIFT_REST_MS);
+  }
+  // Leader: der Tank (anderes Fenster) hat wenig HP und niemand greift an – warten, bis er sich erholt hat (höchstens RIFT_REST_MS)
+  function riftTankResting(st, sc, now) {
+    const tk = riftTank(st, now), run = riftStore()?.run;
+    const low = !!tk && !tk.me && Number(tk.peer?.hp) < RIFT_REST_HP && !(sc?.attackers?.length) && (run?.clockMs ?? Infinity) > RIFT_REST_CLOCK_MS;
+    if (!low) { rift.tankRestAt = 0; return false; }
+    rift.tankRestAt ||= now;
+    return now - rift.tankRestAt < RIFT_REST_MS;
   }
   // Heiler während der Sperre (3.2.32): RIFT_HEAL_BACK px hinter dem Tank auf der Linie Ziel → Tank, also vom Ziel abgewandt.
   // Liegt der Platz in einer Warnzone, beim Tank im Gruppenabstand bleiben.
@@ -10421,7 +10460,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   // Außerhalb: zu Clockmon, Rift-Fenster öffnen, Tiefe wählen, betreten
   function riftOutside(st, now) {
-    if (rift.inside) { rift.inside = false; rift.talkTries = 0; rift.enterTries = 0; rift.talkAt = 0; rift.enterAt = 0; rift.warned = ''; rift.breadTries = 0; rift.breadAt = 0; rift.scanFresh = false; }
+    if (rift.inside) { rift.inside = false; rift.talkTries = 0; rift.enterTries = 0; rift.talkAt = 0; rift.enterAt = 0; rift.warned = ''; rift.breadTries = 0; rift.breadAt = 0; rift.scanFresh = false; rift.followScanDone = false; }
     const R = riftStore();
     // Scan-Stand (3.2.31): das Spiel holt ihn beim Öffnen des Clockmon-Fensters (riftScans) – vorher den alten Stand verwerfen,
     // sonst hielte ein schon umgewandelter 100-%-Scan den Bot an
@@ -10446,7 +10485,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // Gruppe (3.2.32): Mitläufer öffnen den Rift nicht selbst (sonst eigener Lauf ohne Party) – beim Leader warten, das Spiel
     // nimmt die Party beim Betreten mit
     const FL = riftFollower(now);
-    if (FL) {
+    // Mitläufer kaufen trotzdem Brot nach und prüfen den Ziel-Scan (Clockmon-Fenster öffnen, aber nie selbst betreten) – Review 3.2.32
+    const FLshop = FL && (riftBreadNeed(st) || (riftTarget() && !rift.followScanDone));
+    group.riftBusy = !!FLshop;
+    if (FL && !FLshop) {
       if (st.dialog) commands()?.closeDialog?.();
       const a = (FL.mapId === st.world?.mapId && riftAnchor(FL)) || { x: loc.x, y: loc.y + 24 };
       if (Math.hypot(me.x - a.x, me.y - a.y) > followDist() && walkTo(st, a.x, a.y, now) === 'stuck') autopilot.nav = null;
@@ -10460,6 +10502,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (R.warden && R.view) {
       const bt = riftBreadTopup(st, R, now); if (bt) return bt; // Heilbrot nachkaufen (3.2.29)
       const sc = riftScanCheck(R, now); if (sc) return sc; // Ziel-Scan bei 100 %: anhalten (3.2.31)
+      if (FL) { rift.followScanDone = true; return `Rift: warte, bis ${FL.name || 'der Leader'} den Rift öffnet`; } // Mitläufer betritt nie selbst
       const v = R.view, pick = riftDepthPick(st, v);
       if (pick.why) {
         if (cfg.riftDepthMode === 'fixed') { logEvent('warn', `Rift: ${pick.why} – Bot gestoppt`); notify('Rift: Tiefe geht nicht – Bot gestoppt.', 'stop'); bot.toggle(true); return `Rift: ${pick.why}`; }
@@ -10469,6 +10512,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (bad.length) return `Rift: ${bad.map((p) => `${p.name || '?'} ${p.problem === 'level' ? 'Level zu niedrig' : p.problem === 'far' ? 'zu weit weg' : p.problem}`).join(', ')}`;
       if (v.blocked) return `Rift: gesperrt (${v.blocked})`;
       if (v.iLead === false) return 'Rift: nur der Party-Leader kann den Rift öffnen';
+      // Mitläufer kauft gerade bei Clockmon ein (Brot/Scan): kurz warten, höchstens RIFT_SHOP_WAIT_MS (Review 3.2.32)
+      const shopping = group.role() === 'leader' ? groupMembers(now).filter((m) => m.riftBusy) : [];
+      if (shopping.length) { rift.shopWaitAt ||= now; if (now - rift.shopWaitAt < RIFT_SHOP_WAIT_MS) return `Rift: warte auf ${shopping.map((m) => m.name || '?').join(', ')} (kauft bei Clockmon ein)`; } else rift.shopWaitAt = 0;
       if (now - rift.enterAt > RIFT_ENTER_MS) {
         if (rift.enterTries >= RIFT_ENTER_TRIES) { logEvent('warn', `Rift: Spiel lässt nicht hinein (Tiefe ${pick.depth}) – Bot gestoppt`); notify('Rift: Spiel lässt nicht hinein – Bot gestoppt.', 'stop'); bot.toggle(true); return 'Rift: Spiel lässt nicht hinein – Bot gestoppt'; }
         rift.enterAt = now; rift.enterTries++; rift.depth = pick.depth; rift.targetOk = !!pick.targetOk;
@@ -10491,11 +10537,15 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Guilmon Bread (heilt 45 000 HP) liegt auf einer Trank-Taste: vor dem Lauf bei Clockmon nachkaufen (10 Stück für 30 Shards, ohne
   // Wochenlimit), bis RIFT_BREAD_MIN da sind – live 16.11.: nur noch 2 Stück, der Ruhemodus kostete über 3 min je Lauf (3.2.29)
   const RIFT_BREAD = 'guilmon_bread', RIFT_BREAD_MIN = 20, RIFT_BREAD_COST = 30, RIFT_BREAD_TRIES = 4;
-  function riftBreadTopup(st, R, now) {
+  function riftBreadNeed(st) {
     const me = st?.me, hb = me?.hotbar || [];
-    if (![8, 9, 10].some((i) => hb[i] === 'item:' + RIFT_BREAD)) return null;
+    if (![8, 9, 10].some((i) => hb[i] === 'item:' + RIFT_BREAD)) return false;
+    return itemCount(me, RIFT_BREAD) < RIFT_BREAD_MIN && itemCount(me, 'rift_shard') >= RIFT_BREAD_COST && (rift.breadTries || 0) < RIFT_BREAD_TRIES;
+  }
+  function riftBreadTopup(st, R, now) {
+    const me = st?.me;
+    if (!riftBreadNeed(st)) return null;
     const have = itemCount(me, RIFT_BREAD), shards = itemCount(me, 'rift_shard');
-    if (have >= RIFT_BREAD_MIN || shards < RIFT_BREAD_COST || rift.breadTries >= RIFT_BREAD_TRIES) return null;
     if (rift.breadAt && now - rift.breadAt < 2500) return `Rift: kaufe Guilmon Bread (${have} da)…`;
     if (rift.breadAt && have <= rift.breadHave) rift.breadTries++; // letzter Kauf kam nicht an
     rift.breadAt = now; rift.breadHave = have;
@@ -11938,9 +11988,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         const grp = groupEntityIds();
         const engaged = !!tgt && (tankG.ents.includes(tgt) || grp.has(tgt));
         const tankOn = tankG.peer?.targetId === t.id || window.dmo?.net?.state?.entities?.get?.(tankG.ents[1])?.targetId === t.id;
-        if (!this.tankWait || this.tankWait.id !== t.id) this.tankWait = { id: t.id, since: 0 };
+        if (!this.tankWait || this.tankWait.id !== t.id || now - (this.tankWait.seen || 0) > 3000) this.tankWait = { id: t.id, since: 0, first: now }; // alte Merke (voriger Lauf) verwerfen
+        this.tankWait.seen = now;
         if (tankOn && !this.tankWait.since) this.tankWait.since = now;
-        const netOver = this.tankWait.since && now - this.tankWait.since >= RIFT_TANK_WAIT_MS;
+        // auch ohne Tank-Angriff nie ewig warten (z. B. Tank kämpft gegen eigene Angreifer): spätestens RIFT_TANK_HOLD_MS ab Wartebeginn
+        const netOver = (this.tankWait.since && now - this.tankWait.since >= RIFT_TANK_WAIT_MS) || now - this.tankWait.first >= RIFT_TANK_HOLD_MS;
         if (!engaged && !netOver) {
           this.attackedId = null; this.engage = null;
           if (fightOf(group.slot()) === 'healer') { const hs = riftHealerSpot(st, tankG, t, now); if (hs) { this.status = hs; return; } }

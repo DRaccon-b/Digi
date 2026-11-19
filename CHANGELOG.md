@@ -14,7 +14,12 @@ Alle Änderungen an DigiBot, neueste zuerst.
   gehen weiter vor. „Ziele verteilen“ ist mit Tank aus.
 - **Heiler:** greift nach dem Tank normal mit an (Debuffs wirken so), Gruppen-Heal läuft nebenbei; während der Sperre steht er
   90 px hinter dem Tank (vom Ziel abgewandt, nicht in Warnzonen), zwischen den Kämpfen folgt er dem Tank.
-- Tests: riftgrouptest (G-U, G-O, G-F, G-T1, G-T2, G-N, G-S, G-T, G-H, G-0).
+- **Review:** Mitläufer (auch der Tank) erholen sich wieder unter 60 % HP, der Leader sagt währenddessen nichts Neues an und wartet;
+  verlässt der Leader den Rift ohne Ergebnis, gehen Mitläufer nach 10 s auch hinaus; der Leader sagt zuerst an, was den Tank schon
+  angreift (statt z. B. eines Menders, den der Tank nie nimmt), und die Sperre endet spätestens 8 s nach Wartebeginn; ohne Leader
+  spielen Tank/DDs wie solo; Mitläufer kaufen Guilmon Bread nach und prüfen den Ziel-Scan (der Leader wartet bis 20 s); die
+  Kulanz nach dem Betreten gilt in jedem Lauf.
+- Tests: riftgrouptest (G-U, G-O, G-F, G-T1, G-T2, G-N, G-S, G-T, G-H, G-0, G-R, G-L, G-M, G-NL, G-B, G-2).
 
 ## 3.2.31 – Digital Rift: Ziel-Ei mit Biom-Check
 - **Nutzer 18.11.:** Im Panel (Dungeon → Digital Rift) gibt es jetzt **Ziel**: keins (wie bisher) oder eines der Eier/Codes aus
