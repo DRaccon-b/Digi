@@ -164,6 +164,8 @@ const DIGIBOT_ROLE_OPTS=[['attack','Angriff'],...[2,3,4,5].map(n=>['aoe:'+n,'AoE
 const DIGIBOT_ROLE_NAME={attack:'Angriff',aoe:'AoE',atkbuff:'Angriffs-Buff',tankbuff:'Tank-Buff',atksup:'Angriffs-Support',defsup:'Def-Support',
   utilsup:'Utility-Support',heal:'Heal',grpheal:'Gruppen-Heal',koh:'Key of Hope'};
 // Seltenheiten der Ausrüstung wie im Spiel (gear.rarity 0–4) – Verkaufen bei vollem Inventar (3.2.12)
+const DIGIBOT_FIGHT=['tank','dd','healer']; // Kampfrollen der Gruppe (3.2.32)
+const DIGIBOT_FIGHT_NAME={tank:'Tank',dd:'DD',healer:'Heiler'};
 const DIGIBOT_GEAR_RAR=['Common','Uncommon','Rare','Epic','Legendary'];
 // Digital Rift (3.2.31, Nutzer 18.11.): Ziel-Ei/-Code. Scan-Arten, Biome und Mindesttiefe aus den Spieldaten vom 16.11. (content-*.js:
 // Scan-Tabelle P1/kl, Biom-Pools a1). Fest hier, weil das Lazy-Modul über scene.deps.content nicht erreichbar ist.
@@ -1732,14 +1734,17 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         accounts.list=Array.from({length:ACC_MAX},(_,i)=>{
           const row=digibotRecord(a.list[i])?a.list[i]:{};
           const user=typeof row.user==='string'?row.user.slice(0,64):'';
-          return {on:row.on===true,user,char:typeof row.char==='string'?row.char.slice(0,100):'',at:Number.isFinite(row.at)?row.at:0};
+          return {on:row.on===true,user,char:typeof row.char==='string'?row.char.slice(0,100):'',at:Number.isFinite(row.at)?row.at:0,fight:DIGIBOT_FIGHT.includes(row.fight)?row.fight:'dd'};
         });
       }
     } catch { digibotCore.record('Account-Einstellungen konnten nicht geladen werden'); }
-    while(accounts.list.length<ACC_MAX)accounts.list.push({on:false,user:'',char:'',at:0});
+    while(accounts.list.length<ACC_MAX)accounts.list.push({on:false,user:'',char:'',at:0,fight:'dd'});
   }
   reloadAcc();
-  const saveAcc=()=>{try {localStorage.setItem(ACC_KEY,JSON.stringify({...accounts,list:accounts.list.map(({on,user,char,at})=>({on,user,char,at}))}));}catch {digibotSignal('Account-Einstellungen konnten nicht gespeichert werden');}};
+  // Kampfrolle je Account (3.2.32, Nutzer 18.11.: im Reiter Gruppe manuell; im Rift greift der Tank zuerst an). Höchstens ein Tank.
+  const fightOf = (slot) => accounts.list[slot]?.fight || 'dd';
+  const tankSlot = () => accounts.list.findIndex((a) => a?.on && a.fight === 'tank');
+  const saveAcc=()=>{try {localStorage.setItem(ACC_KEY,JSON.stringify({...accounts,list:accounts.list.map(({on,user,char,at,fight})=>({on,user,char,at,fight}))}));}catch {digibotSignal('Account-Einstellungen konnten nicht gespeichert werden');}};
   const ss = {
     get(k) { try { return sessionStorage.getItem(k); } catch { return null; } },
     set(k, v) { try { if (v == null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, v); } catch {} },
@@ -12584,14 +12589,17 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         sync = diff ? `<div class="sync bad">⚠ ${diff} Quest${diff > 1 ? 's' : ''} anders als beim Leader</div>` : '<div class="sync ok">✓ gleiche Quests wie der Leader</div>';
       }
       return `<div class="digibot__gcard${lead ? ' lead' : ''}${p ? '' : ' off'}">
-        <header><span>${p ? '●' : '○'} ${esc(name)}</span><b class="role">${lead ? 'Leader' : 'folgt'}</b></header>
+        <header><span>${p ? '●' : '○'} ${esc(name)}</span><b class="role">${lead ? 'Leader' : 'folgt'}</b>
+          <select data-accfight="${i}" title="Kampfrolle im Digital Rift: der Tank greift zuerst an, alle anderen danach">${DIGIBOT_FIGHT.map((f) => `<option value="${f}"${fightOf(i) === f ? ' selected' : ''}>${DIGIBOT_FIGHT_NAME[f]}</option>`).join('')}</select></header>
         <div class="where">${esc(where)}</div>
         ${p?.hp != null ? `<div class="hpb" title="HP ${p.hp} %"><i style="width:${p.hp}%"></i></div>` : ''}
         ${p ? `<div class="st" title="${esc(p.bot ? p.status : 'Bot aus')}">${esc(p.bot ? p.status : 'Bot aus')}</div>` : ''}${sync}
       </div>`;
     });
     const html = cards.length ? cards.join('') : '<div class="digibot__none">Noch keine Accounts – unten unter „Accounts verwalten“ eintragen.</div>';
-    if (box.innerHTML !== html) box.innerHTML = html;
+    // nicht neu bauen, solange eine Rollenauswahl offen ist; Vergleich mit dem zuletzt gebauten Text (innerHTML schreibt „selected“ um)
+    if (box.contains(panel.ownerDocument.activeElement) && panel.ownerDocument.activeElement !== box) return;
+    if (box.dataset.sig !== html) { box.innerHTML = html; box.dataset.sig = html; }
   }
   // Übersicht „Lage“: Modus, Ort, Ziel, Aufgabe; in der Gruppe eine Zeile je Bot
   function renderLage(st, now) {
@@ -12925,6 +12933,17 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (e.target.matches('[data-accserveorder]')) {
         reloadAcc(); accounts.serveOrder = e.target.checked; saveAcc(); e.target.blur(); autopilot.reset();
         logEvent('bot', `Gruppe: Hinterste zuerst – ${accounts.serveOrder ? 'an' : 'aus'}`);
+        return;
+      }
+      if (e.target.matches('[data-accfight]')) { // Kampfrolle (3.2.32): höchstens ein Tank – ein neuer Tank macht den alten zum DD
+        const i = Number(e.target.dataset.accfight), v = DIGIBOT_FIGHT.includes(e.target.value) ? e.target.value : 'dd';
+        reloadAcc();
+        if (accounts.list[i] && accounts.list[i].fight !== v) {
+          if (v === 'tank') accounts.list.forEach((a, k) => { if (k !== i && a.fight === 'tank') a.fight = 'dd'; });
+          accounts.list[i].fight = v; saveAcc();
+          logEvent('bot', `Gruppe: ${accounts.list[i].char || accounts.list[i].user || `Slot ${i + 1}`} ist ${DIGIBOT_FIGHT_NAME[v]}`);
+        }
+        e.target.blur(); schedule();
         return;
       }
       if (e.target.matches('[data-accspread]')) {
