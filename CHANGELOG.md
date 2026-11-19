@@ -2,6 +2,20 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.32 – Digital Rift: Gruppe mit Rollen (Tank, DD, Heiler)
+- **Nutzer 18.11.:** Rift mit eigenen Accounts in mehreren Fenstern. Im Reiter Gruppe hat jede Karte jetzt eine **Kampfrolle**:
+  Tank, DD (Standard) oder Heiler – höchstens ein Tank (ein neuer Tank macht den alten zum DD). Leader und Tank sind getrennt wählbar.
+- **Mitläufer folgen dem Leader:** Im Rift öffnen Mitläufer den Rift nicht mehr selbst (vorher: eigener Lauf ohne Party), erkunden
+  nicht und steigen nicht ab – sie warten bei Clockmon beim Leader und folgen ihm im Rift im Gruppenabstand. Ist der Leader weg
+  (Bot aus, Fenster zu), spielen sie wie solo weiter.
+- **Tank zuerst:** Ist ein Tank aktiv (Fenster da, Bot an, gleiche Map), sagt der Leader sein Rift-Ziel an und alle nehmen dieses Ziel.
+  Der Tank greift an; alle anderen (auch der Leader) greifen ein Ziel erst an, wenn es schon jemanden aus der Gruppe angreift –
+  höchstens 4 s nach dem Angriff des Tanks (Sicherheitsnetz). Wer selbst angegriffen wird, wehrt sich sofort. Ausweichen und Erholen
+  gehen weiter vor. „Ziele verteilen“ ist mit Tank aus.
+- **Heiler:** greift nach dem Tank normal mit an (Debuffs wirken so), Gruppen-Heal läuft nebenbei; während der Sperre steht er
+  90 px hinter dem Tank (vom Ziel abgewandt, nicht in Warnzonen), zwischen den Kämpfen folgt er dem Tank.
+- Tests: riftgrouptest (G-U, G-O, G-F, G-T1, G-T2, G-N, G-S, G-T, G-H, G-0).
+
 ## 3.2.31 – Digital Rift: Ziel-Ei mit Biom-Check
 - **Nutzer 18.11.:** Im Panel (Dungeon → Digital Rift) gibt es jetzt **Ziel**: keins (wie bisher) oder eines der Eier/Codes aus
   den Scans – Tapirmon-, Kunemon-, Gazimon- und Dorumon-Ei, Jewelbeemon-, Parrotmon-, Brachiomon-, Craniummon-, Veedramon-,
