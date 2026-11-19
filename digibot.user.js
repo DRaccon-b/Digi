@@ -4965,7 +4965,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       mobs.push({
         id: e.id, species: e.defId, cat, key, mapBoss:cat==='boss'||isFarmMob(farmSp,e)||isFarmMob(qbSp,e), x: e.x, y: e.y, level: e.level, hp: e.hp, maxHp: e.maxHp,
         d: Math.hypot(e.x - self.x, e.y - self.y),
-        attacker,
+        attacker, self: mine.has(e.targetId), // self: greift mich selbst an (nicht nur ein Gruppenmitglied) – 3.2.32 Tank-Sperre
         // Bosse sind Gruppenkämpfe: ein Farm-Boss gilt nie als „von anderen belegt“
         taken: cfg.skipTaken && !attacker && !isFarmMob(farmSp, e) && !isFarmMob(qbSp, e)
           && (takenByOthers.has(e.id) || (!!e.targetId && !ours.has(e.targetId))),
@@ -5262,7 +5262,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   // Was ein anderes Fenster sofort wissen muss (Ziel, Aufgabe, Gespräche, Kampf, Map, Quests) – Position nicht
   const groupSig = (m) => JSON.stringify([m.targetId, m.task?.key, m.talks?.[m.talks.length - 1]?.key, m.busy, m.done?.[m.done.length - 1],
-    m.fight, m.mapId, m.channel, m.bot, m.noFight, m.inWorld, m.quests, m.objective, m.reservation,m.tamer,m.partyId, m.kohAt != null && m.kohAt <= Date.now(), m.davis, m.davisAt, m.kohMoreOff, Object.keys(m.gsk || {}).sort().join(), !!m.pulling, m.prog, (m.catchup || []).join()]);
+    m.fight, m.mapId, m.channel, m.bot, m.noFight, m.inWorld, m.quests, m.objective, m.reservation,m.tamer,m.partyId, m.kohAt != null && m.kohAt <= Date.now(), m.davis, m.davisAt, m.kohMoreOff, Object.keys(m.gsk || {}).sort().join(), !!m.pulling, m.prog, (m.catchup || []).join(), m.callId]);
   function groupPush(force = false) {
     if (!group.active() || !group.bus) return;
     const st = getStore()?.getState?.(), now = Date.now();
@@ -5307,6 +5307,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       cuIdle: !!group.cuIdle && !autopilot.task, // Nachholer, der nichts selbst tun kann und auf nichts wartet
       catchup: serveOrderOn() ? catchupList(now) : null, // Leader: Slots der Nachholgruppe
       pulling: group.role() === 'leader' && pull.on && Date.now() - pull.startAt <= PULL_MAX_MS, // Pull-Modus: ich sammle gerade Monster – Mitläufer übernehmen meine Ziele nicht
+      callId: group.role() === 'leader' ? group.call?.id ?? null : null, // Rift mit Tank (3.2.32): angesagtes Ziel des Leaders
     };
   }
   const fresh = (p, now) => !!p && now - p.seen < GROUP_STALE_MS;
@@ -5362,7 +5363,26 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const spreadNear = (m) => { const L = spreadLeader(); return !L || L.x == null || Math.hypot(m.x - L.x, m.y - L.y) <= spreadLeash(); };
   // Ziele verteilen: Mitläufer greifen nur Monster in diesem Umkreis um den Leader an (mindestens der Gruppenabstand)
   const spreadLeash = () => Math.max(250, followDist());
-  const spreadOn = () => group.active() && accounts.spread && !accounts.mirror && !cfg.farm;
+  const spreadOn = () => group.active() && accounts.spread && !accounts.mirror && !cfg.farm && !riftTank(); // mit Tank: alle dasselbe Ziel (3.2.32)
+  // Rift-Gruppe mit Tank (3.2.32, Nutzer 18.11.): Tank aktiv = frisches Fenster mit laufendem Bot, in der Welt, gleiche Map und
+  // gleicher Kanal wie ich, Digimon nicht bewusstlos. Sonst gibt es keine Sperre – nichts darf hängen bleiben.
+  function riftTank(st = getStore()?.getState?.(), now = Date.now()) {
+    if (!group.active() || accounts.mirror || !cfg.dungeon || cfg.dgMode !== 'rift' || !riftMap(st?.world?.mapId)) return null;
+    const s = tankSlot();
+    if (s < 0 || !accounts.list[s]?.on) return null;
+    if (s === group.slot()) return { slot: s, me: true, ents: [st.me?.tamerEntityId, st.me?.partner?.entityId].filter(Boolean), peer: null };
+    const p = group.peers.get(s);
+    // gerade die Karte gewechselt (Betreten/Abstieg): die Meldung des Tanks nennt bis zu 1 s lang noch die alte Map – 3 s lang trotzdem
+    // als aktiv zählen, sonst fiel die Sperre genau beim Kampfbeginn weg (Test riftgrouptest)
+    const mapId = st.world?.mapId;
+    if (riftTankMap.id !== mapId) { riftTankMap.id = mapId; riftTankMap.at = now; }
+    const sameMap = p?.mapId === mapId || now - riftTankMap.at < RIFT_TANK_MAP_GRACE_MS;
+    if (!fresh(p, now) || !p.bot || !sameMap || (p.mapId === mapId && ((p.channel ?? 1) !== (st.world?.channel ?? 1) || !p.inWorld)) || !(p.hp > 0) || !Array.isArray(p.ents)) return null;
+    return { slot: s, me: false, ents: p.ents, peer: p };
+  }
+  const riftTankMap = { id: null, at: 0 }, RIFT_TANK_MAP_GRACE_MS = 3000;
+  // angesagtes Ziel: Leader – eigene Ansage; Mitläufer – Ansage des Leaders
+  const riftCallId = (now = Date.now()) => (group.role() === 'leader' ? group.call?.id ?? null : groupLeader(now)?.callId ?? null);
   function groupTargets() {
     const out = new Map(), now = Date.now(), ents = window.dmo?.net?.state?.entities;
     for (const [slot, p] of group.peers) {
@@ -9632,7 +9652,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   function dungeonFocus(sc) {
     if (!cfg.dungeon || !sc) return null;
-    if (riftMap(sc.mapId)) return riftFocus(sc); // Digital Rift (3.2.19)
+    if (riftMap(sc.mapId)) return riftTank() ? riftGroupFocus(sc) : riftFocus(sc); // Digital Rift (3.2.19), Gruppe mit Tank (3.2.32)
     const st = getStore()?.getState?.(), raid = dgRaid(sc.mapId);
     if (st && !raid && plainRaid(sc.mapId)) return raidFocus(sc);
     if (!st || !raid) return null;
@@ -10299,6 +10319,23 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (!s) { rift.visited.add(c.id); return `${tag} · Zelle nicht erreichbar – nächste`; }
     return s;
   }
+  // Rift-Gruppe mit Tank (3.2.32): wer mich selbst angreift, zuerst (wehren); sonst sagt der Leader sein Rift-Ziel an und alle
+  // nehmen dieses Ziel – der Tank greift es an, die anderen warten in der Sperre (Takt 3c), bis es jemanden aus der Gruppe angreift
+  const RIFT_TANK_WAIT_MS = 4000; // Sicherheitsnetz: so lange nach dem Angriff des Tanks warten die anderen höchstens
+  const RIFT_HEAL_BACK = 90;      // Heiler: so weit hinter dem Tank (vom Ziel abgewandt)
+  function riftGroupFocus(sc) {
+    const own = sc.mobs.filter((m) => m.self && !m.banned && m.reach !== false && !safeHeld(m.id)).sort((a, b) => (a.pd ?? a.d) - (b.pd ?? b.d))[0] || null;
+    if (group.role() === 'leader') {
+      const pick = own || riftFocus(sc);
+      group.call = pick ? { id: pick.id, at: group.call?.id === pick.id ? group.call.at : Date.now() } : null;
+      return pick;
+    }
+    if (own) return own;
+    const id = riftCallId();
+    return (id && sc.mobs.find((m) => m.id === id && !m.banned && !safeHeld(m.id))) || null;
+  }
+  // Heiler während der Sperre: Platz hinter dem Tank (Teil 4)
+  function riftHealerSpot() { return null; }
   // Gruppe im Rift (3.2.32): Mitläufer mit laufendem Leader-Bot im Rift-Modus folgen ihm statt selbst zu spielen
   function riftFollower(now = Date.now()) {
     if (group.role() !== 'follower' || accounts.mirror || cfg.dgMode !== 'rift') return null;
@@ -10663,7 +10700,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
 
   function pickTarget(sc, resting) {
     if (!sc) return null;
-    if (cfg.dungeon) { const att = sc.attackers.filter((m) => !safeHeld(m.id)); const hf0 = resting || !riftEvOn() ? null : huntFocus(sc); return (hf0 && !safeHeld(hf0.id) ? hf0 : null) || (resting ? null : dungeonFocus(sc)) || att[0] || null; } // Rift-Modus: Event-Boss (3.2.26)
+    if (cfg.dungeon) { const att = sc.attackers.filter((m) => !safeHeld(m.id)); const hf0 = resting || !riftEvOn() ? null : huntFocus(sc); return (hf0 && !safeHeld(hf0.id) ? hf0 : null) || (resting ? null : dungeonFocus(sc)) || (riftTank() ? att.find((m) => m.self) : att[0]) || null; } // Rift-Modus: Event-Boss (3.2.26)
     const hf = resting ? null : huntFocus(sc) || wbFocus(sc) || digibotSharedFocus(sc); // Event-/Weltboss vor allem anderen
     if (hf && !safeHeld(hf.id)) return hf;
     const focus = resting ? null : focusAssist(sc);
@@ -11878,6 +11915,26 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         return;
       }
       if (this.mirrorHold) { this.mirrorHold = false; logEvent('auto', 'Spiegel vorbei – greife wieder an'); }
+
+      // 3c) Rift-Gruppe mit Tank (3.2.32, Nutzer 18.11.: „der Tank greift zuerst an, alle anderen danach“): wer nicht Tank ist, greift
+      //     ein Ziel erst an, wenn es schon jemanden aus der Gruppe angreift (meist den Tank). Greift es mich selbst an, sofort wehren.
+      //     Sicherheitsnetz: RIFT_TANK_WAIT_MS nach dem Angriff des Tanks trotzdem – nichts bleibt hängen.
+      const tankG = riftTank(st, now);
+      if (tankG && !tankG.me && !info?.self) {
+        const tgt = window.dmo?.net?.state?.entities?.get?.(t.id)?.targetId || '';
+        const grp = groupEntityIds();
+        const engaged = !!tgt && (tankG.ents.includes(tgt) || grp.has(tgt));
+        const tankOn = tankG.peer?.targetId === t.id || window.dmo?.net?.state?.entities?.get?.(tankG.ents[1])?.targetId === t.id;
+        if (!this.tankWait || this.tankWait.id !== t.id) this.tankWait = { id: t.id, since: 0 };
+        if (tankOn && !this.tankWait.since) this.tankWait.since = now;
+        const netOver = this.tankWait.since && now - this.tankWait.since >= RIFT_TANK_WAIT_MS;
+        if (!engaged && !netOver) {
+          this.attackedId = null; this.engage = null;
+          if (fightOf(group.slot()) === 'healer') { const hs = riftHealerSpot(st, tankG, t, now); if (hs) { this.status = hs; return; } }
+          this.status = `Rift: warte, bis ${t.name || 'das Ziel'} den Tank angreift${tankOn ? '' : ' (Tank läuft hin)'}`;
+          return;
+        }
+      }
 
       // Rift: nur Guardian/markierte Alphas (Boss-Flag) per Anmarsch – normale Gegner greift die 1 direkt an (live 16.11.: lief
       // 250 px ohne Angriff „zum Boss“, während ihn 2–3 Gegner schlugen, 3.2.30)

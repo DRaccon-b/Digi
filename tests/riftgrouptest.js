@@ -156,7 +156,7 @@ const PARTS = {
     await wait(1500); R.start();
     const t0 = Date.now(); let inRift = 0, seenFollow = false;
     let closeAfter = false; // nach >300 px Laufweg des Leaders mindestens einmal wieder höchstens 150 px dran
-    while (Date.now() - t0 < 30000) { if (/folge/.test(F.status())) seenFollow = true; if (R.G.mapOf[0] === RS && Math.hypot(L.T.x - 200, L.T.y - 200) > 300 && Math.hypot(L.P.x - F.P.x, L.P.y - F.P.y) <= 150) closeAfter = true; if (R.G.mapOf[0] === RS && R.G.mapOf[1] === RS) { inRift ||= Date.now(); if (Date.now() - inRift > 12000) break; } await wait(250); }
+    while (Date.now() - t0 < 30000) { if (/folge/.test(F.status())) seenFollow = true; if (R.G.mapOf[0] === RS && Math.hypot(L.T.x - 200, L.T.y - 200) > 300 && Math.hypot(L.P.x - F.P.x, L.P.y - F.P.y) <= 220) closeAfter = true; /* Gruppenabstand 110 + Laufweg/Fernkampf */ if (R.G.mapOf[0] === RS && R.G.mapOf[1] === RS) { inRift ||= Date.now(); if (Date.now() - inRift > 12000) break; } await wait(250); }
     const dLF = Math.round(Math.hypot(L.P.x - F.P.x, L.P.y - F.P.y)), moved = Math.round(Math.hypot(L.T.x - 200, L.T.y - 200));
     check('G-O', F.sent.talk === 0 && F.sent.enter === 0 && L.sent.enter >= 1 && !!inRift, 'Mitläufer öffnet keinen eigenen Rift, beide im Rift',
       () => `Mitläufer talk ${F.sent.talk} enter ${F.sent.enter}, Leader enter ${L.sent.enter}, Maps ${R.G.mapOf.join('/')}, Status F: ${F.status()}`);
@@ -164,7 +164,52 @@ const PARTS = {
       () => `Abstand ${dLF} px, Leader gelaufen ${moved} px, Mitläufer Abstieg ${F.sent.descend}, Status F: ${F.status()}`);
     R.close();
   },
+  async tank() {
+    const R = await fight({ fights: ['dd', 'tank', 'healer'], aggro: 'first' }, (R) => hitsOf(R, 0).length && hitsOf(R, 2).length, 30000);
+    const tk = hitsOf(R, 1)[0], l = hitsOf(R, 0)[0], h = hitsOf(R, 2)[0], ag = R.ev.find((e) => e.what === 'aggro' && e.id === 'm:a');
+    check('G-T1', !!tk && (!l || tk.t < l.t) && (!h || tk.t < h.t) && tk.id === 'm:a', 'Tank greift zuerst an', () => `Tank ${tk?.t - R.t0 || '–'} ms, Leader ${l ? l.t - R.t0 : '–'}, Heiler ${h ? h.t - R.t0 : '–'}`);
+    check('G-T2', !!ag && ag.slot === 1 && !!l && !!h && l.t >= ag.t && h.t >= ag.t && l.id === 'm:a' && h.id === 'm:a', 'Leader und Heiler erst, wenn das Ziel den Tank angreift',
+      () => `Aggro ${ag ? `${ag.t - R.t0} ms auf Slot ${ag.slot}` : '–'}, Leader ${l ? `${l.t - R.t0} ms ${l.id}` : '–'}, Heiler ${h ? `${h.t - R.t0} ms ${h.id}` : '–'}`);
+    R.close();
+  },
+  async never() {
+    const R = await fight({ fights: ['dd', 'tank', 'healer'], aggro: 'never' }, (R) => hitsOf(R, 0).length && hitsOf(R, 2).length, 30000);
+    const tk = hitsOf(R, 1)[0], l = hitsOf(R, 0)[0], h = hitsOf(R, 2)[0];
+    const dl = tk && l ? l.t - tk.t : null, dh = tk && h ? h.t - tk.t : null;
+    check('G-N', dl != null && dh != null && dl >= 2500 && dl <= 7000 && dh >= 2500 && dh <= 7000, `Ziel greift Tank nie an – nach ~4 s greifen alle an (Leader +${dl} ms, Heiler +${dh} ms)`,
+      () => `Leader +${dl} ms, Heiler +${dh} ms nach dem Tank`);
+    R.close();
+  },
+  async self() {
+    const R = await fight({ fights: ['dd', 'tank', 'healer'], aggro: 'first', extra: [{ id: 'm:s', x: 250, y: 260, targetId: 'p:0' }] }, (R) => hitsOf(R, 0).length, 20000);
+    const l = hitsOf(R, 0)[0];
+    check('G-S', !!l && l.id === 'm:s', 'direkter Angreifer – der Leader wehrt sich sofort', () => `erster Leader-Treffer ${l?.id || '–'}`);
+    R.close();
+  },
+  async gone() {
+    let closed = 0;
+    const R = await fight({ fights: ['dd', 'tank', 'healer'], aggro: 'never', onHit: (R, s) => { if (s === 1 && !closed) { closed = Date.now(); R.wins[1].w.close(); } } }, (R) => hitsOf(R, 0).length && hitsOf(R, 2).length, 30000);
+    const l = hitsOf(R, 0)[0], h = hitsOf(R, 2)[0];
+    check('G-T', !!closed && !!l && !!h && l.t - closed <= 8000 && h.t - closed <= 8000, 'Tank weg – keine Sperre', () => `Tank zu ${closed ? 'ja' : 'nein'}, Leader ${l ? l.t - closed : '–'} ms, Heiler ${h ? h.t - closed : '–'} ms`);
+    R.close();
+  },
+  async notank() {
+    const R = await fight({ fights: ['dd', 'dd', 'dd'], aggro: 'never' }, (R) => hitsOf(R, 0).length, 20000);
+    const l = hitsOf(R, 0)[0];
+    check('G-0', !!l && l.t - R.inRift <= 3000, `ohne Tank greift der Leader sofort an (+${l ? l.t - R.inRift : '–'} ms)`, () => `Leader-Treffer ${l ? l.t - R.inRift : '–'} ms nach Rift-Start`);
+    R.close();
+  },
 };
+// Kampfaufbau: Gruppe startet, betritt den Rift (Lager bei 200/200), ein Gegner m:a 130 px vor der Gruppe
+const hitsOf = (R, s) => R.ev.filter((e) => e.slot === s && e.what === 'hit');
+async function fight(opts, done, ms) {
+  const R = groupWorld({ ...opts, mobs: (k) => (k === 1 ? [{ id: 'm:a', x: 330, y: 230 }, ...(opts.extra || [])] : []) });
+  if (opts.onHit) { const push = R.ev.push.bind(R.ev); R.ev.push = (e) => { const r = push(e); if (e.what === 'hit') opts.onHit(R, e.slot); return r; }; }
+  await wait(1500); R.start(); R.t0 = Date.now();
+  const end = Date.now() + ms;
+  while (Date.now() < end) { if (!R.inRift && R.G.mapOf.every((m) => m === RS)) R.inRift = Date.now(); if (R.inRift && done(R)) break; await wait(150); }
+  return R;
+}
 
 (async () => {
   if (part) {
