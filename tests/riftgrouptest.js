@@ -150,6 +150,20 @@ const PARTS = {
       () => `Selects ${n0} (${v0}), nach Tank 1: ${s1}, nach Tank 2: ${s2}, angezeigt ${v2}`);
     R.close();
   },
+  async follow() {
+    const R = groupWorld({ fights: ['dd', 'dd'], mobs: (k) => (k === 1 ? [{ id: 'm:far', x: 800, y: 180, hidden: true }] : []) });
+    const [L, F] = R.wins;
+    await wait(1500); R.start();
+    const t0 = Date.now(); let inRift = 0, seenFollow = false;
+    let closeAfter = false; // nach >300 px Laufweg des Leaders mindestens einmal wieder höchstens 150 px dran
+    while (Date.now() - t0 < 30000) { if (/folge/.test(F.status())) seenFollow = true; if (R.G.mapOf[0] === RS && Math.hypot(L.T.x - 200, L.T.y - 200) > 300 && Math.hypot(L.P.x - F.P.x, L.P.y - F.P.y) <= 150) closeAfter = true; if (R.G.mapOf[0] === RS && R.G.mapOf[1] === RS) { inRift ||= Date.now(); if (Date.now() - inRift > 12000) break; } await wait(250); }
+    const dLF = Math.round(Math.hypot(L.P.x - F.P.x, L.P.y - F.P.y)), moved = Math.round(Math.hypot(L.T.x - 200, L.T.y - 200));
+    check('G-O', F.sent.talk === 0 && F.sent.enter === 0 && L.sent.enter >= 1 && !!inRift, 'Mitläufer öffnet keinen eigenen Rift, beide im Rift',
+      () => `Mitläufer talk ${F.sent.talk} enter ${F.sent.enter}, Leader enter ${L.sent.enter}, Maps ${R.G.mapOf.join('/')}, Status F: ${F.status()}`);
+    check('G-F', !!inRift && moved > 300 && closeAfter && F.sent.descend === 0 && seenFollow, `Mitläufer folgt dem Leader (${dLF} px, Leader ${moved} px gelaufen)`,
+      () => `Abstand ${dLF} px, Leader gelaufen ${moved} px, Mitläufer Abstieg ${F.sent.descend}, Status F: ${F.status()}`);
+    R.close();
+  },
 };
 
 (async () => {

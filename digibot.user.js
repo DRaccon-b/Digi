@@ -10227,7 +10227,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (R?.result) return riftAfter(st, R.result, now);
     // aufgeben: Lauf zu lang (z. B. Guardian heilt sich bei jeder Ohnmacht) oder kein Laufzustand – hinaus, nächster Lauf eine Tiefe flacher
     if (!run) rift.noRunAt ||= now; else rift.noRunAt = 0;
-    if (rift.giveUp || now - rift.startAt > RIFT_GIVEUP_MS || (rift.noRunAt && now - rift.noRunAt > RIFT_NORUN_MS)) return riftLeave(now, run ? 'Lauf dauert zu lange' : 'kein Laufzustand');
+    const FL = riftFollower(now); // Mitläufer mit Leader: nicht allein aufgeben (3.2.32)
+    if (!FL && (rift.giveUp || now - rift.startAt > RIFT_GIVEUP_MS || (rift.noRunAt && now - rift.noRunAt > RIFT_NORUN_MS))) return riftLeave(now, run ? 'Lauf dauert zu lange' : 'kein Laufzustand');
     if (!R) return 'Rift: Laufzustand fehlt (Spiel neu laden?)';
     if (!run) return 'Rift: warte auf den Laufzustand…';
     if (R.floorUi?.going) return `Rift: Etage ${R.floorUi.going.to ?? '?'}/${R.floorUi.going.of ?? 3} lädt…`;
@@ -10254,6 +10255,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (now - rift.restAt < RIFT_REST_MS) return `${tag} · erhole mich (HP ${Math.round(hpPct)} %)`;
     } else if (hpPct >= RIFT_REST_HP || sc?.attackers?.length) rift.restAt = 0;
     const go = (x, y, what) => { if (walkTo(st, x, y, now) === 'stuck') { autopilot.nav = null; return null; } return `${tag} · ${what} (${Math.round(Math.hypot(me.x - x, me.y - y))} px)`; };
+    // Gruppe (3.2.32, Nutzer 18.11.): Mitläufer erkunden nicht selbst, steigen nicht ab und laufen nicht zum Guardian/Alpha –
+    // sie folgen dem Leader im Gruppenabstand (Absteigen nimmt das Spiel die Party mit)
+    if (FL) {
+      const who = FL.name || 'dem Leader';
+      if (FL.mapId !== st.world?.mapId) return `${tag} · warte auf ${who}`;
+      const a = riftAnchor(FL);
+      if (!a) return `${tag} · folge ${who}`;
+      if (Math.hypot(me.x - a.x, me.y - a.y) > followDist()) return go(a.x, a.y, `folge ${who}`) || `${tag} · folge ${who} – Weg blockiert`;
+      return `${tag} · folge ${who}`;
+    }
     // Guardian gerufen: zur Arena
     if (last && run.guardian === 'called') {
       const g = lay?.guardian || worldScene()?.map?.spawns?.guardian;
@@ -10287,6 +10298,17 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const s = go(p.x, p.y, `erkunde ${c.role?.startsWith('deadend') ? 'Sackgasse' : c.role === 'branch' ? 'Abzweig' : c.role === 'main' ? 'Hauptweg' : c.role || 'Zelle'} ${rift.visited.size + 1}/${cells.length}`);
     if (!s) { rift.visited.add(c.id); return `${tag} · Zelle nicht erreichbar – nächste`; }
     return s;
+  }
+  // Gruppe im Rift (3.2.32): Mitläufer mit laufendem Leader-Bot im Rift-Modus folgen ihm statt selbst zu spielen
+  function riftFollower(now = Date.now()) {
+    if (group.role() !== 'follower' || accounts.mirror || cfg.dgMode !== 'rift') return null;
+    const L = groupLeader(now);
+    return L && L.bot && L.mode === 'dungeon' ? L : null;
+  }
+  // Position eines Gruppenfensters: Tamer in der eigenen Spielwelt (aktuell), sonst die gemeldete Position (bis 1 s alt)
+  function riftAnchor(p) {
+    const e = window.dmo?.net?.state?.entities?.get?.(p?.ents?.[0]);
+    return e && Number.isFinite(e.x) ? e : Number.isFinite(p?.x) && Number.isFinite(p?.y) ? { x: p.x, y: p.y } : null;
   }
   // Lauf vorbei: Ergebnis merken, dann hinaus (raidLeave) – der nächste Lauf beginnt bei Clockmon
   function riftAfter(st, res, now) {
@@ -10371,6 +10393,15 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (tr !== true) return `Rift: Reise nach ${content()?.maps?.[loc.mapId]?.name || loc.mapId} · ${tr}`;
     const me = controlled(st);
     if (!me) return 'Rift: warte auf die Spielfigur…';
+    // Gruppe (3.2.32): Mitläufer öffnen den Rift nicht selbst (sonst eigener Lauf ohne Party) – beim Leader warten, das Spiel
+    // nimmt die Party beim Betreten mit
+    const FL = riftFollower(now);
+    if (FL) {
+      if (st.dialog) commands()?.closeDialog?.();
+      const a = (FL.mapId === st.world?.mapId && riftAnchor(FL)) || { x: loc.x, y: loc.y + 24 };
+      if (Math.hypot(me.x - a.x, me.y - a.y) > followDist() && walkTo(st, a.x, a.y, now) === 'stuck') autopilot.nav = null;
+      return `Rift: warte, bis ${FL.name || 'der Leader'} den Rift öffnet`;
+    }
     const d = Math.hypot(me.x - loc.x, me.y - loc.y);
     if (d > 48 && !st.dialog) { // auch bei offenem Rift-Fenster (sonst „zu weit weg“ beim Betreten, Review)
       if (walkTo(st, loc.x, loc.y + 24, now) === 'stuck') autopilot.nav = null;
