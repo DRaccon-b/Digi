@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.32
+// @version      3.2.33
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1514,6 +1514,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     farmMode: 'boss',     // 'boss' = Boss-Rotation, 'named' = Named-Elite-Runde (Map für Map), 'cards' = Kartenrotation (3.1.40), 'deva' = Deva-Runde (3.2.18)
     cardSel: [],          // Kartenrotation: ausgewählte Common-/Rare-Karten in Prioritäts-Reihenfolge (Item-IDs)
     cardNamed: [],        // Kartenrotation: Karten, deren Named-Gegner mitgenommen werden dürfen (standardmäßig keiner)
+    cardGroupAll: false,  // Kartenrotation in der Gruppe (3.2.33): Leader farmt weiter, bis auch alle Mitläufer ihre ausgewählten Karten voll haben
     cardForm: '',         // Kartenrotation: Digitation ('' = automatisch die beste für die Karten, sonst Form wie bei der Map-Regel) (3.2.3)
     dungeon: false,       // Dungeon-Modus (Kera): betreten, Räume räumen, Boss, raus
     dgMode: 'easy',       // 'easy' = War Game, 'hard' = Revenge (allein kaum zu schaffen), 'apocalymon' / 'malomyotismon' / 'beelzemon' / 'd_reaper' = Raid
@@ -1815,7 +1816,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.32'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.33'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2016,6 +2017,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           <div class="digibot__bosspick" data-f="bosspick"><div class="digibot__none">warte auf Spielwelt…</div></div>`, false, 'Suchfeld filtert nach Boss- oder Map-Namen. Die Liste hat eine feste Höhe – mit dem Balken rechts scrollen.', 'data-farmmode="boss" data-modes="farm"')}
         ${grp('cardpick', 'Karten auswählen', `<div class="digibot__routeinfo" data-f="cardeta">–</div>
           <div class="digibot__apcfg"><label>Digitation<select data-apsel="cardForm"></select></label></div>
+          ${check('cardGroupAll', 'Gruppe: weiterfarmen, bis alle voll sind', 'Nur als Leader einer Gruppe: Sind deine ausgewählten Karten voll, farmt der Bot weiter, solange ein Mitläufer (Fenster da, Bot an) bei einer ausgewählten Karte noch nicht voll ist. Aus: Der Bot hört auf, sobald deine eigenen Karten voll sind.')}
           <input class="digibot__search" type="text" data-cardsearch placeholder="🔍 Karte, Stat oder Map suchen…" autocomplete="off" spellcheck="false">
           <div class="digibot__bosspick digibot__cardpick" data-f="cardpick"><div class="digibot__none">warte auf Spieldaten…</div></div>`, true,
           'Kartenrotation: der Bot farmt die angehakten Common- und Rare-Karten in dieser Reihenfolge (↑/↓). Auf derselben Map nimmt er alle anderen angehakten Karten gleich mit und wählt selbst die beste Digitation. Fortschritt = benutzt + Kartentasche. 👑 = Named-Gegner (12 Karten je Kill, sehr stark) mitnehmen – standardmäßig aus. Restzeit aus deinen gemessenen Kampfzeiten (sonst Schätzwerte) und 44,8 % Dropchance (Rare: 4,7 %, Named 75 %).', 'data-farmmode="cards" data-modes="farm"')}
@@ -5262,7 +5264,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   // Was ein anderes Fenster sofort wissen muss (Ziel, Aufgabe, Gespräche, Kampf, Map, Quests) – Position nicht
   const groupSig = (m) => JSON.stringify([m.targetId, m.task?.key, m.talks?.[m.talks.length - 1]?.key, m.busy, m.done?.[m.done.length - 1],
-    m.fight, m.mapId, m.channel, m.bot, m.noFight, m.inWorld, m.quests, m.objective, m.reservation,m.tamer,m.partyId, m.kohAt != null && m.kohAt <= Date.now(), m.davis, m.davisAt, m.kohMoreOff, Object.keys(m.gsk || {}).sort().join(), !!m.pulling, m.prog, (m.catchup || []).join(), m.callId, !!m.riftBusy]);
+    m.fight, m.mapId, m.channel, m.bot, m.noFight, m.inWorld, m.quests, m.objective, m.reservation,m.tamer,m.partyId, m.kohAt != null && m.kohAt <= Date.now(), m.davis, m.davisAt, m.kohMoreOff, Object.keys(m.gsk || {}).sort().join(), !!m.pulling, m.prog, (m.catchup || []).join(), m.callId, !!m.riftBusy, (m.cardNeed || []).join()]);
   function groupPush(force = false) {
     if (!group.active() || !group.bus) return;
     const st = getStore()?.getState?.(), now = Date.now();
@@ -5308,6 +5310,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       catchup: serveOrderOn() ? catchupList(now) : null, // Leader: Slots der Nachholgruppe
       pulling: group.role() === 'leader' && pull.on && Date.now() - pull.startAt <= PULL_MAX_MS, // Pull-Modus: ich sammle gerade Monster – Mitläufer übernehmen meine Ziele nicht
       callId: group.role() === 'leader' ? group.call?.id ?? null : null, // Rift mit Tank (3.2.32): angesagtes Ziel des Leaders
+      cardNeed: cfg.farm && cfg.farmMode === 'cards' && st?.me ? cardOpenSel(st, true).map((d) => d.id) : null, // eigene offene Karten (3.2.33)
       riftBusy: !!group.riftBusy && group.role() === 'follower', // Mitläufer kauft gerade bei Clockmon ein – Leader wartet kurz (Review 3.2.32)
     };
   }
@@ -8858,9 +8861,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return nm ? Math.ceil(open / (def.namedDrop || CARD_NAMED_DROP)) * nm.respawnMs : Infinity;
   }
   // Ausgewählte, noch offene Karten in Prioritäts-Reihenfolge
-  function cardOpenSel(st) {
+  // mine: nur die eigenen (für die Meldung an die Gruppe). Sonst als Leader mit „Gruppe: weiterfarmen, bis alle voll sind“ auch die
+  // Karten, die ein Mitläufer noch braucht (cardNeed im Gruppen-Zustand) – 3.2.33, Nutzer 19.11.
+  function cardOpenSel(st, mine = false) {
     const by = new Map(cardDefs().map((d) => [d.id, d]));
-    return (cfg.cardSel || []).map((id) => by.get(id)).filter((d) => d && cardOpen(st, d) > 0);
+    const need = !mine && cfg.cardGroupAll && group.role() === 'leader' ? new Set(groupMembers().flatMap((m) => (Array.isArray(m.cardNeed) ? m.cardNeed : []))) : null;
+    return (cfg.cardSel || []).map((id) => by.get(id)).filter((d) => d && (cardOpen(st, d) > 0 || need?.has(d.id)));
   }
   // Nutzbare Quellen einer Karte: Feld (Map betretbar) oder erlaubter Named
   const cardSrcs = (st, d) => d.sources.filter((x) => mapOpen(st, x.mapId) && (x.kind === 'field' || cardNamedSrc(st, d) === x));
@@ -8966,7 +8972,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const names = [...plan.species].map(speciesName).join(', ') || plan.named.map((b) => b.name).join(', ');
     const key = `${plan.mapId}|${[...plan.species].sort().join(',')}|${plan.named.map((b) => b.id).join(',')}`;
     if (key !== K.key) { K.key = key; K.zi = 0; logEvent('map', `Kartenrotation: ${plan.def.name} – ${content()?.maps?.[plan.mapId]?.name || plan.mapId} (${names})`); }
-    const label = `Karten: ${plan.def.name} ${cardHave(st, plan.def)}/${plan.def.limit}`;
+    const label = `Karten: ${plan.def.name} ${cardHave(st, plan.def)}/${plan.def.limit}${cardOpen(st, plan.def) ? '' : ' · für die Gruppe'}`;
     // Kartentasche voll: neue Karten ohne vorhandenen Stapel gehen verloren – melden, weiterfarmen (der Spieler entscheidet)
     const bag = st.me?.cards;
     if (Array.isArray(bag) && bag.length && !bag.some((x) => !x?.itemId) && cardOpenSel(st).some((d) => !bag.some((x) => x?.itemId === d.id))

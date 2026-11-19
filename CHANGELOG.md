@@ -2,6 +2,13 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.33 – Kartenrotation: in der Gruppe weiterfarmen, bis alle voll sind
+- **Nutzer 19.11.:** Bisher hörte die Kartenrotation auf, sobald der Leader seine ausgewählten Karten voll hatte – auch wenn ein
+  Gruppenmitglied noch nicht fertig war. Neue Option im Reiter Bosse → Karten auswählen: **„Gruppe: weiterfarmen, bis alle voll
+  sind“** (Standard aus). Dann farmt der Leader weiter, solange ein Mitläufer (Fenster da, Bot an) bei einer ausgewählten Karte noch
+  nicht voll ist; die Statuszeile zeigt dann „für die Gruppe“. Jeder Mitläufer meldet dafür seine offenen Karten über den Gruppenbus.
+- Tests: cardgrouptest (A–C).
+
 ## 3.2.32 – Digital Rift: Gruppe mit Rollen (Tank, DD, Heiler)
 - **Nutzer 18.11.:** Rift mit eigenen Accounts in mehreren Fenstern. Im Reiter Gruppe hat jede Karte jetzt eine **Kampfrolle**:
   Tank, DD (Standard) oder Heiler – höchstens ein Tank (ein neuer Tank macht den alten zum DD). Leader und Tank sind getrennt wählbar.
