@@ -9,7 +9,10 @@ Alle Änderungen an DigiBot, neueste zuerst.
   Tank-Angriff bzw. 8 s nach Wartebeginn. Wer selbst angegriffen wird, wehrt sich sofort. „Ziele verteilen“ ruht, solange ein Tank
   aktiv ist. Ohne Tank (alle DD) bleibt alles wie bisher. Hinweis: beim Questen macht das die Gruppe langsamer (gewollt).
   Nach dem Start gilt der Tank 5 s lang als aktiv, auch wenn sein Bot den Start noch nicht gemeldet hat.
-- Tests: riftgrouptest (G-F1, G-F0).
+- **Review:** keine Sperre beim Sammeln (Pull: der Leader spielt selbst an), im Nachholer-Modus und in Dungeons/Raids außer dem
+  Rift (Herde, Fresser, Greifarme, Brechbares greifen nie die Gruppe an – sonst scheiterten die Mechaniken); ist die Sperre bei
+  einem Ziel einmal gefallen, kommt sie nicht wieder (Weltboss nach dem Ausweichen); die Ansage gilt nur bei laufendem Leader-Bot.
+- Tests: riftgrouptest (G-F1, G-F0, G-P).
 
 ## 3.2.33 – Kartenrotation: in der Gruppe weiterfarmen, bis alle voll sind
 - **Nutzer 19.11.:** Bisher hörte die Kartenrotation auf, sobald der Leader seine ausgewählten Karten voll hatte – auch wenn ein

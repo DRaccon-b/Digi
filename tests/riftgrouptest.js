@@ -108,9 +108,9 @@ function groupWorld({ fights, mobs = () => [], aggro = 'first', cfg = {}, hp = [
           store.setState({ me: { ...state.me, inventory: [{ itemId: 'guilmon_bread', qty: q('guilmon_bread') + 10 }, { itemId: 'rift_shard', qty: q('rift_shard') - 30 }] } });
           return;
         }
-        if (name === 'riftEnter') { sent.enter++; E(slot, 'riftEnter'); if (slot !== 0 || (enterOnce && G.entered)) return; G.entered = true; for (const W of G.wins) W.closeWarden(); setTimeout(() => { floorStart(1); moveAll(RS, { x: 200, y: 200 }); }, 300); }
+        if (name === 'riftEnter') { sent.enter++; E(slot, 'riftEnter'); if (slot !== 0 || (enterOnce && G.entered)) return; G.entered = true; for (const W of G.wins) W.closeWarden(); setTimeout(() => { G.runId = (G.runId || 0) + 1; floorStart(1); moveAll(RS, { x: 200, y: 200 }); }, 300); }
         else if (name === 'riftDescend') { sent.descend++; E(slot, 'riftDescend'); }
-        else if (name === 'raidLeave') { sent.leave++; E(slot, 'raidLeave'); if (mapNow() === RS && !W.leaving) { W.leaving = true; setTimeout(() => { W.leaving = false; load(PV, { x: 808 + slot * 14, y: 824 }); }, 600); } }
+        else if (name === 'raidLeave') { sent.leave++; E(slot, 'raidLeave'); if (mapNow() === RS && !W.leaving) { W.leaving = true; const run0 = G.runId; setTimeout(() => { W.leaving = false; if (G.runId === run0) load(PV, { x: 808 + slot * 14, y: 824 }); }, 600); } } // neuer Lauf inzwischen: nicht mehr hinaus
       },
       raidLeave() { base.command('raidLeave', {}); },
       requestBossPins() {}, requestMapInfo() {}, partnerFollow() {}, partnerStop() {}, async requestEvents() { return [{ id: 'mega_hunt', now: Date.now(), slot: null, state: 'idle', next: null }]; },
@@ -279,8 +279,8 @@ const PARTS = {
       await wait(200);
     }
     const after = (s) => R.ev.find((e) => e.t > second && e.what === 'hit' && e.slot === s);
-    const tk = after(1), l = after(0), h = after(2);
-    check('G-2', !!second && !!tk && !!l && !!h && tk.t < l.t && tk.t < h.t, 'zweiter Lauf: Tank greift wieder zuerst an', () => `2. Lauf ${!!second}, Tank ${tk ? tk.t - second : '–'}, Leader ${l ? l.t - second : '–'}, Heiler ${h ? h.t - second : '–'} ms`);
+    const tk = after(1), l = after(0), h = after(2), ix = (e) => R.ev.indexOf(e); // Reihenfolge der Ereignisse (gleiche ms möglich)
+    check('G-2', !!second && !!tk && !!l && !!h && ix(tk) < ix(l) && ix(tk) < ix(h), 'zweiter Lauf: Tank greift wieder zuerst an', () => `2. Lauf ${!!second}, Tank ${tk ? tk.t - second : '–'}, Leader ${l ? l.t - second : '–'}, Heiler ${h ? h.t - second : '–'} ms`);
     R.close();
   },
   // 3.2.34 (Nutzer 19.11.: „alle Gegner egal welche“, in allen Modi): Grinden auf einer normalen Map
@@ -291,6 +291,17 @@ const PARTS = {
     const tk = hitsOf(R, 1)[0], l = hitsOf(R, 0)[0], h = hitsOf(R, 2)[0], ag = R.ev.find((e) => e.what === 'aggro' && e.id === 'm:f');
     check('G-F1', !!tk && !!l && !!h && tk.t < l.t && tk.t < h.t && !!ag && ag.slot === 1 && l.t >= ag.t && h.t >= ag.t, 'Grinden: Tank greift zuerst an, die anderen danach',
       () => `Tank ${tk ? tk.t - t0 : '–'}, Leader ${l ? l.t - t0 : '–'}, Heiler ${h ? h.t - t0 : '–'} ms, Aggro ${ag ? `Slot ${ag.slot} ${ag.t - t0}` : '–'}, Status L: ${R.wins[0].status()}`);
+    R.close();
+  },
+  // Review 3.2.34: Pull-Modus – der Leader sammelt selbst (der Tank spielt Pull-Ziele nie an) -> keine 8-s-Sperre je Sammel-Ziel
+  async pull() {
+    const R = groupWorld({ fights: ['dd', 'tank'], field: true, aggro: 'first', cfg: { dungeon: false, autopilot: false, farm: false, radius: 500, pull: true, pullMax: 3, pullHp: 30 },
+      mobs: () => [{ id: 'm:p1', x: 900, y: 960 }, { id: 'm:p2', x: 980, y: 900 }, { id: 'm:p3', x: 1000, y: 1020 }] });
+    await wait(1500); R.start(); const t0 = Date.now();
+    while (Date.now() - t0 < 14000) await wait(200);
+    const first = {}; for (const e of hitsOf(R, 0)) first[e.id] ??= e.t - t0;
+    const ts = Object.values(first).sort((a, b) => a - b), two = ts.length >= 2 ? ts[1] : null;
+    check('G-P', two != null && two <= 4000, `Pull: Leader spielt zwei Monster ohne Wartezeit an (nach ${two} ms)`, () => `Leader-Treffer je Monster ${JSON.stringify(first)}, Status ${R.wins[0].status()}`);
     R.close();
   },
   async fieldnotank() {
