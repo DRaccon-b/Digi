@@ -2,6 +2,13 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.39 – Rift: Heiler-Gegner erst, wenn er heilt
+- **Nutzer 20.11.:** Für die Regel „Heiler-Gegner zuerst“ lief der Bot direkt zwei Gruppen weiter zum Heiler und zog dabei mehr Monster
+  als nötig. Jetzt arbeitet er sich Gruppe für Gruppe vor; ein Heiler (Mender) hat erst Vorrang, wenn er gerade ein Monster heilt,
+  das mit mir kämpft (das Spiel markiert das geheilte Monster mit rift_mended, Strahl 200 px). Ein Heiler, der seine eigene ferne
+  Gruppe heilt, ist kein Grund hinzulaufen.
+- Tests: rifttest (F neu: erst der Angreifer, der Heiler sobald er heilt; G: ferner heilender Heiler nicht vorgezogen).
+
 ## 3.2.38 – Gruppen-Quests: Ausweichen zählt nicht als Treffer
 - **Nutzer 20.11.:** Der Begleiter (Lv 130) schlug zu, bevor der Leader (Lv 100) wirklich Schaden gemacht hatte – das Monster war dem
   Leader ausgewichen. Das Spiel meldet Ausweichen/Block als Treffer mit 0 Schaden, und das galt als „hat getroffen“. Jetzt zählt nur

@@ -8,10 +8,10 @@
 // C: drei Etagen, zweimal abgestiegen, Guardian besiegt, raidLeave gesendet.
 // D: danach zweiter Lauf gestartet.
 // E (zweiter Durchgang, feste Tiefe 2): riftEnter mit Tiefe 2.
-// F (Nutzer 16.11.: „der Heiler zuerst“): Etage 1 – ein Angreifer greift an, ein Heiler (Rolle rift_role_mender) steht dahinter:
-//    der Bot nimmt zuerst den Heiler.
+// F (Nutzer 16.11.: „der Heiler zuerst“; 20.11.: „erst wenn der Heiler anfängt zu heilen“): Etage 1 – ein Angreifer greift an, ein
+//    Heiler (Rolle rift_role_mender) steht dahinter: zuerst der Angreifer; sobald der Heiler ihn heilt (rift_mended), der Heiler.
 // G (Nutzer 16.11.: „rennt quer über die Map zum Heiler einer anderen Gruppe“): ein zweiter Heiler steht weit weg bei einer
-//    anderen Gruppe – nach dem nahen Heiler kommt der Angreifer dran, nicht der ferne Heiler.
+//    anderen Gruppe (heilt dort ein Monster, das nicht mit mir kämpft) – der ferne Heiler wird nicht vorgezogen.
 // H (live 16.11., Tiefe 10): Alpha-Jagd-Etage – der markierte Alpha trägt das Boss-Flag und steht 110 px neben dem Bot (greift
 //    nicht an): der Bot greift ihn an (vorher ausgeschlossen, er lief erkunden).
 // I (Nutzer 16.11.: „rennt an 1000 Digimon vorbei nur um den Alpha zu besiegen – dabei stirbt er immer“): der markierte
@@ -83,7 +83,9 @@ function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = f
       ents.set('a:att', { id: 'a:att', kind: 2, defId: 'bearmon_rift', level: 57, x: 330, y: 200, hp: 400, maxHp: 400, flags: 32, targetId: 'p:me' });
       ents.set('h:heal', { id: 'h:heal', kind: 2, defId: 'bearmon_rift', level: 57, x: 420, y: 330, hp: 400, maxHp: 400, flags: 0, targetId: '' });
       ents.set('h:far', { id: 'h:far', kind: 2, defId: 'bearmon_rift', level: 57, x: 720, y: 560, hp: 400, maxHp: 400, flags: 0, targetId: '' });
-      store.setState({ effects: { ...(state.effects || {}), 'h:heal': [{ id: 'rift_role_mender' }], 'h:far': [{ id: 'rift_role_mender' }] } });
+      // ferner Heiler heilt ein Monster seiner eigenen (fremden) Gruppe – das ist kein Grund hinzulaufen (Nutzer 20.11.)
+      ents.set('n:fb', { id: 'n:fb', kind: 2, defId: 'bearmon_rift', level: 57, x: 700, y: 620, hp: 300, maxHp: 400, flags: 0, targetId: '' });
+      store.setState({ effects: { ...(state.effects || {}), 'h:heal': [{ id: 'rift_role_mender' }], 'h:far': [{ id: 'rift_role_mender' }], 'n:fb': [{ id: 'rift_mended' }] } });
     }
     rs = { ...rs, warden: null, view: null, result: null, floorUi: { going: null }, run: { depth: sent.enter[sent.enter.length - 1], running: true, signal, clockMs: 600000, floor: { n, of: 3 }, portal: { x: 400, y: 500, open: false }, guardian: 'hidden', objective: hunt ? 'hunt' : 'purge', alphaMarks: [] } };
     if (evt && n === 1) setTimeout(() => { evtUp = true; L('Event beginnt'); }, 1500);
@@ -108,7 +110,7 @@ function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = f
   }
   function loadMap(id, sp) {
     mapId = id;
-    for (const k of [...ents.keys()]) if (k !== 't:me' && k !== 'p:me' && !(id === RS && /^(a:att|h:heal|h:far|al:1|al:2|n:near|n:path|n:mid|g:2|n:g|a:far|a:near)$/.test(k))) ents.delete(k);
+    for (const k of [...ents.keys()]) if (k !== 't:me' && k !== 'p:me' && !(id === RS && /^(a:att|h:heal|h:far|n:fb|al:1|al:2|n:near|n:path|n:mid|g:2|n:g|a:far|a:near)$/.test(k))) ents.delete(k);
     const t = ents.get('t:me'), p = ents.get('p:me');
     t.x = sp.x; t.y = sp.y; p.x = sp.x + 10; p.y = sp.y;
     if (id !== RS) scene.riftFog = null;
@@ -169,6 +171,8 @@ function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = f
     const t = ents.get('t:me');
     if (Math.hypot(m.x - t.x, m.y - t.y) > 320) return;
     m.hp = Math.max(0, m.hp - 200);
+    // Spiel: der Heiler (Mender) zieht seinen Heilstrahl auf ein verletztes Monster seiner Gruppe (Effekt rift_mended, Reichweite 200 px)
+    if (m.id === 'a:att' && m.hp > 0 && ents.has('h:heal')) store.setState({ effects: { ...(state.effects || {}), 'a:att': [{ id: 'rift_mended' }] } });
     store.setState({ target: { ...state.target, hp: m.hp } });
     if (m.hp > 0) return;
     ents.delete(m.id);
@@ -290,7 +294,8 @@ function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = f
   const okO = W9.sent.leave >= 1 && W9.sent.sel.includes('hb:1') && W9.sent.enter.length === 1; // abgestiegen sein darf er schon (Event beginnt 1,5 s nach Etage 1 – unter Last später)
   const s8 = W8.sent.sel, okN = s8.includes('n:g') && s8.indexOf('n:g') < s8.indexOf('g:2');
   const fsel = W.sent.sel.filter((x) => x === 'a:att' || x === 'h:heal');
-  const okF = fsel[0] === 'h:heal';
+  // F (Nutzer 20.11.): erst der Angreifer; sobald der Heiler ihn heilt, der Heiler – vorher nicht zu ihm laufen
+  const okF = fsel[0] === 'a:att' && fsel.includes('h:heal');
   const gsel = W.sent.sel.filter((x) => x === 'a:att' || x === 'h:far');
   const okG = gsel[0] === 'a:att';
   console.log(okA ? 'OK     A: höchstmögliche Tiefe nach Partner-Level (4)' : `FEHLER A: ${W.sent.enter[0]}`);
@@ -298,7 +303,7 @@ function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = f
   console.log(okC ? 'OK     C: 3 Etagen, Guardian besiegt, Rift verlassen' : `FEHLER C: descend ${W.sent.descend} leave ${W.sent.leave}`);
   console.log(okD ? 'OK     D: zweiter Lauf gestartet' : 'FEHLER D');
   console.log(okE ? 'OK     E: feste Tiefe 2' : `FEHLER E: ${W2.sent.enter.join(',')}`);
-  console.log(okF ? 'OK     F: Heiler zuerst' : `FEHLER F: ${fsel.join(',')}`);
+  console.log(okF ? 'OK     F: erst der Angreifer, der Heiler sobald er heilt' : `FEHLER F: ${fsel.join(',')}`);
   console.log(okG ? 'OK     G: ferner Heiler einer anderen Gruppe nicht vorgezogen' : `FEHLER G: ${gsel.join(',')}`);
   console.log(okH ? 'OK     H: markierter Alpha (Boss-Flag) wird angegriffen' : `FEHLER H: ${W3.sent.sel.join(',')}`);
   console.log(okI ? 'OK     I: erst der nahe Gegner, dann der ferne Alpha' : `FEHLER I: ${s4.join(',')}`);
