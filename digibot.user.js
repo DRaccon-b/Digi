@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.37
+// @version      3.2.38
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1836,7 +1836,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.37'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.38'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -5596,7 +5596,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (cfg.questGroupAll === false || group.role() !== 'leader') return null;
     const C = content(), now = Date.now(); if (!C) return null;
     const memo = (group.helpMem ||= new Map());
-    for (const m of groupMembers()) if (m.inWorld && m.quests) memo.set(m.slot, { quests: m.quests, at: now });
+    // auch Mitläufer, deren Bot noch nicht läuft (startet ~1 s nach dem Leader) – sonst stoppte der Leader im ersten Takt (3.2.38)
+    for (const m of groupMembers(now, true)) if (m.inWorld && m.quests) memo.set(m.slot, { quests: m.quests, at: now });
     let out = null;
     for (const [slot, r] of memo) {
       if (now - r.at > QUEST_HELP_MEM_MS || !accounts.list[slot]?.on) { memo.delete(slot); continue; }
@@ -5620,7 +5621,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // ---------- Quest-Fortschritt bei Level-Abstand (3.2.37, Nutzer 20.11.) ----------
   // Liegt ein Digimon mehr als QUEST_GAP Level unter dem Töter, zählt der Kill für seine Quest nur, wenn es das Monster vorher selbst
   // getroffen hat. Deshalb schlägt in der Gruppe der Niedrigere („Opener“) zuerst zu; die anderen warten (Takt-Block 3d).
-  const QUEST_GAP = 10, GROUP_HIT_MS = 10000, QUEST_OPEN_WAIT_MS = 4000, QUEST_OPEN_HOLD_MS = 10000, QUEST_OPEN_NEAR = 600;
+  // Wartezeiten (3.2.38): der Niedrigere verfehlt öfter (Ausweichen ~20 %) – erst nach 10 s Angriff ohne echten Treffer bzw. 20 s ab
+  // Wartebeginn greifen die anderen trotzdem an
+  const QUEST_GAP = 10, GROUP_HIT_MS = 10000, QUEST_OPEN_WAIT_MS = 10000, QUEST_OPEN_HOLD_MS = 20000, QUEST_OPEN_NEAR = 600;
   const questDropMemo = { C: null, by: new Map() };
   function questDropSpecies(C, itemId) { // Arten, die ein Sammel-Item droppen (Feld-Spawns und Digimon-Drops)
     if (questDropMemo.C !== C) { questDropMemo.C = C; questDropMemo.by = new Map(); }
@@ -11120,7 +11123,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // – live lag die Schätzung für Shurimon gegen +11-Gegner 25 % zu hoch (4 015 statt 3 066/s)
   const dpsMeter = { mobs: new Map(), by: new Map() }; // Art -> { dmg, ms, n }
   function dpsNote(ev, mine) {
-    if (ev.t === 'dmg' && mine.has(ev.src) && ev.dst) { group.hits.set(ev.dst, Date.now()); if (group.hits.size > 60) group.hits.delete(group.hits.keys().next().value); } // 3.2.37
+    // nur echter Schaden zählt als Treffer – Ausweichen/Block kommen als dmg mit 0 (Nutzer 20.11.: „das gegnerische Digimon weicht aus“, 3.2.38)
+    if (ev.t === 'dmg' && mine.has(ev.src) && ev.dst && Number(ev.amount) > 0 && ev.outcome !== 'miss' && ev.outcome !== 'block') { group.hits.set(ev.dst, Date.now()); if (group.hits.size > 60) group.hits.delete(group.hits.keys().next().value); } // 3.2.37
     if (ev.t === 'dmg' && mine.has(ev.src)) { const r = dpsMeter.mobs.get(ev.dst) || { first: Date.now(), dmg: 0 }; r.dmg += ev.amount || 0; dpsMeter.mobs.set(ev.dst, r); if (dpsMeter.mobs.size > 100) dpsMeter.mobs.delete(dpsMeter.mobs.keys().next().value); }
     else if (ev.t === 'die' && dpsMeter.mobs.has(ev.id)) {
       const r = dpsMeter.mobs.get(ev.id), ms = Date.now() - r.first; dpsMeter.mobs.delete(ev.id);
@@ -12286,6 +12290,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           const over = (this.openWait.since && now - this.openWait.since >= QUEST_OPEN_WAIT_MS) || now - this.openWait.first >= QUEST_OPEN_HOLD_MS;
           if (!over) {
             this.attackedId = null; this.engage = null;
+            // greift mein Digimon das Ziel schon an (z. B. von selbst), zurückrufen – ein Treffer von mir vor dem Opener kostet seinen Kill (3.2.38)
+            const myP = window.dmo?.net?.state?.entities?.get?.(st.me?.partner?.entityId);
+            if (myP?.targetId === t.id && this.can('stop', 1000, now)) { this.lastPress.stop = now; commands()?.partnerStop?.(); }
             this.status = `Gruppe: warte, bis ${opener.peer?.name || 'der Niedrigere'} ${t.name || 'das Ziel'} getroffen hat (Quest zählt sonst nicht)`;
             return;
           }

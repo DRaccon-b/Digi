@@ -2,6 +2,14 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.38 – Gruppen-Quests: Ausweichen zählt nicht als Treffer
+- **Nutzer 20.11.:** Der Begleiter (Lv 130) schlug zu, bevor der Leader (Lv 100) wirklich Schaden gemacht hatte – das Monster war dem
+  Leader ausgewichen. Das Spiel meldet Ausweichen/Block als Treffer mit 0 Schaden, und das galt als „hat getroffen“. Jetzt zählt nur
+  echter Schaden. Die Wartezeit ist länger (bis 10 s Angriff ohne echten Treffer bzw. 20 s ab Wartebeginn), und greift das eigene
+  Digimon das Ziel in der Wartezeit schon an, wird es zurückgerufen. Weiterhelfen zählt auch Mitläufer, deren Bot gerade erst
+  startet (sonst stoppte der Leader im ersten Takt).
+- Tests: riftgrouptest (Q-D).
+
 ## 3.2.37 – Gruppe: Quests gemeinsam fertig machen, Niedrigerer schlägt zuerst zu
 - **Nutzer 20.11.:** Liegt ein Digimon mehr als 10 Level unter dem, der das Monster tötet, bekommt es im Spiel keinen Quest-Fortschritt –
   außer es hat das Monster vorher selbst getroffen. Jetzt schlägt im Quest-Autopiloten das Gruppenmitglied, das die Art für eine

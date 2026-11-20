@@ -33,7 +33,7 @@ const CELLS = [{ id: 'c0_1', role: 'camp', rect: { x: 100, y: 100, w: 200, h: 20
 
 // Gemeinsame Rift-Welt für n Bot-Fenster (Slot 0 = Leader). fights: Kampfrolle je Slot. mobs(floor): Gegner der Etage.
 // hp: Partner-HP je Slot · effects: Effekte je Gegner (z. B. Mender) · bread: Slots mit Guilmon Bread auf F1 · enterOnce: Leader darf nur einmal betreten
-function groupWorld({ fights, mobs = () => [], aggro = 'first', cfg = {}, hp = [], effects = {}, bread = [], enterOnce = false, field = false, lv = [], questDefs = {}, myQuests = [], acc = {} }) {
+function groupWorld({ fights, mobs = () => [], aggro = 'first', cfg = {}, hp = [], effects = {}, bread = [], enterOnce = false, field = false, lv = [], questDefs = {}, myQuests = [], acc = {}, miss = {}, dmg = [] }) {
   const n = fights.length;
   const G = { rs: { run: null, patch: null, result: null, floorUi: { going: null } }, floor: 0, mapOf: [], mobs: new Map(), hidden: new Map(), players: new Map(), wins: [] };
   const accounts = { leader: 0, popup: true, mirror: false, spread: false, dungeon: true, ...acc, list: fights.map((f, i) => ({ on: true, user: 'u' + i, char: 'Char' + i, fight: f })) };
@@ -128,11 +128,15 @@ function groupWorld({ fights, mobs = () => [], aggro = 'first', cfg = {}, hp = [
       if (e.code !== 'Digit1' || !state.target) return;
       const m = G.mobs.get(state.target.id);
       if (!m || m.hp <= 0 || (mapNow() !== RS && !(field && mapNow() === PV)) || Math.hypot(m.x - T.x, m.y - T.y) > 320) return;
-      keys.push({ t: Date.now(), id: m.id }); E(slot, 'hit', m.id);
+      keys.push({ t: Date.now(), id: m.id });
+      // miss[slot]: so viele Angriffe weicht das Monster aus (Spiel: dmg-Ereignis mit 0 Schaden, zählt nicht als Treffer)
+      if ((miss[slot] || 0) > 0) { miss[slot]--; E(slot, 'miss', m.id); for (const W2 of G.wins) for (const f of W2.netL?.evs || []) try { f([{ t: 'dmg', src: Pp.id, dst: m.id, amount: 0, outcome: 'miss' }]); } catch { /* ignore */ } return; }
+      E(slot, 'hit', m.id);
       (m.hitBy ||= new Set()).add(slot);
-      for (const W2 of G.wins) for (const f of W2.netL?.evs || []) try { f([{ t: 'dmg', src: Pp.id, dst: m.id, amount: 40 }]); } catch { /* ignore */ }
+      const dm = dmg[slot] ?? 40;
+      for (const W2 of G.wins) for (const f of W2.netL?.evs || []) try { f([{ t: 'dmg', src: Pp.id, dst: m.id, amount: dm }]); } catch { /* ignore */ }
       aggroOn(m, slot);
-      m.hp = Math.max(0, m.hp - 40);
+      m.hp = Math.max(0, m.hp - dm);
       if (m.hp <= 0) { G.mobs.delete(m.id); E(slot, 'kill', m.id); G.credit?.(m, slot); for (const W2 of G.wins) for (const f of W2.netL?.evs || []) try { f([{ t: 'die', id: m.id }]); } catch { /* ignore */ } }
     }, true);
     store.setState({ screen: 'world', inputFocus: 'game', cooldowns: {}, chat: [], target: null, effects: { ...effects },
@@ -336,6 +340,15 @@ const PARTS = {
       () => `erster Treffer Mitläufer ${f ? f.t - t0 : '–'} / Leader ${l ? l.t - t0 : '–'} ms, Fortschritt ${cr}, ohne Fortschritt ${no}, Status L: ${R.wins[0].status()} · F: ${R.wins[1].status()}`);
     R.close();
   },
+  async dodge() { // Q-D (Nutzer 20.11.: „das gegnerische Digimon weicht aus“): die ersten 6 Angriffe des Leaders (Lv 100) gehen daneben,
+    // der Begleiter (Lv 130) tötet mit einem Schlag – er darf erst nach einem echten Treffer des Leaders zuschlagen
+    const R = groupWorld(questWorld({ lv: [100, 130], miss: { 0: 6 }, dmg: [40, 600], myQuests: [{ q_k: { state: 1, counters: [0] } }, {}] }));
+    await wait(1500); R.start(); const t0 = Date.now();
+    while (Date.now() - t0 < 30000 && !R.ev.some((e) => e.slot === 0 && (e.what === 'credit' || e.what === 'nocredit'))) await wait(200);
+    const cr = R.ev.filter((e) => e.slot === 0 && e.what === 'credit').length, no = R.ev.filter((e) => e.slot === 0 && e.what === 'nocredit').length, ms = R.ev.filter((e) => e.slot === 0 && e.what === 'miss').length;
+    check('Q-D', cr >= 1 && no === 0 && ms >= 1, 'Leader verfehlt zuerst – Begleiter wartet auf echten Treffer, Kill zählt', () => 'Fortschritt ' + cr + ', ohne Fortschritt ' + no + ', Fehlschläge ' + ms + ', Status L: ' + R.wins[0].status() + ' · F: ' + R.wins[1].status());
+    R.close();
+  },
   async serveop() { // Q-S: „Leader erledigt die Quests der Mitläufer“ – der 30 Level tiefere Mitläufer trifft trotzdem zuerst
     const R = groupWorld(questWorld({ lv: [130, 100], acc: { serve: true }, myQuests: [{}, { q_k: { state: 1, counters: [0] } }] }));
     await wait(1500); R.start(); const t0 = Date.now();
@@ -375,7 +388,7 @@ const PARTS = {
   },
 };
 // Quest-Welt: Primary Village als normale Map mit Jagdgebiet „meadow“ (Bearmon), Kill-Quest q_k (3 Bearmon) im Quest-Autopilot
-const questWorld = ({ lv, myQuests, cfg = {}, acc = {} }) => ({ acc, fights: ['dd', 'dd'], field: true, aggro: 'first', lv, myQuests,
+const questWorld = ({ lv, myQuests, cfg = {}, acc = {}, miss = {}, dmg = [] }) => ({ acc, miss, dmg, fights: ['dd', 'dd'], field: true, aggro: 'first', lv, myQuests,
   questDefs: { q_k: { id: 'q_k', name: 'Bärenjagd', giver: 'rift_warden', turnIn: 'rift_warden', minLevel: 1, objectives: [{ kind: 'kill', species: 'bearmon_rift', count: 3 }] } },
   cfg: { dungeon: false, autopilot: true, apGrind: false, farm: false, radius: 400, lvlDiff: 100, ...cfg }, mobs: () => [{ id: 'm:q', x: 920, y: 960 }] });
 // Kampfaufbau: Gruppe startet, betritt den Rift (Lager bei 200/200), ein Gegner m:a 130 px vor der Gruppe
