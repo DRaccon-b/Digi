@@ -6694,7 +6694,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           const bountyMap=digibotIsYoungBounty(def)&&def.id!=='a2b_blackwargreymon'?digibotYoungBountyMap(st):null;
           const source=bountyMap?{...C,spawns:C.spawns?.[bountyMap]?{[bountyMap]:C.spawns[bountyMap]}:{}}:C;
           const spot = huntSpot(source, [].concat(o.species || []), lvl, mapId, o.kind === 'collect' ? o.itemId : null, activeAvoid());
-          if (spot && !activeAvoid().has(spot.key)) tasks.push({ ...base, key: `hunt:${id}:${i}`, kind: 'hunt', species: new Set(spot.species), names: spot.names, loc: spot, prio: 3,
+          if (spot && (opt.ignoreBans || !activeAvoid().has(spot.key))) tasks.push({ ...base, key: `hunt:${id}:${i}`, kind: 'hunt', species: new Set(spot.species), names: spot.names, loc: spot, prio: 3,
             turnLoc: def.turnIn ? npcLoc(def.turnIn, def.turnInMap) : null, turnName: def.turnIn ? npcName(def.turnIn) : null, // Warteplatz der Nachholer
             label: `${def.name}: ${o.kind === 'kill' ? 'besiege' : 'sammle von'} ${spot.names}` });
         }
@@ -6726,13 +6726,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     // vor den Abgabe-Regeln filtern: offene Nebenquest-Ziele halten sonst die Story-Abgaben zurück (Review 3.2.17)
     if (opt.story) tasks = tasks.filter((t) => t.questId && (isStory(t.questId) || (opt.sideTurnin && t.purpose === 'turnin')));
+    // opt.ignoreBans: Sperren (failed/avoidSpots) zählen nicht – nur für die Frage „gibt es ohne Sperren noch etwas?“
+    // (Review 20.11., 3.2.36)
     const now = Date.now();
+    const banned = (t) => !opt.ignoreBans && (autopilot.failed.get(t.key) || 0) >= now;
     tasks=tasks.filter(t=>digibotYoungBountyAllowed(st,t,now));
     if(autopilot.bountyReturn)tasks=tasks.filter(t=>digibotIsYoungBounty(t.def)&&t.purpose==='turnin');
     // Board dailies stay active and collect incidental progress, but must not
     // trigger travel or postpone ordinary quest rewards while other work is feasible.
     // Grinden zählt nicht als andere Arbeit – sonst lagen Dailies (auch fertige Abgaben) bis zum Ziel-Level (3.1.30)
-    if(!autopilot.mapTalk && tasks.some(t=>!t.grind && !t.def?.pool && (autopilot.failed.get(t.key)||0)<now && hops(mapId,t.loc.mapId)<Infinity)){
+    if(!autopilot.mapTalk && tasks.some(t=>!t.grind && !t.def?.pool && !banned(t) && hops(mapId,t.loc.mapId)<Infinity)){
       tasks=tasks.filter(t=>!t.def?.pool);
     }
     // Runde: nur Quests, deren Geber auf der aktuellen Runden-Map steht (Ziele dürfen woanders liegen)
@@ -6751,7 +6754,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         if(!M)return true;if(t.grind)return false;
         return t.purpose==='daily'?t.loc.mapId===M:questOnMap(t.def,M);
       })
-      .filter((t) => (autopilot.failed.get(t.key) || 0) < now && hops(mapId, t.loc.mapId) < Infinity && mapWalkable(st, t.loc.mapId));
+      .filter((t) => !banned(t) && hops(mapId, t.loc.mapId) < Infinity && mapWalkable(st, t.loc.mapId));
     // Cache ETA once per planning pass; all boss objectives use confirmed timers,
     // independent of quest-log order or how far away the NPC list places them.
     available=available.map(t=>({...t,bossEta:digibotQuestBossETA(st,t,now),bossIdle:digibotQuestBossIdle(st,t,now)}));
@@ -7562,6 +7565,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           if (serveOrderOn() && catchupList()) return 'Gruppe: nichts zu jagen – die Nachholer nehmen an und geben ab';
           if (serveOn()) return 'Gruppe: bei den Mitläufern gibt es nichts mehr zu jagen – Abgeben/Annehmen bitte selbst';
         }
+        // Nur kurz gesperrt (failed, gemiedenes Jagdgebiet, Boss-Ohnmacht): warten statt den Bot (und die Gruppe) zu
+        // stoppen – Angreifer wehrt der Takt weiter ab. Gestoppt wird nur, wenn auch ohne Sperren nichts übrig ist.
+        // (Review 20.11., 3.2.36)
+        const banWait = apBanWait(st, now);
+        if (banWait) return banWait;
         return null;
       }
     }
@@ -7703,6 +7711,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return `${t.label} · warte auf ${t.names}…`;
   }
 
+  // Gibt es Aufgaben, die nur wegen einer Sperre fehlen? Dann Status mit der Zeit bis zur ersten Freigabe, sonst null.
+  // (Review 20.11., 3.2.36)
+  function apBanWait(st, now) {
+    const rest = questTasks(st, { ignoreBans: true });
+    if (!rest.length) return null;
+    const free = rest.map((t) => Math.max(autopilot.failed.get(t.key) || 0, (t.loc?.key && autopilot.avoidSpots.get(t.loc.key)) || 0))
+      .filter((u) => u > now);
+    const s = free.length ? Math.max(1, Math.ceil((Math.min(...free) - now) / 1000)) : 1;
+    return `warte ${s} s auf freigegebene Aufgabe (${rest[0].label})`;
+  }
   // Boss-Jagd ohne Boss: erst BOSS_CH_WAIT_MS hier warten, dann den nächsten freien Kanal prüfen, dort wieder warten …
   // Sind alle Kanäle durch, wartet der Bot normal weiter. Mitläufer wechseln den Kanal mit (sie folgen dem Leader).
   const BOSS_CH_WAIT_MS = 20000;
