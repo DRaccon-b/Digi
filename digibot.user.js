@@ -10163,13 +10163,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const RIFT_GIVEUP_MS = 20 * 60000; // so lange darf ein Lauf dauern (Uhr 12 min), dann hinaus – z. B. Guardian solo zu stark (Review)
   const RIFT_NORUN_MS = 60000;       // im Rift ohne Laufzustand so lange warten, dann hinaus (Review)
   const RIFT_CAP_RETRY = 3;          // nach so vielen stabilen Läufen an der Grenze wieder die höhere Tiefe versuchen
+  const RIFT_BAD_WAIT_MS = 30000;    // so lange auf Partner mit Problem (Level/zu weit weg) warten, dann reagieren (Review 20.11., 3.2.36)
   // Patch-Priorität (alle 18 Patches, Spieldaten 16.11.; Live-Lauf 3.2.28): Arc Spark (30 % Schaden springt im Umkreis 72 px über –
   // Fläche auch für Einzelziel-Kämpfer), Heilung je Kill, Angriff/Tempo, Lebensraub, Abklingzeit, dann Überleben, Rest
   const RIFT_PATCH_PRIO = ['arc_spark', 'data_harvest', 'overclock', 'rapid_fire', 'siphon', 'quick_compile', 'momentum', 'crit_routine', 'overflow_shield', 'soul_loop', 'data_mass', 'firewall', 'block_cache', 'targeting', 'ghost_frame', 'static_skin', 'sugar_rush', 'fast_route'];
   const rift = {
     inside: false, cap: 0, runs: 0, stable: 0, visited: new Set(), floorKey: '', patchAt: 0, descendAt: 0, leaveAt: 0, talkAt: 0, talkTries: 0,
     enterAt: 0, enterTries: 0, depth: 0, resultSeen: null, closedUntil: 0, seen: new WeakSet(), warned: '', startAt: 0, noRunAt: 0, giveUp: false, portalNear: 0, capOk: 0,
-    reset() { Object.assign(this, { noRunAt: 0, giveUp: false, portalNear: 0, capOk: 0, inside: false, cap: 0, visited: new Set(), floorKey: '', patchAt: 0, descendAt: 0, leaveAt: 0, talkAt: 0, talkTries: 0, enterAt: 0, enterTries: 0, depth: 0, resultSeen: null, closedUntil: 0, warned: '', startAt: 0 }); },
+    reset() { Object.assign(this, { badAt: 0, badWarned: '', partyLv: 0, noRunAt: 0, giveUp: false, portalNear: 0, capOk: 0, inside: false, cap: 0, visited: new Set(), floorKey: '', patchAt: 0, descendAt: 0, leaveAt: 0, talkAt: 0, talkTries: 0, enterAt: 0, enterTries: 0, depth: 0, resultSeen: null, closedUntil: 0, warned: '', startAt: 0 }); },
   };
   const riftWarn = (why) => { if (rift.warned !== why) { rift.warned = why; logEvent('warn', `Rift: ${why}`); } };
   // Hinweise des Spiels (System-Chat, code rift_*) – eigene Merkliste, damit checkRefusals sie nicht verschluckt
@@ -10188,8 +10189,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // höchstens eine weniger als dort)
   function riftDepthPick(st, view) {
     const deepest = Math.max(1, Number(view?.deepest) || 1);
-    const me = (view?.party || []).find((p) => p?.leader) || (view?.party || [])[0];
-    const lv = Number(me?.level) || Number(st?.me?.partner?.level) || 1;
+    // das Spiel prüft das Level aller Partner der Party (rift_level) – mit dem niedrigsten rechnen, nicht nur mit dem Leader; sonst
+    // wählte er zu tief, wurde abgelehnt und kehrte nach RIFT_CAP_RETRY Läufen zur zu hohen Tiefe zurück (Review 20.11., 3.2.36)
+    const lvs = (view?.party || []).map((p) => Number(p?.level)).filter((n) => n > 0);
+    const lv = lvs.length ? Math.min(...lvs) : Number(st?.me?.partner?.level) || 1;
+    rift.partyLv = lv;
     let pick;
     if (cfg.riftDepthMode === 'fixed') {
       const d = Math.max(1, Math.round(Number(cfg.riftDepth) || 1));
@@ -10420,7 +10424,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       rift.resultSeen = res; rift.runs++; if (res.stable) rift.stable++;
       const d = Number(res.depth) || rift.depth || 0;
       if (cfg.riftDepthMode !== 'fixed' && !res.stable && d > 1) { rift.cap = d - 1; rift.capOk = 0; logEvent('warn', `Rift: Tiefe ${d} nicht stabil geschafft – nächster Lauf höchstens Tiefe ${rift.cap}`); }
-      else if (rift.cap && res.stable && d >= rift.cap && ++rift.capOk >= RIFT_CAP_RETRY) { logEvent('bot', `Rift: ${rift.capOk}× stabil auf Tiefe ${d} – versuche wieder die höhere`); rift.cap = 0; rift.capOk = 0; }
+      // höhere Tiefe nur wieder versuchen, wenn alle Party-Level dafür reichen (Review 20.11., 3.2.36)
+      else if (rift.cap && res.stable && d >= rift.cap && riftNeedLv(rift.cap + 1) <= (rift.partyLv || Infinity) && ++rift.capOk >= RIFT_CAP_RETRY) { logEvent('bot', `Rift: ${rift.capOk}× stabil auf Tiefe ${d} – versuche wieder die höhere`); rift.cap = 0; rift.capOk = 0; }
       const loot = res.loot || {}, t = Number(res.timeMs) || 0;
       logEvent('kill', `Rift Tiefe ${d}: ${res.stable ? 'stabil geschafft' : 'geschafft, aber instabil'}${t ? ` in ${fmtClock(t)}` : ''}${loot.shards ? ` · ${loot.shards} Shards` : ''}${loot.bits ? ` · ${loot.bits} Bits` : ''} (Lauf ${rift.runs})`);
       rift.leaveAt = now;
@@ -10524,7 +10529,24 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         riftWarn(pick.why); return `Rift: ${pick.why}`;
       }
       const bad = (v.party || []).filter((p) => p?.problem);
-      if (bad.length) return `Rift: ${bad.map((p) => `${p.name || '?'} ${p.problem === 'level' ? 'Level zu niedrig' : p.problem === 'far' ? 'zu weit weg' : p.problem}`).join(', ')}`;
+      if (bad.length) {
+        // nicht ewig stumm warten (Review 20.11., 3.2.36): nach RIFT_BAD_WAIT_MS bei „Level“ im Auto-Modus eine Tiefe weniger,
+        // sonst einmal warnen und melden
+        const txt = bad.map((p) => `${p.name || '?'} ${p.problem === 'level' ? 'Level zu niedrig' : p.problem === 'far' ? 'zu weit weg' : p.problem}`).join(', ');
+        rift.badAt ||= now;
+        if (now - rift.badAt >= RIFT_BAD_WAIT_MS) {
+          if (cfg.riftDepthMode !== 'fixed' && bad.some((p) => p.problem === 'level') && pick.depth > 1) {
+            rift.cap = pick.depth - 1; rift.capOk = 0; rift.badAt = now;
+            logEvent('warn', `Rift: ${txt} – nehme Tiefe ${rift.cap}`);
+          } else if (rift.badWarned !== txt) {
+            rift.badWarned = txt;
+            logEvent('warn', `Rift: ${txt} – warte seit ${Math.round((now - rift.badAt) / 1000)} s`);
+            notify(`Rift: ${txt} – Bot wartet.`, 'warn');
+          }
+        }
+        return `Rift: ${txt}`;
+      }
+      rift.badAt = 0; rift.badWarned = '';
       if (v.blocked) return `Rift: gesperrt (${v.blocked})`;
       if (v.iLead === false) return 'Rift: nur der Party-Leader kann den Rift öffnen';
       // Mitläufer kauft gerade bei Clockmon ein (Brot/Scan): kurz warten, höchstens RIFT_SHOP_WAIT_MS (Review 3.2.32)
