@@ -3063,6 +3063,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (st.target?.id !== best.id && bot.can('select', SELECT_GAP_MS, now)) { bot.lastPress.select = now; worldScene()?.select?.(best.id); }
     return `Warte außerhalb · wehre ${content()?.digimon?.[best.defId]?.name || best.defId} ab`;
   }
+  // (Review 20.11., 3.2.36) Warten/Halten bei Ausweichen und Boss-Mechaniken: der Tick kehrt dort vor skillCare zurück – Heal,
+  // Gruppen-Heal und Cleanse fielen so außerhalb des Rifts ganz weg (der Heiler stand sicher und wirkte nichts). Hier wirken, wenn
+  // Tamer und Digimon außerhalb aller Warnzonen stehen (volle Reserve); nur diese Rollen, keine Kampf-Buffs.
+  function waitCare(st, now, zones = dangerZones()) {
+    const ents = window.dmo?.net?.state?.entities, tamer = controlled(st), partner = ents?.get?.(st?.me?.partner?.entityId);
+    if (!partner || (zones || []).some((z) => [tamer, partner].some((e) => e && !digibotDodgeZoneSafe(z, e, DODGE_MARGIN)))) return null;
+    return skillCare(st, now, ['heal', 'grpheal', 'utilsup']);
+  }
   function dodge(st, now) {
     const walkSpeed=digibotDodgeSpeed(st);
     if (!cfg.dodge) return null;
@@ -3203,6 +3211,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         // Rift (3.2.27, live 16.11.: wartete still, während ihn 3 Gegner schlugen – 50 % → 0): heilen und Angreifer außerhalb
         // der Warnzone angreifen
         if (riftMap(cmap)) { const rw = riftWaitAct(st, zones, partner, tamer, target, now); if (rw) return rw; }
+        const wc = waitCare(st, now, zones); // (Review 20.11., 3.2.36) auch außerhalb des Rifts heilen/reinigen, wenn sicher
+        if (wc) return `Warte außerhalb · ${wc}`;
         const pt = pullTagWhileDodging(st, zones, now); // Pull-Modus: draußen schon das nächste Monster anspielen (3.1.48)
         return pt || 'Warte außerhalb, bis der Flächenangriff vorbei ist…';
       }
@@ -11504,8 +11514,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (!best) { padState.pick = null; return null; }
     padState.pick = best.key;
     if (padState.logged !== best.key) { padState.logged = best.key; logEvent('auto', 'Leuchtpunkte: alle gleichzeitig besetzen – gehe zum nächsten freien'); }
-    if (best.mineIn && best.d <= best.r - 4) return 'Leuchtpunkt besetzt – halte' + kohAttackInPlace(st, now);
-    if (zones.length && !digibotDodgeZonePath(tamer, best, zones, DODGE_MARGIN)) return 'Weg zum Leuchtpunkt führt durch eine Warnzone – warte';
+    // (Review 20.11., 3.2.36) beim Halten/Warten heilen und reinigen (Tick kehrt vor skillCare zurück)
+    if (best.mineIn && best.d <= best.r - 4) { const wc = waitCare(st, now, zones); return 'Leuchtpunkt besetzt – halte' + (wc ? ` · ${wc}` : kohAttackInPlace(st, now)); }
+    if (zones.length && !digibotDodgeZonePath(tamer, best, zones, DODGE_MARGIN)) { const wc = waitCare(st, now, zones); return 'Weg zum Leuchtpunkt führt durch eine Warnzone – warte' + (wc ? ` · ${wc}` : ''); }
     if (Math.hypot(tamer.x - best.x, tamer.y - best.y) > 4 && now - padState.lastTap > DODGE_RETAP_MS) {
       padState.lastTap = now; autopilot.nav = null; autopilot.route = null; worldScene()?.tapGround?.(best.x, best.y);
     }
@@ -11525,14 +11536,17 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const key = `${sc0.src}|${sc0.sid}|${sc0.castEnd}`;
     const mine = sc0.dst === tamer.id || sc0.dst === partner.id || sc0.dst === st.me?.tamerEntityId;
     if (shareState.logged !== key) { shareState.logged = key; logEvent('auto', `${name}: geteilter Treffer – ${mine ? 'auf mir, halte Position' : 'sammle mich beim Ziel'}`); }
-    if (mine) return `${name}: auf mir – halte Position, Gruppe sammelt sich` + kohAttackInPlace(st, now);
+    // (Review 20.11., 3.2.36) beim Halten/Warten heilen und reinigen (Tick kehrt vor skillCare zurück); der geteilte Kreis selbst
+    // ist keine Fluchtzone, zählt also nicht als „in der Zone“
+    const care = () => { const wc = waitCare(st, now, others); return wc ? ` · ${wc}` : null; };
+    if (mine) return `${name}: auf mir – halte Position, Gruppe sammelt sich` + (care() ?? kohAttackInPlace(st, now));
     const d0 = ents?.get?.(sc0.dst);
     if (!d0 || !isFinite(d0.x) || !isFinite(d0.y)) return null;
     // Partner-Ziel: Tamer des Treffers zählt mit seinem Digimon – gemessen wird immer am Digimon
     const inR = sc0.r - SHARE_IN_PAD;
-    if (Math.hypot(partner.x - d0.x, partner.y - d0.y) <= inR) return `${name}: im geteilten Kreis` + kohAttackInPlace(st, now);
+    if (Math.hypot(partner.x - d0.x, partner.y - d0.y) <= inR) return `${name}: im geteilten Kreis` + (care() ?? kohAttackInPlace(st, now));
     // Weg zum Kreis führt durch eine andere Warnfläche: draußen warten
-    if (others.length && !digibotDodgeZonePath(tamer, d0, others, DODGE_MARGIN)) return `${name}: Weg zum geteilten Kreis führt durch eine Warnzone – warte`;
+    if (others.length && !digibotDodgeZonePath(tamer, d0, others, DODGE_MARGIN)) return `${name}: Weg zum geteilten Kreis führt durch eine Warnzone – warte` + (care() ?? '');
     if (Math.hypot(tamer.x - d0.x, tamer.y - d0.y) > 8 && now - shareState.lastTap > DODGE_RETAP_MS) {
       shareState.lastTap = now; autopilot.nav = null; autopilot.route = null; worldScene()?.tapGround?.(d0.x, d0.y);
     }
