@@ -53,6 +53,7 @@ async function trial(G, scene, taps) {
     // C: Regler im Panel verstellen
     const el = d.querySelector('[data-cfg="dodgeMargin"]');
     el.value = '60'; el.dispatchEvent(new G.w.Event('input', { bubbles: true }));
+    el.dispatchEvent(new G.w.Event('change', { bubbles: true })); // loslassen – gespeichert wird erst dann (3.2.36)
     await wait(200);
     const saved = JSON.parse(G.w.localStorage.getItem('digibot.cfg') || '{}');
     check('C: Wert gespeichert und angezeigt', saved.dodgeMargin === 60 && /60 px/.test(d.querySelector('[data-v="dodgeMargin"]')?.textContent || ''), `${saved.dodgeMargin}`);
