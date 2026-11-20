@@ -675,7 +675,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if(huntSeen.size>500)huntSeen.clear();
   }
   function digibotObjective(st) {
-    if(cfg.dungeon)return null; // im Dungeon kein Oberwelt-Ziel an die Gruppe (altes Event-/Weltboss-Ziel nach Moduswechsel) (3.1.30)
+    // Rift-Modus mit 🎯 Event: das laufende Event (außerhalb des Rifts) doch melden – sonst blieben die Mitläufer bei Clockmon
+    // stehen („Event läuft – danach weiter“) und reisten nie zur Event-Map (Review 20.11., 3.2.36)
+    if(cfg.dungeon&&!(riftEvOn()&&hunt.goal&&!riftMap(st?.world?.mapId)))return null; // im Dungeon kein Oberwelt-Ziel an die Gruppe (altes Event-/Weltboss-Ziel nach Moduswechsel) (3.1.30)
     if(hunt.goal&&cfg.hunt)return {kind:'event',key:hunt.goal.key,mapId:hunt.goal.mapId,channel:hunt.goal.ch,boss:hunt.goal.boss};
     if(wb.goal&&cfg.wboss){const g=wb.goal;return {kind:'world',key:g.key,mapId:g.b.map,channel:g.ch,boss:g.b.species,...farmSpot(g.b)};}
     if(cfg.farm&&farm.goal){const g=farm.goal,b=farmSelected().find(x=>x.map===g.map&&x.index===g.index);if(b)return {kind:'farm',key:`${g.map}/${g.index}/${g.ch}`,mapId:g.map,channel:g.ch,boss:b.species,...farmSpot(b)};}
@@ -703,6 +705,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if(!cfg.independentGroup||group.role()!=='follower'||!bot.on)return null;
     const L=groupLeader(now),o=L?.objective;
     if(!L?.bot||!o||!['event','world','farm'].includes(o.kind)||typeof o.mapId!=='string'||typeof o.boss!=='string')return null;
+    if(o.kind==='event'&&riftMap(st.world?.mapId))return null; // noch im Rift: erst hinaus (riftStep), dann zum Event (Review 20.11., 3.2.36)
     digibotCurrentObjective=o;
     if(sc?.attackers?.length)return null; // self-defence has priority over delayed travel
     const key=`${o.kind}/${o.key}/${o.mapId}/${o.channel}`;
@@ -8505,7 +8508,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       logEvent('auto', `Event: ${name} – ${where} (Kanal ${g.ch})${g.up ? ' – ist da, suche ihn' : ` – erscheint in ${Math.max(0, Math.round((g.at - now) / 60000))} min`}`);
     }
     hunt.goal.up = g.up; hunt.goal.overAt = 0;
-    if (group.role() === 'follower' && groupLeader(now)) return null; // in der Gruppe führt der Leader, die anderen folgen ihm
+    // in der Gruppe führt der Leader, die anderen folgen ihm. Rift-Modus: nur, wenn der Leader dieses Event wirklich als Ziel meldet
+    // (digibotSharedStep reist dann hin, riftOutside folgt ihm dort) – sonst reist der Mitläufer selbst (Review 20.11., 3.2.36)
+    if (group.role() === 'follower' && groupLeader(now)) {
+      const GL = groupLeader(now), lo = GL.objective;
+      if (!riftEvOn() || (cfg.independentGroup && GL.bot && lo?.kind === 'event' && lo.key === g.key)) return null;
+    }
     // vor Reise, Warten und erstem Angriff in die Kampfform digitieren (nicht, solange ein Angreifer dran ist)
     { const ev = digibotEventEvolve(st, sc, now); if (ev !== true) return `${name}: ${ev}`; }
     const here = st.world?.mapId === g.mapId;
@@ -10488,7 +10496,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     if (st.me?.partner?.fainted) return 'Rift: Partner bewusstlos – warte';
     if (world.state !== 'ready') { loadWorld(); return 'Lade Kartendaten…'; }
-    if (riftEvOn() && hunt.goal) return 'Rift: Event läuft – danach weiter'; // Event zuerst (3.2.26)
+    if (riftEvOn() && hunt.goal) { // Event zuerst (3.2.26)
+      // Mitläufer auf der Event-Map: dem Leader folgen statt am Ankunftspunkt stehen zu bleiben (Review 20.11., 3.2.36)
+      const FE = riftFollower(now), me = controlled(st);
+      const a = FE && me && FE.mapId === st.world?.mapId && (FE.channel ?? 1) === (st.world?.channel ?? 1) ? riftAnchor(FE) : null;
+      if (a) { if (Math.hypot(me.x - a.x, me.y - a.y) > followDist() && walkTo(st, a.x, a.y, now) === 'stuck') autopilot.nav = null; return `Rift: Event – folge ${FE.name || 'dem Leader'}`; }
+      return 'Rift: Event läuft – danach weiter';
+    }
     if (rift.closedUntil > now) return `Rift geschlossen – nächster Versuch in ${fmtClock(rift.closedUntil - now)}`;
     if (R.result && !R.warden && typeof R.set === 'function') R.set({ result: null }); // altes Ergebnisfenster („Stay“) – sonst öffnet das Rift-Fenster nicht
     const loc = (world.npcAt.get(RIFT_NPC) || [])[0];
