@@ -1688,14 +1688,20 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Betriebsart und Laufzustand: läuft hier der Bot oder ist das Fenster in einer Gruppe, gehören sie diesem Fenster –
   // sonst schaltete ein Reiterklick in einem anderen Fenster den laufenden (Gruppen-)Modus um (3.1.30)
   const RUN_KEYS = ['autopilot', 'farm', 'dungeon', 'eventsOnly', 'foodBuy', 'farmMode', 'apSweepMap'];
+  // Einstellungen, die Ziel/Runde/Aufgabe bestimmen (Review 20.11., 3.2.36): nur ihre Änderung in einem anderen Fenster verwirft
+  // Boss-Ziel, Deva-/Named-Runde und Quest-Aufgabe hier – Tränke, Ausweichen, Zeiten usw. gelten über applyCfg/syncRuntimeCfg
+  // sofort, ohne laufende Kämpfe abzubrechen (bisher setzte jeder Pixel am HP-Trank-Regler alle anderen Fenster zurück).
+  const GOAL_CFG = /^(autopilot|farm|dungeon|eventsOnly|foodBuy|card|mobs$|questOff$|route|dg|rift|ap|level|hunt$|wboss$|wbOff$)/;
   window.addEventListener('storage', (event) => {
     if(event.key!==CFG_KEY || !event.newValue)return;
     try {
       const saved=JSON.parse(event.newValue);if(!digibotRecord(saved))return;
       const own=!!bot?.on||group.active(), keep={...(own?Object.fromEntries(RUN_KEYS.map(k=>[k,cfg[k]])):{}),...(cfgUser?acctPick():{})}; // Account-Werte bleiben (3.2.6)
-      const behavior=()=>JSON.stringify(Object.fromEntries(Object.entries(cfg).filter(([key])=>!UI_KEYS.includes(key)&&!(own&&RUN_KEYS.includes(key)))));
+      const behavior=()=>Object.fromEntries(Object.entries(cfg).filter(([key])=>!UI_KEYS.includes(key)&&!(own&&RUN_KEYS.includes(key))).map(([k,v])=>[k,JSON.stringify(v)]));
       const before=behavior();applyCfg(saved);Object.assign(cfg,keep);syncCfgInputs();
-      if(before!==behavior()){farm.reset();autopilot.reset();}
+      const after=behavior();
+      // nur ziel-relevante Schlüssel; einen laufenden Boss-Kampf nie abbrechen – das neue Ziel greift danach (Review 20.11., 3.2.36)
+      if(Object.keys({...before,...after}).some(k=>GOAL_CFG.test(k)&&before[k]!==after[k])){if(!farm.fight)farm.reset();autopilot.reset();}
       schedule();
     } catch { digibotCore.record('Gemeinsame Einstellungen konnten nicht geladen werden'); }
   });
@@ -13242,7 +13248,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (!key) return;
       cfg[key] = Number(e.target.value);
       panelQ(`[data-v="${key}"]`).textContent = LABELS[key](cfg[key]);
-      saveCfg();
+      // Beim Ziehen nur hier übernehmen, gespeichert (und an die anderen Fenster verteilt) wird erst beim Loslassen ('change')
+      // – sonst schrieb jeder Pixel die Einstellungen und weckte alle anderen Fenster (Review 20.11., 3.2.36)
+      syncRuntimeCfg();
       if (key === 'lvlDiff') lr.calcAt = 0; // Lern-Route gleich neu bewerten
     });
     // Regler nach dem Loslassen entfokussieren, damit Spieltasten wieder ans Spiel gehen
@@ -13271,7 +13279,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         logEvent('auto', `Weltboss ${speciesName(wbSp)}: ${e.target.checked ? 'ansteuern' : 'auslassen'}`);
         return;
       }
-      if (e.target.dataset.cfg) e.target.blur();
+      if (e.target.dataset.cfg) { saveCfg(); e.target.blur(); } // Regler losgelassen: jetzt speichern (Review 20.11., 3.2.36)
     });
     // Tastenkürzel: Alt+D oder Alt+H blendet das Panel ein/aus, Alt+B startet/stoppt den Bot. Alt+D springt in Chrome
     // sonst zusätzlich in die Adresszeile – das wird hier unterbunden.
