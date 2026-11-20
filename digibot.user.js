@@ -117,6 +117,7 @@ function createDigiBotCore({ now = Date.now, state, halt, network = () => null, 
   function loginMode(value){if(!armed||latch)return false;loginOnly=!!value;return true;}
   return { runPassive, enablePassive, loginMode, priority, start, stop, inspect, allowed, run, action, defer, record, envelope, accept,
     touch: () => { lastStore = now(); }, get armed() { return armed; }, get latched() { return !!latch; },
+    get session() { return session; }, // eigene Fenster-Sitzung (Ladezeit Basis 36 + Zufall), erkennt doppelte Slots (Review 20.11., 3.2.36)
     export: () => JSON.stringify({ format: 'digibot-diagnostics/1', records, critical, ...diagnostics() }, null, 2) };
 }
 
@@ -5260,7 +5261,32 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return set;
   };
   // ---------- Gruppe: Meldungen zwischen den Fenstern ----------
+  // Doppelt belegter Slot (Review 20.11., 3.2.36): ein dupliziertes Tab kopiert digibot.slot/digibot.group aus dem
+  // sessionStorage – dann melden zwei Fenster denselben Slot (z. B. zwei Leader), accept() verwirft die Meldung des
+  // anderen als „eigene“ und keiner merkt es, Mitläufer nehmen beide an. Hier erkennen: das jüngere Fenster (Sitzung
+  // beginnt mit der Ladezeit) verlässt die Gruppe, beide warnen deutlich.
+  function groupDupSlot(m) {
+    if (!m || m.protocol !== 'digibot/1' || !group.active() || m.slot !== group.slot() || m.leader !== accounts.leader) return false;
+    const mine = digibotCore.session;
+    if (typeof m.session !== 'string' || m.session.length > 80 || m.session === mine || !Number.isFinite(m.sentAt) || Math.abs(Date.now() - m.sentAt) > GROUP_STALE_MS) return false;
+    const born = (s) => { const v = parseInt(String(s).split('-')[0], 36); return Number.isFinite(v) ? v : Infinity; };
+    const otherOlder = born(m.session) < born(mine) || (born(m.session) === born(mine) && m.session < mine);
+    const label = `Slot ${group.slot() + 1}`, now = Date.now();
+    if (otherOlder) {
+      ss.set('digibot.group', null);
+      group.msg = `${label} ist doppelt belegt – dieses Fenster ist jetzt in keiner Gruppe. Im Konto-Reiter einen freien Slot wählen.`;
+      logEvent('bot', `Gruppe: ${label} ist doppelt belegt (anderes Fenster mit demselben Slot) – Gruppe in diesem Fenster aus`);
+      schedule();
+    } else if (!(now - (group.dupWarnAt || 0) < 10000)) {
+      group.dupWarnAt = now;
+      group.msg = `${label} ist doppelt belegt – ein anderes Fenster nutzt denselben Slot und verlässt die Gruppe.`;
+      logEvent('bot', `Gruppe: ${label} ist doppelt belegt – das jüngere Fenster verlässt die Gruppe`);
+      schedule();
+    }
+    return true;
+  }
   function onGroupMsg(m) {
+    if (groupDupSlot(m)) return;
     if (!digibotCore.accept(m, group.slot(), accounts.leader, i => accounts.list[i]?.on === true)) return;
     if (m.type === 'state') {
       if (m.objective && (!digibotRecord(m.objective) || typeof m.objective.mapId !== 'string' || typeof m.objective.boss !== 'string' || !Number.isInteger(m.objective.channel))) return;
@@ -5873,8 +5899,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (!on.some((a) => a.i === accounts.leader)) { group.msg = 'Der Leader (◉) braucht auch einen Haken.'; schedule(); return null; }
     let mine = group.slot();
     if (!group.active() || !on.some((a) => a.i === mine)) {
-      const u = String(st?.session?.username || '').toLowerCase();
-      mine = (on.find((a) => a.user.trim().toLowerCase() === u) || on.find((a) => a.i === accounts.leader)).i;
+      const u = String(st?.session?.username || '').trim().toLowerCase();
+      // Leerer/unbekannter Benutzer (Review 20.11., 3.2.36): nur dann Leader, wenn sich kein Leader-Fenster meldet –
+      // sonst gäbe es zwei Fenster mit dem Leader-Slot, die sich nie hören.
+      const own = u ? on.find((a) => a.user.trim().toLowerCase() === u) : null;
+      if (!own && fresh(group.peers.get(accounts.leader), Date.now())) { group.msg = 'Erst in diesem Fenster anmelden – der Leader läuft schon in einem anderen Fenster.'; schedule(); return null; }
+      mine = (own || on.find((a) => a.i === accounts.leader)).i;
       group.talks = []; group.handled = new Set(); group.done = []; group.cur = null;
     }
     ss.set('digibot.slot', String(mine)); ss.set('digibot.group', '1');
