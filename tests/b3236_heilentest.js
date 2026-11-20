@@ -5,7 +5,7 @@ const { JSDOM, VirtualConsole } = require('jsdom');
 const fs = require('fs');
 const [script, fake] = process.argv.slice(2).map((f) => fs.readFileSync(f, 'utf8'));
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-async function run(setup, { hp = 3000, riftMap = false } = {}) {
+async function run(setup, { hp = 3000, riftMap = false, walk = false } = {}) {
   const dom = new JSDOM('<!doctype html><body></body>', { runScripts: 'outside-only', url: 'https://play.digimmo.com.br/', pretendToBeVisual: true, virtualConsole: new VirtualConsole() });
   const w = dom.window;
   w.HTMLCanvasElement.prototype.getContext = () => null;
@@ -14,7 +14,7 @@ async function run(setup, { hp = 3000, riftMap = false } = {}) {
   if (riftMap) C.spawns.native_forest.raid = { id: 'rift', rift: true }; // Karte gilt als Rift
   C.skills = { 'test.heal': { id: 'test.heal', name: 'Holy Grace', kind: 'heal', target: 'self', shape: 'single', power: 400, castMs: 300, cooldownMs: 15000, dsCost: 50 } };
   const taps = [], keys = [];
-  scene.tapGround = (x, y) => taps.push({ x, y });
+  scene.tapGround = (x, y) => { taps.push({ x, y }); if (walk) for (const id of ['p:me', 't:me']) { const e = F.ents.get(id); if (e) { e.x = x; e.y = y; } } }; // walk: sofort am Tap-Punkt
   scene.controlledId = () => 'p:me';
   scene.telegraphs = { active: [], circles: [] };
   scene.deps.commands = { partnerFollow: () => {}, partnerStop: () => {} };
@@ -52,6 +52,13 @@ async function run(setup, { hp = 3000, riftMap = false } = {}) {
   // C) Rift wie bisher: heilen
   const c = await run(zone, { hp: 1100, riftMap: true });
   res.push(['C: im Rift beim Warten heilen (wie bisher)', c.keys.includes('Digit2'), c]);
+  // E) Anmarsch (Ziel > 220 px, Warnkreis am Ziel): am sicheren Platz nahe am Boss angekommen und wartend -> heilen (Prüfung 20.11.)
+  const e = await run((F, sc, t) => {
+    F.E({ id: 'm:t', kind: 2, defId: 'kunemon', level: 4, x: 1000, y: 500, targetId: '', flags: 32 });
+    F.store.setState({ target: F.toTarget('m:t') });
+    sc.telegraphs.active = [{ x: 1000, y: 500, r: 70 }]; sc.telegraphs.circles = [{ x: 1000, y: 500, r: 70, end: t + 8000 }];
+  }, { hp: 1100, walk: true });
+  res.push(['E: am Anmarsch-Platz wartend mit 30 % HP heilen', e.keys.includes('Digit2') && e.st.some((x) => /Warte außerhalb/.test(x)), e]);
   // D) ich stehe selbst im Warnkreis: ausweichen (Fluchtpunkt), der Wartezweig greift nicht
   const d = await run((F, sc, t) => {
     F.E({ id: 'm:t', kind: 2, defId: 'kunemon', level: 4, x: 640, y: 500, targetId: 'p:me', flags: 32 });

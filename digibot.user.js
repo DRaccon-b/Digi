@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.35
+// @version      3.2.36
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1834,7 +1834,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.35'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.36'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -3222,9 +3222,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       // außerhalb“ (kein Angriff, kein Heilen/Essen). Persistente Zonen und Markierungen lösen keinen Anmarsch aus; fällt der Grund
       // weg, Anmarsch beenden und normal weiterkämpfen (Review 20.11., 3.2.36)
       const apZones=zones.filter((c)=>!c.persistent&&!c.mark);
-      const apNeed=!!target&&!!tamer&&apZones.length>0&&(apZones.some((c)=>zoneDist(c,target).d<DODGE_HOLD_RANGE)||!lineClear(tamer,target,apZones));
+      const pathZones=zones.filter((c)=>!c.mark); // Weg versperrt: dauerhafte Fallen zählen mit (sonst ewiges Warten vor einer Falle im Weg, Prüfung 3.2.36)
+      const apNeed=!!target&&!!tamer&&((apZones.length>0&&apZones.some((c)=>zoneDist(c,target).d<DODGE_HOLD_RANGE))||(pathZones.length>0&&!lineClear(tamer,target,pathZones)));
       if(!apNeed&&dodgeState.approachTarget){dodgeState.approachTarget=null;dodgeState.approachGoal=null;dodgeState.approachStopped=false;autopilot.nav=null;autopilot.route=null;}
       const approach=apNeed?digibotDodgeApproach(st,target,tamer,partner,zones,now):null;
+      // wartet der Anmarsch (sicherer Platz erreicht / kein Weg): trotzdem heilen, wenn sicher (Prüfung 3.2.36)
+      if(approach&&/^Warte außerhalb/.test(approach)){const wc=waitCare(st,now,zones);if(wc)return `Warte außerhalb · ${wc}`;}
       if(approach)return approach;
       const blocked=!!target || dodgeState.active;
       if (near && blocked) {
@@ -7580,6 +7583,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const sweepN = cfg.apOrder === 'sweep' ? sweepList().length + 1 : 0;
       let guard = 0;
       for (; cfg.apOrder === 'sweep' && !autopilot.bountyReturn && !all.length && guard < sweepN; guard++) {
+        { const bw = apBanWait(st, now); if (bw) return bw; } // Aufgabe hier nur kurz gesperrt: warten statt weiterziehen/stoppen (Prüfung 3.2.36)
         const done = autopilot.sweepAt;
         const why = sweepSkipReasons(st, done);
         const next = sweepAdvance(st);

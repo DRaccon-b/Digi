@@ -86,6 +86,21 @@ const approachRx = /Nähere mich über sicheren Weg|sicherer Platz nahe am Boss|
     for (let i = 0; i < 8; i++) { await wait(100); seen.push(E.status()); }
     check('C1: Warnkreis am Ziel -> Anmarsch/Warten außerhalb', seen.some((s) => /Nähere mich über sicheren Weg|Warte außerhalb/.test(s)), seen[seen.length - 1]);
   }
+  // D) dauerhafte Falle quer auf dem geraden Weg zum fernen Ziel -> Umweg/Anmarsch, nicht ewig „Warte außerhalb“ (Prüfung 20.11.)
+  {
+    const E = setup({});
+    await wait(600);
+    for (const id of ['m:2', 'm:3', 'm:4', 'm:5', 'm:6']) E.F.ents.delete(id);
+    const m1 = E.F.ents.get('m:1'); m1.x = 900; m1.y = 500;
+    place(E, 500, 500);
+    E.scene.mechB.view.traps = [{ x: 700, y: 500, r: 30 }];
+    E.F.store.setState({ target: E.F.toTarget('m:1') });
+    E.start();
+    const seen = [];
+    for (let i = 0; i < 20; i++) { await wait(100); seen.push(E.status()); }
+    const waitingOnly = seen.slice(-10).every((s) => /Warte außerhalb, bis der Flächenangriff vorbei ist/.test(s));
+    check('D1: Falle im Weg -> Umweg statt Dauerwarten', !waitingOnly && (E.taps.length > 0 || seen.some((s) => approachRx.test(s))), `${E.taps.length} Taps | ${seen[seen.length - 1]}`);
+  }
   console.log(results.every(Boolean) ? 'ALLES OK' : 'FEHLER');
   process.exit(results.every(Boolean) ? 0 : 1);
 })();

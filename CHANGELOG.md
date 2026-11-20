@@ -2,6 +2,24 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.36 – Schwere Fehler aus der Gesamtprüfung behoben
+Aus dem Prüfbericht vom 20.11. (docs/review-2026-11-20.md), je mit eigenem Test:
+- **Stillstand vor dem Ziel:** Eine ferne Zone (Falle, Markierung, fremder Warnkreis) löste einen Anmarsch aus, und der Bot wartete für
+  immer 96 px vor dem Ziel. Jetzt nur noch bei einer Zone am Ziel oder quer im Weg; danach normaler Kampf. (b3236_anmarschtest)
+- **Heilen beim Ausweichen:** Wer sicher außerhalb der Warnzonen wartet (auch am Anmarsch-Platz, bei Leuchtpunkten und geteilten
+  Treffern), wirkt jetzt Heal, Gruppen-Heal und Utility – vorher nur im Rift. (b3236_heilentest)
+- **Quest-Autopilot:** Sind die restlichen Aufgaben nur kurz gesperrt (Gebiet leer, NPC nicht da, Boss-Ohnmacht), wartet er auf die
+  Freigabe statt den Bot (und die Gruppe) zu stoppen – auch im Runden-Modus. (b3236_questsperretest)
+- **Event aus dem Rift:** Mitläufer reisen jetzt mit zum Event, statt bei Clockmon zu stehen. (b3236_rifteventtest)
+- **Rift-Tiefe in der Gruppe:** gewählt nach dem niedrigsten Partner-Level der Party; Warten auf zu schwache Mitglieder mit Zeitlimit.
+  (b3236_rifttiefetest)
+- **Doppelter Leader:** Ein doppelt belegter Gruppen-Slot (Tab dupliziert, nicht angemeldetes Fenster) wird erkannt und gewarnt; ein
+  Fenster ohne passenden Benutzer bekommt nicht mehr den Leader-Slot. (b3236_doppelslottest)
+- **NPC/Gebiet auf gesperrtem Boden:** Kommt der Bot nicht näher als bis zum nächsten freien Feld, zählt das als angekommen (NPC
+  ansprechen, Jagdgebiet absuchen) statt endlos „laufe zu …“. (b3236_walktotest)
+- **Regler:** Einstellungen werden erst beim Loslassen gespeichert; andere Fenster setzen Kämpfe/Runden nur noch zurück, wenn sich
+  ziel-relevante Einstellungen ändern. (b3236_reglerresettest)
+
 ## 3.2.35 – Mini-Leiste mit Start, Pause, Stopp
 - **Nutzer 20.11.:** Der mittlere der drei kleinen Knöpfe oben (▁) schrumpft das Panel auf eine Mini-Leiste: nur noch **▶ Start/Weiter**,
   **⏸ Pause** und **■ Stopp**. Nochmal ▁ klicken holt das volle Panel zurück; der Zustand bleibt nach dem Neuladen.
