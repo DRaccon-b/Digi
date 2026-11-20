@@ -2727,10 +2727,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         for (const m of marks) {
           const r = m.r || 32;
           if (mine.has(m.dst)) {
-            ents?.forEach?.((e) => { if ((e.kind === KIND.Tamer || e.kind === KIND.Partner) && !mine.has(e.id) && isFinite(e.x) && isFinite(e.y)) zones.push({ kind: 'circle', x: e.x, y: e.y, r }); });
+            ents?.forEach?.((e) => { if ((e.kind === KIND.Tamer || e.kind === KIND.Partner) && !mine.has(e.id) && isFinite(e.x) && isFinite(e.y)) zones.push({ kind: 'circle', x: e.x, y: e.y, r, mark: true }); });
           } else {
             const d = ents?.get?.(m.dst);
-            if (d && isFinite(d.x) && isFinite(d.y)) zones.push({ kind: 'circle', x: d.x, y: d.y, r });
+            if (d && isFinite(d.x) && isFinite(d.y)) zones.push({ kind: 'circle', x: d.x, y: d.y, r, mark: true }); // mark: kein Anmarsch (Review 20.11., 3.2.36)
           }
         }
       }
@@ -3199,7 +3199,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         if (rw && dodgeState.approachTarget && rw.startsWith('Warte außerhalb · wehre')) { dodgeState.approachTarget = null; dodgeState.approachGoal = null; dodgeState.approachStopped = false; autopilot.nav = null; autopilot.route = null; }
         if (rw) return rw;
       }
-      const approach=zones.length?digibotDodgeApproach(st,target,tamer,partner,zones,now):null;
+      // Anmarsch nur, wenn ein (vergänglicher) Angriff am Ziel liegt oder den Weg Tamer->Ziel schneidet – sonst stand der Bot bei
+      // jeder fernen Zone (persistente Falle, Drifter, Markierung, fremder Boss-Kreis) für immer 96 px vor dem Ziel und „wartete
+      // außerhalb“ (kein Angriff, kein Heilen/Essen). Persistente Zonen und Markierungen lösen keinen Anmarsch aus; fällt der Grund
+      // weg, Anmarsch beenden und normal weiterkämpfen (Review 20.11., 3.2.36)
+      const apZones=zones.filter((c)=>!c.persistent&&!c.mark);
+      const apNeed=!!target&&!!tamer&&apZones.length>0&&(apZones.some((c)=>zoneDist(c,target).d<DODGE_HOLD_RANGE)||!lineClear(tamer,target,apZones));
+      if(!apNeed&&dodgeState.approachTarget){dodgeState.approachTarget=null;dodgeState.approachGoal=null;dodgeState.approachStopped=false;autopilot.nav=null;autopilot.route=null;}
+      const approach=apNeed?digibotDodgeApproach(st,target,tamer,partner,zones,now):null;
       if(approach)return approach;
       const blocked=!!target || dodgeState.active;
       if (near && blocked) {
