@@ -6848,14 +6848,17 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           const bountyMap=digibotIsYoungBounty(def)&&def.id!=='a2b_blackwargreymon'?digibotYoungBountyMap(st):null;
           const source=bountyMap?{...C,spawns:C.spawns?.[bountyMap]?{[bountyMap]:C.spawns[bountyMap]}:{}}:C;
           const spot = huntSpot(source, [].concat(o.species || []), lvl, mapId, o.kind === 'collect' ? o.itemId : null, activeAvoid());
-          if (spot && (opt.ignoreBans || !activeAvoid().has(spot.key))) tasks.push({ ...base, key: `hunt:${id}:${i}`, kind: 'hunt', species: new Set(spot.species), names: spot.names, loc: spot, prio: 3,
+          if (spot && (opt.ignoreBans || !activeAvoid().has(spot.key))) tasks.push({ ...base, key: `hunt:${id}:${i}`, kind: 'hunt', species: new Set(spot.species), names: spot.names, loc: spot, prio: q.help ? 4 : 3, help: !!q.help, // Hilfe-Jagd nach den eigenen Aufgaben (Review 3.2.37)
+           
             turnLoc: def.turnIn ? npcLoc(def.turnIn, def.turnInMap) : null, turnName: def.turnIn ? npcName(def.turnIn) : null, // Warteplatz der Nachholer
             label: `${def.name}: ${o.kind === 'kill' ? 'besiege' : 'sammle von'} ${spot.names}` });
         }
       });
     }
     let grindTo = Infinity; // nächstes Level, ab dem es wieder etwas zu tun gibt
-    for (const [id, q] of Object.entries(quests)) { // Level-Ziele aktiver Quests
+    // Hilfe-Einträge (3.2.37) ersetzen nie den eigenen Stand: für Vorbedingungen und Level-Ziele die eigenen Quests (Review)
+    const questsOwn = Object.fromEntries(Object.entries(quests).map(([k, v]) => [k, v?.help ? me?.quests?.[k] : v]).filter(([, v]) => v));
+    for (const [id, q] of Object.entries(questsOwn)) { // Level-Ziele aktiver Quests
       if (q.state !== 1 || cfg.questOff[id]) continue;
       for (const o of questPhase(questDef(C, id), q).objs) if (o.kind === 'level' && o.level > lvl) grindTo = Math.min(grindTo, o.level);
     }
@@ -6865,7 +6868,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (!fresh && !(cfg.apRepeat && repeatAvailable(def, qa))) continue;
       if (cfg.questOff[def.id] || def.autoAssign || !def.giver) continue;
       if (questSeries(def.id) > worldSeries(st)) continue; // andere Serie: bietet das Spiel hier nicht an
-      if (!prereqOk(def, quests)) continue;
+      if (!prereqOk(def, questsOwn)) continue;
       // Level-Grenze wie im Spiel: höchstes Level der mitgeführten Digimon, nicht nur des aktiven (3.1.35, live: Veemon Lv 99
       // mitgeführt, Mugendramon Lv 90 aktiv – Henrys „Because We Are Partners“ ab Lv 99 blieb liegen)
       if ((def.minLevel ?? 1) > teamLevel(st)) { if (npcLoc(def.giver, def.giverMap)) grindTo = Math.min(grindTo, def.minLevel); continue; }
@@ -6890,7 +6893,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // Board dailies stay active and collect incidental progress, but must not
     // trigger travel or postpone ordinary quest rewards while other work is feasible.
     // Grinden zählt nicht als andere Arbeit – sonst lagen Dailies (auch fertige Abgaben) bis zum Ziel-Level (3.1.30)
-    if(!autopilot.mapTalk && tasks.some(t=>!t.grind && !t.def?.pool && !banned(t) && hops(mapId,t.loc.mapId)<Infinity)){
+    if(!autopilot.mapTalk && tasks.some(t=>!t.grind && !t.help && !t.def?.pool && !banned(t) && hops(mapId,t.loc.mapId)<Infinity)){ // Hilfe-Jagden verdrängen Dailies nicht (Review 3.2.37)
       tasks=tasks.filter(t=>!t.def?.pool);
     }
     // Runde: nur Quests, deren Geber auf der aktuellen Runden-Map steht (Ziele dürfen woanders liegen)
@@ -7024,7 +7027,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const pool=content()?.dailies?.[t.def?.pool],offered=digibotDailyOffers(st,t.def?.pool);
       return autopilot.dailyVisited.has(t.visitKey) || (offered!==null ? !offered.length : !!pool && !(pool.quests||[]).some(d=>digibotDailyAvailable(st,d.id)));
     }
-    const q = planQuests(st)[t.questId];
+    const pq = planQuests(st)[t.questId];
+    const q = pq?.help && t.purpose ? st?.me?.quests?.[t.questId] : pq; // Hilfe-Eintrag (3.2.37) zählt nur fürs Jagen (Review)
     if (t.purpose === 'turnin') return q?.state !== 2;
     if (t.purpose === 'accept') return q?.state === 1 || q?.state === 2;
     return !q || q.state !== 1 || questCount(t.def || questDef(content(), t.questId), q, t.objIndex) >= t.need;
@@ -7647,7 +7651,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     // Nachholer-Aufgaben (t.own) plant catchupTasks schon nur mit Story-Quests – die ungefilterte Liste darf sie nicht
     // verwerfen, sonst rutscht der Nachholer in die normale Planung und jagt eine Nebenquest (Review 3.2.17)
-    if(!mt && !t?.own && t?.def?.pool && questTasks(st).some(o=>!o.def?.pool && !o.grind)){ // Grinden verdrängt Dailies nicht (3.1.30)
+    if(!mt && !t?.own && t?.def?.pool && questTasks(st).some(o=>!o.def?.pool && !o.grind && !o.help)){ // Grinden verdrängt Dailies nicht (3.1.30)
       autopilot.reset();t=null;
     }
     const sweepM=cfg.apOrder==='sweep'?autopilot.sweepAt:null;
@@ -11019,7 +11023,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (resting) return null;
     if (group.role() === 'follower' && groupLeader()?.serve) { // Leader erledigt meine Quests: stehen bleiben …
       // … außer ich muss das angesagte Ziel zuerst treffen, damit mein Kill zählt (>10 Level unter dem Leader, 3.2.37)
-      const L = groupLeader(), m = L?.callId ? sc.mobs.find((x) => x.id === L.callId && !x.banned) : null, st0 = getStore()?.getState?.();
+      const L = groupLeader(), m = L?.callId ? sc.mobs.find((x) => x.id === L.callId && !x.banned && x.inLvl !== false && x.reach !== false) : null, st0 = getStore()?.getState?.(); // nur, was ich auch angreifen darf (Review 3.2.37)
       if (m && st0 && questOpener(st0, m)?.me && !(group.hits.get(m.id) > Date.now() - GROUP_HIT_MS)) return m;
       return null;
     }
@@ -12269,7 +12273,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       // 3d) Quest-Fortschritt bei Level-Abstand (3.2.37, Nutzer 20.11.): der Opener (>10 Level unter dem Stärksten, braucht die Art) muss
       //     das Ziel zuerst treffen, sonst zählt sein Kill nicht. Alle anderen außer dem Tank warten, bis er es getroffen hat (hits im
       //     Gruppenzustand) – höchstens QUEST_OPEN_WAIT_MS nach seinem Angriff bzw. QUEST_OPEN_HOLD_MS ab Wartebeginn. Selbst angegriffen: wehren.
-      if (opener && !opener.me && !tankG?.me && !info?.self && !(pull.on || pull.refill)) {
+      // Ziele verteilen: nur warten, wenn der Opener genau dieses Ziel angreift – sonst tötet er ohnehin eigene (Review 3.2.37)
+      if (opener && !opener.me && !tankG?.me && !info?.self && !(pull.on || pull.refill) && (!spreadOn() || opener.peer?.targetId === t.id)) {
         if (this.openFreeAt !== riftTankMap.at) { this.openFree = new Map(); this.openFreeAt = riftTankMap.at; }
         const free0 = (this.openFree ||= new Map()).get(t.id) > now - 120000;
         const hit = (opener.peer?.hits || []).includes(t.id);

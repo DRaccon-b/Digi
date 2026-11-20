@@ -12,6 +12,10 @@ Alle Änderungen an DigiBot, neueste zuerst.
   ein Mitläufer noch für eine Kill- oder Sammel-Quest braucht – für alle Quests. Annehmen/Abgeben fremder Quests macht er nicht; er hört
   erst auf, wenn niemand mehr etwas braucht. Ein kurzer Ladebildschirm eines Mitläufers bricht die Hilfe nicht ab.
 - Jedes Fenster meldet dafür Level, benötigte Arten und zuletzt getroffene Monster an die Gruppe.
+- **Review:** Hilfe-Einträge zählen nur fürs Jagen – das eigene Annehmen/Abgeben, Vorbedingungen von Folgequests und Level-Ziele
+  prüfen die eigenen Quests (sonst Annehmen-Schleife bzw. gesperrte Story); Hilfe-Jagden kommen nach den eigenen Aufgaben und
+  verdrängen keine Dailies; mit „Ziele verteilen“ wird nur gewartet, wenn der Niedrigere genau dieses Ziel angreift; im
+  Nachholer-Modus nimmt der Niedrigere nur Monster in seiner Level-Grenze.
 - Tests: riftgrouptest (Q-O, Q-S, Q-H, Q-H0).
 
 ## 3.2.36 – Schwere Fehler aus der Gesamtprüfung behoben
