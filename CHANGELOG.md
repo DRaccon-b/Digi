@@ -2,6 +2,14 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.35 – Mini-Leiste mit Start, Pause, Stopp
+- **Nutzer 20.11.:** Der mittlere der drei kleinen Knöpfe oben (▁) schrumpft das Panel auf eine Mini-Leiste: nur noch **▶ Start/Weiter**,
+  **⏸ Pause** und **■ Stopp**. Nochmal ▁ klicken holt das volle Panel zurück; der Zustand bleibt nach dem Neuladen.
+- **Neu: Pause.** Der Bot bleibt an (Gruppe, Lauf-Zustand bleiben), tut aber nichts: Digimon zurückgerufen, kein Angriff, keine Wege.
+  ▶ macht dort weiter. Start und Stopp heben eine Pause auf.
+- Das eigene Fenster (⧉, immer im Vordergrund) ist in den Reiter Einstellungen umgezogen.
+- Tests: minitest (M1–M3).
+
 ## 3.2.34 – Gruppe: Tank zuerst in allen Modi
 - **Nutzer 19.11.:** Die Kampfrollen (Tank/DD/Heiler, Reiter Gruppe) gelten jetzt in allen Betriebsarten und bei allen Gegnern – nicht nur
   im Digital Rift. Ist ein Tank aktiv (Fenster da, Bot an, gleiche Map und gleicher Kanal), wird das Ziel des Leaders zur Ansage: der

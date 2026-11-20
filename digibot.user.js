@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.34
+// @version      3.2.35
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1117,6 +1117,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     .digibot__btn:hover{background:#34407a}
     .digibot__body{padding:8px 10px 10px;max-height:min(calc(100vh - 110px), 560px);overflow-y:auto}
     .digibot.is-min .digibot__body{display:none}
+    .digibot__minibar{display:none;gap:4px}
+    .digibot.is-mini>:not(.digibot__head){display:none!important}
+    .digibot.is-mini .digibot__head>:not(.digibot__minibar):not([data-act="mini"]):not(span:first-child){display:none!important}
+    .digibot.is-mini .digibot__head{border-bottom:0}
+    .digibot.is-mini .digibot__minibar{display:flex}
+    .digibot.is-mini{width:auto!important;min-width:0;resize:none}
+    .digibot.is-mini.is-running [data-act="mini-play"],.digibot.is-mini.is-paused [data-act="mini-pause"]{outline:1px solid var(--accent,#3fa0ff)}
     .digibot.is-min .digibot__head{border-bottom:0}
     .digibot__sec{margin-bottom:8px}
     .digibot__sec:last-child{margin-bottom:0}
@@ -1148,6 +1155,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     .digibot__tabs button:hover{color:#e8ecf4}
     .digibot__tabs button.on{color:#fff;border-bottom-color:#3fa0ff}
     .digibot.is-min .digibot__tabs{display:none}
+    .digibot.is-mini .digibot__tabs,.digibot.is-mini .digibot__body,.digibot.is-mini .digibot__runbar{display:none!important}
     .digibot [data-page]{display:none}
     .digibot [data-page].on{display:block}
     .digibot__hint{font-size:10px;opacity:.6;margin-top:4px;line-height:1.35}
@@ -1470,7 +1478,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const CFG_KEY = 'digibot.cfg';
   const SKILL_KEYS = [2, 3, 4, 5, 6]; // Tasten, deren Skills automatisch gewirkt werden dürfen
   const cfg = {
-    tamerAuto: true, evoWarp: false, independentGroup: true, width: 320, compact: false, min: false,
+    tamerAuto: true, evoWarp: false, independentGroup: true, width: 320, compact: false, min: false, mini: false,
     tab: 'data', stab: 'food', lvlDiff: 5, radius: 300, grpDist: 110, hpPot: 40, dsPot: 20, tdsPot: 20,
     skills: { 2: true, 3: true, 4: true, 5: true, 6: true },
     heal: {},       // alt (vor 2.12): Heil-Skills je Taste – wird beim ersten Start in skillSets übernommen
@@ -1588,7 +1596,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   };
   // One shared configuration; account identity remains separate for quest progress.
   const CFG_DEFAULTS = JSON.parse(JSON.stringify(cfg));
-  const UI_KEYS = ['tab', 'stab', 'open', 'logFilter', 'width', 'compact', 'min', 'style', 'stylePreset', 'sounds', 'soundOn'];
+  const UI_KEYS = ['tab', 'stab', 'open', 'logFilter', 'width', 'compact', 'min', 'mini', 'style', 'stylePreset', 'sounds', 'soundOn'];
   // Ausweich-, Zeit- und Toleranzwerte (3.2.0): früher feste Konstanten, jetzt aus cfg (Reiter Einstellungen). Die Namen
   // bleiben, damit die Ausweichlogik unverändert lesbar ist; syncRuntimeCfg() zieht sie nach jeder Änderung nach.
   let DODGE_MARGIN = 28, DODGE_EDGE_MARGIN = 8, DODGE_HOLD_RANGE = 220, DODGE_SOON_MS = 1200, DODGE_SOON_PAD = 70;
@@ -1816,11 +1824,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.34'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.35'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
-      <button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉</button>
+      <span class="digibot__minibar"><button class="digibot__btn" data-act="mini-play" title="Start / Weiter">▶</button><button class="digibot__btn" data-act="mini-pause" title="Pause: Bot hält an, ohne zu stoppen – ▶ macht weiter">⏸</button><button class="digibot__btn" data-act="mini-stop" title="Stopp">■</button></span>
+      <button class="digibot__btn" data-act="mini" title="Mini: nur Start, Pause und Stopp (nochmal klicken = volles Panel)">▁</button>
       <button class="digibot__btn" data-act="min" title="Ein-/Ausklappen">–</button>
     </div>
     <div class="digibot__runbar">
@@ -2051,6 +2060,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       </section>
 
       <section data-page="set">
+        <div class="digibot__apcfg"><button class="digibot__btn" data-act="pip" title="In eigenes Fenster (immer im Vordergrund)">⧉ In eigenes Fenster</button></div>
         <div class="digibot__seg six digibot__stabs">${SUB_TABS.map(([k, i, l]) => `<button data-stab="${k}" title="${l}"><i>${i}</i>${l}</button>`).join('')}</div>
         <div data-spage="food">
         ${grp('foodcfg', 'Food-Sorten &amp; Zielmengen', `
@@ -11573,6 +11583,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (starting && !digibotCore.start(digibotManual)) return;
       if (!starting) digibotCore.stop('Bot gestoppt', false);
       this.on = starting;
+      this.paused = false; // Start und Stopp heben die Pause auf (3.2.35)
       if (starting && !digibotChallengeResume) this.startedAt = Date.now(); // Weiterlaufen nach der Kontrolle zählt nicht neu
       if (starting) { digibotNotice?.remove(); digibotNotice=null; }
       clearInterval(this.timer);
@@ -11599,7 +11610,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       schedule();
     },
 
-    tick() { if (!this.on) return; return digibotCore.run('Bot', 50, () => { const before=this.status;try{return this.tickBody();}finally{if(this.status!==before){const st=getStore()?.getState?.();digibotCore.record('Statuswechsel',{action:this.status,map:st?.world?.mapId,channel:st?.world?.channel,target:st?.target?.id,hp:st?.target?.hp});}} }); },
+    // Pause (3.2.35): Bot bleibt an (Gruppe, Lauf-Zustand), tut aber nichts – Digimon zurückrufen, kein Angriff, keine Wege
+    pause(on) {
+      if (!this.on || !!this.paused === !!on) return;
+      this.paused = !!on; this.attackedId = null; this.engage = null;
+      if (on) { try { commands()?.partnerStop?.(); } catch { /* ignore */ } autopilot.nav = null; }
+      this.status = on ? 'Pausiert – ▶ macht weiter' : 'Bot läuft';
+      logEvent('bot', on ? 'Bot pausiert' : 'Bot macht weiter');
+      schedule();
+    },
+    tick() { if (!this.on) return; if (this.paused) { this.status = 'Pausiert – ▶ macht weiter'; return; } return digibotCore.run('Bot', 50, () => { const before=this.status;try{return this.tickBody();}finally{if(this.status!==before){const st=getStore()?.getState?.();digibotCore.record('Statuswechsel',{action:this.status,map:st?.world?.mapId,channel:st?.world?.channel,target:st?.target?.id,hp:st?.target?.hp});}} }); },
     tickBody() {
       const st = getStore()?.getState?.();
       const now = Date.now();
@@ -12277,6 +12297,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
 
     const run = panelQ('[data-act="bot"]');
     run.classList.toggle('on', bot.on);
+    panel.classList.toggle('is-running', bot.on && !bot.paused); panel.classList.toggle('is-paused', !!(bot.on && bot.paused)); // Mini-Leiste (3.2.35)
     const mode = modeOf();
     run.textContent = `${bot.on ? '■ Stopp' : '▶ Start'} · ${mode === 'farm' ? (cfg.farmMode === 'named' ? 'Named-Elite-Runde' : cfg.farmMode === 'cards' ? 'Kartenrotation' : cfg.farmMode === 'deva' ? 'Deva-Runde' : 'Boss-Rotation') : MODES[mode]}`;
     if(digibotAccountQueue.active)run.textContent='■ Quest-Runde stoppen';
@@ -12958,6 +12979,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     document.body.append(panel);
     if (cfg.min) { panel.classList.add('is-min'); panelQ('[data-act="min"]').textContent = '+'; } // bleibt nach Neuladen eingeklappt
     if (cfg.compact) panel.classList.add('is-compact');
+    if (cfg.mini) panel.classList.add('is-mini'); // Mini-Leiste bleibt nach Neuladen (3.2.35)
     if (cfg.width >= 300) panel.style.width = cfg.width + 'px';
     try { // Breite (am rechten unteren Rand ziehbar) merken
       let rt = 0;
@@ -13038,6 +13060,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (act === 'preset-load') {digibotPresetLoad();return;}
       if (act === 'digibot-passwords') {digibotClearLegacyPasswords();return;}
       if (act === 'bot') bot.toggle();
+      // Mini-Leiste (3.2.35, Nutzer 20.11.): mittlerer Knopf oben – nur ▶ Start/Weiter, ⏸ Pause, ■ Stopp
+      if (act === 'mini') { cfg.mini = panel.classList.toggle('is-mini'); saveCfg(); }
+      if (act === 'mini-play') { if (!bot.on) bot.toggle(); else if (bot.paused) bot.pause(false); }
+      if (act === 'mini-pause' && bot.on && !bot.paused) bot.pause(true);
+      if (act === 'mini-stop' && bot.on) bot.toggle();
       if (act === 'grp-desktop'){digibotDesktopStart();return;}
       if (act === 'grp-desktop-stop'){digibotDesktopCancel('Desktopstart manuell abgebrochen',true);digibotDesktopTick();return;}
       if (act === 'grp-desktop-resume'){digibotDesktopResume();return;}
