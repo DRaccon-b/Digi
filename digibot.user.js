@@ -7105,6 +7105,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   // Keep a successful native movement order intact. Guarded routes keep two
   // verified segments ready and hand off early only across a safe shortcut.
+  // walkTo zu (x,y) steht am Endpunkt vor gesperrtem Ziel – näher geht es nicht (Review 20.11., 3.2.36)
+  function walkEnded(x,y,me){const n=autopilot.nav;return !!n?.endAt&&!!n.wp&&!!me&&Math.hypot(n.tx-x,n.ty-y)<=24&&Math.hypot(me.x-n.wp.x,me.y-n.wp.y)<12;}
   const LONG_WALK = 260; // weiter als das: über die Wegfindung laufen (Spiegeln zum Leader) – fehlte in CDigi, Spiegeln brach ab
   function walkTo(st,x,y,now,options={}) {
     const me=controlled(st);if(!me)return Infinity;
@@ -7114,10 +7116,18 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       nav=autopilot.nav={context,tx:x,ty:y,nearestSafe:!!options.nearestSafe,progressAt:now,lastPos:{x:me.x,y:me.y},tries:0};
       autopilot.route=null;
     }
-    if(nav.lastCall&&now-nav.lastCall>3000){nav.progressAt=now;nav.lastPos={x:me.x,y:me.y};}
+    if(nav.lastCall&&now-nav.lastCall>3000){nav.progressAt=now;nav.lastPos={x:me.x,y:me.y};nav.endAt=0;}
     nav.lastCall=now;
     if(Math.hypot(me.x-nav.lastPos.x,me.y-nav.lastPos.y)>=4){nav.lastPos={x:me.x,y:me.y};nav.progressAt=now;}
     const arrived=nav.wp&&!autopilot.route?.plan?.next&&!autopilot.route?.plan?.blockedAhead&&Math.hypot(me.x-nav.wp.x,me.y-nav.wp.y)<12;
+    // Ziel auf gesperrtem Boden (NPC hinter Theke, Zone auf Fels): gridRoute endet am nächsten freien Feld bis 96 px
+    // davor. Das ist „angekommen“, aber nicht am Ziel – nav.endAt merkt es sich (walkEnded), damit Aufrufer dort
+    // ansprechen/warten. Ruft ein Aufrufer trotzdem weiter, gilt es nach NAV_STUCK_MS als 'stuck', statt endlos
+    // „laufe zu X“. nearestSafe (Ausweichen) will bewusst den nächsten sicheren Platz (Review 20.11., 3.2.36)
+    const endPt=autopilot.route?.destination;
+    const endGap=arrived&&!nav.held&&!nav.nearestSafe&&d>24&&!!endPt&&Math.hypot(nav.wp.x-endPt.x,nav.wp.y-endPt.y)<12;
+    nav.endAt=endGap?(nav.endAt||now):0;
+    if(endGap&&now-nav.endAt>NAV_STUCK_MS)return 'stuck';
     if(!arrived&&now-nav.progressAt>NAV_STUCK_MS)return 'stuck';
     const idle=!arrived&&now-nav.progressAt>=WALK_RETRY_MS;
     if(idle&&now-(nav.replannedAt||0)>=WALK_RETRY_MS){nav.fallback=true;nav.replannedAt=now;autopilot.route=null;}
@@ -7614,7 +7624,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (t.loc.x !== undefined) { // Ziel ist eine Zone auf der Map: hineinlaufen
         const mePos = controlled(st);
         const dz = mePos ? Math.hypot(mePos.x - t.loc.x, mePos.y - t.loc.y) : 0;
-        if (dz > 48) {
+        if (dz > 48 && !walkEnded(t.loc.x, t.loc.y, mePos)) { // Zone auf gesperrtem Boden: nächstes freies Feld zählt (Review 20.11., 3.2.36)
           autopilot.arrivedAt = 0;
           return walkTo(st, t.loc.x, t.loc.y, now) === 'stuck' ? fail('Zone nicht erreichbar') : `${t.label} · laufe in die Zone (${Math.round(dz)} px)`;
         }
@@ -7646,7 +7656,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       window.dmo?.net?.state?.entities?.forEach((e) => { if (e.kind === KIND.Npc && e.defId === t.npcId) npc = e; });
       const pos = npc || t.loc;
       const d = me ? Math.hypot(me.x - pos.x, me.y - pos.y) : Infinity;
-      if (d > NPC_TALK_DIST) {
+      // NPC hinter Theke/auf gesperrtem Boden: am nächsten freien Feld trotzdem ansprechen, talkTries begrenzt (Review 20.11., 3.2.36)
+      if (d > NPC_TALK_DIST && !(npc && walkEnded(pos.x, pos.y + 12, me))) {
         const r = walkTo(st, pos.x, pos.y + 12, now);
         if (r === 'stuck') return fail(`${name} nicht erreichbar`);
         if (!npc && d < 80) { autopilot.arrivedAt ||= now; if (now - autopilot.arrivedAt > 6000) return fail(`${name} ist nicht da`); }
@@ -7679,7 +7690,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       return `${t.label} · laufe zu ${t.names} (${Math.round(prey.d)} px)`;
     }
     const dz = me ? Math.hypot(me.x - t.loc.x, me.y - t.loc.y) : Infinity;
-    if (dz > 48) {
+    if (dz > 48 && !walkEnded(t.loc.x, t.loc.y, me)) { // Gebiet-Mitte auf Fels/Wasser: am nächsten freien Feld warten (Review 20.11., 3.2.36)
       const r = walkTo(st, t.loc.x, t.loc.y, now);
       return r === 'stuck' ? digibotHuntPathFailure(t,now) : `${t.label} · laufe ins Jagdgebiet (${Math.round(dz)} px)`;
     }
