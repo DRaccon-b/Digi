@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.36
+// @version      3.2.37
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1526,6 +1526,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     farmMode: 'boss',     // 'boss' = Boss-Rotation, 'named' = Named-Elite-Runde (Map für Map), 'cards' = Kartenrotation (3.1.40), 'deva' = Deva-Runde (3.2.18)
     cardSel: [],          // Kartenrotation: ausgewählte Common-/Rare-Karten in Prioritäts-Reihenfolge (Item-IDs)
     cardNamed: [],        // Kartenrotation: Karten, deren Named-Gegner mitgenommen werden dürfen (standardmäßig keiner)
+    questGroupAll: true,  // Quest-Autopilot in der Gruppe (3.2.37): wer fertig ist, jagt die offenen Kill-/Sammel-Ziele der anderen mit
     cardGroupAll: false,  // Kartenrotation in der Gruppe (3.2.33): Leader farmt weiter, bis auch alle Mitläufer ihre ausgewählten Karten voll haben
     cardForm: '',         // Kartenrotation: Digitation ('' = automatisch die beste für die Karten, sonst Form wie bei der Map-Regel) (3.2.3)
     dungeon: false,       // Dungeon-Modus (Kera): betreten, Räume räumen, Boss, raus
@@ -1794,6 +1795,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     handled: new Set(), done: [], cur: null, // Mitläufer: abgearbeitete Gespräche
     seen: [],                    // Mitläufer: gesehen, aber zurückgestellt (NPC auf anderer Map, Leader noch hier)
     noFight: false, invited: new Map(), worldAt: 0, msg: '', blockSince: new Map(),
+    hits: new Map(),             // Monster, denen ich zuletzt Schaden gemacht habe (Quest-Fortschritt bei Level-Abstand, 3.2.37)
     login: { at: 0, tries: 0, outAt: 0, enterAt: 0, msg: '' },
     slot() { const v = ss.get('digibot.slot'); return v === null ? -1 : Number(v); },
     active() { return ss.get('digibot.group') === '1' && this.slot() >= 0 && this.slot() < ACC_MAX; },
@@ -1834,7 +1836,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.36'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.37'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2049,6 +2051,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           <button data-gmode="follow" title="Die Mitläufer fahren ihren eigenen Bot und richten sich nach dem Leader: gleiche Map und Kanal, seine Betriebsart (Quests, Bosse, Dungeon) und seine Einstellungen. ▶ Start und ■ Stopp im Leader-Fenster gelten für alle.">🤖 Folgen</button><button data-gmode="move" title="Du spielst den Leader selbst – die anderen Fenster (Bot aus) laufen ihm nach, auch über Maps und Kanäle.">👣 Spiegeln</button><button data-gmode="both" title="Wie Spiegeln, und die anderen greifen das Ziel des Leaders mit an – mit ihren Skills, Tränken und Ausweichen.">⚔️ Angreifen</button>
         </div>
         <label class="digibot__skill digibot__chk" title="Jedes Gruppenmitglied greift ein anderes Quest-Monster an (statt alle dasselbe). Ist keins mehr frei, hilft man mit. Bosse greifen alle gemeinsam an. Nur beim Folgen, nicht in der Boss-Rotation."><input type="checkbox" data-accspread ${accounts.spread ? 'checked' : ''}><span>🎯 Ziele verteilen: jeder ein anderes Monster</span><em class="digibot__offnote" data-f="spreadoff"></em></label>
+        ${check('questGroupAll', '🤝 Weiterhelfen, bis alle fertig sind', 'Quest-Autopilot in der Gruppe: Hat der Leader seine Quests (z. B. alle Dailies) fertig, jagt er die Monster weiter, die ein Mitläufer noch für eine Kill- oder Sammel-Quest braucht – bis alle fertig sind. Annehmen/Abgeben dieser Quests macht jeder selbst. Liegt ein Mitglied mehr als 10 Level unter dem Stärksten, schlägt es bei seinen Quest-Monstern immer zuerst zu (sonst zählt der Kill im Spiel nicht).')}
         <label class="digibot__skill digibot__chk" title="Der Leader kümmert sich nur um die Quests der Mitläufer (seine eigenen sind egal) und jagt, was ihnen fehlt. Die Mitläufer bleiben stehen und wehren nur Angreifer ab. Abgeben/Annehmen macht man bei ihnen selbst. Nur beim Folgen im Autopilot."><input type="checkbox" data-accserve ${accounts.serve ? 'checked' : ''}><span>🤝 Leader erledigt die Quests der Mitläufer</span></label>
         <label class="digibot__skill digibot__chk" title="Nur zusammen mit 🤝: Der Leader erledigt zuerst die Quests der Mitläufer, die in der Story am weitesten zurück sind (bei Gleichstand alle davon). Diese nehmen nur ihre Story-Quests selbst an, sprechen, reisen und geben ab – ohne unterwegs zu kämpfen – und warten dann am Abgabe-NPC, bis der Leader die Monster erledigt hat. Nebenquests nehmen sie nicht an (Dailies nur per Board, wenn „Dailies“ an ist), der Leader jagt dafür auch nichts. Fertige Nebenquests geben sie nur ab, wenn an der Story gerade nichts zu tun ist (z. B. Level-Sperre). Wer weiter ist, wartet, bis er eingeholt ist, und macht ab dann mit."><input type="checkbox" data-accserveorder ${accounts.serveOrder ? 'checked' : ''}><span>📜 Hinterste zuerst: Nachholer nehmen selbst an und geben ab</span></label>
         <div class="digibot__title">Alle Fenster</div>
@@ -5329,7 +5332,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   // Was ein anderes Fenster sofort wissen muss (Ziel, Aufgabe, Gespräche, Kampf, Map, Quests) – Position nicht
   const groupSig = (m) => JSON.stringify([m.targetId, m.task?.key, m.talks?.[m.talks.length - 1]?.key, m.busy, m.done?.[m.done.length - 1],
-    m.fight, m.mapId, m.channel, m.bot, m.noFight, m.inWorld, m.quests, m.objective, m.reservation,m.tamer,m.partyId, m.kohAt != null && m.kohAt <= Date.now(), m.davis, m.davisAt, m.kohMoreOff, Object.keys(m.gsk || {}).sort().join(), !!m.pulling, m.prog, (m.catchup || []).join(), m.callId, !!m.riftBusy, (m.cardNeed || []).join()]);
+    m.fight, m.mapId, m.channel, m.bot, m.noFight, m.inWorld, m.quests, m.objective, m.reservation,m.tamer,m.partyId, m.kohAt != null && m.kohAt <= Date.now(), m.davis, m.davisAt, m.kohMoreOff, Object.keys(m.gsk || {}).sort().join(), !!m.pulling, m.prog, (m.catchup || []).join(), m.callId, !!m.riftBusy, (m.cardNeed || []).join(), (m.hits || []).join(), (m.need || []).join()]);
   function groupPush(force = false) {
     if (!group.active() || !group.bus) return;
     const st = getStore()?.getState?.(), now = Date.now();
@@ -5376,6 +5379,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       pulling: group.role() === 'leader' && pull.on && Date.now() - pull.startAt <= PULL_MAX_MS, // Pull-Modus: ich sammle gerade Monster – Mitläufer übernehmen meine Ziele nicht
       callId: group.role() === 'leader' && bot.on ? group.call?.id ?? null : null, // Ansage mit Tank (3.2.32); nur bei laufendem Bot (Review 3.2.34)
       cardNeed: cfg.farm && cfg.farmMode === 'cards' && st?.me ? cardOpenSel(st, true).map((d) => d.id) : null, // eigene offene Karten (3.2.33)
+      lvl: me?.partner?.level ?? null, // Quest-Fortschritt hängt am Level-Abstand zum Töter (3.2.37)
+      need: cfg.autopilot && st?.me ? questNeedSpecies(st) : null, // Arten, die ich für offene Kill-/Sammel-Ziele brauche (3.2.37)
+      hits: [...group.hits].filter(([, t0]) => now - t0 < GROUP_HIT_MS).map(([id]) => id).slice(-20), // zuletzt getroffen (3.2.37)
       riftBusy: !!group.riftBusy && group.role() === 'follower', // Mitläufer kauft gerade bei Clockmon ein – Leader wartet kurz (Review 3.2.32)
     };
   }
@@ -5552,9 +5558,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (group.role() !== 'leader') return own;
     if (serveOn()) return serveQuests();
     const mem = groupMembers().filter((m) => m.inWorld && m.quests);
-    if (!mem.length) return own;
+    const help = questHelpQuests(own); // Weiterhelfen, bis alle fertig sind (3.2.37)
+    if (!mem.length) return help ? { ...own, ...help } : own;
     const C = content();
-    let out = null;
+    let out = help ? { ...own, ...help } : null;
     for (const [id, q] of Object.entries(own)) {
       if (q.state !== 1 && q.state !== 2) continue;
       const def = questDef(C, id), ph = questPhase(def, q);
@@ -5580,6 +5587,84 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (open || blocked) (out ||= { ...own })[id] = { ...q, state: 1, counters: phaseCounters(def, q, vals), group: true };
     }
     return out || own;
+  }
+  // Weiterhelfen, bis alle fertig sind (3.2.37, Nutzer 20.11.: „er soll weiterhelfen“, alle Quests): offene Kill-/Sammel-Ziele der
+  // Mitläufer, deren Quest ich selbst nicht (mehr) offen habe, als Hilfe-Einträge in die Planung – nur jagen (Gespräche/Abgaben dieser
+  // Quests zählen als erledigt, nie state 2). Kurze Merkliste, damit ein Ladebildschirm die Hilfe nicht abbricht.
+  const QUEST_HELP_MEM_MS = 60000;
+  function questHelpQuests(own) {
+    if (cfg.questGroupAll === false || group.role() !== 'leader') return null;
+    const C = content(), now = Date.now(); if (!C) return null;
+    const memo = (group.helpMem ||= new Map());
+    for (const m of groupMembers()) if (m.inWorld && m.quests) memo.set(m.slot, { quests: m.quests, at: now });
+    let out = null;
+    for (const [slot, r] of memo) {
+      if (now - r.at > QUEST_HELP_MEM_MS || !accounts.list[slot]?.on) { memo.delete(slot); continue; }
+      for (const [id, q] of Object.entries(r.quests || {})) {
+        if (q?.state !== 1 || own[id]?.state === 1 || own[id]?.state === 2 || cfg.questOff?.[id]) continue;
+        const def = questDef(C, id); if (!def) continue;
+        const ph = questPhase(def, q);
+        let open = false;
+        const vals = ph.objs.map((o, i) => {
+          if (o.kind !== 'kill' && o.kind !== 'collect') return o.count || 1;
+          const v = questCount(def, q, i); if (v < (o.count || 1)) open = true; return v;
+        });
+        if (!open) continue;
+        const cur = out?.[id];
+        if (cur && questPhase(def, cur).off === ph.off) { const a = ph.objs.map((o, i) => questCount(def, cur, i)); out[id] = { state: 1, counters: phaseCounters(def, q, vals.map((v, i) => Math.min(v, a[i]))), help: true }; }
+        else if (!cur) (out ||= {})[id] = { state: 1, counters: phaseCounters(def, q, vals), help: true };
+      }
+    }
+    return out;
+  }
+  // ---------- Quest-Fortschritt bei Level-Abstand (3.2.37, Nutzer 20.11.) ----------
+  // Liegt ein Digimon mehr als QUEST_GAP Level unter dem Töter, zählt der Kill für seine Quest nur, wenn es das Monster vorher selbst
+  // getroffen hat. Deshalb schlägt in der Gruppe der Niedrigere („Opener“) zuerst zu; die anderen warten (Takt-Block 3d).
+  const QUEST_GAP = 10, GROUP_HIT_MS = 10000, QUEST_OPEN_WAIT_MS = 4000, QUEST_OPEN_HOLD_MS = 10000, QUEST_OPEN_NEAR = 600;
+  const questDropMemo = { C: null, by: new Map() };
+  function questDropSpecies(C, itemId) { // Arten, die ein Sammel-Item droppen (Feld-Spawns und Digimon-Drops)
+    if (questDropMemo.C !== C) { questDropMemo.C = C; questDropMemo.by = new Map(); }
+    if (questDropMemo.by.has(itemId)) return questDropMemo.by.get(itemId);
+    const out = new Set();
+    for (const sp of Object.values(C?.spawns || {})) for (const z of Object.values(sp?.zones || {})) for (const e of z?.entries || []) if ((e?.drops || []).some((d) => d?.itemId === itemId)) out.add(e.species);
+    for (const [id, d] of Object.entries(C?.digimon || {})) if ([...(d?.drops || []), ...(d?.mob?.drops || [])].some((x) => x?.itemId === itemId)) out.add(id);
+    questDropMemo.by.set(itemId, out);
+    return out;
+  }
+  // eigene offene Kill-/Sammel-Ziele -> Arten
+  function questNeedSpecies(st) {
+    const C = content(), out = new Set();
+    if (!C) return [];
+    for (const [id, q] of Object.entries(st?.me?.quests || {})) {
+      if (q?.state !== 1 || cfg.questOff?.[id]) continue;
+      const def = questDef(C, id); if (!def) continue;
+      questPhase(def, q).objs.forEach((o, i) => {
+        if ((o.kind !== 'kill' && o.kind !== 'collect') || questCount(def, q, i) >= (o.count || 1)) return;
+        for (const sp of [].concat(o.species || [])) out.add(sp);
+        if (o.kind === 'collect' && o.itemId) for (const sp of questDropSpecies(C, o.itemId)) out.add(sp);
+      });
+    }
+    return [...out];
+  }
+  // Wer muss bei diesem Ziel zuerst zuschlagen? Mitglied (oder ich), das die Art braucht und mehr als QUEST_GAP Level unter dem
+  // stärksten Mitglied in der Nähe liegt; bei mehreren das niedrigste. Nur im Quest-Autopilot. -> { slot, me, ents, peer } | null
+  function questOpener(st, t, now = Date.now()) {
+    if (!group.active() || accounts.mirror || !cfg.autopilot || !t?.id) return null;
+    const ents = window.dmo?.net?.state?.entities, e = ents?.get?.(t.id);
+    if (!e || e.kind !== KIND.Mob) return null;
+    const mapId = st.world?.mapId, ch = st.world?.channel ?? 1, near = (x, y) => Number.isFinite(x) && Math.hypot(x - e.x, y - e.y) <= QUEST_OPEN_NEAR;
+    const me = controlled(st), myLv = Number(st.me?.partner?.level);
+    const list = [];
+    if (Number.isFinite(myLv) && me && near(me.x, me.y)) list.push({ slot: group.slot(), me: true, lvl: myLv, need: questNeedSpecies(st), ents: [st.me?.tamerEntityId, st.me?.partner?.entityId].filter(Boolean), peer: null });
+    for (const [slot, p] of group.peers) {
+      if (!fresh(p, now) || !p.bot || !p.inWorld || p.mapId !== mapId || (p.channel ?? 1) !== ch || !Number.isFinite(Number(p.lvl)) || !accounts.list[slot]?.on) continue;
+      const a = riftAnchor(p); if (!a || !near(a.x, a.y)) continue;
+      list.push({ slot, me: false, lvl: Number(p.lvl), need: Array.isArray(p.need) ? p.need : [], ents: Array.isArray(p.ents) ? p.ents : [], peer: p });
+    }
+    if (list.length < 2) return null;
+    const top = Math.max(...list.map((x) => x.lvl));
+    const cand = list.filter((x) => top - x.lvl > QUEST_GAP && x.need.includes(e.defId)).sort((a, b) => a.lvl - b.lvl || a.slot - b.slot);
+    return cand[0] || null;
   }
   // Leader: Gespräch merken, damit die Mitläufer es nachmachen (Annehmen, Abgeben, Sprechen, Dailies)
   function groupNoteTalk(t, now) {
@@ -6775,8 +6860,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       for (const o of questPhase(questDef(C, id), q).objs) if (o.kind === 'level' && o.level > lvl) grindTo = Math.min(grindTo, o.level);
     }
     for (const def of Object.values(C.quests || {})) { // annehmbare Quests (neu oder tägliche, heute wieder offen)
-      const fresh = (quests[def.id]?.state ?? 0) === 0;
-      if (!fresh && !(cfg.apRepeat && repeatAvailable(def, quests[def.id]))) continue;
+      const qa = quests[def.id]?.help ? me.quests?.[def.id] : quests[def.id]; // Hilfe-Eintrag (3.2.37) verhindert das eigene Annehmen nicht
+      const fresh = (qa?.state ?? 0) === 0;
+      if (!fresh && !(cfg.apRepeat && repeatAvailable(def, qa))) continue;
       if (cfg.questOff[def.id] || def.autoAssign || !def.giver) continue;
       if (questSeries(def.id) > worldSeries(st)) continue; // andere Serie: bietet das Spiel hier nicht an
       if (!prereqOk(def, quests)) continue;
@@ -10931,7 +11017,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     if (att.length) return att[0];
     if (resting) return null;
-    if (group.role() === 'follower' && groupLeader()?.serve) return null; // Leader erledigt meine Quests: stehen bleiben
+    if (group.role() === 'follower' && groupLeader()?.serve) { // Leader erledigt meine Quests: stehen bleiben …
+      // … außer ich muss das angesagte Ziel zuerst treffen, damit mein Kill zählt (>10 Level unter dem Leader, 3.2.37)
+      const L = groupLeader(), m = L?.callId ? sc.mobs.find((x) => x.id === L.callId && !x.banned) : null, st0 = getStore()?.getState?.();
+      if (m && st0 && questOpener(st0, m)?.me && !(group.hits.get(m.id) > Date.now() - GROUP_HIT_MS)) return m;
+      return null;
+    }
     if (group.role() === 'follower' && leaderPulling()) return null; // Leader sammelt (Pull-Modus): nichts selbst anspielen, folgen
     const spread = spreadOn();
     const assist = group.role() === 'follower' && !spread ? groupAssist(sc) : null; // Mitläufer: Ziel des Leaders
@@ -11025,6 +11116,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // – live lag die Schätzung für Shurimon gegen +11-Gegner 25 % zu hoch (4 015 statt 3 066/s)
   const dpsMeter = { mobs: new Map(), by: new Map() }; // Art -> { dmg, ms, n }
   function dpsNote(ev, mine) {
+    if (ev.t === 'dmg' && mine.has(ev.src) && ev.dst) { group.hits.set(ev.dst, Date.now()); if (group.hits.size > 60) group.hits.delete(group.hits.keys().next().value); } // 3.2.37
     if (ev.t === 'dmg' && mine.has(ev.src)) { const r = dpsMeter.mobs.get(ev.dst) || { first: Date.now(), dmg: 0 }; r.dmg += ev.amount || 0; dpsMeter.mobs.set(ev.dst, r); if (dpsMeter.mobs.size > 100) dpsMeter.mobs.delete(dpsMeter.mobs.keys().next().value); }
     else if (ev.t === 'die' && dpsMeter.mobs.has(ev.id)) {
       const r = dpsMeter.mobs.get(ev.id), ms = Date.now() - r.first; dpsMeter.mobs.delete(ev.id);
@@ -12145,8 +12237,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       //     ein Ziel erst an, wenn es schon jemanden aus der Gruppe angreift (meist den Tank). Greift es mich selbst an, sofort wehren.
       //     Sicherheitsnetz: RIFT_TANK_WAIT_MS nach dem Angriff des Tanks trotzdem – nichts bleibt hängen.
       const tankG = riftTank(st, now);
-      // Leader: sein Ziel ist die Ansage für die Gruppe (in allen Modi; im Rift setzt riftGroupFocus sie schon) – 3.2.34
-      if (group.role() === 'leader') { if (tankG) { if (group.call?.id !== t.id) group.call = { id: t.id, at: now }; } else group.call = null; }
+      const opener = questOpener(st, t, now); // Quest-Autopilot: wer >10 Level drunter liegt und die Art braucht, schlägt zuerst zu (3.2.37)
+      // Leader: sein Ziel ist die Ansage für die Gruppe (in allen Modi; im Rift setzt riftGroupFocus sie schon) – 3.2.34; auch für den Opener
+      if (group.role() === 'leader') { if (tankG || opener) { if (group.call?.id !== t.id) group.call = { id: t.id, at: now }; } else group.call = null; }
       // keine Sperre (Review 3.2.34): beim Sammeln (Pull – der Tank spielt diese Ziele nie an), im Nachholer-Modus (Tank steht still),
       // in Dungeons/Raids außer dem Rift (Herde, Fresser, Greifarme, Brechbares greifen nie die Gruppe an – Mechaniken scheiterten)
       // und bei einem Ziel, bei dem die Sperre schon einmal gefallen ist (Weltboss: nach jedem Ausweichen sonst wieder 4–8 s)
@@ -12154,7 +12247,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const lockOff = pull.on || pull.refill || L0?.pulling || L0?.serve || serveOn() || ((cfg.dungeon || dgRaid(mapT) || plainRaid(mapT)) && !riftMap(mapT));
       if (this.tankFreeAt !== riftTankMap.at) { this.tankFree = new Map(); this.tankFreeAt = riftTankMap.at; } // neue Map/neuer Lauf: vergessen
       const freed = (this.tankFree ||= new Map()).get(t.id) > now - 120000;
-      if (tankG && !tankG.me && !info?.self && !lockOff && !freed) {
+      if (tankG && !tankG.me && !info?.self && !lockOff && !freed && !opener?.me) { // der Opener darf vor dem Tank zuschlagen (3.2.37)
         const tgt = window.dmo?.net?.state?.entities?.get?.(t.id)?.targetId || '';
         const grp = groupEntityIds();
         const engaged = !!tgt && (tankG.ents.includes(tgt) || grp.has(tgt));
@@ -12172,6 +12265,28 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         }
         this.tankFree.set(t.id, now); // freigegeben: für dieses Ziel keine neue Sperre (Review 3.2.34)
         if (this.tankFree.size > 200) this.tankFree.delete(this.tankFree.keys().next().value);
+      }
+      // 3d) Quest-Fortschritt bei Level-Abstand (3.2.37, Nutzer 20.11.): der Opener (>10 Level unter dem Stärksten, braucht die Art) muss
+      //     das Ziel zuerst treffen, sonst zählt sein Kill nicht. Alle anderen außer dem Tank warten, bis er es getroffen hat (hits im
+      //     Gruppenzustand) – höchstens QUEST_OPEN_WAIT_MS nach seinem Angriff bzw. QUEST_OPEN_HOLD_MS ab Wartebeginn. Selbst angegriffen: wehren.
+      if (opener && !opener.me && !tankG?.me && !info?.self && !(pull.on || pull.refill)) {
+        if (this.openFreeAt !== riftTankMap.at) { this.openFree = new Map(); this.openFreeAt = riftTankMap.at; }
+        const free0 = (this.openFree ||= new Map()).get(t.id) > now - 120000;
+        const hit = (opener.peer?.hits || []).includes(t.id);
+        const on = opener.peer?.targetId === t.id || window.dmo?.net?.state?.entities?.get?.(opener.ents[1])?.targetId === t.id;
+        if (!free0 && !hit) {
+          if (!this.openWait || this.openWait.id !== t.id || now - (this.openWait.seen || 0) > 3000) this.openWait = { id: t.id, since: 0, first: now };
+          this.openWait.seen = now;
+          if (on && !this.openWait.since) this.openWait.since = now;
+          const over = (this.openWait.since && now - this.openWait.since >= QUEST_OPEN_WAIT_MS) || now - this.openWait.first >= QUEST_OPEN_HOLD_MS;
+          if (!over) {
+            this.attackedId = null; this.engage = null;
+            this.status = `Gruppe: warte, bis ${opener.peer?.name || 'der Niedrigere'} ${t.name || 'das Ziel'} getroffen hat (Quest zählt sonst nicht)`;
+            return;
+          }
+        }
+        this.openFree.set(t.id, now);
+        if (this.openFree.size > 200) this.openFree.delete(this.openFree.keys().next().value);
       }
 
       // Rift: nur Guardian/markierte Alphas (Boss-Flag) per Anmarsch – normale Gegner greift die 1 direkt an (live 16.11.: lief

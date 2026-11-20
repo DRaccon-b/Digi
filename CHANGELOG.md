@@ -2,6 +2,18 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.37 – Gruppe: Quests gemeinsam fertig machen, Niedrigerer schlägt zuerst zu
+- **Nutzer 20.11.:** Liegt ein Digimon mehr als 10 Level unter dem, der das Monster tötet, bekommt es im Spiel keinen Quest-Fortschritt –
+  außer es hat das Monster vorher selbst getroffen. Jetzt schlägt im Quest-Autopiloten das Gruppenmitglied, das die Art für eine
+  offene Kill-/Sammel-Quest braucht und mehr als 10 Level unter dem Stärksten in der Nähe liegt, **zuerst** zu (auch vor dem Tank und im
+  Modus „🤝 Leader erledigt die Quests der Mitläufer“). Die anderen warten, bis es getroffen hat – höchstens 4 s nach seinem Angriff bzw.
+  10 s ab Wartebeginn. Wer selbst angegriffen wird, wehrt sich sofort.
+- **Weiterhelfen, bis alle fertig sind** (Reiter Gruppe, Standard an): Hat der Leader seine Quests fertig, jagt er die Monster weiter, die
+  ein Mitläufer noch für eine Kill- oder Sammel-Quest braucht – für alle Quests. Annehmen/Abgeben fremder Quests macht er nicht; er hört
+  erst auf, wenn niemand mehr etwas braucht. Ein kurzer Ladebildschirm eines Mitläufers bricht die Hilfe nicht ab.
+- Jedes Fenster meldet dafür Level, benötigte Arten und zuletzt getroffene Monster an die Gruppe.
+- Tests: riftgrouptest (Q-O, Q-S, Q-H, Q-H0).
+
 ## 3.2.36 – Schwere Fehler aus der Gesamtprüfung behoben
 Aus dem Prüfbericht vom 20.11. (docs/review-2026-11-20.md), je mit eigenem Test:
 - **Stillstand vor dem Ziel:** Eine ferne Zone (Falle, Markierung, fremder Warnkreis) löste einen Anmarsch aus, und der Bot wartete für

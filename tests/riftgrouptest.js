@@ -10,6 +10,9 @@
 //  gone   G-T: Tank-Fenster weg -> keine Sperre mehr.
 //  notank G-0: ohne Tank greift der Leader wie bisher sofort an.
 //  heal   G-H: Heiler steht während der Sperre ~90 px hinter dem Tank (vom Ziel abgewandt).
+// 3.2.37 Quest-Autopilot (Testwelt vergibt Fortschritt nach der Spielregel: >10 Level unter dem Töter nur mit eigenem Treffer):
+//  opener Q-O: Lv 100 neben Lv 130 trifft zuerst, sein Kill zählt · serveop Q-S: dasselbe im Nachholer-Modus
+//  help Q-H: Leader fertig, Mitläufer nicht -> Leader jagt weiter · helpoff Q-H0: Option aus -> Leader stoppt wie bisher
 // Review 3.2.32:
 //  rest   G-R: Tank mit 40 % HP – kein neues ruhiges Ziel, Erholpause.   left G-L: Leader draußen -> Mitläufer geht nach ~10 s hinaus.
 //  mender G-M: Pack greift den Tank an, daneben ein Mender – keine Endlos-Sperre, Leader/DD helfen.
@@ -30,20 +33,20 @@ const CELLS = [{ id: 'c0_1', role: 'camp', rect: { x: 100, y: 100, w: 200, h: 20
 
 // Gemeinsame Rift-Welt für n Bot-Fenster (Slot 0 = Leader). fights: Kampfrolle je Slot. mobs(floor): Gegner der Etage.
 // hp: Partner-HP je Slot · effects: Effekte je Gegner (z. B. Mender) · bread: Slots mit Guilmon Bread auf F1 · enterOnce: Leader darf nur einmal betreten
-function groupWorld({ fights, mobs = () => [], aggro = 'first', cfg = {}, hp = [], effects = {}, bread = [], enterOnce = false, field = false }) {
+function groupWorld({ fights, mobs = () => [], aggro = 'first', cfg = {}, hp = [], effects = {}, bread = [], enterOnce = false, field = false, lv = [], questDefs = {}, myQuests = [], acc = {} }) {
   const n = fights.length;
   const G = { rs: { run: null, patch: null, result: null, floorUi: { going: null } }, floor: 0, mapOf: [], mobs: new Map(), hidden: new Map(), players: new Map(), wins: [] };
-  const accounts = { leader: 0, popup: true, mirror: false, spread: false, dungeon: true, list: fights.map((f, i) => ({ on: true, user: 'u' + i, char: 'Char' + i, fight: f })) };
+  const accounts = { leader: 0, popup: true, mirror: false, spread: false, dungeon: true, ...acc, list: fights.map((f, i) => ({ on: true, user: 'u' + i, char: 'Char' + i, fight: f })) };
   const party = { id: 'P', members: fights.map((_, i) => ({ charId: 'c' + i, name: 'Char' + i, partnerEntityId: 'p:' + i })) };
   const content = {
-    digimon: { bearmon_rift: { name: 'Bearmon' } }, items: {}, npcs: { rift_warden: { name: 'Clockmon, Rift Warden' } }, quests: {}, dailyById: {},
+    digimon: { bearmon_rift: { name: 'Bearmon' } }, items: {}, npcs: { rift_warden: { name: 'Clockmon, Rift Warden' } }, quests: { ...questDefs }, dailyById: {},
     maps: { [PV]: { id: PV, name: 'Primary Village', safe: !field }, [RS]: { id: RS, name: 'Digital Rift', levelRange: [130, 130] } },
-    spawns: { [PV]: { zones: {} }, [RS]: { zones: {}, raid: { id: 'rift', gate: { mapId: PV, portal: 'rift' }, party: { min: 1, max: 5, minLevel: 1 }, deathLimit: 1000, landing: 'camp', rift: true } } },
+    spawns: { [PV]: { zones: field ? { meadow: { entries: [{ species: 'bearmon_rift', level: [57, 57] }] } } : {} }, [RS]: { zones: {}, raid: { id: 'rift', gate: { mapId: PV, portal: 'rift' }, party: { min: 1, max: 5, minLevel: 1 }, deathLimit: 1000, landing: 'camp', rift: true } } },
   };
   const tmj = (objs) => ({ layers: [{ type: 'objectgroup', name: 'objects', objects: objs }] });
   const P = (k, v) => ({ name: k, type: 'string', value: v });
   const MAPS = {
-    [PV]: tmj([{ type: 'npc', name: 'rift_warden', x: 808, y: 792, properties: [P('npcId', 'rift_warden')] }, { type: 'spawn', name: 'from_rift', x: 808, y: 824 }]),
+    [PV]: tmj([{ type: 'npc', name: 'rift_warden', x: 808, y: 792, properties: [P('npcId', 'rift_warden')] }, { type: 'spawn', name: 'from_rift', x: 808, y: 824 }, { type: 'zone', name: 'meadow', x: 840, y: 900, width: 200, height: 120 }]),
     [RS]: tmj([{ type: 'spawn', name: 'camp', x: 584, y: 904 }]),
   };
   const ev = []; // Zeitleiste: {t, slot, what, id}
@@ -118,31 +121,50 @@ function groupWorld({ fights, mobs = () => [], aggro = 'first', cfg = {}, hp = [
     const commands = new Proxy(base, { get: (o, k) => (k in o ? o[k] : () => {}) });
     scene.deps.commands = commands;
     w.fetch = async (url) => ({ ok: true, status: 200, json: async () => MAPS[url.match(/maps\/(\w+)\.tmj/)[1]] });
-    w.dmo = { store, rift, net: { state: { entities: ents }, connected: true, transferring: false, charId: 'c' + slot, on: () => () => {} }, game: { scene: { getScene: (k) => (k === 'world' ? scene : null) } } };
+    w.dmo = { store, rift, net: { state: { entities: ents }, connected: true, transferring: false, charId: 'c' + slot, on: (name, fn) => { (netL[name] ||= []).push(fn); return () => {}; } }, game: { scene: { getScene: (k) => (k === 'world' ? scene : null) } } };
+    const netL = {}; // Netz-Ereignisse (evs: dmg/die) wie vom Server – an alle Fenster in Sichtweite
     const keys = [];
     w.addEventListener('keydown', (e) => {
       if (e.code !== 'Digit1' || !state.target) return;
       const m = G.mobs.get(state.target.id);
       if (!m || m.hp <= 0 || (mapNow() !== RS && !(field && mapNow() === PV)) || Math.hypot(m.x - T.x, m.y - T.y) > 320) return;
       keys.push({ t: Date.now(), id: m.id }); E(slot, 'hit', m.id);
+      (m.hitBy ||= new Set()).add(slot);
+      for (const W2 of G.wins) for (const f of W2.netL?.evs || []) try { f([{ t: 'dmg', src: Pp.id, dst: m.id, amount: 40 }]); } catch { /* ignore */ }
       aggroOn(m, slot);
       m.hp = Math.max(0, m.hp - 40);
-      if (m.hp <= 0) { G.mobs.delete(m.id); E(slot, 'kill', m.id); }
+      if (m.hp <= 0) { G.mobs.delete(m.id); E(slot, 'kill', m.id); G.credit?.(m, slot); for (const W2 of G.wins) for (const f of W2.netL?.evs || []) try { f([{ t: 'die', id: m.id }]); } catch { /* ignore */ } }
     }, true);
     store.setState({ screen: 'world', inputFocus: 'game', cooldowns: {}, chat: [], target: null, effects: { ...effects },
       session: { username: 'u' + slot, characters: [{ id: 'c' + slot, name: 'Char' + slot }] },
       party: { ...party, members: party.members.map((m, i) => ({ ...m, me: i === slot })) },
-      me: { tamerEntityId: T.id, tamerDs: 300, tamerMaxDs: 360, hotbar: ['cmd:attack'], inventory: [], quests: {}, bits: 5000,
-        partner: { entityId: Pp.id, name: 'Dukemon', species: 'gallantmon', level: 130, hp: hp[slot] ?? 30000, maxHp: 30000, ds: 500, maxDs: 700, exp: 1, expNext: 100, skills: [] } } });
+      me: { tamerEntityId: T.id, tamerDs: 300, tamerMaxDs: 360, hotbar: ['cmd:attack'], inventory: [], quests: { ...(myQuests[slot] || {}) }, bits: 5000,
+        partner: { entityId: Pp.id, name: 'Dukemon', species: 'gallantmon', level: lv[slot] ?? 130, hp: hp[slot] ?? 30000, maxHp: 30000, ds: 500, maxDs: 700, exp: 1, expNext: 100, skills: [] } } });
     Pp.hp = hp[slot] ?? 30000;
     if (bread.includes(slot)) store.setState({ me: { ...state.me, hotbar: ['cmd:attack', null, null, null, null, null, null, null, 'item:guilmon_bread'], inventory: [{ itemId: 'guilmon_bread', qty: 2 }, { itemId: 'rift_shard', qty: 100 }] } });
-    const W = { slot, w, store, sent, keys, T, P: Pp, load, closeWarden: () => { own = { ...own, warden: null, view: null }; }, status: () => w.document.querySelector('[data-f="status"]')?.textContent || '' };
+    const W = { slot, w, store, sent, keys, netL, T, P: Pp, load, closeWarden: () => { own = { ...own, warden: null, view: null }; }, status: () => w.document.querySelector('[data-f="status"]')?.textContent || '' };
     G.wins.push(W);
     load(PV, { x: 808 + slot * 14, y: 900 });
     w.localStorage.setItem('digibot.accounts', JSON.stringify(accounts));
     w.localStorage.setItem('digibot.cfg', JSON.stringify({ dungeon: true, dgMode: 'rift', autopilot: false, hpPot: 0, dsPot: 0, tdsPot: 0, lvlDiff: 3, tab: 'acc', ...cfg }));
   }
   if (field) for (const m of mobs(1)) G.mobs.set(m.id, { kind: 2, defId: 'bearmon_rift', level: 130, hp: 600, maxHp: 600, flags: 0, targetId: '', ...m }); // normale Map (Grinden): Gegner in Primary Village
+  G.credit = (m, killer) => {
+    for (const W of G.wins) {
+      const st0 = W.store.getState(), qs = { ...(st0.me.quests || {}) }; let ch = false;
+      for (const [id, q] of Object.entries(qs)) {
+        const def = content.quests[id]; if (!def || q.state !== 1) continue;
+        def.objectives.forEach((o, i) => {
+          if (o.kind !== 'kill' || ![].concat(o.species).includes(m.defId)) return;
+          const gap = (lv[killer] ?? 130) - (lv[W.slot] ?? 130);
+          if (gap > 10 && !m.hitBy?.has(W.slot)) { E(W.slot, 'nocredit', m.id); return; }
+          const c = [...q.counters]; c[i] = Math.min(o.count, (c[i] || 0) + 1); qs[id] = { state: c.every((v, k) => v >= def.objectives[k].count) ? 2 : 1, counters: c }; ch = true; E(W.slot, 'credit', m.id);
+        });
+      }
+      if (ch) W.store.setState({ me: { ...st0.me, quests: qs } });
+    }
+    if (field) setTimeout(() => { const n = 'm:r' + (G.respawn = (G.respawn || 0) + 1); G.mobs.set(n, { ...m, id: n, hp: m.maxHp, targetId: '', hitBy: null }); }, 800);
+  };
   for (const W of G.wins) W.w.eval(script);
   return { G, wins: G.wins, ev, start: () => G.wins[0].w.document.querySelector('[data-act="bot"]').click(), close: () => { for (const W of G.wins) W.w.close(); } };
 }
@@ -304,6 +326,39 @@ const PARTS = {
     check('G-P', two != null && two <= 4000, `Pull: Leader spielt zwei Monster ohne Wartezeit an (nach ${two} ms)`, () => `Leader-Treffer je Monster ${JSON.stringify(first)}, Status ${R.wins[0].status()}`);
     R.close();
   },
+  // 3.2.37 (Nutzer 20.11.): Quest-Autopilot in der Gruppe – Niedrigerer zuerst und Weiterhelfen, bis alle fertig sind
+  async opener() { // Q-O: Mitläufer Lv 100, Leader Lv 130, beide brauchen Bearmon -> der Mitläufer trifft zuerst, sein Kill zählt
+    const R = groupWorld(questWorld({ lv: [130, 100], myQuests: [{ q_k: { state: 1, counters: [0] } }, { q_k: { state: 1, counters: [0] } }] }));
+    await wait(1500); R.start(); const t0 = Date.now();
+    while (Date.now() - t0 < 30000 && !R.ev.some((e) => e.what === 'credit' && e.slot === 1)) await wait(200);
+    const f = hitsOf(R, 1)[0], l = hitsOf(R, 0)[0], cr = R.ev.filter((e) => e.slot === 1 && e.what === 'credit').length, no = R.ev.filter((e) => e.slot === 1 && e.what === 'nocredit').length;
+    check('Q-O', !!f && (!l || R.ev.indexOf(f) < R.ev.indexOf(l)) && cr >= 1 && no === 0, `Niedrigerer trifft zuerst, sein Kill zählt (${cr}× Fortschritt)`,
+      () => `erster Treffer Mitläufer ${f ? f.t - t0 : '–'} / Leader ${l ? l.t - t0 : '–'} ms, Fortschritt ${cr}, ohne Fortschritt ${no}, Status L: ${R.wins[0].status()} · F: ${R.wins[1].status()}`);
+    R.close();
+  },
+  async serveop() { // Q-S: „Leader erledigt die Quests der Mitläufer“ – der 30 Level tiefere Mitläufer trifft trotzdem zuerst
+    const R = groupWorld(questWorld({ lv: [130, 100], acc: { serve: true }, myQuests: [{}, { q_k: { state: 1, counters: [0] } }] }));
+    await wait(1500); R.start(); const t0 = Date.now();
+    while (Date.now() - t0 < 30000 && !R.ev.some((e) => e.slot === 1 && (e.what === 'credit' || e.what === 'nocredit'))) await wait(200);
+    const cr = R.ev.filter((e) => e.slot === 1 && e.what === 'credit').length, no = R.ev.filter((e) => e.slot === 1 && e.what === 'nocredit').length;
+    check('Q-S', cr >= 1 && no === 0, 'Nachholer-Modus: Mitläufer trifft zuerst, Kill zählt', () => `Fortschritt ${cr}, ohne Fortschritt ${no}, Status L: ${R.wins[0].status()} · F: ${R.wins[1].status()}`);
+    R.close();
+  },
+  async help() { // Q-H: Leader hat die Quest schon abgegeben, Mitläufer nicht -> Leader jagt weiter, Bot bleibt an
+    const R = groupWorld(questWorld({ lv: [130, 125], myQuests: [{ q_k: { state: 3, counters: [] } }, { q_k: { state: 1, counters: [0] } }] }));
+    await wait(1500); R.start(); const t0 = Date.now();
+    while (Date.now() - t0 < 30000 && R.ev.filter((e) => e.what === 'credit' && e.slot === 1).length < 1) await wait(200);
+    const on = /Stopp/.test(R.wins[0].w.document.querySelector('[data-act="bot"]')?.textContent || ''), cr = R.ev.filter((e) => e.slot === 1 && e.what === 'credit').length;
+    check('Q-H', on && cr >= 1, `Leader fertig – hilft weiter (${cr}× Fortschritt beim Mitläufer)`, () => `Leader an ${on}, Fortschritt ${cr}, Status L: ${R.wins[0].status()}`);
+    R.close();
+  },
+  async helpoff() { // Q-H0: Option aus -> Leader stoppt wie bisher
+    const R = groupWorld(questWorld({ lv: [130, 125], myQuests: [{ q_k: { state: 3, counters: [] } }, { q_k: { state: 1, counters: [0] } }], cfg: { questGroupAll: false } }));
+    await wait(1500); R.start(); const t0 = Date.now();
+    while (Date.now() - t0 < 12000 && !/keine machbaren Quests/.test(R.wins[0].status())) await wait(200);
+    check('Q-H0', /keine machbaren Quests/.test(R.wins[0].status()), 'Option aus – Leader stoppt wie bisher', () => `Status L: ${R.wins[0].status()}`);
+    R.close();
+  },
   async fieldnotank() {
     const R = groupWorld({ fights: ['dd', 'dd'], field: true, aggro: 'never', cfg: { dungeon: false, autopilot: false, farm: false, radius: 400 }, mobs: () => [{ id: 'm:f', x: 900, y: 960 }] });
     await wait(1500); R.start(); const t0 = Date.now();
@@ -319,6 +374,10 @@ const PARTS = {
     R.close();
   },
 };
+// Quest-Welt: Primary Village als normale Map mit Jagdgebiet „meadow“ (Bearmon), Kill-Quest q_k (3 Bearmon) im Quest-Autopilot
+const questWorld = ({ lv, myQuests, cfg = {}, acc = {} }) => ({ acc, fights: ['dd', 'dd'], field: true, aggro: 'first', lv, myQuests,
+  questDefs: { q_k: { id: 'q_k', name: 'Bärenjagd', giver: 'rift_warden', turnIn: 'rift_warden', minLevel: 1, objectives: [{ kind: 'kill', species: 'bearmon_rift', count: 3 }] } },
+  cfg: { dungeon: false, autopilot: true, apGrind: false, farm: false, radius: 400, lvlDiff: 100, ...cfg }, mobs: () => [{ id: 'm:q', x: 920, y: 960 }] });
 // Kampfaufbau: Gruppe startet, betritt den Rift (Lager bei 200/200), ein Gegner m:a 130 px vor der Gruppe
 const hitsOf = (R, s) => R.ev.filter((e) => e.slot === s && e.what === 'hit');
 async function fight(opts, done, ms) {
