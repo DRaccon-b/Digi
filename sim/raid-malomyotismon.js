@@ -56,7 +56,8 @@ const MAPS = {
     { type: 'safe', name: 'landing', x: 304, y: 560, width: 96, height: 144 },
     { type: 'portal', name: 'myotismon_castle', x: 320, y: 672, width: 64, height: 32, properties: [P('toMap', 'myotismon_castle'), P('toSpawn', 'from_dream_world')] },
   ],
-  myotismon_castle: [{ type: 'spawn', name: 'default', x: 400, y: 400 }, { type: 'spawn', name: 'from_dream_world', x: 400, y: 420 }],
+  myotismon_castle: [{ type: 'spawn', name: 'default', x: 400, y: 400 }, { type: 'spawn', name: 'from_dream_world', x: 400, y: 420 },
+    { type: 'portal', name: 'dream_world', x: 640, y: 400, width: 64, height: 32, properties: [P('toMap', MAP), P('toSpawn', 'from_myotismon_castle')] }], // Raid-Tür (Wiederholen-Test)
 };
 const objOf = (mapId, name) => MAPS[mapId].find((o) => o.name === name);
 const inRect = (o, p) => p.x >= o.x && p.x <= o.x + o.width && p.y >= o.y && p.y <= o.y + o.height;
@@ -83,7 +84,7 @@ const PSK = [
   { id: 'imperialdramon_paladin.omega_blade', name: 'Omega Blade', cooldownMs: 20000, dsCost: 1050, range: 64, mult: 5, def: { kind: 'damage', target: 'enemy', shape: 'single', power: 890, castMs: 900 } },
 ];
 const lvHp = (base, g, l) => Math.round(base + g * (l - 1));
-const MALO_HP = Math.round(lvHp(226600, 27810, 99) * 1.1 * 0.75);
+const MALO_HP = Math.round(lvHp(226600, 27810, 99) * 1.1 * 0.75 / Math.max(1, num('HP_TEIL', 1))); // HP_TEIL: Boss-HP geteilt (Tests)
 const PHANTOMON_HP = lvHp(3928, 475.4, 99), TOWER_HP = 57500;
 const RAID = { id: 'malomyotismon', gate: { mapId: 'myotismon_castle', portal: 'dream_world' }, party: { min: 1, max: 5, minLevel: 1 }, deathLimit: 3, landing: 'camp' };
 const CONTENT = () => ({
@@ -175,7 +176,7 @@ function makeWindow(i) {
       partner: { entityId: `p:${i}`, name: 'Imperialdramon Paladin Mode', species: 'imperialdramon_paladin', stage: 'mega', level: 99, hp: HP, maxHp: HP, ds: 9365, maxDs: 9365, exp: 0, expNext: 0,
         stats: { at: 12806, as: AS, ms: 120 }, skills: PSK.map((k) => ({ id: k.id, name: k.name, dsCost: k.dsCost, cooldownMs: k.cooldownMs, range: k.range, unlocked: true })) } },
     world: { mapId: MAP, mapName: 'Dream World', channel: 1 }, target: null });
-  w.localStorage.setItem('digibot.cfg', JSON.stringify({ dungeon: true, dgMode: 'malomyotismon', autopilot: false, farm: false, questMode: false, hpPot: TRANK_AB, dsPot: 0, tdsPot: 0, tab: 'data', lvlDiff: 100, radius: 400 }));
+  w.localStorage.setItem('digibot.cfg', JSON.stringify({ dungeon: true, dgMode: 'malomyotismon', autopilot: false, farm: false, questMode: false, hpPot: TRANK_AB, dsPot: 0, tdsPot: 0, tab: 'data', lvlDiff: 100, radius: 400, ...JSON.parse(process.env.CFG || '{}') })); // CFG: weitere Einstellungen (Tests)
   w.localStorage.setItem('digibot.accounts', JSON.stringify(accounts));
   w.eval(script);
   pl.status = () => w.document.querySelector('[data-f="status"]')?.textContent || '';
@@ -323,7 +324,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   while (Date.now() < end) {
     await wait(500);
     if (Date.now() - lastSt > 30000) { lastSt = Date.now(); say(`   Stand: MaloMyotismon ${Math.round(run.boss.hp / run.boss.maxHp * 100)} % · ${players[0].status()}`); }
-    if (run.failed || (run.cleared && !players[0].inside)) { await wait(1000); break; }
+    if (run.failed || (run.cleared && !players[0].inside)) { await wait(1000 + num('NACH', 0) * 1000); break; } // NACH: so viele s draußen weiter zusehen
   }
   clearInterval(loop);
   const s = run.stats;
@@ -331,5 +332,6 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   for (const l of log) console.log(l);
   console.log(`\nErgebnis: ${run.cleared ? '✅ geschafft' : run.failed ? `❌ ${run.failed}` : '⏱ Zeit abgelaufen'} · Kampf ${run.pullAt ? Math.round((Date.now() - run.pullAt) / 1000) : 0} s · Boss ${Math.round(run.boss.hp / run.boss.maxHp * 100)} %`);
   console.log(`Treffer ${s.hits} · daneben ${s.miss} · Krit ${s.crit} · abgeprallt ${s.glance} · Spiegel ${s.reflect} · Flächen ${s.hit} getroffen / ${s.dodged} ausgewichen · gefüttert ${Math.round(s.feed)} HP · Stürze ${run.deaths} · Tränke ${s.pots}`);
+  if (num('NACH', 0) > 0) { const lg = [...players[0].w.document.querySelectorAll('[data-f="log"] > div')].map((d) => d.textContent); console.log(`Danach: Status ${players[0].status()} · Log: ${lg.slice(0, 4).join(' | ')}`); }
   process.exit(run.cleared ? 0 : 1);
 })();

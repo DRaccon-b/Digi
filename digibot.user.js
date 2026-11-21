@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.44
+// @version      3.2.45
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -189,7 +189,7 @@ function digibotConfig(saved, defaults) {
   const bounds={width:[300,900],radius:[80,2000],grpDist:[60,1500],lvlDiff:[-100,100],hpPot:[0,100],dsPot:[0,100],tdsPot:[0,100],pullMax:[2,8],pullHp:[30,90],
     foodAutoMin:[1,99],dodgeMargin:[8,80],dodgeEdge:[0,40],dodgeHold:[60,600],dodgeSoonMs:[300,3000],dodgeSoonPad:[0,200],dodgeLateK:[1,3],dodgeLatePad:[0,4000],
     dodgeLateAbort:[0,8000],dodgeRetap:[200,3000],dodgeWalk:[60,300],dodgeSearch:[150,600],dodgeHuge:[300,1500],pullDodgeLeash:[0,150],pullDodgeMargin:[0,60],
-    stopLevel:[0,150],stopAfterMin:[0,720],stopFaints:[0,50],stopBits:[0,100000000],potCdMs:[500,10000],huntLeadMin:[0.5,30],huntQuestLeadMin:[0.5,30],wbLeadMin:[1,30],huntIdleMin:[0.5,10],huntStallMin:[1,15],grpWaitMin:[1,10],riftDepth:[1,100]};
+    stopLevel:[0,150],stopAfterMin:[0,720],stopFaints:[0,50],stopBits:[0,100000000],potCdMs:[500,10000],huntLeadMin:[0.5,30],huntQuestLeadMin:[0.5,30],wbLeadMin:[1,30],huntIdleMin:[0.5,10],huntStallMin:[1,15],grpWaitMin:[1,10],riftDepth:[1,100],dgRepeatN:[0,50]};
   const boolMap=v=>Object.fromEntries(Object.entries(digibotRecord(v)?digibotClean(v):{}).filter(([,x])=>typeof x==='boolean'));
   const skills=v=>Object.fromEntries(Object.entries(boolMap(v)).filter(([k])=>/^[2-6]$/.test(k)));
   const heals=v=>Object.fromEntries(Object.entries(digibotRecord(v)?digibotClean(v):{}).filter(([k,x])=>/^[2-6]$/.test(k)&&typeof x==='number').map(([k,x])=>[k,Math.max(0,Math.min(100,x))]));
@@ -1542,6 +1542,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     riftAoeOpen: false,   // Digital Rift (3.2.40): Kampf mit einem AoE-Skill auf die beste Mitte der Gruppe eröffnen
     riftTarget: 'none',   // Digital Rift (3.2.31): Ziel-Ei/-Code (DIGIBOT_RIFT_TARGETS) – Mindesttiefe, Biom-Neustart, Halt bei 100 % Scan
     riftDepth: 1,
+    dgRepeat: false,      // Nach geschafftem Lauf wiederholen (3.2.45) – höchstens dgRepeatN Läufe seit dem Start, 0 = unbegrenzt
+    dgRepeatN: 4,         // Raids: 1 Lauf mit Tagesbeute + 3 mit Wiederholungsbeute (Spiel: repeat.perDay 3)
     dgRetry: false,       // Nach einem gescheiterten Lauf (rausgeflogen) neu betreten, bis DG_TRIES Versuche – aus: Bot stoppt (3.1.5)
     dgFlareCover: false,  // Ultimate Flare: Platten als Deckung nutzen, wenn näher – aus: nur hinter Armageddemon, dort weiter angreifen (3.1.18)
     dgRing: false,        // Warnkreise: zur Nahkampfposition auf der freien Seite des Bosses ausweichen (3.1.19) – live 28.10. zwei Tote bei Cannon Volley → Standard aus (3.1.20)
@@ -1843,7 +1845,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.44'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.45'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2027,6 +2029,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
             ${check('riftBread', 'Rift: Brot statt Erholpause', 'Fällt die HP im Rift unter 60 % und greift niemand an, macht der Bot eine Erholpause (bis 25 s). An: liegt Guilmon Bread auf F1–F3, isst er es dabei sofort und geht schneller weiter. Kostet Brot (der Bot kauft es im Lager nach).')}
             ${check('riftAoeOpen', 'Rift: Kampf mit AoE-Skill eröffnen', 'Nur im Digital Rift: Vor dem ersten Schlag auf eine noch ruhige Gruppe nimmt der Bot einen bereiten Flächen-Skill (Rolle AoE oder Angriff mit Trefferkreis um das Ziel) und zielt auf das Monster, um das die Fläche die meisten trifft – Monster einer anderen Gruppe dürfen nicht im Kreis sein. Ist kein Flächen-Skill bereit, zieht er normal. Nicht bei Guardian/Alpha.')}
             ${check('dgRetry', 'Nach gescheitertem Lauf neu betreten (bis 3×)', 'Aus: Der Bot stoppt nach einem gescheiterten Lauf, Neustart über den Leader. Nach einem Rauswurf wartet er ohnehin 15 min (manueller Start hebt das auf).')}
+            ${check('dgRepeat', '🔁 Nach geschafftem Lauf wiederholen', 'An: Nach dem Sieg (z. B. MaloMyotismon) geht der Bot hinaus und startet gleich den nächsten Lauf, bis die eingestellte Zahl Läufe seit dem Start erreicht ist (0 = unbegrenzt). Raids geben am Tag 1 Lauf mit voller Beute und 3 weitere mit Wiederholungsbeute – danach lohnt es sich kaum noch. Aus: Bot stoppt nach dem Lauf. Nicht fürs Digital Rift (das läuft ohnehin weiter).')}
+            ${slider('dgRepeatN', 'Wiederholen: Läufe', 0, 20, (v) => (Number(v) ? `${v} Läufe` : 'unbegrenzt'))}
           </div>
           <div data-dgmode="rift">${slider('riftDepth', 'Feste Tiefe', 1, 30, (v) => `Tiefe ${v} (Lv ${v <= 5 ? [41, 65, 75, 99, 120][v - 1] : 130})`, 0, 1)}
             <div class="digibot__hint">Solo: Der Bot geht zu Clockmon (Primary Village), öffnet den Rift und läuft ihn ab – Gegner suchen und besiegen, bis das Signal das Portal öffnet, absteigen, auf der 3. Etage den Guardian besiegen, hinaus und von vorn, bis du stoppst. „höchstmögliche“: die tiefste freigeschaltete Tiefe, für die das Level des aktiven Digimons reicht (Tiefe 1–5: Lv 41/65/75/99/120, ab 6: Lv 130); nach einem instabilen Lauf (Uhr abgelaufen) eine Tiefe weniger. Patches: Angriff/Tempo zuerst. Ziel: mindestens dessen Tiefe; ein Lauf im falschen Biom wird sofort neu gestartet; hat ein passender Scan bei Clockmon 100 %, hält der Bot an – umwandeln musst du selbst.</div></div>
@@ -10288,6 +10292,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       dg.inside = false; dg.doorAt = 0; dg.hud = null; dg.hudAt = 0;
       dg.herd = { low: false, lowAt: 0, back: false, backAt: 0, seen: new Set(), lastSpawn: 0, note: '' }; dg.kite = { at: 0, done: false, best: Infinity, bestAt: 0, side: 0 }; // 3.1.13
       if (dg.cleared) {
+        // Wiederholen (3.2.45, Nutzer 21.11.): nach dem Sieg nicht stoppen, sondern den nächsten Lauf beginnen – höchstens dgRepeatN
+        // Läufe seit dem Start (0 = unbegrenzt). Raids: 1 Lauf mit Tagesbeute, 3 weitere mit Wiederholungsbeute (Spiel: repeat.perDay 3)
+        const runs = (dg.runs || 0) + 1, max = Math.max(0, Math.round(Number(cfg.dgRepeatN) || 0));
+        if (cfg.dgRepeat && (!max || runs < max)) {
+          // Kartenwechsel als gesehen merken, sonst hält dgObserveMap das Hinausgehen nach dem Zurücksetzen für einen Rauswurf
+          dgObserveMap(st, now); dg.reset(); dg.runs = runs;
+          logEvent('bot', `Dungeon geschafft (${runs}${max ? `/${max}` : ''}) – nächster Lauf`);
+          return `Dungeon geschafft (${runs}${max ? `/${max}` : ''}) – nächster Lauf…`;
+        }
+        dg.runs = 0;
         logEvent('bot', 'Dungeon geschafft – Bot gestoppt');
         notify('Dungeon geschafft.');
         bot.toggle(true);
@@ -11978,7 +11992,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       // Map-für-Map-Runde: bei jedem Start an der eingestellten Start-Map beginnen (nicht beim gespeicherten Fortschritt,
       // sonst fehlt z. B. eine Map, die beim letzten Lauf noch nichts zu tun hatte, inzwischen aber schon)
       if (this.on && cfg.apOrder === 'sweep' && cfg.apSweepMap) { cfg.apSweepMap = ''; saveCfg(); }
-      if (this.on && cfg.dungeon && !dg.inside) dg.reset(); // alter Lauf (geschafft/Fehlversuche/Raum-Stand) zählt nicht
+      if (this.on && cfg.dungeon && !dg.inside) { dg.reset(); if (!digibotChallengeResume && (!quiet || digibotManual === true)) dg.runs = 0; } // Läufe-Zähler nur bei echtem Start (Review 3.2.45); alter Lauf (geschafft/Fehlversuche/Raum-Stand) zählt nicht
       if (this.on) rift.reset(); // Digital Rift: Tiefen-Grenze und Zähler neu (3.2.19)
       if (this.on && !digibotChallengeResume && (!quiet || digibotManual === true)) dgExit.manualAt = Date.now(); // Start von Hand hebt die Wiedereinstiegs-Sperre auf (3.1.20)
       if (this.on) loadWorld(); // Kartendaten (Portale, Zonen, Schutzzonen) für alle Modi

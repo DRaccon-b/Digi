@@ -2,6 +2,14 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.45 – Dungeon/Raid: Option „Nach geschafftem Lauf wiederholen“
+- **Nutzer 21.11.:** Neuer Haken „🔁 Nach geschafftem Lauf wiederholen“ mit Regler „Wiederholen: Läufe“ (Standard 4, 0 = unbegrenzt).
+  Nach dem Sieg (z. B. MaloMyotismon) geht der Bot hinaus und beginnt gleich den nächsten Lauf, statt zu stoppen. Raids geben am Tag
+  1 Lauf mit voller Beute und 3 mit Wiederholungsbeute (Spieldaten: repeat.perDay 3) – daher Standard 4. Gezählt wird ab dem Start;
+  das Weiterlaufen nach der Anwesenheitskontrolle zählt nicht neu. Standard aus (wie bisher: stoppen).
+- Simulator sim/raid-malomyotismon.js: HP_TEIL, CFG, NACH und eine Raid-Tür in der Burg (für Tests).
+- Tests: malorepeattest (R1, R0, RN).
+
 ## 3.2.44 – Rift schneller: Brot statt Pause, echter Weg, Schildgeber, Zeitmessung
 - **Nutzer 21.11.** (aus den geprüften Ideen, docs/rift-tempo-2026-11-21.md):
   - **Brot statt Erholpause** (Haken „Rift: Brot statt Erholpause“, Standard an): Unter 60 % HP ohne Angreifer isst der Bot Guilmon
