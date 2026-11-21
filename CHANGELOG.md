@@ -2,6 +2,26 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.48 – Ausweichen schneller (Rift)
+- **Nutzer 21.11.:** „Wie können wir das Ausweichen schneller machen?“ Messung Rift T15: ~100 s Ausweichen je Lauf (Hinauslaufen 47 s,
+  Warten draußen 29 s, Rückweg 13 s). Ideen nach Code-Analyse und Gegenprüfung:
+  1. **Sofort reagieren:** meldet das Spiel eine Ansage/einen Einschlag (net „evs“), entscheidet der Bot gleich neu, sobald die
+     Fläche in der Szene steht – nicht erst im nächsten 250-ms-Takt (Test: Fluchtklick im Mittel 51 statt 159 ms). Ein Fluchtklick,
+     den die 180-ms-Klicksperre verwirft, zählt nicht mehr als geklickt (sonst kam der nächste Versuch erst nach 1 s).
+  2. **Nach einem Stopp sofort wieder die 1:** fiel der Angriffsplan kurz weg (Ziel lief), blieb das Digimon bis zu 1,5 s stehen.
+  3. **Rift: heranlaufenden Angreifer angreifen:** läuft er auf mich zu, steht er mit voller Reserve weit weg von allen Zonen und ist
+     die ganze Strecke frei, greift der Bot an, statt zu warten. Fällt die Bedingung weg, hält er sofort an.
+  4. **Nach dem Herauslaufen nicht auf den Stillstand warten:** 1,5 s lang zählen die Lauf-Flags nicht, wenn Tamer, Digimon und die
+     vorhergesagte Position mit voller Reserve draußen stehen (nur bei Kreisen und schmalen Linien).
+  5. **Kreis-Nachlauf messen:** im Rift-Log je Etage „Kreis-Nachlauf …“ (wie oft Warnkreise nach ihrem Ende noch standen und wie spät
+     Einschläge kamen). Neue Option „Abgelaufene Warnkreise nicht mehr meiden“ (Standard aus): 600 ms nach dem Ende gilt ein Kreis
+     nicht mehr als Gefahr.
+  6. **Option „Rift: nach hinten ausweichen nur, wenn vorne Gruppen stehen“** (Standard aus): sonst der kürzeste Ausgang.
+- Review: fällt die Verfolgung eines laufenden Angreifers weg (er kommt an eine Zone), hängt das Digimon ihm nicht per „Angriff im
+  Stand“ hinterher, sondern hält sofort an – nur für eben verfolgte Ziele (3 s), Stand-Angriffe wie bisher bleiben. Kreise mit Inseln
+  bleiben beim Nachlauf ausgenommen (Merkmal der Fähigkeit statt der zum Ende hin leeren Inselliste).
+- Tests: dodgefasttest (S, M, M0, M2, R, O, O0), dodgekicktest (K, K0), dodgetailtest (T0–T3), riftbacktest C–E.
+
 ## 3.2.47 – Rift: AoE-Eröffnung hängt nicht mehr an der Mitte fest
 - **Live 21.11. (Bauzel, Rift T15):** 81 s lang wechselte der Status zwischen „AoE-Eröffnung – nehme die Mitte der Gruppe“ und
   „Nächstes Ziel“, ohne einen Schlag. Der Bot wählte das mittlere Monster, die Zielwahl sprang danach aufs alte Ziel zurück.

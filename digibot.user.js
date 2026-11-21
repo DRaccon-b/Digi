@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.47
+// @version      3.2.48
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -116,7 +116,7 @@ function createDigiBotCore({ now = Date.now, state, halt, network = () => null, 
   function priority(value, fn) { const old=owner;owner={mode:old?.mode||'Sicherheit',priority:value};try{return fn();}finally{owner=old;} }
   function loginMode(value){if(!armed||latch)return false;loginOnly=!!value;return true;}
   return { runPassive, enablePassive, loginMode, priority, start, stop, inspect, allowed, run, action, defer, record, envelope, accept,
-    touch: () => { lastStore = now(); }, get armed() { return armed; }, get latched() { return !!latch; },
+    touch: () => { lastStore = now(); }, get lastMove() { return lastMove; }, get armed() { return armed; }, get latched() { return !!latch; },
     get session() { return session; }, // eigene Fenster-Sitzung (Ladezeit Basis 36 + Zufall), erkennt doppelte Slots (Review 20.11., 3.2.36)
     export: () => JSON.stringify({ format: 'digibot-diagnostics/1', records, critical, ...diagnostics() }, null, 2) };
 }
@@ -1491,6 +1491,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     mobs: {}, // { [mapId]: { 'kunemon|elite': false, ... } } – nicht gesetzt = Standard (Bosse aus, Rest an)
     questOff: {},     // { [questId]: true } – Quests, die der Quest-Modus ignorieren soll
     dodge: true,      // Flächenangriffen (Warnkreisen) ausweichen
+    dodgeCircleTail: false, // (3.2.48) Warnkreise, deren Endzeit über 600 ms vorbei ist, nicht mehr meiden
     pull: false,      // Pull-Modus: mehrere Monster sammeln, bevor AoE und Einzelziele drankommen
     pullMax: 3,       // Pull-Modus: höchstens so viele Monster sammeln (2–8)
     pullHp: 60,       // Pull-Modus: nur starten, wenn die eigenen HP über diesem Wert (%) liegen (30–90)
@@ -1537,6 +1538,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     riftBread: true,      // Digital Rift (3.2.44): in der Erholpause Guilmon Bread essen (F1–F3), statt bis zu 25 s zu warten
     riftMenderFirst: true, // Digital Rift (3.2.41): Heiler-Gegner zuerst, sobald er ein Monster heilt, das mit mir kämpft
     riftWarderFirst: false, // Digital Rift (3.2.44): Schildgeber-Gegner zuerst, sobald seine Gruppe mit mir kämpft
+    riftBackOnlyCrowd: false, // Digital Rift (3.2.48): beim Ausweichen nur dann nach hinten, wenn vorne ruhige Gegner stehen
     riftCallerFirst: false, // … Rufer (ruft Verstärkung) zuerst, sobald seine Gruppe mit mir kämpft
     riftArtilleryFirst: false, // … Artillerie (beschießt alle 6 s) zuerst, sobald ihre Gruppe mit mir kämpft
     riftAoeOpen: false,   // Digital Rift (3.2.40): Kampf mit einem AoE-Skill auf die beste Mitte der Gruppe eröffnen
@@ -1845,7 +1847,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.47'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.48'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1965,6 +1967,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           'Lern-Route: beim Grinden selbst zur besten EXP-Zone reisen und Feldbosse mitnehmen. Channel-Checker: etwa jede Minute und nach jedem Map-Wechsel wechselt der Bot auf den Kanal mit den wenigsten Spielern (mind. 2 weniger) – nur außerhalb von Kämpfen, nicht in der Boss-Rotation; in der Gruppe entscheidet der Leader, die anderen folgen.')}
         ${grp('mech', 'Boss-Mechaniken', `
           ${check('dodge', 'Warnkreisen/-strahlen ausweichen')}
+          ${check('dodgeCircleTail', 'Abgelaufene Warnkreise nicht mehr meiden', 'Manchmal bleibt ein Warnkreis im Spiel noch bis zu 1,5 s nach seinem Ende stehen (wenn das Einschlag-Signal fehlt). An: 600 ms nach der Endzeit gilt er nicht mehr als Gefahr – der Bot greift früher wieder an. Lade-Ringe, Kreise mit Innenring/Inseln, Markierungen und Fallen bleiben ausgenommen. Aus: warten, bis der Kreis verschwindet. Im Rift steht am Ende jeder Etage im Log, wie oft das vorkam („Kreis-Nachlauf“).')}
           ${check('tank', 'Kleine Boss-Treffer tanken statt ausweichen', 'Mehr Schaden, weil das Digimon stehen bleibt – die Tränke heilen.')}
           ${check('koh', 'ClavisAngemon: große Raid-Angriffe mit Key of Hope blocken')}
           <div class="digibot__sub">${check('kohMore', 'Auch Black Rain und Cannon Volley blocken (Hard)', 'Gilt im Hard-Dungeon: Black Rain (Armageddemon) und Cannon Volley (Diaboromon) werden mit Key of Hope geblockt, wenn danach noch ein Key für den nächsten Pflicht-Treffer bleibt (Davis-Reset zählt mit). Die Gruppe bleibt im Schutzkreis am Boss statt auszuweichen. Kommt so ein Treffer trotz Key durch, schaltet es sich bis zum Neuladen ab.')}</div>`, true,
@@ -2026,6 +2029,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
             ${check('riftCallerFirst', 'Rift: Rufer zuerst (ruft Verstärkung)', 'Ein Rufer (Caller, ab Tiefe 10) zählt herunter, solange seine Gruppe kämpft, und ruft dann ein weiteres Monster in seine Reihe. An: sobald seine Gruppe mit dir kämpft, greift der Bot ihn vor den Angreifern an (nach einem heilenden Heiler).')}
             ${check('riftArtilleryFirst', 'Rift: Artillerie zuerst', 'Artillerie beschießt alle 6 s einen Partner mit einem markierten Kreis. An: sobald ihre Gruppe mit dir kämpft, greift der Bot sie vor den Angreifern an (nach Heiler und Rufer).')}
             ${check('riftWarderFirst', 'Rift: Schildgeber zuerst', 'Ein Schildgeber (Warder) gibt seiner Gruppe im Umkreis +80 % Verteidigung, solange er steht. An: sobald seine Gruppe mit dir kämpft, greift der Bot ihn vor den Angreifern an (nach Heiler, Rufer und Artillerie). Aus: erst die Angreifer, dann der Schildgeber.')}
+            ${check('riftBackOnlyCrowd', 'Rift: nach hinten ausweichen nur, wenn vorne Gruppen stehen', 'Seit 3.2.40 weicht der Bot im Rift immer bevorzugt nach hinten aus (dorthin, wo er herkommt). An: nur noch, wenn vor ihm ruhige Gegner stehen – sonst nimmt er den kürzesten sicheren Ausgang (spart den Rückweg). Ruhige Gegner im Umkreis von 120 px meidet er weiter immer. Aus: immer nach hinten wie bisher.')}
             ${check('riftBread', 'Rift: Brot statt Erholpause', 'Fällt die HP im Rift unter 60 % und greift niemand an, macht der Bot eine Erholpause (bis 25 s). An: liegt Guilmon Bread auf F1–F3, isst er es dabei sofort und geht schneller weiter. Kostet Brot (der Bot kauft es im Lager nach).')}
             ${check('riftAoeOpen', 'Rift: Kampf mit AoE-Skill eröffnen', 'Nur im Digital Rift: Vor dem ersten Schlag auf eine noch ruhige Gruppe nimmt der Bot einen bereiten Flächen-Skill (Rolle AoE oder Angriff mit Trefferkreis um das Ziel) und zielt auf das Monster, um das die Fläche die meisten trifft – Monster einer anderen Gruppe dürfen nicht im Kreis sein. Ist kein Flächen-Skill bereit, zieht er normal. Nicht bei Guardian/Alpha.')}
             ${check('dgRetry', 'Nach gescheitertem Lauf neu betreten (bis 3×)', 'Aus: Der Bot stoppt nach einem gescheiterten Lauf, Neustart über den Leader. Nach einem Rauswurf wartet er ohnehin 15 min (manueller Start hebt das auf).')}
@@ -2560,8 +2564,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   // Kurz vor dem Einschlag nicht wieder angreifen, wenn das Ziel neben einer Zone steht: Bosse laufen weiter, das
   // Digimon folgt ihnen in den Kreis (Probelauf Hard: Volley 0,3 s vor dem Einschlag – 3 Clavis auf einmal)
-  const dodgeState = { active: false, lastTap: 0, lastFollow: 0, goal: null, late: false, basicTarget: null, lastStop: 0, approachTarget:null, approachStopped:false, approachGoal:null };
+  const dodgeState = { active: false, lastTap: 0, lastFollow: 0, goal: null, late: false, basicTarget: null, lastStop: 0, approachTarget:null, approachStopped:false, approachGoal:null, chase:false, outAt:0, chaseId:null, chaseAt:0 };
   const DODGE_GOAL_MS = 3000;      // Fluchtpunkt höchstens so lange festhalten
+  const DODGE_OUT_MS = 1500;       // nach dem Herauslaufen so lange nicht auf den Stillstand warten (3.2.48)
   const DODGE_GOAL_REACHED = 12;   // so nah = angekommen
   // Kleine Boss-Treffer tanken: Ausweichen kostet Schaden pro Sekunde, ein Trank ist billiger. Tankbar ist eine Fläche
   // mit festem Schaden bis TANK_MAX_PCT der Max-HP, nach der noch TANK_KEEP_PCT übrig bleiben – ohne Zurück-Digitieren
@@ -2617,7 +2622,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const raw=(scene?.telegraphs?.circles||[]).find(o=>Math.abs(o.x-c.x)<2 && Math.abs(o.y-c.y)<2 && (!c.skill || o.skill?.id===c.skill));
     const skill=raw?.skill||content()?.skills?.[c.skill]||{};
     const holes=skill.islands?(scene?.telegraphs?.islands||[]).filter(i=>i.skill===skill.id && raw?.src!=null && i.src===raw.src && (!i.end||i.end>=performance.now())).map(i=>({x:i.x,y:i.y,r:i.r})):[];
-    return {kind:'circle',x:c.x,y:c.y,r:c.r,skillId:skill.id||c.skill,src:raw?.src,end:raw?.end||0,innerRadius:skill.innerRadius||0,holes,chargeRing:!!skill.chargeRing,hpDamagePct:skill.hpDamagePct||0};
+    return {kind:'circle',x:c.x,y:c.y,r:c.r,skillId:skill.id||c.skill,src:raw?.src,end:raw?.end||0,innerRadius:skill.innerRadius||0,holes,islands:!!skill.islands,chargeRing:!!skill.chargeRing,hpDamagePct:skill.hpDamagePct||0};
   }
   // Lade-Angriffe der Bosse aus den Spieldaten: charge = { skill, atHp, breakAtHp, interruptStat } am Boss-Eintrag
   // (Orochimon „Spirytus Breath“, Megidramon „Megiddo Flame“: breakAtHp 0 = Schaden bricht die Ladung NICHT, 3.1.33)
@@ -2740,12 +2745,24 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     return need;
   }
-  function digibotDodgeReset(){Object.assign(dodgeState,{active:false,lastTap:0,lastFollow:0,goal:null,late:false,basicTarget:null,lastStop:0,approachTarget:null,approachStopped:false,approachGoal:null});lineMemo.clear();}
+  function digibotDodgeReset(){Object.assign(dodgeState,{active:false,lastTap:0,lastFollow:0,goal:null,late:false,basicTarget:null,lastStop:0,approachTarget:null,approachStopped:false,approachGoal:null,chase:false,outAt:0,chaseId:null,chaseAt:0});lineMemo.clear();}
   function digibotDodgeSpeed(st) {
     const entities=window.dmo?.net?.state?.entities;
     const speeds=[controlled(st)?.speed,entities?.get?.(st?.me?.partner?.entityId)?.speed].filter(v=>Number.isFinite(v)&&v>0);
     return Math.min(DODGE_WALK_PX_S,...speeds);
   }
+  // Kreis-Nachlauf (3.2.48): wie lange stehen Warnkreise nach ihrer Endzeit noch? (Messung fürs Rift-Log) – und mit dodgeCircleTail
+  // ab CIRCLE_TAIL_MS nach dem Ende nicht mehr meiden. Ausgenommen: Lade-Ringe, Innenring/Inseln (dort ist der sichere Platz)
+  const CIRCLE_TAIL_MS = 600, circleTail = { live: new Map(), n: 0, sum: 0, max: 0, relLate: 0 };
+  function circleTailNote(z, pn) {
+    if (!z.end) return;
+    const k = `${z.src}|${z.skillId}|${Math.round(z.x)}|${Math.round(z.y)}|${Math.round(z.end)}`;
+    circleTail.live.set(k, { end: z.end, seen: pn });
+  }
+  function circleTailSweep(pn) {
+    for (const [k, v] of circleTail.live) if (pn - v.seen > 400) { circleTail.live.delete(k); const over = v.seen - v.end; if (over > 250) { circleTail.n++; circleTail.sum += over; circleTail.max = Math.max(circleTail.max, over); } }
+  }
+  const circleTailSkip = (z, pn) => cfg.dodgeCircleTail && z.end > 0 && pn > z.end + CIRCLE_TAIL_MS && !z.chargeRing && !z.innerRadius && !z.islands && !(z.holes?.length); // Inseln: Merkmal der Fähigkeit (die Liste ist zum Ende hin leer, Review)
   function dangerZones() {
     const sc = worldScene(), zones = [];
     const tank = tankNow(Date.now());
@@ -2773,8 +2790,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       for (const c of sc?.telegraphs?.active || []) {
         // Raumweite Kreise (z. B. Apocalymons „Total Annihilation“, 640 px) kann man nicht verlassen – nur den Boss vorher
         // erledigen: nicht ausweichen, weiter angreifen (live: 20 s stillgestanden, Boss heilte sich von 5 auf 8 %)
-        if (c && c.r > 0 && c.r < ZONE_HUGE_R && isFinite(c.x) && isFinite(c.y)) { const z = digibotCircleZone(c,sc); if (!digibotChargeRingStay(z) && !shareGatherSkip(z)) zones.push(z); }
+        if (c && c.r > 0 && c.r < ZONE_HUGE_R && isFinite(c.x) && isFinite(c.y)) { const z = digibotCircleZone(c,sc), pn = performance.now(); circleTailNote(z, pn); if (circleTailSkip(z, pn)) continue; if (!digibotChargeRingStay(z) && !shareGatherSkip(z)) zones.push(z); }
       }
+      circleTailSweep(performance.now());
       for (const z of chargeZones()) if (z.r < ZONE_HUGE_R && !digibotChargeRingStay(z)) zones.push(z);
     } catch { /* ignore */ }
     if (!tank) try {
@@ -2822,7 +2840,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (tankNow(Date.now())) return [];
     try {
       return (worldScene()?.telegraphs?.active || []).filter((c) => c && c.r >= ZONE_HUGE_R && isFinite(c.x) && isFinite(c.y))
-        .map((c) => ({...digibotCircleZone(c,worldScene()),huge:true}))
+        .map((c) => ({...digibotCircleZone(c,worldScene()),huge:true})).filter((z) => !circleTailSkip(z, performance.now()))
         .concat(chargeZones().filter((z) => z.r >= ZONE_HUGE_R).map((z) => ({ ...z, huge: true })))
         .filter((z) => !digibotChargeRingStay(z));
     } catch { return []; }
@@ -3010,12 +3028,19 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     for(let i=0;i<=count;i++)if(zones.some(z=>!digibotDodgeZoneSafe(z,{x:a.x+(b.x-a.x)*i/count,y:a.y+(b.y-a.y)*i/count},margin)))return false;
     return true;
   }
-  function digibotOutsideBasicPlan(st,target,partner,tamer,zones,soon) {
+  // loose (3.2.48): gerade aus der Zone heraus und Tamer/Digimon/Vorhersage schon mit voller Reserve draußen – Lauf-Flags zählen nicht
+  // (sonst „Warte außerhalb“, bis beide stillstehen). Der Tamer-Weg behält die volle Reserve, die Annäherungsphase zählt weiter.
+  function digibotOutsideBasicPlan(st,target,partner,tamer,zones,soon,loose=false) {
     if(soon||!target||!partner||!tamer||target.kind!==KIND.Mob||target.hp<=0||st.target?.id!==target.id)return null;
-    const p=st.me?.partner,scene=worldScene(),C=content(),following=dodgeState.basicTarget===target.id;
-    if(!p||p.fainted||p.evolving||(partner.flags&(FLAG.Dead|FLAG.Casting|FLAG.Evolving|FLAG.Held))||(!following&&(partner.flags&FLAG.Moving))||(target.flags&(FLAG.Dead|FLAG.Hidden|FLAG.Untargetable|FLAG.Moving)))return null;
+    const p=st.me?.partner,scene=worldScene(),C=content(),following=dodgeState.basicTarget===target.id,still=following||loose;
+    // Rift (3.2.48): ein Angreifer, der auf mich zuläuft, weit weg von allen Zonen und mit freiem Weg dorthin, darf angegriffen werden –
+    // sonst wartete der Bot draußen, bis er ankam (und wechselte das Ziel zwischen laufenden Angreifern)
+    const mine=new Set([st.me?.tamerEntityId,st.me?.partner?.entityId].filter(Boolean));
+    const chase=!!(target.flags&FLAG.Moving)&&riftMap(st.world?.mapId)&&!(target.flags&FLAG.Boss)&&mine.has(target.targetId)
+      &&zones.every((c)=>digibotDodgeZoneSafe(c,target,DODGE_MARGIN+DODGE_SOON_PAD))&&digibotDodgeZonePath(partner,target,zones,DODGE_MARGIN);
+    if(!p||p.fainted||p.evolving||(partner.flags&(FLAG.Dead|FLAG.Casting|FLAG.Evolving|FLAG.Held))||(!still&&(partner.flags&FLAG.Moving))||(target.flags&(FLAG.Dead|FLAG.Hidden|FLAG.Untargetable))||((target.flags&FLAG.Moving)&&!chase))return null;
     const def=C?.digimon?.[partner.defId||p.species],range=def?.basic?.range??DODGE_BASIC_RANGE,radius=Math.max(1,Math.min(C?.digimon?.[target.defId]?.radius??7,7)),grid=scene?.map?.grid;
-    if(!Number.isFinite(range)||range<=0||(!following&&(tamer.flags&FLAG.Moving))||(!following&&scene?.approach?.phase==='walking'))return null;
+    if(!Number.isFinite(range)||range<=0||(!still&&(tamer.flags&FLAG.Moving))||(!following&&scene?.approach?.phase==='walking'))return null;
     const tamerDist=Math.hypot(tamer.x-target.x,tamer.y-target.y);
     const tamerWalking=tamer.id!==partner.id && (tamerDist>180 || scene?.approach?.phase==='walking');
     // Current client approaches from beyond 192px and stops at 112px; check a slightly longer corridor.
@@ -3023,7 +3048,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // Tamer am Kreisrand (Ring-Position, 3.1.19): wie beim Digimon Körperbreite als Rand, sonst volle Reserve
     if(!digibotDodgeZonePath(tamer,tamerPoint,zones,following?DODGE_EDGE_MARGIN:DODGE_MARGIN)||!digibotDodgeGridClear(tamer,tamerPoint,grid,tamerWalking?5:0))return null;
     const positions=[partner],predicted=scene?.ownPartner;
-    if(predicted?.moving&&!following)return null;
+    if(predicted?.moving&&!still)return null;
     if(predicted&&Number.isFinite(predicted.x)&&Number.isFinite(predicted.y))positions.push(predicted);
     let plan=null;
     for(const from of positions){
@@ -3031,16 +3056,19 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const point={x:target.x+(from.x-target.x)*fraction,y:target.y+(from.y-target.y)*fraction};
       // Angriffsposition knapp vor dem Kreisrand (Körperbreite statt 28 px Reserve): ein Boss knapp im Kreis bleibt erreichbar
       if(!digibotDodgeZonePath(from,point,zones,DODGE_EDGE_MARGIN)||!digibotDodgeGridClear(from,point,grid,Math.max(1,Math.min(def?.radius??7,7)))||!digibotDodgeGridClear(from,target,grid))return null;
-      plan={point,walking:dist>stand||tamerWalking};
+      if(chase&&!digibotDodgeZonePath(from,target,zones,DODGE_MARGIN))return null; // laufendes Ziel: ganze Strecke mit voller Reserve
+      plan={point,walking:dist>stand||tamerWalking,chase};
     }
     return plan;
   }
   function digibotOutsideBasicReady(st,target,partner,tamer,zones,soon){const plan=digibotOutsideBasicPlan(st,target,partner,tamer,zones,soon);return !!plan&&!plan.walking;}
   function digibotOutsideStop(partner,now) {
-    if((dodgeState.basicTarget || partner?.targetId) && now-dodgeState.lastStop>=500){
-      dodgeState.lastStop=now;commands()?.partnerStop?.();bot.attackedId=null;
+    // laufendes Ziel (3.2.48) fiel aus der Bedingung: sofort anhalten, nicht erst nach der 500-ms-Sperre
+    if((dodgeState.basicTarget || partner?.targetId) && (now-dodgeState.lastStop>=500 || dodgeState.chase)){
+      // die 1 danach sofort wieder frei (3.2.48): sonst blieb das Digimon nach kurzem Ausfall des Plans bis zu 1,5 s stehen
+      dodgeState.lastStop=now;commands()?.partnerStop?.();bot.attackedId=null;bot.lastPress.Digit1=0;
     }
-    dodgeState.basicTarget=null;
+    dodgeState.basicTarget=null;dodgeState.chase=false;
   }
   // Restzeit eines Warnkreises (ms) aus den Daten des Spiels – null, wenn unbekannt (Strahlen, Markierungen)
   function zoneLeftMs(z) {
@@ -3168,6 +3196,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         dodgeState.approachTarget=null;dodgeState.approachGoal=null;dodgeState.active=false;
         return null;
       }
+      if (dodgeState.goal) dodgeState.outAt = now; // gerade aus der Zone heraus (3.2.48)
       dodgeState.goal = null; dodgeState.late = false;
       // Draußen, aber der Angriff läuft noch: nicht wieder hineinlaufen (Taste 1 würde das Digimon zum Ziel in der
       // Zone schicken). Mit Ziel: weiterkämpfen, sobald das Ziel frei steht und der direkte Weg dorthin frei ist.
@@ -3191,15 +3220,24 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       // „kurz vor dem Einschlag“ sperrt nur Angriffe, für die das Digimon erst laufen müsste – steht es schon in
       // Schlagweite außerhalb, darf es weiterschlagen (3.0.8; vorher 1,2 s Pause bei jedem Dark Roar)
       const onlyCircles = zones.every((c) => c.kind === 'circle');
-      const plan0=digibotOutsideBasicPlan(st,target,partner,tamer,zones,soonNear && !onlyCircles);
+      // eben herausgelaufen (3.2.48): bis DODGE_OUT_MS nicht auf den Stillstand warten – nur bei Kreisen/schmalen Linien und wenn
+      // Tamer, Digimon und vorhergesagte Position mit voller Reserve draußen stehen
+      const pred0=worldScene()?.ownPartner, fullOut=(e)=>!e||!Number.isFinite(e.x)||!zones.some((c)=>!digibotDodgeZoneSafe(c,e,DODGE_MARGIN));
+      const loose=now-(dodgeState.outAt||0)<DODGE_OUT_MS&&zones.every((c)=>edgeZone(c)&&!c.huge&&!c.persistent)&&fullOut(partner)&&fullOut(tamer)&&fullOut(pred0);
+      const plan0=digibotOutsideBasicPlan(st,target,partner,tamer,zones,soonNear && !onlyCircles,loose);
       const plan=plan0 && (!soonNear || !onlyCircles || !plan0.walking) ? plan0 : null;
+      // eben noch verfolgtes Ziel (3.2.48) läuft jetzt nah an einer Zone: kein „Angriff im Stand“ hinterher, sofort anhalten – nur für
+      // dieses Ziel und höchstens 3 s nach der Verfolgung (sonst bremste es Bosse/Stand-Angriffe von 3.1.23 überall, Review)
+      const movingNearZone=!!target&&!!(target.flags&FLAG.Moving)&&dodgeState.chaseId===target.id&&now-(dodgeState.chaseAt||0)<3000
+        &&zones.some((c)=>!digibotDodgeZoneSafe(c,target,DODGE_MARGIN+DODGE_SOON_PAD));
       // Draußen, aber das Digimon steht schon in Schlagweite auf sicherem Boden: im Stand zuschlagen – ohne Rücksicht auf Tamer-Position,
       // Lauf-Flags oder Annäherungsphase (live 28.10.: Bauzel stand bei der Flare 2,5 s mit 36–39 px hinter dem Boss und „wartete
       // außerhalb“, weil der Angriffsplan an einer Nebenbedingung scheiterte; 3.1.23)
       if(!plan && near && target && partner && st.target?.id===target.id && !noFightEarly(st,now) && !farmShielded(target,now) && !mirrorActive(target.id)
         && !(partner.flags&(FLAG.Dead|FLAG.Casting|FLAG.Evolving|FLAG.Held)) && !(target.flags&(FLAG.Dead|FLAG.Hidden|FLAG.Untargetable))
-        && Math.hypot(partner.x-target.x,partner.y-target.y)<=stand0+6 && !zones.some((c)=>!digibotDodgeZoneSafe(c,partner,DODGE_EDGE_MARGIN))){
-        dodgeState.active=true;dodgeState.basicTarget=target.id;
+        && Math.hypot(partner.x-target.x,partner.y-target.y)<=stand0+6 && !zones.some((c)=>!digibotDodgeZoneSafe(c,partner,DODGE_EDGE_MARGIN))
+        && !movingNearZone){ // laufendes Ziel nahe einer Zone: nicht hinterher, gleich anhalten (Review 3.2.48)
+        dodgeState.active=true;dodgeState.basicTarget=target.id;dodgeState.chase=false;
         if(bot.can('Digit1',ATTACK_REPEAT_MS,now))bot.hit('Digit1',now);
         const es=!soonNear?skillsAtEdge(st,target,partner,now):null;
         return 'Außerhalb der Warnzone · Angriff im Stand'+(es?` · Skill: ${es}`:'');
@@ -3237,7 +3275,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       // Ziel knapp im Warnkreis, Angriffsposition draußen frei: mit der 1 angreifen – auch ohne vorherigen Kampf
       if(near && plan && st.target?.id===target.id && !noFightEarly(st,now) && !farmShielded(target,now) && !mirrorActive(target.id)){
         if(dodgeState.approachTarget){autopilot.nav=null;autopilot.route=null;dodgeState.approachTarget=null;dodgeState.approachGoal=null;}
-        dodgeState.active=true;dodgeState.basicTarget=target.id;
+        dodgeState.active=true;dodgeState.basicTarget=target.id;dodgeState.chase=!!plan.chase;if(plan.chase){dodgeState.chaseId=target.id;dodgeState.chaseAt=now;}
         if(bot.can('Digit1',ATTACK_REPEAT_MS,now))bot.hit('Digit1',now);
         const edgeSkill = !plan.walking && !soonNear ? skillsAtEdge(st, target, partner, now) : null; // 3.1.1: Skills auch von hier
         return (plan.walking?'Sicherer Weg zur Angriffsposition · normaler Angriff':'Außerhalb der Warnzone · normaler Angriff ohne Annäherung') + (edgeSkill ? ` · Skill: ${edgeSkill}` : '');
@@ -3245,7 +3283,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       // Skill vom Kreisrand läuft noch (Casting): Angriffsposition und Kantenreserve behalten, nicht per partnerStop abbrechen (3.1.30)
       const casting=!!partner&&!!(partner.flags&FLAG.Casting);
       if(casting&&near&&target&&dodgeState.basicTarget===target.id&&!zones.some(c=>!digibotDodgeZoneSafe(c,partner,DODGE_EDGE_MARGIN)))return 'Außerhalb der Warnzone · Skill wird gewirkt';
-      if(dodgeState.basicTarget&&!(dodgeState.rangedUntil>now)&&!casting)digibotOutsideStop(partner,now);
+      if(dodgeState.basicTarget&&!(dodgeState.rangedUntil>now)&&!casting){if(movingNearZone)dodgeState.chase=true;digibotOutsideStop(partner,now);} // chase: ohne 500-ms-Sperre
       // Rift: erst einen Angreifer in Schlagweite abwehren, bevor der Anmarsch zum Ziel in der Zone den Kampf ruhen lässt (3.2.30)
       // – auch während eines laufenden Anmarschs (Rift-Gegner verfolgen ohne Leine und holen dabei auf; Review 3.2.30): dann den
       // Anmarsch beenden, sonst lief er mit dem alten Ziel weiter
@@ -3336,7 +3374,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const crowd0 = (p) => crowdMobs.reduce((n, e) => { const d = Math.hypot(e.x - p.x, e.y - p.y); return n + (d < RIFT_DODGE_AVOID_R ? 300 + (RIFT_DODGE_AVOID_R - d) * 8 : 0); }, 0);
     // Rift (3.2.40, Nutzer 20.11.: „immer nur hinten in den Bereich ausweichen, wo er gerade herkommt, nicht nach vorne, wo noch mehr
     // Gruppen stehen“): Richtung zurück = zum ersten Spurpunkt ≥ RIFT_BACK_MIN px entfernt; Aufschlag 0 (zurück) … 2×RIFT_BACK_PEN (vorn)
-    const backPt = riftMap(mapId) ? [...riftTrail].reverse().find((q) => Math.hypot(q.x - me.x, q.y - me.y) >= RIFT_BACK_MIN) : null;
+    let backPt = riftMap(mapId) ? [...riftTrail].reverse().find((q) => Math.hypot(q.x - me.x, q.y - me.y) >= RIFT_BACK_MIN) : null;
+    // Option (3.2.48): nur nach hinten, wenn vorne (Halbebene weg von der Spur) ruhige Gegner stehen – sonst der kürzeste Ausgang
+    if (backPt && cfg.riftBackOnlyCrowd && !crowdMobs.some((e) => (e.x - me.x) * (backPt.x - me.x) + (e.y - me.y) * (backPt.y - me.y) < 0)) backPt = null;
     const back = (p) => {
       if (!backPt) return 0;
       const ax = p.x - me.x, ay = p.y - me.y, bx = backPt.x - me.x, by = backPt.y - me.y, la = Math.hypot(ax, ay), lb = Math.hypot(bx, by);
@@ -3452,7 +3492,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (best !== g0) dodgeState.goal = { x: best.x, y: best.y, at: now, ring: !!best.ring };
     if (best.ring && target) dodgeState.basicTarget = target.id; // am Ring sofort angreifen (3.1.19)
     // Klick nur bei neuem Punkt sofort, sonst selten wiederholen (falls er verloren ging)
-    if (best !== g0 || now - dodgeState.lastTap > DODGE_RETAP_MS) { dodgeState.lastTap = now;autopilot.nav=null;autopilot.route=null; worldScene()?.tapGround?.(best.x, best.y); }
+    // Klick zählt nur, wenn er wirklich ausgeführt wurde (3.2.48): die 180-ms-Klicksperre verwirft sonst stumm, und der nächste Versuch
+    // käme erst nach DODGE_RETAP_MS
+    if (best !== g0 || now - dodgeState.lastTap > DODGE_RETAP_MS) { const lm0 = digibotCore.lastMove; autopilot.nav=null;autopilot.route=null; worldScene()?.tapGround?.(best.x, best.y); dodgeState.lastTap = digibotCore.lastMove !== lm0 ? now : 0; }
     // Digimon-Steuerung: der Klick bewegt das Digimon selbst – „Folgen“ würde es zum Tamer zurückziehen (Zickzack)
     const ownMove = partner && tamer && tamer.id === partner.id;
     if (!ownMove && inZone(partner) && now - dodgeState.lastFollow > 1500) { dodgeState.lastFollow = now; commands()?.partnerFollow?.(); }
@@ -3465,6 +3507,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Ab dem ersten Einsatz rechnet der Bot den Cooldown mit: bereit / wieder bereit in … / noch nicht gesehen.
   // Gerechnet wird ab Beginn der Ansage (cast); Skills ohne Ansage ab dem Treffer (release).
   const bossSkillLog = new Map(); // Boss-Entity -> Map(skillId -> { used, phase, castEnd })
+  // Ansage/Einschlag/Abbruch einer Fläche (3.2.48): sofort neu entscheiden statt im nächsten 250-ms-Takt – aber erst, wenn die Szene die
+  // Fläche schon zeigt bzw. entfernt hat (bis 150 ms nachsehen); kein blinder Takt (der könnte per 180-ms-Klicksperre den Fluchtklick
+  // verschlucken)
+  const zoneSig = () => { try { const sc = worldScene(); return `${sc?.telegraphs?.active?.length || 0}|${sc?.telegraphs?.circles?.length || 0}|${sc?.mechB?.lines?.length || 0}`; } catch { return ''; } };
+  function dodgeKick() {
+    if (!bot.on || !cfg.dodge) return;
+    const sig0 = zoneSig(); let n = 0;
+    const look = () => { if (!bot.on) return; if (zoneSig() !== sig0) { kickTick(); return; } if (++n < 6) digibotCore.defer(look, 25); };
+    digibotCore.defer(look, 0);
+  }
   let evNet = null;
   function hookBossEvents() {
     const net = window.dmo?.net;
@@ -3499,9 +3551,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           const e = log.get(ev.skill) || {};
           if (ev.phase === 'cast') Object.assign(e, { used: now, phase: 'cast', castEnd: now + (def?.castMs || 0), dst: ev.dst || null });
           else if (ev.phase === 'release') {
+            if (e.phase === 'cast' && e.castEnd) circleTail.relLate = Math.max(circleTail.relLate, now - e.castEnd); // Einschlag nach angesagtem Ende (3.2.48)
             e.relAt = now; if (!(e.phase === 'cast' && now - e.used < (def?.castMs || 0) + 3000)) e.used = now; e.phase = 'release'; e.castEnd = 0; }
           else if (ev.phase === 'break') { e.phase = 'break'; e.castEnd = 0; }
           log.set(ev.skill, e);
+          if (def && (Number(def.radius) > 0 || def.shape === 'line' || def.shape === 'circle' || def.chargeRing) && window.dmo?.net?.state?.entities?.get?.(ev.src)?.kind === KIND.Mob) dodgeKick();
         }
         if (bossSkillLog.size > 50) bossSkillLog.delete(bossSkillLog.keys().next().value);
       });
@@ -10798,7 +10852,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const tot = Math.round((m.last - m.at) / 1000);
     if (tot < 2) return;
     const parts = [...RIFT_TIME_CATS.map(([k]) => k), 'sonst'].filter((k) => m.by[k] >= 500).map((k) => `${k} ${Math.round(m.by[k] / 1000)} s`);
-    logEvent('map', `Rift: Etage ${m.n}/${m.of} in ${tot} s – ${parts.join(', ') || '–'} · Signal ${Math.round(m.signal || 0)} %`);
+    const ct = circleTail, tail = ct.n ? ` · Kreis-Nachlauf ${ct.n}× Σ ${(ct.sum / 1000).toFixed(1)} s (max ${Math.round(ct.max)} ms, Einschlag spätestens ${Math.round(ct.relLate)} ms nach Ende)` : '';
+    ct.n = 0; ct.sum = 0; ct.max = 0; ct.relLate = 0;
+    logEvent('map', `Rift: Etage ${m.n}/${m.of} in ${tot} s – ${parts.join(', ') || '–'} · Signal ${Math.round(m.signal || 0)} %${tail}`);
   }
   // Lauf vorbei: Ergebnis merken, dann hinaus (raidLeave) – der nächste Lauf beginnt bei Clockmon
   function riftAfter(st, res, now) {
