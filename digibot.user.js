@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.39
+// @version      3.2.41
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1533,6 +1533,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     dgMode: 'easy',       // 'easy' = War Game, 'hard' = Revenge (allein kaum zu schaffen), 'apocalymon' / 'malomyotismon' / 'beelzemon' / 'd_reaper' = Raid
     dgBreak: true,        // Optionales Brechbares (Mail Server bei Diaboromon) zerstören – alle dasselbe Ziel; aus = nur der Boss (3.1.1).
     riftDepthMode: 'max', // Digital Rift (3.2.19): 'max' = tiefste freigeschaltete, für die das Partner-Level reicht; 'fixed' = riftDepth
+    riftMenderFirst: true, // Digital Rift (3.2.41): Heiler-Gegner zuerst, sobald er ein Monster heilt, das mit mir kämpft
+    riftCallerFirst: false, // … Rufer (ruft Verstärkung) zuerst, sobald seine Gruppe mit mir kämpft
+    riftArtilleryFirst: false, // … Artillerie (beschießt alle 6 s) zuerst, sobald ihre Gruppe mit mir kämpft
+    riftAoeOpen: false,   // Digital Rift (3.2.40): Kampf mit einem AoE-Skill auf die beste Mitte der Gruppe eröffnen
     riftTarget: 'none',   // Digital Rift (3.2.31): Ziel-Ei/-Code (DIGIBOT_RIFT_TARGETS) – Mindesttiefe, Biom-Neustart, Halt bei 100 % Scan
     riftDepth: 1,
     dgRetry: false,       // Nach einem gescheiterten Lauf (rausgeflogen) neu betreten, bis DG_TRIES Versuche – aus: Bot stoppt (3.1.5)
@@ -1836,7 +1840,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.39'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.41'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2013,6 +2017,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
             <label>Modus<select data-apsel="dgMode"><option value="easy">Easy – War Game</option><option value="hard">Hard – Revenge (Gruppe)</option><option value="apocalymon">Apocalymon-Raid</option><option value="malomyotismon">MaloMyotismon-Raid</option><option value="beelzemon">Beelzebumon-Raid (Lv 121)</option><option value="d_reaper">Mother-D-Reaper-Raid (Lv 130)</option><option value="rift">Digital Rift (solo, endlos)</option></select></label>
             <label data-dgmode="rift">Tiefe<select data-apsel="riftDepthMode"><option value="max">höchstmögliche</option><option value="fixed">feste Tiefe</option></select></label>
             <label data-dgmode="rift">Ziel<select data-apsel="riftTarget"><option value="none">keins</option>${Object.entries(DIGIBOT_RIFT_TARGETS).map(([k, t]) => `<option value="${k}">${t.name}${t.minDepth > 1 ? ` (ab Tiefe ${t.minDepth})` : ''}</option>`).join('')}</select></label>
+            ${check('riftMenderFirst', 'Rift: Heiler-Gegner zuerst (sobald er heilt)', 'Ein Heiler (Mender) hat Vorrang vor allen Angreifern, sobald er ein Monster heilt, das mit dir kämpft. Vorher ist er ein normaler Gegner – der Bot läuft nicht zu fremden Gruppen.')}
+            ${check('riftCallerFirst', 'Rift: Rufer zuerst (ruft Verstärkung)', 'Ein Rufer (Caller, ab Tiefe 10) zählt herunter, solange seine Gruppe kämpft, und ruft dann ein weiteres Monster in seine Reihe. An: sobald seine Gruppe mit dir kämpft, greift der Bot ihn vor den Angreifern an (nach einem heilenden Heiler).')}
+            ${check('riftArtilleryFirst', 'Rift: Artillerie zuerst', 'Artillerie beschießt alle 6 s einen Partner mit einem markierten Kreis. An: sobald ihre Gruppe mit dir kämpft, greift der Bot sie vor den Angreifern an (nach Heiler und Rufer).')}
+            ${check('riftAoeOpen', 'Rift: Kampf mit AoE-Skill eröffnen', 'Nur im Digital Rift: Vor dem ersten Schlag auf eine noch ruhige Gruppe nimmt der Bot einen bereiten Flächen-Skill (Rolle AoE oder Angriff mit Trefferkreis um das Ziel) und zielt auf das Monster, um das die Fläche die meisten trifft – Monster einer anderen Gruppe dürfen nicht im Kreis sein. Ist kein Flächen-Skill bereit, zieht er normal. Nicht bei Guardian/Alpha.')}
             ${check('dgRetry', 'Nach gescheitertem Lauf neu betreten (bis 3×)', 'Aus: Der Bot stoppt nach einem gescheiterten Lauf, Neustart über den Leader. Nach einem Rauswurf wartet er ohnehin 15 min (manueller Start hebt das auf).')}
           </div>
           <div data-dgmode="rift">${slider('riftDepth', 'Feste Tiefe', 1, 30, (v) => `Tiefe ${v} (Lv ${v <= 5 ? [41, 65, 75, 99, 120][v - 1] : 130})`, 0, 1)}
@@ -3061,6 +3069,20 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if(wp&&Math.hypot(tamer.x-wp.x,tamer.y-wp.y)<12)return 'Warte außerhalb – sicherer Platz nahe am Boss erreicht';
     return 'Nähere mich über sicheren Weg – halte Abstand zu Warnflächen';
   }
+  // Spur im Rift (3.2.40): wo war ich die letzten Sekunden – Ausweichen bevorzugt diese Richtung (dort ist schon aufgeräumt)
+  const riftTrail = [], RIFT_TRAIL_MS = 500, RIFT_TRAIL_N = 40, RIFT_BACK_MIN = 80, RIFT_BACK_PEN = 250;
+  let riftTrailAt = 0, riftTrailMap = null;
+  function riftTrailNote(st, now) {
+    const mapId = st?.world?.mapId;
+    if (!riftMap(mapId)) { if (riftTrail.length) riftTrail.length = 0; return; }
+    if (riftTrailMap !== riftTreeKey(st)) { riftTrailMap = riftTreeKey(st); riftTrail.length = 0; } // neue Etage: neue Spur
+    if (now - riftTrailAt < RIFT_TRAIL_MS) return;
+    const me = controlled(st); if (!me || !Number.isFinite(me.x)) return;
+    const last = riftTrail[riftTrail.length - 1];
+    if (last && Math.hypot(last.x - me.x, last.y - me.y) < 12) return; // steht: Spur nicht mit demselben Punkt füllen
+    riftTrailAt = now; riftTrail.push({ x: me.x, y: me.y }); if (riftTrail.length > RIFT_TRAIL_N) riftTrail.shift();
+  }
+  const riftTreeKey = (st) => { const r = riftStore()?.run; return `${st?.world?.mapId}|${r?.depth}|${r?.floor?.n}`; };
   const RIFT_DODGE_AVOID_R = 120; // Rift: so weit Fluchtpunkte von ruhigen Gegnern fernhalten (Aggro 64 px + Rand)
   // Rift: Warten außerhalb einer Warnzone – erst heilen, dann einen Angreifer, der selbst draußen steht und frei erreichbar ist,
   // als Ziel nehmen (der normale Kampf übernimmt; das alte Ziel steht ja in der Zone)
@@ -3095,6 +3117,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return skillCare(st, now, ['heal', 'grpheal', 'utilsup']);
   }
   function dodge(st, now) {
+    riftTrailNote(st, now);
     const walkSpeed=digibotDodgeSpeed(st);
     if (!cfg.dodge) return null;
     const zones = dangerZones().filter((z) => !kohCovered(z, st, now) && !kohZonePlanned(z, st, now)); // unter (geplantem) Key of Hope: nicht ausweichen (3.1.26)
@@ -3299,7 +3322,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const crowdMobs = [];
     // nur wirklich ruhige Gegner (ohne Ziel) – nicht das eigene Ziel und nicht, wer schon einen Mitspieler angreift (Review 3.2.27)
     if (riftMap(mapId)) ents?.forEach?.((e) => { if (e.kind === KIND.Mob && e.hp > 0 && !(e.flags & (FLAG.Dead | FLAG.Hidden | FLAG.Untargetable)) && !e.targetId && e.id !== target?.id && Math.hypot(e.x - me.x, e.y - me.y) < DODGE_SEARCH_R + RIFT_DODGE_AVOID_R) crowdMobs.push(e); });
-    const crowd = (p) => crowdMobs.reduce((n, e) => { const d = Math.hypot(e.x - p.x, e.y - p.y); return n + (d < RIFT_DODGE_AVOID_R ? 300 + (RIFT_DODGE_AVOID_R - d) * 8 : 0); }, 0);
+    const crowd0 = (p) => crowdMobs.reduce((n, e) => { const d = Math.hypot(e.x - p.x, e.y - p.y); return n + (d < RIFT_DODGE_AVOID_R ? 300 + (RIFT_DODGE_AVOID_R - d) * 8 : 0); }, 0);
+    // Rift (3.2.40, Nutzer 20.11.: „immer nur hinten in den Bereich ausweichen, wo er gerade herkommt, nicht nach vorne, wo noch mehr
+    // Gruppen stehen“): Richtung zurück = zum ersten Spurpunkt ≥ RIFT_BACK_MIN px entfernt; Aufschlag 0 (zurück) … 2×RIFT_BACK_PEN (vorn)
+    const backPt = riftMap(mapId) ? [...riftTrail].reverse().find((q) => Math.hypot(q.x - me.x, q.y - me.y) >= RIFT_BACK_MIN) : null;
+    const back = (p) => {
+      if (!backPt) return 0;
+      const ax = p.x - me.x, ay = p.y - me.y, bx = backPt.x - me.x, by = backPt.y - me.y, la = Math.hypot(ax, ay), lb = Math.hypot(bx, by);
+      return la < 1 || lb < 1 ? 0 : (1 - (ax * bx + ay * by) / (la * lb)) * RIFT_BACK_PEN;
+    };
+    const crowd = (p) => crowd0(p) + back(p);
     // Fluchtpunkt festhalten, solange er frei bleibt und noch nicht erreicht ist – neu gesucht aus der jeweils
     // aktuellen Position sprang der beste Punkt beim Laufen zwischen Nachbarrichtungen hin und her (Eiern)
     const g0 = dodgeState.goal;
@@ -3345,7 +3377,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         const score=(!target?rad:Math.hypot(p.x-target.x,p.y-target.y)
           +(lineClear(p,target,zones)||inZone(target)?0:200)+(inLeash(p)?0:1000)+behind+(p.rear?-400:0)+(p.ring?-300:0))+crowd(p); // fester Punkt hinter dem Boss / Ring-Position gewinnt (3.1.18/19); Rift: Gruppen meiden
         if(score<bestScore-0.001||(Math.abs(score-bestScore)<=0.001&&(!best||rad<Math.hypot(best.x-me.x,best.y-me.y)))){bestScore=score;best=p;}
-        if(!target&&!crowdMobs.length)break;
+        if(!target&&!crowdMobs.length&&!backPt)break; // Rift mit Spur: weiter vergleichen (Richtung zurück, 3.2.40)
       }
     }
     if(!keep)for(const area of zones){
@@ -4138,6 +4170,42 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     let n = 0;
     window.dmo?.net?.state?.entities?.forEach?.((e) => { if (e.kind === KIND.Mob && e.hp > 0 && !(e.flags & (FLAG.Dead | FLAG.Hidden | FLAG.Untargetable)) && Math.hypot(e.x - x, e.y - y) <= r) n++; });
     return n;
+  }
+  // Rift: Kampf mit einem AoE-Skill eröffnen (3.2.40, Nutzer 20.11.: „immer“, Option riftAoeOpen). Vor dem ersten Schlag auf ein ruhiges
+  // Ziel: bereiten Flächen-Skill (Rolle AoE oder Angriff mit Trefferkreis um das Ziel) suchen und als Mitte das Monster seiner Gruppe
+  // wählen, um das die Fläche die meisten trifft (drei in einer Reihe: das mittlere). Mitten, deren Kreis Monster einer anderen Gruppe
+  // trifft, scheiden aus (keine zweite Gruppe mitziehen). Nicht bereit oder nichts passt: normal ziehen. -> { pk, centerId, n } | null
+  const RIFT_AOE_PACK_R = 160; // so nah am Ziel zählt ein ruhiges Monster zu seiner Gruppe
+  function riftAoeOpen(st, t, now) {
+    if (!cfg.riftAoeOpen || !riftMap(st?.world?.mapId) || !t?.id) return null;
+    const ents = window.dmo?.net?.state?.entities, te = ents?.get?.(t.id), p = st.me?.partner, own = ents?.get?.(p?.entityId);
+    if (!te || !own || (te.flags & FLAG.Boss) || te.targetId) return null; // Boss/Guardian aus; schon im Kampf: nichts zu eröffnen
+    const basicRange = content()?.digimon?.[p.species]?.basic?.range, reach = (Number.isFinite(basicRange) ? basicRange : 33) + 12;
+    let pk = null;
+    for (const k of SKILL_KEYS) {
+      const ro = skillRole(st, k);
+      if ((ro.role !== 'aoe' && ro.role !== 'attack') || !skillOn(st, k)) continue;
+      const s = skillOnKey(st, k); if (!s || isKoh(s.skill)) continue;
+      const def = skillDef(s.skill);
+      if (!(Number(def.radius) > 0) || (def.target && def.target !== 'enemy') || def.origin === 'caster' || (def.kind && def.kind !== 'damage')) continue;
+      if (pickBlock(st, now, 'main', t, k, s, def, ro.role, Math.hypot(te.x - own.x, te.y - own.y), reach)) continue;
+      pk = { k, s, def, role: ro.role }; break;
+    }
+    if (!pk) return null;
+    const r = Number(pk.def.radius) + AOE_HIT_PAD, range = (Number(pk.def.range) || 0) + 40;
+    const live = [];
+    ents.forEach((e) => { if (e.kind === KIND.Mob && e.hp > 0 && !(e.flags & (FLAG.Dead | FLAG.Hidden | FLAG.Untargetable))) live.push(e); });
+    const pack = live.filter((e) => !e.targetId && !(e.flags & FLAG.Boss) && Math.hypot(e.x - te.x, e.y - te.y) <= RIFT_AOE_PACK_R);
+    let best = null;
+    for (const c of pack) {
+      const d = Math.hypot(c.x - own.x, c.y - own.y);
+      if (range > 40 && d > range) continue;
+      const inR = live.filter((e) => Math.hypot(e.x - c.x, e.y - c.y) <= r);
+      if (inR.some((e) => !pack.includes(e))) continue; // träfe eine andere (oder schon kämpfende) Gruppe mit
+      const n = inR.length;
+      if (!best || n > best.n || (n === best.n && (c.id === te.id || (best.id !== te.id && d < best.d)))) best = { id: c.id, n, d };
+    }
+    return best ? { pk, centerId: best.id, n: best.n } : null;
   }
   // Sperren je Pfad: true = still überspringen, Text = zurückgehalten (Grund), { stop } = Schleife beenden (Key of Hope gleich fällig)
   function pickBlock(st, now, path, t, k, s, def, role, d, reach) {
@@ -10431,11 +10499,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const marks = new Set((run.alphaMarks || []).map((a) => a?.id).filter(Boolean));
     const hasRole = (m, r) => (st.effects?.[m.id] || []).some((e) => e?.id === r);
     const mender = (m) => hasRole(m, 'rift_role_mender'), warder = (m) => hasRole(m, 'rift_role_warder');
+    const caller = (m) => hasRole(m, 'rift_role_caller'), artillery = (m) => hasRole(m, 'rift_role_artillery'); // 3.2.41
     const att = sc.attackers || [];
     // nicht quer über die Map zum Heiler einer anderen Gruppe laufen (Nutzer 16.11.) – heilt der Heiler gerade? Spiel: sein Strahl markiert das geheilte Monster mit rift_mended (Reichweite 200 px). Zählt nur, wenn das
     // geheilte Monster mit mir kämpft (greift mich/die Gruppe an oder ist mein Ziel) – ein Heiler, der seine eigene ferne Gruppe heilt,
     // ist kein Grund hinzulaufen (3.2.39)
     const curT = st.target?.id;
+    // Gruppe des Rollen-Gegners kämpft mit mir: ein Monster seiner Reihe (RIFT_MENDER_R) greift mich/die Gruppe an oder ist mein Ziel (3.2.41)
+    const packFighting = (m) => sc.mobs.some((x) => x.id !== m.id && (x.attacker || x.id === curT) && Math.hypot(x.x - m.x, x.y - m.y) <= RIFT_MENDER_R);
     const healingMine = (m) => sc.mobs.some((x) => x.id !== m.id && (x.attacker || x.id === curT) && hasRole(x, 'rift_mended') && Math.hypot(x.x - m.x, x.y - m.y) <= RIFT_MENDER_R);
     const score = (m) => {
       const boss = !!(ents?.get?.(m.id)?.flags & FLAG.Boss) || m.cat === 'boss';
@@ -10450,7 +10521,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       // Heiler (mender, heilt die Frontreihe 4,5 %/s) vor allen Angreifern – aber erst, wenn er gerade ein Monster heilt, das mit mir
       // kämpft (Nutzer 20.11.: „langsam zu der Gruppe mit dem Heiler vorarbeiten und erst wenn der Heiler anfängt zu heilen, diesen
       // fokussieren“ – vorher rannte er zwei Gruppen weiter und zog mehr als nötig). Vorher ist er ein normaler Gegner.
-      if (mender(m) && healingMine(m)) return (marks.has(m.id) ? 10 : 50) + dist / 100;
+      if (cfg.riftMenderFirst !== false && mender(m) && healingMine(m)) return (marks.has(m.id) ? 10 : 50) + dist / 100;
+      // Rufer (ruft Verstärkung, ab Tiefe 10) und Artillerie (beschießt alle 6 s): je eigener Haken, nur wenn ihre Gruppe mit mir kämpft (3.2.41)
+      if (cfg.riftCallerFirst && caller(m) && (m.attacker || packFighting(m))) return (marks.has(m.id) ? 12 : 60) + dist / 100;
+      if (cfg.riftArtilleryFirst && artillery(m) && (m.attacker || packFighting(m))) return (marks.has(m.id) ? 14 : 70) + dist / 100;
       if (!m.attacker && !(dist <= riftFocusR())) return Infinity;
       return (m.attacker ? 100 : warder(m) ? 200 : 300) + dist / 100; // ferner markierter Alpha: wie jeder andere (3.2.23)
     };
@@ -12371,6 +12445,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const formationStatus=digibotPositionBoss(st,t,now);
       if(formationStatus){this.status=formationStatus;this.engage=null;return;}
 
+      // 4c) Rift: mit einem AoE-Skill eröffnen (3.2.40) – erst die beste Mitte wählen, dann die Fläche statt der Standardattacke
+      if (this.attackedId !== t.id) {
+        const ao = riftAoeOpen(st, t, now);
+        if (ao && ao.centerId !== t.id) {
+          if (this.can('select', SELECT_GAP_MS, now)) { this.lastPress.select = now; worldScene()?.select?.(ao.centerId); kickTick(); }
+          this.status = `Rift: AoE-Eröffnung – nehme die Mitte der Gruppe (${ao.n} im Kreis)`;
+          return;
+        }
+        if (ao && pressPick(st, ao.pk, t, now)) { this.attackedId = t.id; this.status = `Rift: eröffne mit ${ao.pk.s.skill.name} (${ao.n} im Kreis)`; return; }
+      }
       // 5) Angreifen
       let inputBlocked=null;
       if ((this.attackedId !== t.id || this.can('Digit1', ATTACK_REPEAT_MS, now)) && !(nativeTravel&&(this.attackedId===t.id||ents?.get?.(p.entityId)?.targetId===t.id))) {

@@ -2,6 +2,23 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.41 – Rift: Rollen-Gegner einzeln einstellbar
+- **Nutzer 20.11.:** Unter Dungeon → Digital Rift je ein Haken für die drei hinteren Rollen: **Heiler** (Standard an; Vorrang erst,
+  wenn er ein Monster heilt, das mit dir kämpft), **Rufer** (Caller, ruft ab Tiefe 10 Verstärkung in seine Reihe) und **Artillerie**
+  (beschießt alle 6 s einen Partner) – beide Standard aus. Rufer und Artillerie haben mit Haken Vorrang, sobald ihre Gruppe mit dir
+  kämpft (fremde Gruppen nicht). Reihenfolge: heilender Heiler, Rufer, Artillerie, dann die Angreifer.
+- Live geprüft (Tiefe 15): alle Rift-Gegner werden erkannt, Elites über das Elite-Flag (auch gepanzerte Elites, Flag 5153).
+- Tests: riftroletest (C1, C0, A1, M0, X1).
+
+## 3.2.40 – Rift: Kampf mit AoE eröffnen, nach hinten ausweichen
+- **Nutzer 20.11.: neue Option „Rift: Kampf mit AoE-Skill eröffnen“** (Dungeon → Digital Rift, Standard aus). Vor dem ersten Schlag auf eine
+  noch ruhige Gruppe nimmt der Bot einen bereiten Flächen-Skill (Rolle AoE oder Angriff mit Trefferkreis um das Ziel) und zielt auf das
+  Monster, um das die Fläche die meisten trifft (drei in einer Reihe: das mittlere). Trifft der Kreis Monster einer anderen Gruppe, scheidet
+  diese Mitte aus. Kein Flächen-Skill bereit: normal ziehen. Nicht bei Guardian/Alpha. Flächen um das eigene Digimon zählen hier noch nicht.
+- **Ausweichen nach hinten** (Nutzer 20.11.): Der Bot merkt sich im Rift seine Spur der letzten Sekunden und weicht bevorzugt dorthin aus,
+  wo er herkommt (dort ist schon aufgeräumt), nicht nach vorn zu weiteren Gruppen.
+- Tests: riftaoetest (A–C), riftbacktest (A–B).
+
 ## 3.2.39 – Rift: Heiler-Gegner erst, wenn er heilt
 - **Nutzer 20.11.:** Für die Regel „Heiler-Gegner zuerst“ lief der Bot direkt zwei Gruppen weiter zum Heiler und zog dabei mehr Monster
   als nötig. Jetzt arbeitet er sich Gruppe für Gruppe vor; ein Heiler (Mender) hat erst Vorrang, wenn er gerade ein Monster heilt,
