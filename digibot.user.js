@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.45
+// @version      3.2.46
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1752,14 +1752,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const ACC_MAX = 5;
   // Per-window volatile credentials; never serialize or broadcast this map.
   const digibotQueuePasswords = new Map();
-  const accounts = { leader: 0, popup: true, mirror: false, mirrorAtk: true, leadBoss: false, dungeon: false, spread: false, serve: false, serveOrder: true, list: [] };
+  const accounts = { leader: 0, popup: true, mirror: false, mirrorAtk: true, leadBoss: false, dungeon: false, spread: false, serve: false, serveOrder: true, serveSide: false, list: [] };
   function reloadAcc() {
 
     try {
       const a=JSON.parse(localStorage.getItem(ACC_KEY)||localStorage.getItem('digibot.accounts')||'null');
       if(digibotRecord(a)&&Array.isArray(a.list)) {
         accounts.leader=Number.isInteger(a.leader)&&a.leader>=0&&a.leader<ACC_MAX?a.leader:0;
-        for(const k of ['popup','mirror','mirrorAtk','leadBoss','dungeon','spread','serve','serveOrder'])if(typeof a[k]==='boolean')accounts[k]=a[k];
+        for(const k of ['popup','mirror','mirrorAtk','leadBoss','dungeon','spread','serve','serveOrder','serveSide'])if(typeof a[k]==='boolean')accounts[k]=a[k];
         accounts.list=Array.from({length:ACC_MAX},(_,i)=>{
           const row=digibotRecord(a.list[i])?a.list[i]:{};
           const user=typeof row.user==='string'?row.user.slice(0,64):'';
@@ -1845,7 +1845,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.45'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.46'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2071,7 +2071,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         ${check('questGroupAll', '🤝 Weiterhelfen, bis alle fertig sind', 'Quest-Autopilot in der Gruppe: Hat der Leader seine Quests (z. B. alle Dailies) fertig, jagt er die Monster weiter, die ein Mitläufer noch für eine Kill- oder Sammel-Quest braucht – bis alle fertig sind. Annehmen/Abgeben dieser Quests macht jeder selbst. Liegt ein Mitglied mehr als 10 Level unter dem Stärksten, schlägt es bei seinen Quest-Monstern immer zuerst zu (sonst zählt der Kill im Spiel nicht).')}
         ${check('questOpenNoLimit', '⏳ Unbegrenzt warten, bis der Niedrigere getroffen hat', 'Quest-Autopilot in der Gruppe: Liegt ein Mitglied mehr als 10 Level unter dem Stärksten, warten die anderen bei seinen Quest-Monstern, bis es echten Schaden gemacht hat. Ohne Haken greifen sie nach 10 s ab seinem Angriff (bzw. 20 s ab Wartebeginn) trotzdem an; mit Haken warten sie unbegrenzt. Greift das Monster einen selbst an, wehrt man sich weiterhin sofort.')}
         <label class="digibot__skill digibot__chk" title="Der Leader kümmert sich nur um die Quests der Mitläufer (seine eigenen sind egal) und jagt, was ihnen fehlt. Die Mitläufer bleiben stehen und wehren nur Angreifer ab. Abgeben/Annehmen macht man bei ihnen selbst. Nur beim Folgen im Autopilot."><input type="checkbox" data-accserve ${accounts.serve ? 'checked' : ''}><span>🤝 Leader erledigt die Quests der Mitläufer</span></label>
-        <label class="digibot__skill digibot__chk" title="Nur zusammen mit 🤝: Der Leader erledigt zuerst die Quests der Mitläufer, die in der Story am weitesten zurück sind (bei Gleichstand alle davon). Diese nehmen nur ihre Story-Quests selbst an, sprechen, reisen und geben ab – ohne unterwegs zu kämpfen – und warten dann am Abgabe-NPC, bis der Leader die Monster erledigt hat. Nebenquests nehmen sie nicht an (Dailies nur per Board, wenn „Dailies“ an ist), der Leader jagt dafür auch nichts. Fertige Nebenquests geben sie nur ab, wenn an der Story gerade nichts zu tun ist (z. B. Level-Sperre). Wer weiter ist, wartet, bis er eingeholt ist, und macht ab dann mit."><input type="checkbox" data-accserveorder ${accounts.serveOrder ? 'checked' : ''}><span>📜 Hinterste zuerst: Nachholer nehmen selbst an und geben ab</span></label>
+        <label class="digibot__skill digibot__chk" title="Nur zusammen mit 🤝: Der Leader erledigt zuerst die Quests der Mitläufer, die in der Story am weitesten zurück sind (bei Gleichstand alle davon). Diese nehmen nur ihre Story-Quests selbst an, sprechen, reisen und geben ab – ohne unterwegs zu kämpfen – und warten dann am Abgabe-NPC, bis der Leader die Monster erledigt hat. Nebenquests nehmen sie nicht an (außer mit 📗; Dailies nur per Board, wenn „Dailies“ an ist), der Leader jagt dafür auch nichts. Fertige Nebenquests geben sie nur ab, wenn an der Story gerade nichts zu tun ist (z. B. Level-Sperre). Wer weiter ist, wartet, bis er eingeholt ist, und macht ab dann mit."><input type="checkbox" data-accserveorder ${accounts.serveOrder ? 'checked' : ''}><span>📜 Hinterste zuerst: Nachholer nehmen selbst an und geben ab</span></label>
+        <label class="digibot__skill digibot__chk" title="Nur zusammen mit 🤝 und 📜: Die Nachholer nehmen neben ihren Story-Quests auch Nebenquests an, der Leader jagt dafür mit, und sie geben sie ab (EXP, Belohnungen). Gut beim ersten Story-Durchlauf, wenn alle gleich weit hinten liegen – sonst gibt es bis zum Ende nur Story. Dailies weiter nur per Board. Ohne Haken: nur Story wie bisher."><input type="checkbox" data-accserveside ${accounts.serveSide ? 'checked' : ''}><span>📗 Nachholer nehmen auch Nebenquests mit</span></label>
         <div class="digibot__title">Alle Fenster</div>
         <div class="digibot__grpbtns"><button class="digibot__btn" data-act="grp-login" title="Fehlende Gruppenfenster öffnen – dort selbst anmelden und Charakter wählen">⧉ Fenster öffnen</button><button class="digibot__btn" data-act="grp-invite" title="Der Leader lädt sofort alle Gruppenmitglieder in die Party ein, die noch nicht drin sind (geht aus jedem Gruppenfenster). Die Mitläufer nehmen automatisch an.">👥 Party einladen</button></div>
         <div class="digibot__hint">Starten und stoppen über ▶ Start / ■ oben im Leader-Fenster – das gilt für alle Gruppenfenster. Abgeben und Annehmen erledigt der Autopilot des Leaders, die Mitläufer machen es nach.</div>
@@ -5619,7 +5620,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     for (const m of src) {
       for (const [id, q] of Object.entries(m.quests)) {
         if (q.state !== 1 && q.state !== 2) continue;
-        if (cu && !isStory(id)) continue; // Nachholgruppe: nur ihre Story-Quests (3.2.17)
+        // Nachholgruppe: nur ihre Story-Quests (3.2.17) – mit „Nebenquests mitnehmen“ (3.2.46) auch Nebenquests, Dailies nie
+        if (cu && !isStory(id) && (!accounts.serveSide || questDef(C, id)?.pool)) continue;
         const def = questDef(C, id), objs = questPhase(def, q).objs;
         const full = (x) => (x.state === 2 ? objs.map((o) => o.count || 1) : objs.map((o, i) => questCount(def, x, i)));
         const cur = out[id];
@@ -5870,14 +5872,19 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // sind PASSIVE Aufgaben: unterwegs wird nicht gekämpft. Gejagt wird vom Leader.
   function catchupTasks(st, now) {
     const me = st?.me;
-    const key = `${st?.world?.mapId}|${Object.entries(me?.quests || {}).map(([id, q]) => `${id}:${q.state}:${(q.counters || []).join('.')}`).join()}`;
+    const key = `${st?.world?.mapId}|${accounts.serveSide ? 1 : 0}|${Object.entries(me?.quests || {}).map(([id, q]) => `${id}:${q.state}:${(q.counters || []).join('.')}`).join()}`;
     const c = group.cuTasks;
     if (c && c.key === key && now - c.at < 2000) return c.list;
     let list;
     // nur Story-Quests (3.2.17): Nebenquests/Dailies nehmen die Nachholer nicht an – keine Story-Quest setzt eine Nebenquest
     // voraus. Ist an der Story nichts zu tun (Level-Sperre), geben sie fertige Nebenquests ab (EXP).
     const busy = (l) => l.some((x) => !x.grind && (x.kind === 'talk' || x.kind === 'reach' || x.kind === 'hunt'));
-    try { list = questTasks(st, { story: true }); if (!busy(list)) list = questTasks(st, { story: true, sideTurnin: true }); } catch { list = []; }
+    // „📗 Nebenquests mitnehmen“ (3.2.46, Nutzer: beim ersten Story-Durchlauf liegen alle hinten – sonst nie Nebenquests):
+    // Story und Nebenquests zusammen, Dailies weiter nur per Board
+    try {
+      if (accounts.serveSide) list = questTasks(st, { cuAll: true });
+      else { list = questTasks(st, { story: true }); if (!busy(list)) list = questTasks(st, { story: true, sideTurnin: true }); }
+    } catch { list = []; }
     group.cuTasks = { key, at: now, list };
     return list;
   }
@@ -5892,7 +5899,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   // Nichts selbst zu erledigen: zum Abgabe-NPC einer Quest laufen, deren Monster der Leader gerade jagt, und dort warten
   function catchupWait(st, L, now) {
-    const hs = catchupTasks(st, now).filter((x) => x.kind === 'hunt' && !x.grind), h = hs.find((x) => x.turnLoc);
+    const hs = catchupTasks(st, now).filter((x) => x.kind === 'hunt' && !x.grind);
+    // mit Nebenquests (3.2.46): Story zuerst, sonst fest nach Quest-ID – nach Entfernung sortiert pendelte er zwischen den
+    // Abgabe-NPCs mehrerer Nebenquests hin und her (Review)
+    if (accounts.serveSide) hs.sort((a, b) => Number(!isStory(a.questId)) - Number(!isStory(b.questId)) || String(a.questId).localeCompare(String(b.questId)));
+    const h = hs.find((x) => x.turnLoc);
     if (!h) return hs.length ? `Nachholen: warte – ${L.name || 'Leader'} erledigt „${hs[0].def?.name || hs[0].questId}“` : null; // ohne Abgabe-NPC (z. B. Daily): hier warten
     const loc = h.turnLoc, name = h.turnName || 'NPC', me = controlled(st);
     if (st.world?.mapId !== loc.mapId) {
@@ -6874,6 +6885,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
 
   // opt.story: nur Story-Quests (Nachholer, 3.2.17), opt.sideTurnin: dazu Abgaben fertiger Nebenquests
+  // opt.cuAll: Nachholer mit „📗 Nebenquests mitnehmen“ (3.2.46) – Story und Nebenquests, von Dailies nur die Abgabe;
+  // offene Nebenquest-Ziele halten keine Abgaben zurück (Review: eine nie fertige Nebenquest hielt sonst die Story fest)
   function questTasks(st, opt = {}) {
     const C = content(), me = st?.me, mapId = st?.world?.mapId;
     if (!C || !me || world.state !== 'ready') return [];
@@ -6967,6 +6980,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     // vor den Abgabe-Regeln filtern: offene Nebenquest-Ziele halten sonst die Story-Abgaben zurück (Review 3.2.17)
     if (opt.story) tasks = tasks.filter((t) => t.questId && (isStory(t.questId) || (opt.sideTurnin && t.purpose === 'turnin')));
+    if (opt.cuAll) tasks = tasks.filter((t) => t.questId && (!t.def?.pool || t.purpose === 'turnin'));
     // opt.ignoreBans: Sperren (failed/avoidSpots) zählen nicht – nur für die Frage „gibt es ohne Sperren noch etwas?“
     // (Review 20.11., 3.2.36)
     const now = Date.now();
@@ -6976,7 +6990,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // Board dailies stay active and collect incidental progress, but must not
     // trigger travel or postpone ordinary quest rewards while other work is feasible.
     // Grinden zählt nicht als andere Arbeit – sonst lagen Dailies (auch fertige Abgaben) bis zum Ziel-Level (3.1.30)
-    if(!autopilot.mapTalk && tasks.some(t=>!t.grind && !t.help && !t.def?.pool && !banned(t) && hops(mapId,t.loc.mapId)<Infinity)){ // Hilfe-Jagden verdrängen Dailies nicht (Review 3.2.37)
+    // Nachholer mit Nebenquests (3.2.46): Jagden macht der Leader – sie zählen hier nicht als eigene Arbeit (sonst blieb eine
+    // fertige Daily neben einer offenen Nebenquest-Jagd für immer liegen, Review)
+    if(!autopilot.mapTalk && tasks.some(t=>!t.grind && !t.help && !t.def?.pool && !(opt.cuAll && t.kind==='hunt') && !banned(t) && hops(mapId,t.loc.mapId)<Infinity)){ // Hilfe-Jagden verdrängen Dailies nicht (Review 3.2.37)
       tasks=tasks.filter(t=>!t.def?.pool);
     }
     // Runde: nur Quests, deren Geber auf der aktuellen Runden-Map steht (Ziele dürfen woanders liegen)
@@ -7007,7 +7023,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // Map-für-Map-Runde (3.0.3): abgegeben wird pro Map – nur offene Ziele von Quests DIESER Map halten die Abgaben auf;
     // Reste anderer Maps (z. B. Bounties, liegengebliebene Quests) kommen erst nach den Abgaben hier (Phase 4)
     const localDo=(t)=>!t.grind&&taskPhase(t)===2&&(!M||digibotQuestOfMap(t,M));
-    if(cfg.apBatch && autopilot.batchPhase!=='turnin' && available.some(localDo))available=available.filter(t=>t.purpose!=='turnin');
+    if(cfg.apBatch && autopilot.batchPhase!=='turnin' && available.some((t)=>localDo(t)&&!(opt.cuAll&&!isStory(t.questId))))available=available.filter(t=>t.purpose!=='turnin');
     return available
       .map((t) => { const same=sameNpc(t);return {...t,sameNpc:same,cost:hops(mapId,t.loc.mapId)*10+t.prio,
         // Gespräche beim selben NPC zuerst (Abgeben/Annehmen in einem Besuch), auch im Batch-Modus
@@ -7081,7 +7097,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return ['a2b_blackwargreymon','a2b_daemon','a2b_ladydevimon','a2b_marinedevimon','a2b_skullsatamon'].includes(def?.id);
   }
   function digibotYoungBountyMap(st){
-    if(cfg.apOrder!=='sweep'||autopilot.mapTalk||autopilot.bountyReturn||serveOn())return null;
+    // Mitläufer beim „🤝 Leader erledigt die Quests“ laufen keine Runde (wie der Leader dort): keine Bounty-Map-Sperre –
+    // sonst nahm ein Nachholer mit „📗 Nebenquests mitnehmen“ eine Bounty an und gab sie nie ab (Review 3.2.46)
+    if(cfg.apOrder!=='sweep'||autopilot.mapTalk||autopilot.bountyReturn||serveOn()||(accounts.serve&&group.role()==='follower'))return null;
     return autopilot.sweepAt||cfg.apSweepMap||sweepMap(st);
   }
   function digibotBlackBountyAvailable(st,now){
@@ -13215,6 +13233,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (sprNote && sprNote.textContent !== sprTxt) sprNote.textContent = sprTxt;
     const srv = panelQ('[data-accserve]'); if (srv && srv !== document.activeElement) srv.checked = !!accounts.serve;
     const sro = panelQ('[data-accserveorder]'); if (sro && sro !== document.activeElement) sro.checked = !!accounts.serveOrder;
+    const srs = panelQ('[data-accserveside]'); if (srs && srs !== document.activeElement) srs.checked = !!accounts.serveSide;
     panelQA('[data-gmode]').forEach((b) => b.classList.toggle('on', b.dataset.gmode === mode));
     const box = panelQ('[data-f="gcards"]');
     const C = content(), esc = (x) => String(x ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -13583,6 +13602,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (e.target.matches('[data-accserveorder]')) {
         reloadAcc(); accounts.serveOrder = e.target.checked; saveAcc(); e.target.blur(); autopilot.reset();
         logEvent('bot', `Gruppe: Hinterste zuerst – ${accounts.serveOrder ? 'an' : 'aus'}`);
+        return;
+      }
+      if (e.target.matches('[data-accserveside]')) {
+        reloadAcc(); accounts.serveSide = e.target.checked; saveAcc(); e.target.blur(); autopilot.reset(); group.cuTasks = null;
+        logEvent('bot', `Gruppe: Nachholer nehmen Nebenquests mit – ${accounts.serveSide ? 'an' : 'aus'}`);
         return;
       }
       if (e.target.matches('[data-accfight]')) { // Kampfrolle (3.2.32): höchstens ein Tank – ein neuer Tank macht den alten zum DD

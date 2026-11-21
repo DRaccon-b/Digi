@@ -2,6 +2,19 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.46 – Gruppe: Nachholer nehmen auf Wunsch auch Nebenquests mit
+- **Nutzer 21.11.:** „Wieso macht er auf Autopilot nur Story-Quests und keine Nebenquests, wenn er das erste Mal die Story spielt?“
+  Mit „📜 Hinterste zuerst“ nehmen die Nachholer seit 3.2.17 nur Story-Quests an. Beim ersten Durchlauf liegen aber alle hinten,
+  dann gab es bis zum Ende nur Story. Neuer Haken „📗 Nachholer nehmen auch Nebenquests mit“ (Gruppe, unter 📜, Standard aus):
+  Nachholer nehmen Story- und Nebenquests an und geben sie ab, der Leader jagt für beide. Dailies weiter nur per Board (fertige
+  Dailies geben sie ab).
+- Review: offene Nebenquest-Ziele halten keine Abgaben zurück (eine nie fertige Nebenquest hielt sonst über „erst alles erledigen,
+  dann abgeben“ die Story fest), fertige Dailies bleiben nicht neben einer offenen Nebenquest-Jagd liegen, und beim Warten am
+  Abgabe-NPC pendelt er nicht mehr zwischen mehreren Nebenquests (Story zuerst, dann fest nach Quest).
+- Review 2: mit der Map-Runde (Map für Map) gilt die Young-Bounty-Sperre („nur auf der Runden-Map abgeben“) für Mitläufer beim
+  „🤝 Leader erledigt die Quests“ nicht mehr – sie laufen keine Runde; sonst nahm ein Nachholer eine Bounty an und gab sie nie ab.
+- Testwelt tests/gw.js: Dailies lassen sich bei einem NPC ihres Pools abgeben. Tests: cusidetest (A–G), cubountytest (B1).
+
 ## 3.2.45 – Dungeon/Raid: Option „Nach geschafftem Lauf wiederholen“
 - **Nutzer 21.11.:** Neuer Haken „🔁 Nach geschafftem Lauf wiederholen“ mit Regler „Wiederholen: Läufe“ (Standard 4, 0 = unbegrenzt).
   Nach dem Sieg (z. B. MaloMyotismon) geht der Bot hinaus und beginnt gleich den nächsten Lauf, statt zu stoppen. Raids geben am Tag

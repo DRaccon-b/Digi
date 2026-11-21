@@ -104,6 +104,9 @@ module.exports = function makeWorld({ slot, quests, accounts, tag, setup, viewRa
         if (def.turnIn === npc && s === 2) choices.push({ id: 'ti_' + def.id, action: 'turnInQuest', questId: def.id });
         if (def.giver === npc && s === 0 && (def.prereq || []).every((p) => state.me.quests[p]?.state === 3)) choices.push({ id: 'ac_' + def.id, action: 'acceptQuest', questId: def.id });
       }
+      for (const d of Object.values(content.dailyById || {})) { // fertige Daily bei einem NPC ihres Pools abgeben (3.2.46)
+        if (state.me.quests[d.id]?.state === 2 && (content.dailies?.[d.pool]?.npcs || []).includes(npc)) choices.push({ id: 'ti_' + d.id, action: 'turnInQuest', questId: d.id });
+      }
       choices.push({ id: 'bye' });
       store.setState({ dialog: { npc, npcName: npc, node: { id: 'root', choices } } });
     },
