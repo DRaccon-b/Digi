@@ -2,6 +2,12 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.42 – Rift: AoE-Eröffnung läuft erst in Reichweite
+- **Live 21.11.:** Mit „Rift: Kampf mit AoE-Skill eröffnen“ kam die Fläche nie – die Gruppe stand meist weiter weg als die
+  Skill-Reichweite, also zog die Standardattacke. Jetzt läuft der Bot erst bis in Reichweite der besten Mitte (höchstens 6 s je Ziel),
+  wählt sie und eröffnet mit dem Flächen-Skill. Klappt das nicht in 6 s, zieht er wie bisher.
+- Tests: riftaoetest D.
+
 ## 3.2.41 – Rift: Rollen-Gegner einzeln einstellbar
 - **Nutzer 20.11.:** Unter Dungeon → Digital Rift je ein Haken für die drei hinteren Rollen: **Heiler** (Standard an; Vorrang erst,
   wenn er ein Monster heilt, das mit dir kämpft), **Rufer** (Caller, ruft ab Tiefe 10 Verstärkung in seine Reihe) und **Artillerie**

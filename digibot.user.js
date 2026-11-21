@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.41
+// @version      3.2.42
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1840,7 +1840,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.41'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.42'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -4175,7 +4175,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Ziel: bereiten Flächen-Skill (Rolle AoE oder Angriff mit Trefferkreis um das Ziel) suchen und als Mitte das Monster seiner Gruppe
   // wählen, um das die Fläche die meisten trifft (drei in einer Reihe: das mittlere). Mitten, deren Kreis Monster einer anderen Gruppe
   // trifft, scheiden aus (keine zweite Gruppe mitziehen). Nicht bereit oder nichts passt: normal ziehen. -> { pk, centerId, n } | null
-  const RIFT_AOE_PACK_R = 160; // so nah am Ziel zählt ein ruhiges Monster zu seiner Gruppe
+  const RIFT_AOE_PACK_R = 160, RIFT_AOE_WALK_MS = 6000; // Gruppe / höchstens so lange in Reichweite laufen // so nah am Ziel zählt ein ruhiges Monster zu seiner Gruppe
   function riftAoeOpen(st, t, now) {
     if (!cfg.riftAoeOpen || !riftMap(st?.world?.mapId) || !t?.id) return null;
     const ents = window.dmo?.net?.state?.entities, te = ents?.get?.(t.id), p = st.me?.partner, own = ents?.get?.(p?.entityId);
@@ -4199,13 +4199,15 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     let best = null;
     for (const c of pack) {
       const d = Math.hypot(c.x - own.x, c.y - own.y);
-      if (range > 40 && d > range) continue;
       const inR = live.filter((e) => Math.hypot(e.x - c.x, e.y - c.y) <= r);
       if (inR.some((e) => !pack.includes(e))) continue; // träfe eine andere (oder schon kämpfende) Gruppe mit
       const n = inR.length;
       if (!best || n > best.n || (n === best.n && (c.id === te.id || (best.id !== te.id && d < best.d)))) best = { id: c.id, n, d };
     }
-    return best ? { pk, centerId: best.id, n: best.n } : null;
+    if (!best) return null;
+    // außer Reichweite: erst heranlaufen (live 21.11.: Ziel 300 px weit weg -> die Standardattacke lief an, die AoE kam nie)
+    const c0 = ents.get(best.id), far = range > 40 && best.d > range - 16;
+    return { pk, centerId: best.id, n: best.n, far, x: c0?.x, y: c0?.y, range };
   }
   // Sperren je Pfad: true = still überspringen, Text = zurückgehalten (Grund), { stop } = Schleife beenden (Key of Hope gleich fällig)
   function pickBlock(st, now, path, t, k, s, def, role, d, reach) {
@@ -12447,7 +12449,18 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
 
       // 4c) Rift: mit einem AoE-Skill eröffnen (3.2.40) – erst die beste Mitte wählen, dann die Fläche statt der Standardattacke
       if (this.attackedId !== t.id) {
-        const ao = riftAoeOpen(st, t, now);
+        let ao = riftAoeOpen(st, t, now);
+        // heranlaufen bis in Skill-Reichweite, höchstens RIFT_AOE_WALK_MS je Ziel – danach normal ziehen
+        if (ao?.far) {
+          if (this.aoeWalk?.id !== t.id) this.aoeWalk = { id: t.id, since: now };
+          if (now - this.aoeWalk.since < RIFT_AOE_WALK_MS && Number.isFinite(ao.x)) {
+            const own0 = ents?.get?.(p.entityId), dx = ao.x - (own0?.x ?? ao.x), dy = ao.y - (own0?.y ?? ao.y), dd = Math.hypot(dx, dy) || 1, k = Math.max(0, dd - (ao.range - 40)) / dd;
+            if (walkTo(st, Math.round((own0?.x ?? ao.x) + dx * k), Math.round((own0?.y ?? ao.y) + dy * k), now) === 'stuck') autopilot.nav = null;
+            this.status = `Rift: AoE-Eröffnung – laufe in Reichweite (${Math.round(dd)} px)`;
+            return;
+          }
+          ao = null;
+        }
         if (ao && ao.centerId !== t.id) {
           if (this.can('select', SELECT_GAP_MS, now)) { this.lastPress.select = now; worldScene()?.select?.(ao.centerId); kickTick(); }
           this.status = `Rift: AoE-Eröffnung – nehme die Mitte der Gruppe (${ao.n} im Kreis)`;
