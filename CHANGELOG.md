@@ -2,6 +2,14 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.47 – Rift: AoE-Eröffnung hängt nicht mehr an der Mitte fest
+- **Live 21.11. (Bauzel, Rift T15):** 81 s lang wechselte der Status zwischen „AoE-Eröffnung – nehme die Mitte der Gruppe“ und
+  „Nächstes Ziel“, ohne einen Schlag. Der Bot wählte das mittlere Monster, die Zielwahl sprang danach aufs alte Ziel zurück.
+  Jetzt versucht er die Mitte höchstens 1,5 s je Ziel (3 s insgesamt), dann eröffnet er mit der Fläche aufs eigene Ziel.
+- Review: der Rückfall setzt die Fläche nur aufs eigene Ziel, wenn ihr Kreis keine andere (schon kämpfende) Gruppe trifft –
+  sonst normal ziehen. Nach jeder Eröffnung wird die Zeit gelöscht (ein späterer Lauf aufs selbe Ziel nimmt die Mitte wieder).
+- Tests: riftaoetest E, F.
+
 ## 3.2.46 – Gruppe: Nachholer nehmen auf Wunsch auch Nebenquests mit
 - **Nutzer 21.11.:** „Wieso macht er auf Autopilot nur Story-Quests und keine Nebenquests, wenn er das erste Mal die Story spielt?“
   Mit „📜 Hinterste zuerst“ nehmen die Nachholer seit 3.2.17 nur Story-Quests an. Beim ersten Durchlauf liegen aber alle hinten,

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.46
+// @version      3.2.47
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1845,7 +1845,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.46'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.47'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -4186,7 +4186,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Ziel: bereiten Flächen-Skill (Rolle AoE oder Angriff mit Trefferkreis um das Ziel) suchen und als Mitte das Monster seiner Gruppe
   // wählen, um das die Fläche die meisten trifft (drei in einer Reihe: das mittlere). Mitten, deren Kreis Monster einer anderen Gruppe
   // trifft, scheiden aus (keine zweite Gruppe mitziehen). Nicht bereit oder nichts passt: normal ziehen. -> { pk, centerId, n } | null
-  const RIFT_AOE_PACK_R = 160, RIFT_AOE_WALK_MS = 6000; // Gruppe / höchstens so lange in Reichweite laufen // so nah am Ziel zählt ein ruhiges Monster zu seiner Gruppe
+  const RIFT_AOE_PACK_R = 160, RIFT_AOE_WALK_MS = 6000, RIFT_AOE_SWITCH_MS = 1500; // … / Mitte als Ziel nehmen: höchstens so lange je Ziel // Gruppe / höchstens so lange in Reichweite laufen // so nah am Ziel zählt ein ruhiges Monster zu seiner Gruppe
   function riftAoeOpen(st, t, now) {
     if (!cfg.riftAoeOpen || !riftMap(st?.world?.mapId) || !t?.id) return null;
     const ents = window.dmo?.net?.state?.entities, te = ents?.get?.(t.id), p = st.me?.partner, own = ents?.get?.(p?.entityId);
@@ -4207,10 +4207,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const live = [];
     ents.forEach((e) => { if (e.kind === KIND.Mob && e.hp > 0 && !(e.flags & (FLAG.Dead | FLAG.Hidden | FLAG.Untargetable))) live.push(e); });
     const pack = live.filter((e) => !e.targetId && !(e.flags & FLAG.Boss) && Math.hypot(e.x - te.x, e.y - te.y) <= RIFT_AOE_PACK_R);
-    let best = null;
+    let best = null, self = null; // self: Kreis um das eigene Ziel (Rückfall, wenn die Mitte nicht Ziel wird – Review 3.2.47)
     for (const c of pack) {
       const d = Math.hypot(c.x - own.x, c.y - own.y);
       const inR = live.filter((e) => Math.hypot(e.x - c.x, e.y - c.y) <= r);
+      if (c.id === te.id) self = { n: inR.length, clean: !inR.some((e) => !pack.includes(e)) };
       if (inR.some((e) => !pack.includes(e))) continue; // träfe eine andere (oder schon kämpfende) Gruppe mit
       const n = inR.length;
       if (!best || n > best.n || (n === best.n && (c.id === te.id || (best.id !== te.id && d < best.d)))) best = { id: c.id, n, d };
@@ -4218,7 +4219,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (!best) return null;
     // außer Reichweite: erst heranlaufen (live 21.11.: Ziel 300 px weit weg -> die Standardattacke lief an, die AoE kam nie)
     const c0 = ents.get(best.id), far = range > 40 && best.d > range - 16;
-    return { pk, centerId: best.id, n: best.n, far, x: c0?.x, y: c0?.y, range };
+    return { pk, centerId: best.id, n: best.n, far, x: c0?.x, y: c0?.y, range, self };
   }
   // Sperren je Pfad: true = still überspringen, Text = zurückgehalten (Grund), { stop } = Schleife beenden (Key of Hope gleich fällig)
   function pickBlock(st, now, path, t, k, s, def, role, d, reach) {
@@ -12567,12 +12568,24 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           }
           ao = null;
         }
+        // Mitte als Ziel nehmen – höchstens RIFT_AOE_SWITCH_MS lang je Ziel; nimmt die Zielwahl sie nicht an (springt zurück, live 21.11.:
+        // 81 s Pendel „nehme die Mitte“ <-> „Nächstes Ziel“ ohne einen Schlag), auf das eigene Ziel eröffnen
         if (ao && ao.centerId !== t.id) {
-          if (this.can('select', SELECT_GAP_MS, now)) { this.lastPress.select = now; worldScene()?.select?.(ao.centerId); kickTick(); }
-          this.status = `Rift: AoE-Eröffnung – nehme die Mitte der Gruppe (${ao.n} im Kreis)`;
-          return;
+          // je Ziel gemerkt (nicht nur das letzte): springt die Wahl zwischen Ziel und Mitte hin und her, läuft die Zeit weiter
+          // je Paar Ziel→Mitte, gelöscht nach jeder Eröffnung (Review: sonst nahm ein späterer Lauf aufs selbe Ziel die Mitte nicht mehr)
+          const sw = this.aoeSwitch ||= new Map(), key = `${t.id}>${ao.centerId}`;
+          for (const [id, at] of sw) if (now - at > 20000) sw.delete(id);
+          if (!sw.has(key)) sw.set(key, now);
+          if (!sw.has(t.id)) sw.set(t.id, now); // dazu je Ziel höchstens das Doppelte (falls die Mitte jedes Mal eine andere ist)
+          if (now - sw.get(key) < RIFT_AOE_SWITCH_MS && now - sw.get(t.id) < 2 * RIFT_AOE_SWITCH_MS) {
+            if (this.can('select', SELECT_GAP_MS, now)) { this.lastPress.select = now; worldScene()?.select?.(ao.centerId); kickTick(); }
+            this.status = `Rift: AoE-Eröffnung – nehme die Mitte der Gruppe (${ao.n} im Kreis)`;
+            return;
+          }
+          // Rückfall nur, wenn der Kreis ums eigene Ziel keine andere Gruppe trifft (Review) – sonst normal ziehen
+          ao = ao.self?.clean ? { ...ao, centerId: t.id, n: ao.self.n } : null;
         }
-        if (ao && pressPick(st, ao.pk, t, now)) { this.attackedId = t.id; this.status = `Rift: eröffne mit ${ao.pk.s.skill.name} (${ao.n} im Kreis)`; return; }
+        if (ao && pressPick(st, ao.pk, t, now)) { this.aoeSwitch?.clear(); this.attackedId = t.id; this.status = `Rift: eröffne mit ${ao.pk.s.skill.name} (${ao.n} im Kreis)`; return; }
       }
       // 5) Angreifen
       let inputBlocked=null;

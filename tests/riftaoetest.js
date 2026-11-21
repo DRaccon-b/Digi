@@ -5,6 +5,10 @@
 //  A: Option an  -> erste Kampftaste ist 3, Ziel dabei das mittlere Monster.
 //  B: Option aus -> wie bisher (erste Kampftaste ist nicht 3).
 //  C: Option an, AoE-Skill noch in Abklingzeit -> normal ziehen (Taste 1/2), nicht warten.
+//  E (live 21.11., 81 s ohne Schlag): die Zielwahl nimmt die gewählte Mitte nicht an (Ziel springt zurück) -> nach einem Versuch
+//    auf das eigene Ziel eröffnen statt endlos „nehme die Mitte der Gruppe“.
+//  F (Review): wie E, aber der Kreis um das eigene Ziel träfe ein schon kämpfendes Monster (andere Gruppe) -> keine Fläche
+//    aufs eigene Ziel, normal ziehen.
 const { JSDOM, VirtualConsole } = require('jsdom');
 const fs = require('fs');
 const [script, fake] = process.argv.slice(2).map((f) => fs.readFileSync(f, 'utf8'));
@@ -12,7 +16,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const res = [];
 const check = (id, ok, okText, bad) => { res.push(ok); console.log(ok ? `OK     ${id}: ${okText}` : `FEHLER ${id}: ${bad()}`); };
 
-async function run({ open, aoeCd = false, far = false }) {
+async function run({ open, aoeCd = false, far = false, noSel = false, busy = false }) {
   const dom = new JSDOM('<!doctype html><body></body>', { runScripts: 'outside-only', url: 'https://play.digimmo.com.br/', pretendToBeVisual: true, virtualConsole: new VirtualConsole() });
   const w = dom.window;
   w.HTMLCanvasElement.prototype.getContext = () => null;
@@ -26,6 +30,7 @@ async function run({ open, aoeCd = false, far = false }) {
   C.digimon.testmon = { name: 'Testmon', basic: { range: 30 } };
   for (const id of ['m:1', 'm:2', 'm:3', 'm:4', 'm:5', 'm:6']) F.ents.delete(id);
   for (const [id, x] of [['m:a', far ? 800 : 600], ['m:b', far ? 840 : 640], ['m:c', far ? 880 : 680]]) F.E({ id, kind: 2, defId: 'kunemon', level: 4, x, y: 500, hp: 5000, maxHp: 5000 });
+  if (busy) F.E({ id: 'm:z', kind: 2, defId: 'kunemon', level: 4, x: 560, y: 500, hp: 5000, maxHp: 5000, targetId: 'p:other' }); // kämpft schon (andere Gruppe)
   const me = F.store.getState().me;
   F.store.setState({ me: { ...me, hotbar: ['cmd:attack', 'skill:0', 'skill:1', null, null, null, null, null, null],
     partner: { ...me.partner, species: 'testmon', level: 6, hp: 3752, maxHp: 3752, ds: 700, maxDs: 766,
@@ -33,6 +38,7 @@ async function run({ open, aoeCd = false, far = false }) {
     cooldowns: aoeCd ? { 'skill:1': { end: w.performance.now() + 60000 } } : {} });
   // far: Laufen sofort ausführen (Tamer + Digimon an den Tap-Punkt), damit der Anmarsch bis in Skill-Reichweite wirkt
   scene.tapGround = (x, y) => { if (!far) return; const t = F.ents.get('t:me'), p = F.ents.get('p:me'); p.x = x; p.y = y; t.x = p.x + 10; t.y = p.y; };
+  if (noSel) { const sel0 = scene.select; scene.select = (id) => (id === 'm:b' ? undefined : sel0(id)); } // die Mitte wird nie Ziel
   scene.deps.commands = { partnerFollow: () => {}, partnerStop: () => {} };
   const keys = [];
   w.addEventListener('keydown', (e) => { if (/^Digit[1-3]$/.test(e.code)) keys.push({ k: e.code, t: F.store.getState().target?.id || '' }); }, true);
@@ -59,5 +65,9 @@ async function run({ open, aoeCd = false, far = false }) {
   // D (live 21.11.: Ziel 300 px weit weg -> Standardattacke lief an, AoE kam nie): erst heranlaufen, dann mit der Fläche eröffnen
   const d = await run({ open: true, far: true });
   check('D', !!d.keys[0] && d.keys[0].k === 'Digit3', 'Ziel weit weg: erst heranlaufen, dann AoE-Eröffnung', () => `erste Tasten ${d.keys.slice(0, 4).map((x) => x.k + '@' + x.t).join(' ') || '–'}, Status ${d.st}`);
+  const e = await run({ open: true, noSel: true });
+  check('E', !!e.keys[0] && e.keys[0].k === 'Digit3', 'Mitte nicht annehmbar: eröffnet trotzdem (auf das eigene Ziel)', () => `erste Tasten ${e.keys.slice(0, 4).map((x) => x.k + '@' + x.t).join(' ') || '–'}, Status ${e.st}`);
+  const f = await run({ open: true, noSel: true, busy: true });
+  check('F', !!f.keys[0] && f.keys[0].k !== 'Digit3', 'Mitte nicht annehmbar, eigener Kreis unsauber: normal ziehen', () => `erste Tasten ${f.keys.slice(0, 4).map((x) => x.k + '@' + x.t).join(' ') || '–'}, Status ${f.st}`);
   process.exit(res.every(Boolean) ? 0 : 1);
 })();
