@@ -2,6 +2,13 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.43 – Quest-Gruppe: Option „Unbegrenzt warten, bis der Niedrigere getroffen hat“
+- **Nutzer 21.11.:** Neuer Haken unter Quest-Autopilot. Liegt ein Mitglied mehr als 10 Level unter dem Stärksten, warten die anderen bei
+  seinen Quest-Monstern bisher höchstens 10 s ab seinem Angriff (bzw. 20 s ab Wartebeginn) – danach griffen sie trotzdem an, auch wenn
+  er noch keinen Schaden gemacht hatte (z. B. weil das Monster oft auswich). Mit Haken warten sie unbegrenzt. Standard aus.
+- Unverändert: greift das Monster einen selbst an, wehrt man sich sofort.
+- Tests: riftgrouptest Q-U (Test-Welt: auch ein Fehlschlag zieht das Monster, wie im Spiel).
+
 ## 3.2.42 – Rift: AoE-Eröffnung läuft erst in Reichweite
 - **Live 21.11.:** Mit „Rift: Kampf mit AoE-Skill eröffnen“ kam die Fläche nie – die Gruppe stand meist weiter weg als die
   Skill-Reichweite, also zog die Standardattacke. Jetzt läuft der Bot erst bis in Reichweite der besten Mitte (höchstens 6 s je Ziel),

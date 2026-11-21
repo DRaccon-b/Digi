@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.42
+// @version      3.2.43
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1526,6 +1526,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     farmMode: 'boss',     // 'boss' = Boss-Rotation, 'named' = Named-Elite-Runde (Map für Map), 'cards' = Kartenrotation (3.1.40), 'deva' = Deva-Runde (3.2.18)
     cardSel: [],          // Kartenrotation: ausgewählte Common-/Rare-Karten in Prioritäts-Reihenfolge (Item-IDs)
     cardNamed: [],        // Kartenrotation: Karten, deren Named-Gegner mitgenommen werden dürfen (standardmäßig keiner)
+    questOpenNoLimit: false, // Quest-Gruppe (3.2.43, Nutzer 21.11.): ohne 10-/20-s-Notbremse unbegrenzt warten, bis der Niedrigere getroffen hat
     questGroupAll: true,  // Quest-Autopilot in der Gruppe (3.2.37): wer fertig ist, jagt die offenen Kill-/Sammel-Ziele der anderen mit
     cardGroupAll: false,  // Kartenrotation in der Gruppe (3.2.33): Leader farmt weiter, bis auch alle Mitläufer ihre ausgewählten Karten voll haben
     cardForm: '',         // Kartenrotation: Digitation ('' = automatisch die beste für die Karten, sonst Form wie bei der Map-Regel) (3.2.3)
@@ -1840,7 +1841,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.42'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.43'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2060,6 +2061,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         </div>
         <label class="digibot__skill digibot__chk" title="Jedes Gruppenmitglied greift ein anderes Quest-Monster an (statt alle dasselbe). Ist keins mehr frei, hilft man mit. Bosse greifen alle gemeinsam an. Nur beim Folgen, nicht in der Boss-Rotation."><input type="checkbox" data-accspread ${accounts.spread ? 'checked' : ''}><span>🎯 Ziele verteilen: jeder ein anderes Monster</span><em class="digibot__offnote" data-f="spreadoff"></em></label>
         ${check('questGroupAll', '🤝 Weiterhelfen, bis alle fertig sind', 'Quest-Autopilot in der Gruppe: Hat der Leader seine Quests (z. B. alle Dailies) fertig, jagt er die Monster weiter, die ein Mitläufer noch für eine Kill- oder Sammel-Quest braucht – bis alle fertig sind. Annehmen/Abgeben dieser Quests macht jeder selbst. Liegt ein Mitglied mehr als 10 Level unter dem Stärksten, schlägt es bei seinen Quest-Monstern immer zuerst zu (sonst zählt der Kill im Spiel nicht).')}
+        ${check('questOpenNoLimit', '⏳ Unbegrenzt warten, bis der Niedrigere getroffen hat', 'Quest-Autopilot in der Gruppe: Liegt ein Mitglied mehr als 10 Level unter dem Stärksten, warten die anderen bei seinen Quest-Monstern, bis es echten Schaden gemacht hat. Ohne Haken greifen sie nach 10 s ab seinem Angriff (bzw. 20 s ab Wartebeginn) trotzdem an; mit Haken warten sie unbegrenzt. Greift das Monster einen selbst an, wehrt man sich weiterhin sofort.')}
         <label class="digibot__skill digibot__chk" title="Der Leader kümmert sich nur um die Quests der Mitläufer (seine eigenen sind egal) und jagt, was ihnen fehlt. Die Mitläufer bleiben stehen und wehren nur Angreifer ab. Abgeben/Annehmen macht man bei ihnen selbst. Nur beim Folgen im Autopilot."><input type="checkbox" data-accserve ${accounts.serve ? 'checked' : ''}><span>🤝 Leader erledigt die Quests der Mitläufer</span></label>
         <label class="digibot__skill digibot__chk" title="Nur zusammen mit 🤝: Der Leader erledigt zuerst die Quests der Mitläufer, die in der Story am weitesten zurück sind (bei Gleichstand alle davon). Diese nehmen nur ihre Story-Quests selbst an, sprechen, reisen und geben ab – ohne unterwegs zu kämpfen – und warten dann am Abgabe-NPC, bis der Leader die Monster erledigt hat. Nebenquests nehmen sie nicht an (Dailies nur per Board, wenn „Dailies“ an ist), der Leader jagt dafür auch nichts. Fertige Nebenquests geben sie nur ab, wenn an der Story gerade nichts zu tun ist (z. B. Level-Sperre). Wer weiter ist, wartet, bis er eingeholt ist, und macht ab dann mit."><input type="checkbox" data-accserveorder ${accounts.serveOrder ? 'checked' : ''}><span>📜 Hinterste zuerst: Nachholer nehmen selbst an und geben ab</span></label>
         <div class="digibot__title">Alle Fenster</div>
@@ -12368,7 +12370,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           if (!this.openWait || this.openWait.id !== t.id || now - (this.openWait.seen || 0) > 3000) this.openWait = { id: t.id, since: 0, first: now };
           this.openWait.seen = now;
           if (on && !this.openWait.since) this.openWait.since = now;
-          const over = (this.openWait.since && now - this.openWait.since >= QUEST_OPEN_WAIT_MS) || now - this.openWait.first >= QUEST_OPEN_HOLD_MS;
+          const over = !cfg.questOpenNoLimit && ((this.openWait.since && now - this.openWait.since >= QUEST_OPEN_WAIT_MS) || now - this.openWait.first >= QUEST_OPEN_HOLD_MS);
           if (!over) {
             this.attackedId = null; this.engage = null;
             // greift mein Digimon das Ziel schon an (z. B. von selbst), zurückrufen – ein Treffer von mir vor dem Opener kostet seinen Kill (3.2.38)

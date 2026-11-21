@@ -11,7 +11,7 @@
 //  notank G-0: ohne Tank greift der Leader wie bisher sofort an.
 //  heal   G-H: Heiler steht während der Sperre ~90 px hinter dem Tank (vom Ziel abgewandt).
 // 3.2.37 Quest-Autopilot (Testwelt vergibt Fortschritt nach der Spielregel: >10 Level unter dem Töter nur mit eigenem Treffer):
-//  opener Q-O: Lv 100 neben Lv 130 trifft zuerst, sein Kill zählt · serveop Q-S: dasselbe im Nachholer-Modus
+//  opener Q-O: Lv 100 neben Lv 130 trifft zuerst, sein Kill zählt · serveop Q-S: dasselbe im Nachholer-Modus · waitall Q-U: Option unbegrenzt warten (27 s Fehlschläge)
 //  help Q-H: Leader fertig, Mitläufer nicht -> Leader jagt weiter · helpoff Q-H0: Option aus -> Leader stoppt wie bisher
 // Review 3.2.32:
 //  rest   G-R: Tank mit 40 % HP – kein neues ruhiges Ziel, Erholpause.   left G-L: Leader draußen -> Mitläufer geht nach ~10 s hinaus.
@@ -130,7 +130,7 @@ function groupWorld({ fights, mobs = () => [], aggro = 'first', cfg = {}, hp = [
       if (!m || m.hp <= 0 || (mapNow() !== RS && !(field && mapNow() === PV)) || Math.hypot(m.x - T.x, m.y - T.y) > 320) return;
       keys.push({ t: Date.now(), id: m.id });
       // miss[slot]: so viele Angriffe weicht das Monster aus (Spiel: dmg-Ereignis mit 0 Schaden, zählt nicht als Treffer)
-      if ((miss[slot] || 0) > 0) { miss[slot]--; E(slot, 'miss', m.id); for (const W2 of G.wins) for (const f of W2.netL?.evs || []) try { f([{ t: 'dmg', src: Pp.id, dst: m.id, amount: 0, outcome: 'miss' }]); } catch { /* ignore */ } return; }
+      if ((miss[slot] || 0) > 0) { miss[slot]--; E(slot, 'miss', m.id); for (const W2 of G.wins) for (const f of W2.netL?.evs || []) try { f([{ t: 'dmg', src: Pp.id, dst: m.id, amount: 0, outcome: 'miss' }]); } catch { /* ignore */ } aggroOn(m, slot); return; } // wie im Spiel: auch ein Fehlschlag zieht das Monster
       E(slot, 'hit', m.id);
       (m.hitBy ||= new Set()).add(slot);
       const dm = dmg[slot] ?? 40;
@@ -347,6 +347,15 @@ const PARTS = {
     while (Date.now() - t0 < 30000 && !R.ev.some((e) => e.slot === 0 && (e.what === 'credit' || e.what === 'nocredit'))) await wait(200);
     const cr = R.ev.filter((e) => e.slot === 0 && e.what === 'credit').length, no = R.ev.filter((e) => e.slot === 0 && e.what === 'nocredit').length, ms = R.ev.filter((e) => e.slot === 0 && e.what === 'miss').length;
     check('Q-D', cr >= 1 && no === 0 && ms >= 1, 'Leader verfehlt zuerst – Begleiter wartet auf echten Treffer, Kill zählt', () => 'Fortschritt ' + cr + ', ohne Fortschritt ' + no + ', Fehlschläge ' + ms + ', Status L: ' + R.wins[0].status() + ' · F: ' + R.wins[1].status());
+    R.close();
+  },
+  async waitall() { // Q-U (Nutzer 21.11.): Option „unbegrenzt warten“ – der Leader (Lv 100) verfehlt 18× (~27 s, länger als die 10-/20-s-Notbremse),
+    // der Begleiter (Lv 130) wartet trotzdem auf den echten Treffer, der Kill zählt
+    const R = groupWorld(questWorld({ lv: [100, 130], miss: { 0: 18 }, dmg: [40, 600], cfg: { questOpenNoLimit: true }, myQuests: [{ q_k: { state: 1, counters: [0] } }, {}] }));
+    await wait(1500); R.start(); const t0 = Date.now();
+    while (Date.now() - t0 < 60000 && !R.ev.some((e) => e.slot === 0 && (e.what === 'credit' || e.what === 'nocredit'))) await wait(200);
+    const cr = R.ev.filter((e) => e.slot === 0 && e.what === 'credit').length, no = R.ev.filter((e) => e.slot === 0 && e.what === 'nocredit').length, ms = R.ev.filter((e) => e.slot === 0 && e.what === 'miss').length;
+    check('Q-U', cr >= 1 && no === 0 && ms >= 18, 'unbegrenzt warten: Begleiter wartet auch nach 27 s Fehlschlägen, Kill zählt', () => 'Fortschritt ' + cr + ', ohne Fortschritt ' + no + ', Fehlschläge ' + ms + ', Status L: ' + R.wins[0].status() + ' · F: ' + R.wins[1].status());
     R.close();
   },
   async serveop() { // Q-S: „Leader erledigt die Quests der Mitläufer“ – der 30 Level tiefere Mitläufer trifft trotzdem zuerst
