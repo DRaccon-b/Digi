@@ -4,6 +4,7 @@
 //  C1: Rufer, Haken an  -> erstes Ziel ist der Rufer.   C0: Haken aus -> erst der Angreifer (wie bisher).
 //  A1: Artillerie, Haken an -> erst die Artillerie.
 //  M0: Heiler heilt, Heiler-Haken aus -> erst der Angreifer.
+//  W1/W0: Schildgeber mit/ohne Haken (3.2.44).
 //  X1: Rufer einer fremden Gruppe (weit weg, seine Gruppe kämpft nicht) -> trotz Haken nicht vorgezogen.
 const { JSDOM, VirtualConsole } = require('jsdom');
 const fs = require('fs');
@@ -47,6 +48,11 @@ async function run({ role, cfg = {}, far = false, heals = false }) {
   check('A1', a1[0] === 'm:role', 'Artillerie-Haken an: Artillerie zuerst', () => a1.join(',') || '–');
   const m0 = await run({ role: 'mender', heals: true, cfg: { riftMenderFirst: false } });
   check('M0', m0[0] === 'm:att', 'Heiler-Haken aus: erst der Angreifer, auch wenn er heilt', () => m0.join(',') || '–');
+  // 3.2.44 (Nutzer 21.11.): Schildgeber (Warder, +80 % Verteidigung für seine Gruppe) – eigener Haken, Standard aus
+  const w1 = await run({ role: 'warder', cfg: { riftWarderFirst: true } });
+  check('W1', w1[0] === 'm:role', 'Schildgeber-Haken an: Schildgeber zuerst', () => w1.join(',') || '–');
+  const w0 = await run({ role: 'warder' });
+  check('W0', w0[0] === 'm:att', 'Schildgeber-Haken aus (Standard): erst der Angreifer', () => w0.join(',') || '–');
   const x1 = await run({ role: 'caller', far: true, cfg: { riftCallerFirst: true } });
   check('X1', x1[0] === 'm:att', 'Rufer einer fremden Gruppe nicht vorgezogen', () => x1.join(',') || '–');
   process.exit(res.every(Boolean) ? 0 : 1);

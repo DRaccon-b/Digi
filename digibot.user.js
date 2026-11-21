@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.43
+// @version      3.2.44
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1534,7 +1534,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     dgMode: 'easy',       // 'easy' = War Game, 'hard' = Revenge (allein kaum zu schaffen), 'apocalymon' / 'malomyotismon' / 'beelzemon' / 'd_reaper' = Raid
     dgBreak: true,        // Optionales Brechbares (Mail Server bei Diaboromon) zerstören – alle dasselbe Ziel; aus = nur der Boss (3.1.1).
     riftDepthMode: 'max', // Digital Rift (3.2.19): 'max' = tiefste freigeschaltete, für die das Partner-Level reicht; 'fixed' = riftDepth
+    riftBread: true,      // Digital Rift (3.2.44): in der Erholpause Guilmon Bread essen (F1–F3), statt bis zu 25 s zu warten
     riftMenderFirst: true, // Digital Rift (3.2.41): Heiler-Gegner zuerst, sobald er ein Monster heilt, das mit mir kämpft
+    riftWarderFirst: false, // Digital Rift (3.2.44): Schildgeber-Gegner zuerst, sobald seine Gruppe mit mir kämpft
     riftCallerFirst: false, // … Rufer (ruft Verstärkung) zuerst, sobald seine Gruppe mit mir kämpft
     riftArtilleryFirst: false, // … Artillerie (beschießt alle 6 s) zuerst, sobald ihre Gruppe mit mir kämpft
     riftAoeOpen: false,   // Digital Rift (3.2.40): Kampf mit einem AoE-Skill auf die beste Mitte der Gruppe eröffnen
@@ -1841,7 +1843,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.43'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.44'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2021,6 +2023,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
             ${check('riftMenderFirst', 'Rift: Heiler-Gegner zuerst (sobald er heilt)', 'Ein Heiler (Mender) hat Vorrang vor allen Angreifern, sobald er ein Monster heilt, das mit dir kämpft. Vorher ist er ein normaler Gegner – der Bot läuft nicht zu fremden Gruppen.')}
             ${check('riftCallerFirst', 'Rift: Rufer zuerst (ruft Verstärkung)', 'Ein Rufer (Caller, ab Tiefe 10) zählt herunter, solange seine Gruppe kämpft, und ruft dann ein weiteres Monster in seine Reihe. An: sobald seine Gruppe mit dir kämpft, greift der Bot ihn vor den Angreifern an (nach einem heilenden Heiler).')}
             ${check('riftArtilleryFirst', 'Rift: Artillerie zuerst', 'Artillerie beschießt alle 6 s einen Partner mit einem markierten Kreis. An: sobald ihre Gruppe mit dir kämpft, greift der Bot sie vor den Angreifern an (nach Heiler und Rufer).')}
+            ${check('riftWarderFirst', 'Rift: Schildgeber zuerst', 'Ein Schildgeber (Warder) gibt seiner Gruppe im Umkreis +80 % Verteidigung, solange er steht. An: sobald seine Gruppe mit dir kämpft, greift der Bot ihn vor den Angreifern an (nach Heiler, Rufer und Artillerie). Aus: erst die Angreifer, dann der Schildgeber.')}
+            ${check('riftBread', 'Rift: Brot statt Erholpause', 'Fällt die HP im Rift unter 60 % und greift niemand an, macht der Bot eine Erholpause (bis 25 s). An: liegt Guilmon Bread auf F1–F3, isst er es dabei sofort und geht schneller weiter. Kostet Brot (der Bot kauft es im Lager nach).')}
             ${check('riftAoeOpen', 'Rift: Kampf mit AoE-Skill eröffnen', 'Nur im Digital Rift: Vor dem ersten Schlag auf eine noch ruhige Gruppe nimmt der Bot einen bereiten Flächen-Skill (Rolle AoE oder Angriff mit Trefferkreis um das Ziel) und zielt auf das Monster, um das die Fläche die meisten trifft – Monster einer anderen Gruppe dürfen nicht im Kreis sein. Ist kein Flächen-Skill bereit, zieht er normal. Nicht bei Guardian/Alpha.')}
             ${check('dgRetry', 'Nach gescheitertem Lauf neu betreten (bis 3×)', 'Aus: Der Bot stoppt nach einem gescheiterten Lauf, Neustart über den Leader. Nach einem Rauswurf wartet er ohnehin 15 min (manueller Start hebt das auf).')}
           </div>
@@ -10493,6 +10497,41 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return { ...pick, targetOk: !pick.why };
   }
   const riftTarget = () => DIGIBOT_RIFT_TARGETS[cfg.riftTarget] || null;
+  // Brot statt Pause (3.2.44, Nutzer 21.11.): in der Rift-Erholpause Guilmon Bread von F1–F3 essen, statt bis zu 25 s herumzustehen.
+  // Abklingzeit des Spiels (cooldowns['item:…'], gilt für alle HP-Items) abwarten. -> Taste (1–3), wenn Brot da ist (auch in Abklingzeit), sonst 0
+  function riftEatBread(st, hpPct, now) {
+    if (cfg.riftBread === false) return 0;
+    const bk = [1, 2, 3].find((k) => st.me?.hotbar?.[7 + k] === 'item:' + RIFT_BREAD && potionCount(st.me, k) > 0) || 0;
+    if (!bk) return 0;
+    const cd = st.cooldowns?.['item:' + RIFT_BREAD]?.end;
+    if (Number.isFinite(cd) && cd > performance.now()) return bk;
+    if (bot.can('F' + bk, RIFT_BREAD_CD_MS, now) && bot.hit('F' + bk, now) !== false) logEvent('potion', `Rift: Guilmon Bread gegessen (HP ${Math.round(hpPct)} %)`);
+    return bk;
+  }
+  // Wegelänge (px) von mir zu jeder Zelle über die Zellverbindungen (Spiel: layout.links = [[Zelle, Zelle], …], 3.2.44) – Dijkstra
+  // ab der Zelle, in der ich stehe (sonst der nächsten). null, wenn die Karte keine Verbindungen liefert.
+  function riftCellPaths(lay, cells, mid, me) {
+    const links = Array.isArray(lay?.links) ? lay.links.filter((l) => Array.isArray(l) && l.length >= 2) : [];
+    if (!links.length || !me) return null;
+    const byId = new Map(cells.map((c) => [c.id, c])), adj = new Map();
+    for (const [a, b] of links) { if (!byId.has(a) || !byId.has(b)) continue; (adj.get(a) || adj.set(a, []).get(a)).push(b); (adj.get(b) || adj.set(b, []).get(b)).push(a); }
+    const hd = (c) => Math.hypot(me.x - mid(c).x, me.y - mid(c).y);
+    const start = cells.find((c) => inRect(c.rect, me)) || [...cells].sort((a, b) => hd(a) - hd(b))[0];
+    if (!start || !adj.has(start.id)) return null;
+    const dist = new Map([[start.id, hd(start)]]), done = new Set();
+    for (;;) {
+      let u = null;
+      for (const [id, d] of dist) if (!done.has(id) && (u == null || d < dist.get(u))) u = id;
+      if (u == null) break;
+      done.add(u);
+      const cu = byId.get(u);
+      for (const v of adj.get(u) || []) {
+        const cv = byId.get(v), nd = dist.get(u) + Math.hypot(mid(cu).x - mid(cv).x, mid(cu).y - mid(cv).y);
+        if (!(dist.get(v) <= nd)) dist.set(v, nd);
+      }
+    }
+    return dist;
+  }
   // Zielwahl im Rift: Guardian, markierter Alpha (nah), Heiler (mender), Angreifer, Schildgeber (warder), dann der nächste Gegner. Steht das
   // Portal offen (nicht letzte Etage), nur noch Angreifer – dann geht es nach unten.
   function riftFocus(sc) {
@@ -10529,6 +10568,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       // Rufer (ruft Verstärkung, ab Tiefe 10) und Artillerie (beschießt alle 6 s): je eigener Haken, nur wenn ihre Gruppe mit mir kämpft (3.2.41)
       if (cfg.riftCallerFirst && caller(m) && (m.attacker || packFighting(m))) return (marks.has(m.id) ? 12 : 60) + dist / 100;
       if (cfg.riftArtilleryFirst && artillery(m) && (m.attacker || packFighting(m))) return (marks.has(m.id) ? 14 : 70) + dist / 100;
+      // Schildgeber (warder: +80 % Verteidigung für seine Gruppe im Umkreis 192 px) – eigener Haken, nur wenn seine Gruppe mit mir kämpft (3.2.44)
+      if (cfg.riftWarderFirst && warder(m) && (m.attacker || packFighting(m))) return (marks.has(m.id) ? 16 : 80) + dist / 100;
       if (!m.attacker && !(dist <= riftFocusR())) return Infinity;
       return (m.attacker ? 100 : warder(m) ? 200 : 300) + dist / 100; // ferner markierter Alpha: wie jeder andere (3.2.23)
     };
@@ -10582,7 +10623,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const pp = st.me?.partner, hpPct = pp?.maxHp ? pp.hp / pp.maxHp * 100 : 100;
     if (hpPct < RIFT_REST_HP && !(sc?.attackers?.length) && (run.clockMs ?? Infinity) > RIFT_REST_CLOCK_MS) {
       rift.restAt ||= now;
-      if (now - rift.restAt < RIFT_REST_MS) return `${tag} · erhole mich (HP ${Math.round(hpPct)} %)`;
+      if (now - rift.restAt < RIFT_REST_MS) {
+        const bk = riftEatBread(st, hpPct, now);
+        return `${tag} · ${bk ? 'esse Brot' : 'erhole mich'} (HP ${Math.round(hpPct)} %)`;
+      }
     } else if (hpPct >= RIFT_REST_HP || sc?.attackers?.length) rift.restAt = 0;
     const go = (x, y, what) => { if (walkTo(st, x, y, now) === 'stuck') { autopilot.nav = null; return null; } return `${tag} · ${what} (${Math.round(Math.hypot(me.x - x, me.y - y))} px)`; };
     // Leader mit Tank: der Tank erholt sich – nicht weiterlaufen und neue Gegner ziehen (Review 3.2.32)
@@ -10625,8 +10669,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // Hauptweg und Abzweige zuerst (1–2 Gruppen je Zelle), Sackgassen zuletzt (höchstens eine) – live 16.11.: 40 s Erkunden auf
     // Etage 1 (3.2.28); Aufschlag in px auf die Entfernung
     const rolePen = (c) => (String(c.role || '').startsWith('deadend') ? 450 : c.role === 'branch' ? 60 : 0);
+    // Entfernung über die Zellverbindungen des Spiels (layout.links), nicht Luftlinie durch Wände (3.2.44); ohne Verbindung: Luftlinie
+    const pathD = riftCellPaths(lay, cells, mid, me), dOf = (c) => pathD?.get(c.id) ?? Math.hypot(me.x - mid(c).x, me.y - mid(c).y);
     const open = cells.filter((c) => !rift.visited.has(c.id) && c.role !== 'camp')
-      .sort((a, b) => Math.hypot(me.x - mid(a).x, me.y - mid(a).y) + rolePen(a) - Math.hypot(me.x - mid(b).x, me.y - mid(b).y) - rolePen(b));
+      .sort((a, b) => dOf(a) + rolePen(a) - dOf(b) - rolePen(b));
     if (!open.length) { rift.visited = new Set(); return `${tag} · alles abgesucht – suche erneut`; }
     const c = open[0], p = mid(c);
     const s = go(p.x, p.y, `erkunde ${c.role?.startsWith('deadend') ? 'Sackgasse' : c.role === 'branch' ? 'Abzweig' : c.role === 'main' ? 'Hauptweg' : c.role || 'Zelle'} ${rift.visited.size + 1}/${cells.length}`);
@@ -10698,9 +10744,33 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const e = window.dmo?.net?.state?.entities?.get?.(p?.ents?.[0]);
     return e && Number.isFinite(e.x) ? e : Number.isFinite(p?.x) && Number.isFinite(p?.y) ? { x: p.x, y: p.y } : null;
   }
+  // Zeitmessung je Etage (3.2.44, Nutzer 21.11.): jeder Bot-Takt im Rift zählt seine Zeit nach dem Status in eine Sparte; beim
+  // Etagenwechsel bzw. am Laufende eine Logzeile – zeigt, wo die Zeit hingeht (Kampf, Laufen, Erholen, Ausweichen, Warten)
+  const RIFT_TIME_CATS = [['Ausweichen', /[Ww]eiche|Ausweich|außerhalb|[Ss]icherer? Weg/], ['Kampf', /Greife an|[Ww]ehre .*ab|eröffne|AoE-Eröffnung|Angriff/],
+    ['Erholen', /erhole mich|esse Brot|Erholung/], ['Warten', /[Ww]arte|am markierten Alpha/], ['Laufen', /erkunde|Portal|laufe|[Ff]olge|Weg|Alpha|Guardian|steige ab|Zelle/]];
+  function riftClock(status, now) {
+    const R = riftStore(), run = R?.run;
+    if (!run || R.result || !riftMap(getStore()?.getState?.()?.world?.mapId)) { if (rift.tm) riftTimeFlush(); return; }
+    const fl = run.floor || { n: 1, of: 3 }, key = `${run.depth}|${fl.n}`;
+    if (rift.tm?.key !== key) { riftTimeFlush(); rift.tm = { key, n: fl.n, of: fl.of, at: now, last: now, by: {} }; }
+    const gap = Math.max(0, now - rift.tm.last), dt = Math.min(2000, gap); rift.tm.last = now;
+    if (gap > dt) rift.tm.at += gap - dt; // Bot pausiert/gestoppt: diese Zeit nicht als Etagenzeit zählen (Review 3.2.44)
+    const cat = (RIFT_TIME_CATS.find(([, re]) => re.test(String(status || ''))) || ['sonst'])[0];
+    rift.tm.by[cat] = (rift.tm.by[cat] || 0) + dt;
+    rift.tm.signal = run.signal;
+  }
+  function riftTimeFlush() {
+    const m = rift.tm; rift.tm = null;
+    if (!m) return;
+    const tot = Math.round((m.last - m.at) / 1000);
+    if (tot < 2) return;
+    const parts = [...RIFT_TIME_CATS.map(([k]) => k), 'sonst'].filter((k) => m.by[k] >= 500).map((k) => `${k} ${Math.round(m.by[k] / 1000)} s`);
+    logEvent('map', `Rift: Etage ${m.n}/${m.of} in ${tot} s – ${parts.join(', ') || '–'} · Signal ${Math.round(m.signal || 0)} %`);
+  }
   // Lauf vorbei: Ergebnis merken, dann hinaus (raidLeave) – der nächste Lauf beginnt bei Clockmon
   function riftAfter(st, res, now) {
     if (rift.resultSeen !== res) {
+      riftTimeFlush(); // letzte Etage (Guardian) abschließen
       rift.resultSeen = res; rift.runs++; if (res.stable) rift.stable++;
       const d = Number(res.depth) || rift.depth || 0;
       if (cfg.riftDepthMode !== 'fixed' && !res.stable && d > 1) { rift.cap = d - 1; rift.capOk = 0; logEvent('warn', `Rift: Tiefe ${d} nicht stabil geschafft – nächster Lauf höchstens Tiefe ${rift.cap}`); }
@@ -10859,6 +10929,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   // Guilmon Bread (heilt 45 000 HP) liegt auf einer Trank-Taste: vor dem Lauf bei Clockmon nachkaufen (10 Stück für 30 Shards, ohne
   // Wochenlimit), bis RIFT_BREAD_MIN da sind – live 16.11.: nur noch 2 Stück, der Ruhemodus kostete über 3 min je Lauf (3.2.29)
+  const RIFT_BREAD_CD_MS = 6000; // Guilmon Bread: Abklingzeit im Spiel (use.cooldownMs)
   const RIFT_BREAD = 'guilmon_bread', RIFT_BREAD_MIN = 20, RIFT_BREAD_COST = 30, RIFT_BREAD_TRIES = 4;
   function riftBreadNeed(st) {
     const me = st?.me, hb = me?.hotbar || [];
@@ -11928,7 +11999,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       logEvent('bot', on ? 'Bot pausiert' : 'Bot macht weiter');
       schedule();
     },
-    tick() { if (!this.on) return; if (this.paused) { this.status = 'Pausiert – ▶ macht weiter'; return; } return digibotCore.run('Bot', 50, () => { const before=this.status;try{return this.tickBody();}finally{if(this.status!==before){const st=getStore()?.getState?.();digibotCore.record('Statuswechsel',{action:this.status,map:st?.world?.mapId,channel:st?.world?.channel,target:st?.target?.id,hp:st?.target?.hp});}} }); },
+    tick() { if (!this.on) return; if (this.paused) { this.status = 'Pausiert – ▶ macht weiter'; return; } return digibotCore.run('Bot', 50, () => { const before=this.status;try{return this.tickBody();}finally{try{riftClock(this.status,Date.now());}catch{/* nur Messung */}if(this.status!==before){const st=getStore()?.getState?.();digibotCore.record('Statuswechsel',{action:this.status,map:st?.world?.mapId,channel:st?.world?.channel,target:st?.target?.id,hp:st?.target?.hp});}} }); },
     tickBody() {
       const st = getStore()?.getState?.();
       const now = Date.now();
@@ -12200,7 +12271,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           if (now - rift.restAt < RIFT_REST_MS) {
             if (this.attackedId || window.dmo?.net?.state?.entities?.get?.(st.me?.partner?.entityId)?.targetId) { this.attackedId = null; if (this.can('stop', 1000, now)) { this.lastPress.stop = now; commands()?.partnerStop?.(); } }
             this.engage = null;
-            this.status = `Rift: wenig HP (${hpPct.toFixed(0)} %) – lasse ${t.name || 'das Ziel'} und erhole mich`;
+            const bk = riftEatBread(st, hpPct, now); // auch hier Brot statt Pause (Review 3.2.44)
+            this.status = `Rift: wenig HP (${hpPct.toFixed(0)} %) – lasse ${t.name || 'das Ziel'} und ${bk ? 'esse Brot' : 'erhole mich'}`;
             return;
           }
         }

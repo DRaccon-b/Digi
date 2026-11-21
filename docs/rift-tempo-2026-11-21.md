@@ -1,0 +1,44 @@
+# Rift schneller – geprüfte Ideen (21.11.)
+
+
+Geordnet nach Zeitgewinn im Verhältnis zu Risiko und Aufwand. Vorsicht geht vor. Keine Datei wurde geändert. Alle Zeiten sind Schätzungen und noch nicht gemessen.
+
+| Nr | Idee | Was ändert sich | Zeitgewinn je Lauf (Schätzung) | Risiko | Aufwand | Beleg (Code-Zeile/Spieldaten) |
+|---|---|---|---|---|---|---|
+| 1 | **Brot statt Erholpause** (solo und vor allem beim Tank) | Fällt die HP im Rift unter 60 % und greift niemand an, isst der Bot sofort Guilmon Bread. Heute steht er bis zu 25 s herum. Liegt kein Brot mehr auf der Leiste, bleibt es bei der Pause wie heute. Wichtig: Die Brot-Taste muss gesucht werden (das Brot kann auf F1 bis F3 liegen), nicht fest F1. Erholt sich der Tank so schneller, muss auch die ganze Gruppe nicht mehr auf ihn warten. | 10–60 s (je vermiedener Pause 10–25 s; in der Gruppe bis ~80 s) | **Senkt** das Ohnmacht-Risiko, weil der nächste Kampf mit fast voller HP beginnt. Kostet ~3 Shards je Pause. | klein | Bot: `RIFT_REST_HP = 60`, `RIFT_REST_MS = 25000` (Z. 10426–10428); Warten mit „erhole mich“ (Z. 10583–10585); Gruppe hält an in riftTankResting (Z. 10670–10676, 10589, 10651); getrunken wird erst unter `cfg.hpPot` 40 % (Z. 1486, Z. 12000); Brot-Nachkauf auf 20 Stück (Z. 10860–10866). Spiel: `guilmon_bread use:{hp:45e3,cooldownMs:6e3,target:partner}` |
+| 2 | **Signal auf Etage 1/2 vorsammeln** (Vorschlag #13 mit neuem Beleg) | Ist das Portal offen, nimmt der Bot auf Etage 1 noch ruhige Gruppen aus 1–2 nahen Zellen mit, die er noch nicht abgesucht hat. Auf Etage 2 sammelt er bis etwa 80–85 % der Signal-Leiste, solange die Uhr noch über 50 % steht. Sackgassen lässt er aus. | 15–40 s | gering (auf Etage 1/2 kämpft er gegen Rookie/Champion/Ultimate statt Mega) | mittel | **Neu:** Die Signal-Leiste gilt für den ganzen Lauf. Das Portal öffnet bei 33 % bzw. 67 % derselben Leiste (Client `pct:Math.round(100*(e.portal?.opensAt??t.n/t.of))`, `signal:e.signal/e.need*100`). Wie viel Signal ein Gegner gibt, hängt nur am Rang (`ranks:{minion:{signal:1},…elite:{signal:6}}`), nicht an der Stufe (`stages.floors`). Gemessen: Etage 1 dauerte 137 s, Etage 2/3 206/216 s. Ort im Bot: riftStep vor Z. 10609 |
+| 3 | **Nächste Zelle nach echtem Weg statt Luftlinie wählen** | Der Bot wählt die nächste Zelle danach, wie weit sie auf der Karte über die Verbindungen wirklich entfernt ist. Diese Verbindungen liefert das Spiel schon mit. Heute rechnet er die Luftlinie durch Wände. Sackgassen bleiben weiter zuletzt dran. | 5–20 s | gering (am Kampf ändert sich nichts) | klein | Bot sortiert nach `Math.hypot(...) + rolePen(a)` (Z. 10627–10629). `links`, `mainPath` und `mainIndex` werden nirgends benutzt. Spiel-Karte: `{…cells:le,links:pe,mainPath:me,…}`, geschlossene Kanten `"C"`, Schleifen möglich (`loops`) |
+| 4 | **Schildgeber (Warder) zuerst, wenn seine Gruppe schon mit mir kämpft** | Neue Option nach dem Muster „Heiler/Rufer/Artillerie zuerst“. Kämpft die Gruppe schon und stehen geschützte Frontgegner in der Nähe, geht der Bot zuerst auf den Warder. Mit Abstandsgrenze (~200 px). Erst einmal standardmäßig aus und testen. | 5–30 s | gering bis mittel (der Weg zum Warder führt an der Frontreihe vorbei, dort bremst „engaged“ um 40 %) | klein | Spiel: `warder:{dePct:80,rangePx:192,pulseMs:2e3}` („Defense +80% while it stands“), `floorBudget:{warder:3}`, ab Tiefe 15 `chance p:.6`, `roleCount n:2`. Bot: Der Warder liegt heute bei 200 hinter allen Angreifern (Z. 10533), es gibt nur Haken für Mender/Caller/Artillerie (Z. 1537–1539, 10527–10531) |
+| 5 | **In der Gruppe: Heiler-, Rufer- und Artillerie-Gegner wirklich zuerst** | Der Leader sagt diese Rollen-Gegner vor dem an, „was den Tank gerade angreift“. Kämpft ihre Gruppe schon, gibt es für die DDs keine Tank-Sperre. Der Tank hält weiter die Frontreihe. | 10–30 s | gering bis mittel (gilt nur für Gruppen, die schon kämpfen, es wird also keine neue gezogen) | mittel | Bot Z. 10655 `const pick = own \|\| onTank \|\| riftFocus(sc);`: Der Vorrang aus Z. 10528–10531 kommt in der Gruppe nie zum Zug. Sperre erst nach 8 s gelöst (Z. 12337, 12350). Spiel: `mender healPct:4.5, tickMs:1e3`, `floorBudget mender:3` |
+| 6 | **DDs laufen während der Tank-Sperre schon vor** | Während der Tank zieht, laufen die DDs schon bis knapp vor die Aggro-Grenze, mit mindestens 120 px Abstand zu allen ruhigen Gegnern und außerhalb von Warnflächen. Heute stehen sie still. Findet sich kein sicherer Punkt, bleiben sie stehen wie heute. Der Heiler macht es schon so. | 20–45 s | mittel (steht ein DD zu nah, zieht er selbst Aggro; das lässt sich über den Abstand steuern) | mittel | Bot Z. 12351–12355: In der Sperre `return` ohne Laufen. Weil ein Ziel gesetzt ist, läuft auch das Folgen nicht (Z. 12265–12276). Vorbild riftHealerSpot (Z. 10680–10690). Spiel: Aggro 64 px, `engaged:{reachPx:20,slowPct:40,ms:1500}` |
+| 7 | **Messen: Laufen, Kampf und Warten je Etage** | Das Log schreibt je Etage und je Lauf, wie viele Sekunden für Erkunden, Kampf, „erhole mich“, Ausweichen, Warten auf den Tank und Warten am Alpha draufgehen. Dazu kommen die gelaufene Strecke, der Signalstand beim Etagenwechsel und die Zahl der „alles abgesucht“-Meldungen. | 0 s direkt (zeigt, welche Ideen wirklich etwas bringen) | keins | klein | Heute gibt es nur die Gesamtzeit je Etage (Log Z. 10577, 10613). riftTrail speichert nur 40 Punkte (Z. 3075). Ziel aus den Spieldaten: unter 432 s Laufzeit gibt es +2 statt +1 Tiefe (`unlock:[{under:.4,gain:3},{under:.6,gain:2},…]`, `clockMs:72e4`). Heute dauert ein Lauf ~560 s, also ~77 % der Uhr |
+
+Zusammen sind grob 1–4 Minuten je Lauf drin. Damit käme ein Lauf vielleicht unter 432 s, und dann gibt es +2 Tiefen statt +1.
+
+**Zuerst diese drei:**
+1. **Nr. 1 Brot statt Pause:** Sie bringt wohl am meisten, ist schnell gebaut und macht das Spiel sogar sicherer, weil der nächste Kampf mit voller HP beginnt.
+2. **Nr. 7 Messen:** Ohne Risiko. Danach ist klar, ob die Zeit beim Laufen, im Kampf oder beim Warten verloren geht und welche Ideen sich lohnen.
+3. **Nr. 2 Signal vorsammeln:** Gegner auf Etage 1/2 sind leichter, ihr Signal zählt aber für den ganzen Lauf. Das spart Zeit auf der schweren Etage 3, bei eher weniger Risiko.
+
+**Verworfen:**
+- Rift mit 3 statt 4 Konten: Ob die Kartengröße an der Party-Größe hängt, ist nicht belegt. Du spielst ohnehin mit höchstens 3 Konten.
+- Nach vollem Signal ruhige Gegner auslassen: Das war dein ausdrücklicher Wunsch („erst die anderen Mobs“, Z. 10518–10520), und das Risiko, Gegner mitzuziehen, kommt zurück.
+- Bei der Alpha-Jagd nur das Umfeld des Alphas räumen: Das wurde nach früheren Ohnmachten bewusst so gebaut, und wie oft es Jagd-Etagen gibt, ist unbekannt.
+- Tiefe 14 statt 15: Das geht schon heute (Tiefe-Modus „fest“, Z. 10467–10470) und tauscht nur Ertrag gegen Zeit.
+- Alphas außerhalb der Jagd meiden: Ein Alpha bringt fast so viel Signal je HP wie Diener, gespart würde nichts.
+- Caster zuerst: Eine Gruppe besteht immer aus einem Gegnertyp, Caster und Diener mischen sich also kaum. Nutzen ≈ 0.
+- Erkunden Richtung Ausgang: Das Signal läuft über die Etagen weiter, Kills nach der Schwelle sind also keine verlorene Zeit.
+- Leere Zellen nicht betreten: Ob der Bot weit genug sieht, ist nicht gemessen. Lager und Sackgassen sind schon ausgenommen.
+- „alles abgesucht“ gezielter machen: Kommt wohl kaum vor, weil je Etage nur ~1/3 des Signals nötig ist.
+- Zum Portal nur Gegner am Weg mitnehmen: Was hier gespart wird, fehlt auf der nächsten Etage wieder. Außerdem war das dein Wunsch nach den Mitzieh-Problemen.
+- Artillerie zuerst als Standard: Die Option gibt es schon (Z. 1539). Der Beleg „36 000 Fixschaden“ gehört zu einem anderen Skill.
+- AoE-Eröffnung erst ab 2 Treffern: Einzelne Gegner kommen im Rift kaum vor, Gewinn 0–3 s. Taugt höchstens als kleine Absicherung.
+- Overkill-Sperre für Flächen-Skills lockern: Verzögert jeweils unter 1 s, kein Cooldown geht verloren. Gewinn 0–2 s.
+- Skill-Reihenfolge nach Wert: Den Nutzen hat niemand geprüft. Du kannst die Reihenfolge über die Tastenbelegung schon selbst steuern.
+- Arc-Spark-Zielwahl: Die Gegner stehen ohnehin eng beieinander, Gewinn 0–2 s.
+- Patch-Wahl je nach Modifikator: Die Werte sind falsch gelesen (+10 % auf ct ist sehr wenig), Gewinn 0–3 s.
+- Nicht mehr so weit nach hinten ausweichen: Das war dein ausdrücklicher Wunsch aus 3.2.40, und Gegner mitzuziehen wird wieder wahrscheinlicher.
+- Leader wartet kürzer auf den Tank, wenn der Brot hat: Mit Idee Nr. 1 erledigt sich das von selbst.
+- Alpha über seine ID suchen: Der Bot sieht ihn ohnehin schon, sobald er da ist. Gewinn ≈ 0.
+- Später aus Flächenangriffen herauslaufen: Lässt sich schon einstellen (dodgeLateK/dodgeLatePad, Z. 1613/1620). Mit kürzerem Puffer gab es früher schon Treffer, und es bringt unter 1 %.
+- Tank als Leader: Die Laufwege bleiben nacheinander, gespart wird ≈ 0 s. Das eigentliche Problem löst erst Idee Nr. 6.

@@ -2,6 +2,17 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.44 – Rift schneller: Brot statt Pause, echter Weg, Schildgeber, Zeitmessung
+- **Nutzer 21.11.** (aus den geprüften Ideen, docs/rift-tempo-2026-11-21.md):
+  - **Brot statt Erholpause** (Haken „Rift: Brot statt Erholpause“, Standard an): Unter 60 % HP ohne Angreifer isst der Bot Guilmon
+    Bread von F1–F3, statt bis zu 25 s zu warten. Auch im Fall „wenig HP – lasse das Ziel“; Abklingzeit des Spiels wird abgewartet.
+  - **Nächste Zelle nach echtem Weg:** Erkunden wählt die Zelle mit dem kürzesten Weg über die Zellverbindungen des Spiels
+    (layout.links), nicht mehr nach Luftlinie durch Wände. Ohne Verbindungsdaten wie bisher.
+  - **Schildgeber zuerst** (Haken, Standard aus): Der Warder (+80 % Verteidigung für seine Gruppe) hat Vorrang, sobald seine
+    Gruppe mit dir kämpft (nach Heiler, Rufer, Artillerie).
+  - **Zeitmessung:** Je Etage eine Logzeile, z. B. „Rift: Etage 2/3 in 206 s – Kampf 120 s, Laufen 50 s, Ausweichen 20 s, Erholen 10 s“.
+- Tests: riftbreadtest (B1, B0, BX, BL, BC), riftpathtest (P1, P0), riftroletest W1/W0, rifttimetest T1.
+
 ## 3.2.43 – Quest-Gruppe: Option „Unbegrenzt warten, bis der Niedrigere getroffen hat“
 - **Nutzer 21.11.:** Neuer Haken unter Quest-Autopilot. Liegt ein Mitglied mehr als 10 Level unter dem Stärksten, warten die anderen bei
   seinen Quest-Monstern bisher höchstens 10 s ab seinem Angriff (bzw. 20 s ab Wartebeginn) – danach griffen sie trotzdem an, auch wenn
