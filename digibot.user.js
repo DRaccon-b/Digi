@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.51
+// @version      3.2.52
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -189,7 +189,7 @@ function digibotConfig(saved, defaults) {
   const bounds={width:[300,900],radius:[80,2000],grpDist:[60,1500],lvlDiff:[-100,100],hpPot:[0,100],dsPot:[0,100],tdsPot:[0,100],pullMax:[2,8],pullHp:[30,90],
     foodAutoMin:[1,99],dodgeMargin:[8,80],dodgeEdge:[0,40],dodgeHold:[60,600],dodgeSoonMs:[300,3000],dodgeSoonPad:[0,200],dodgeLateK:[1,3],dodgeLatePad:[0,4000],
     dodgeLateAbort:[0,8000],dodgeRetap:[200,3000],dodgeWalk:[60,300],dodgeSearch:[150,600],dodgeHuge:[300,1500],pullDodgeLeash:[0,150],pullDodgeMargin:[0,60],
-    stopLevel:[0,150],stopAfterMin:[0,720],stopFaints:[0,50],stopBits:[0,100000000],potCdMs:[500,10000],huntLeadMin:[0.5,30],huntQuestLeadMin:[0.5,30],wbLeadMin:[1,30],huntIdleMin:[0.5,10],huntStallMin:[1,15],grpWaitMin:[1,10],riftDepth:[1,100],dgRepeatN:[0,50]};
+    stopLevel:[0,150],grindRiftDepth:[0,5],stopAfterMin:[0,720],stopFaints:[0,50],stopBits:[0,100000000],potCdMs:[500,10000],huntLeadMin:[0.5,30],huntQuestLeadMin:[0.5,30],wbLeadMin:[1,30],huntIdleMin:[0.5,10],huntStallMin:[1,15],grpWaitMin:[1,10],riftDepth:[1,100],dgRepeatN:[0,50]};
   const boolMap=v=>Object.fromEntries(Object.entries(digibotRecord(v)?digibotClean(v):{}).filter(([,x])=>typeof x==='boolean'));
   const skills=v=>Object.fromEntries(Object.entries(boolMap(v)).filter(([k])=>/^[2-6]$/.test(k)));
   const heals=v=>Object.fromEntries(Object.entries(digibotRecord(v)?digibotClean(v):{}).filter(([k,x])=>/^[2-6]$/.test(k)&&typeof x==='number').map(([k,x])=>[k,Math.max(0,Math.min(100,x))]));
@@ -678,7 +678,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function digibotObjective(st) {
     // Rift-Modus mit 🎯 Event: das laufende Event (außerhalb des Rifts) doch melden – sonst blieben die Mitläufer bei Clockmon
     // stehen („Event läuft – danach weiter“) und reisten nie zur Event-Map (Review 20.11., 3.2.36)
-    if(cfg.dungeon&&!(riftEvOn()&&hunt.goal&&!riftMap(st?.world?.mapId)))return null; // im Dungeon kein Oberwelt-Ziel an die Gruppe (altes Event-/Weltboss-Ziel nach Moduswechsel) (3.1.30)
+    if((cfg.dungeon||riftGrindOn(st))&&!(riftEvOn()&&hunt.goal&&!riftMap(st?.world?.mapId)))return null; // auch Grinden im Rift (3.2.52) // im Dungeon kein Oberwelt-Ziel an die Gruppe (altes Event-/Weltboss-Ziel nach Moduswechsel) (3.1.30)
     if(hunt.goal&&cfg.hunt)return {kind:'event',key:hunt.goal.key,mapId:hunt.goal.mapId,channel:hunt.goal.ch,boss:hunt.goal.boss};
     if(wb.goal&&cfg.wboss){const g=wb.goal;return {kind:'world',key:g.key,mapId:g.b.map,channel:g.ch,boss:g.b.species,...farmSpot(g.b)};}
     if(cfg.farm&&farm.goal){const g=farm.goal,b=farmSelected().find(x=>x.map===g.map&&x.index===g.index);if(b)return {kind:'farm',key:`${g.map}/${g.index}/${g.ch}`,mapId:g.map,channel:g.ch,boss:b.species,...farmSpot(b)};}
@@ -1501,6 +1501,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     skipTaken: true,  // keine Gegner angreifen, die andere Spieler gerade bekämpfen
     levelRoute: false, // Grinden: selbst zur besten Zone fürs Level reisen (Lern-Route)
     levelA2: true,    // Lern-Route nur in Adventure-02-Maps
+    grindRift: true,  // Grinden (3.2.52): im Digital Rift leveln – EXP-Tiefen 1–5, Tiefe nach Partner-Level
+    grindRiftDepth: 0, // Grinden im Rift (3.2.52): 0 = Tiefe automatisch nach Level, 1–5 = feste EXP-Tiefe
     // Digitation je Map (3.2.0, gilt in jedem Modus): zwischen den Kämpfen die Form annehmen, die zur aktuellen Map passt
     levelEvoForm: '__max',   // auf Maps ohne Dark Tower ('' = keine, '__max' = höchstmögliche, sonst Art)
     levelEvoDark: '__armor', // auf Maps mit Dark Tower (dort klappt nur Armor; '__armor' = höchste freie Armor-Form)
@@ -1726,6 +1728,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const after=behavior();
       // nur ziel-relevante Schlüssel; einen laufenden Boss-Kampf nie abbrechen – das neue Ziel greift danach (Review 20.11., 3.2.36)
       if(Object.keys({...before,...after}).some(k=>GOAL_CFG.test(k)&&before[k]!==after[k])){if(!farm.fight)farm.reset();autopilot.reset();}
+      if(['grindRift','grindRiftDepth'].some(k=>before[k]!==after[k]))riftGrindRecheck(); // Rift-Grinden im anderen Fenster umgestellt (Review 3.2.52)
       schedule();
     } catch { digibotCore.record('Gemeinsame Einstellungen konnten nicht geladen werden'); }
   });
@@ -1847,7 +1850,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.51'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.52'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -1857,7 +1860,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     </div>
     <div class="digibot__runbar">
       <div class="digibot__modes">${Object.entries(MODES).map(([k, l]) => `<button data-mode="${k}" title="${escAttr({
-        grind: 'Monster aus der Liste (Reiter Kampf) im Suchradius jagen',
+        grind: 'Im Digital Rift leveln (EXP-Tiefe nach Level, Schalter im Block Grinden) – sonst Monster aus der Liste (Reiter Kampf) im Suchradius jagen',
         auto: 'Quests annehmen, hinreisen, erledigen und abgeben (Reiter Quests)',
         farm: 'Boss-Rotation oder Named-Elite-Runde (Reiter Bosse)',
         dungeon: 'Kera-Dungeon: zur Tür, betreten, Räume räumen, Boss, wieder hinaus (Reiter Bosse)',
@@ -1958,6 +1961,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           ${check('skipTaken', 'Keine Gegner angreifen, die andere Spieler bekämpfen')}`, true,
           'Schwächere Monster werden immer angegriffen, nur zu starke (über +Level) nicht. Angreifer werden immer abgewehrt.')}
         ${grp('grind', 'Grinden &amp; Lern-Route', `
+          ${check('grindRift', 'Im Rift leveln (EXP-Tiefen 1–5)', 'Grinden (3.2.52): Der Bot levelt im Digital Rift – zu Clockmon (Primary Village), Rift betreten, ablaufen, von vorn. Nur die Tiefen 1–5 zahlen EXP (Monster Lv 41–57, 65–72, 75–91, 99–113, 120–127). Automatisch: die Tiefe mit den meisten EXP fürs Partner-Level (etwa Lv 1–47 Tiefe 1, 48–66 Tiefe 2, 67–84 Tiefe 3, 85–104 Tiefe 4, ab 105 Tiefe 5), in der Gruppe nach dem niedrigsten Level; gewechselt wird nur zwischen zwei Läufen. Passt keine Tiefe (etwa ab Lv 130) oder lässt das Spiel nicht hinein, grindet er normal im Feld weiter. Lern-Route und Channel-Checker ruhen solange. Nach jedem Lauf steht die EXP im Log.')}
+          ${slider('grindRiftDepth', 'Rift: EXP-Tiefe', 0, 5, (v) => (Number(v) ? `fest Tiefe ${v}` : 'automatisch'))}
           ${check('levelRoute', 'Lern-Route: selbst zur besten EXP-Zone reisen', 'Beim Grinden reist der Bot zur Zone mit den meisten EXP/min für das aktuelle Level. Wechsel erst ab +15 % besser, frühestens nach 3 min.')}
           ${check('levelA2', 'Lern-Route nur in Adventure 02')}
           ${check('levelBoss', 'Lern-Route: Feldbosse ohne Enrage mitnehmen', 'Feldbosse der Map ohne Enrage werden mitgenommen. Die Timer kommen aus allen Kanälen, die im Reiter Bosse → Kanäle angehakt sind.')}
@@ -5615,11 +5620,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const prev = group.peers.get(m.slot);
       group.peers.set(m.slot, { ...m, seen: Date.now() });
       // Mitläufer folgt dem Leader (3.2.0): wechselt der Leader in den Dungeon-Modus oder heraus, zieht der laufende Bot mit
-      if (m.slot === accounts.leader && group.role() === 'follower' && bot.on && m.bot === true && !accounts.mirror && typeof m.mode === 'string' && (m.mode === 'dungeon') !== !!cfg.dungeon && !(cfg.dungeon && dg.inside)) {
-        const dgOn = m.mode === 'dungeon';
-        cfg.dungeon = dgOn; cfg.autopilot = !dgOn; cfg.farm = false; cfg.eventsOnly = false; cfg.foodBuy = false;
+      // Rift-Grinden (Review 3.2.52): mit der echten Betriebsart vergleichen (ein Modus-Klick im Mitläufer-Fenster wird korrigiert
+      // wie beim Dungeon) und nie mitten im Rift umstellen – der laufende Lauf wird erst zu Ende gespielt bzw. verlassen
+      const rgNow = modeOf() === 'grind' && !!group.riftGrindFollow;
+      if (m.slot === accounts.leader && group.role() === 'follower' && bot.on && m.bot === true && !accounts.mirror && typeof m.mode === 'string' && ((m.mode === 'dungeon') !== !!cfg.dungeon || (m.mode !== 'dungeon' && !!m.riftGrind !== rgNow)) && !(cfg.dungeon && dg.inside)
+        && !(rgNow && riftMap(getStore()?.getState?.()?.world?.mapId))) {
+        const dgOn = m.mode === 'dungeon', rg = !dgOn && !!m.riftGrind; // Leader grindet im Rift: Mitläufer im Grind-Modus, folgt wie im Rift-Modus (3.2.52)
+        const wasDg = !!cfg.dungeon;
+        cfg.dungeon = dgOn; cfg.autopilot = !dgOn && !rg; cfg.farm = false; cfg.eventsOnly = false; cfg.foodBuy = false; group.riftGrindFollow = rg;
         if (dgOn && !dg.inside) dg.reset();
-        autopilot.reset(); logEvent('bot', `Gruppe: Leader ${dgOn ? 'im Dungeon-Modus – folge in den Dungeon' : 'hat den Dungeon-Modus verlassen – folge wieder'}`);
+        autopilot.reset(); logEvent('bot', `Gruppe: Leader ${dgOn ? 'im Dungeon-Modus – folge in den Dungeon' : rg ? 'grindet im Rift – folge in den Rift' : wasDg ? 'hat den Dungeon-Modus verlassen – folge wieder' : 'grindet nicht mehr im Rift – folge wieder'}`);
       }
       // Hat sich beim anderen Fenster etwas Wichtiges geändert: gleich einen Bot-Schritt machen, nicht auf den Takt warten
       if (bot.on && group.active() && (!prev || groupSig(prev) !== groupSig(m))) kickTick();
@@ -5674,7 +5684,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       task: tk ? { key: tk.key, kind: tk.kind, label: tk.label } : null,
       talks: group.role() === 'leader' ? group.talks : [], done: group.done.slice(-30), busy: group.cur, login: group.login.msg, fin,
       deferred: group.seen.slice(-30),
-      fight: inCombat(st), farm: !!cfg.farm, mode: modeOf(), // mode (3.2.0): Mitläufer übernehmen die Betriebsart des Leaders
+      fight: inCombat(st), farm: !!cfg.farm, mode: modeOf(), riftGrind: group.role() === 'leader' && riftGrindOn(st), // riftGrind (3.2.52): Leader grindet im Rift – Mitläufer wie im Rift-Modus // mode (3.2.0): Mitläufer übernehmen die Betriebsart des Leaders
       partyId:st.party?.id||null,tamer:{skill:digibotTamer.skill,want:digibotTamer.want,last:digibotTamer.last,cooldown:digibotTamer.cooldown},
       objective: digibotObjective(st), reservation: digibotFormation.reservation,
       kohAt: kohReadyAt(st, now), davis: davisReady(st, now), davisAt: digibotTamer.davisAt || 0, kohMoreOff: !!kohState.moreOff, // 3.1.26
@@ -5757,7 +5767,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     riftTankMap.botOn = !!bot.on;
     // in allen Betriebsarten (3.2.34, Nutzer 19.11.: „alle Gegner egal welche“) – im Rift-Modus aber nur im Rift selbst
     if (!group.active() || accounts.mirror) return null;
-    const inRift = cfg.dungeon && cfg.dgMode === 'rift';
+    const inRift = riftModeOn(st); // Dungeon-Modus Rift oder Grinden im Rift (3.2.52)
     if (inRift && !riftMap(mapId)) return null;
     // ohne Leader (Fenster zu, Bot aus) keine Gruppenregeln – Mitläufer spielen dann wie solo (Review 3.2.32)
     if (group.role() !== 'leader' && !(inRift ? riftFollower(now) : groupLeader(now)?.bot)) return null;
@@ -6484,8 +6494,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // Mitläufer (3.2.0): Betriebsart kommt vom Leader (seine Gruppenmeldung) – Dungeon: alle im Dungeon-Modus, sonst
     // Autopilot (folgt ihm auch in Boss-Rotation, Grinden, Event). Der Leader behält, was oben eingestellt ist.
     if (group.role() === 'follower') {
-      const dgOn = groupLeaderMode() === 'dungeon';
-      cfg.autopilot = !dgOn; cfg.farm = false; cfg.dungeon = dgOn; cfg.foodBuy = false; cfg.eventsOnly = false; // „Nur Event/WB“ blockierte sonst den Tick (3.1.30)
+      // Leader grindet im Rift (3.2.52): Grind-Modus, folgt wie im Rift-Modus. Steht dieses Fenster selbst im Rift und grindete
+      // schon dort: Grind-Modus behalten, bis der Lauf zu Ende gespielt bzw. verlassen ist (Review 3.2.52)
+      const dgOn = groupLeaderMode() === 'dungeon', rg = !dgOn && (riftLeadGrind() || (!!group.riftGrindFollow && modeOf() === 'grind' && riftMap(getStore()?.getState?.()?.world?.mapId)));
+      group.riftGrindFollow = rg;
+      cfg.autopilot = !dgOn && !rg; cfg.farm = false; cfg.dungeon = dgOn; cfg.foodBuy = false; cfg.eventsOnly = false; // „Nur Event/WB“ blockierte sonst den Tick (3.1.30)
       if (dgOn && !dg.inside) dg.reset(); // wie toggle: einen laufenden Lauf (Raumstand, geschafft) behalten (3.1.30)
       if (dgOn && digibotManual === true) dgExit.manualAt = Date.now(); // Leader-Start von Hand (3.1.20)
     }
@@ -8411,7 +8424,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const CH_CHECK_MS = 60000, CH_CHECK_ARRIVE_MS = 5000, CH_CHECK_MIN_GAIN = 2, CH_CHECK_WAIT_MS = 8000;
   const chCheckState = { mapId: null, arrived: 0, last: 0, switching: null };
   function channelCheck(st, sc, now) {
-    if (!cfg.chCheck || cfg.farm || cfg.dungeon || group.role() === 'follower' || world.state !== 'ready' || st.dialog) return null;
+    if (!cfg.chCheck || cfg.farm || cfg.dungeon || group.role() === 'follower' || world.state !== 'ready' || st.dialog || riftGrindOn(st)) return null; // ruht beim Grinden im Rift (3.2.52)
     if (questBossSel(autopilot.task).length) return null;
     if (lrOn() && lr.boss) return null; // Lern-Route: Boss in Sicht/auf dem Weg – nicht wegwechseln
     if (cfg.hunt && hunt.goal && st.world?.mapId === hunt.goal.mapId) return null; // Event: der Jagd-Boss ist nur auf Ch 1
@@ -8478,10 +8491,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const GK_GUARD_NEAR = 400; // Hinukamuy so nah an Gankoomon gelten als seine Schutz-Adds (sie erscheinen ~60 px neben ihm, laufen aber auf Angreifer zu)
   function bossAdd(sc) {
     if (!sc) return null;
+    const dgm = cfg.dungeon || riftGrindOn(); // Grinden im Rift: dieselben Regeln wie der Rift-Modus (3.2.52)
     // Greifarm (Tentacle Bug, Creep Hands), der mich oder ein Gruppenmitglied hält: sofort zerschlagen – in jedem Modus
     // außer Dungeon (dort regelt es dungeonFocus) (3.0.5); im einfachen Raid (Mother D-Reaper, 3.2.13) auch hier – sonst hielte
     // die Add-Regel unten am Add fest, während die Hand das Digimon leersaugt
-    if (!cfg.dungeon || plainRaid(sc.mapId)) {
+    if (!dgm || plainRaid(sc.mapId)) {
       const st0 = getStore()?.getState?.(), arms = digibotGrabArms(st0);
       if (arms.size) {
         // die eigene Hand zuerst, dann eine, die ein anderes Digimon hält (im einfachen Raid auch Fremde, sonst wie bisher per targetId)
@@ -8493,7 +8507,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // Gankoomon (Mega-Jagd): bei 50 % und 25 % ruft er je drei Hinukamuy; solange einer lebt, blockt er jeden Treffer
     // (live 28.10. mitgeschnitten: HP eingefroren 15,0–26,8 s und 35,6–42,1 s). Die Regel steht nicht in den Client-Daten –
     // darum fest: alle auf denselben Hinukamuy (der angeschlagenste, bei Gleichstand feste Reihenfolge), danach zurück (3.1.24)
-    if (!cfg.dungeon) {
+    if (!dgm) {
       const gk = sc.mobs.find((m) => m.species === 'gankoomon_hunt' && m.hp > 0);
       if (gk) {
         const hk = sc.mobs.filter((m) => m.species === 'hinukamuy' && m.hp > 0 && !m.banned && Math.hypot(m.x - gk.x, m.y - gk.y) <= GK_GUARD_NEAR)
@@ -8501,7 +8515,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         if (hk.length) return hk[0];
       }
     }
-    if (cfg.dungeon) return null; // Dungeon: Reihenfolge macht dungeonFocus
+    if (dgm) return null; // Dungeon: Reihenfolge macht dungeonFocus
     if (groupLeader()?.farm) return null; // Leader in der Boss-Rotation: Mitläufer greifen nur sein Ziel an
     // Named-Bosse (Pinochimon u. a.) tragen nur das Elite-Flag – sie zählen, wenn ihre Art auf dieser Map Adds ruft (3.2.16)
     const boss = sc.mobs.filter((m) => m.cat === 'boss' || (m.cat === 'elite' && addSpecies(sc.mapId, m.species).size)).sort((a, b) => a.d - b.d)[0];
@@ -10227,7 +10241,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return keep && tier(score(keep)) === tier(score(top)) && score(keep) - score(top) < 150 ? keep : list[0] || null;
   }
   function dungeonFocus(sc) {
-    if (!cfg.dungeon || !sc) return null;
+    if (!sc || !(cfg.dungeon || (riftMap(sc.mapId) && riftGrindOn()))) return null; // Grinden im Rift: nur im Rift selbst (3.2.52)
     if (riftMap(sc.mapId)) return riftTank() ? riftGroupFocus(sc) : riftFocus(sc); // Digital Rift (3.2.19), Gruppe mit Tank (3.2.32)
     const st = getStore()?.getState?.(), raid = dgRaid(sc.mapId);
     if (st && !raid && plainRaid(sc.mapId)) return raidFocus(sc);
@@ -10738,9 +10752,106 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const rift = {
     inside: false, cap: 0, runs: 0, stable: 0, visited: new Set(), floorKey: '', patchAt: 0, descendAt: 0, leaveAt: 0, talkAt: 0, talkTries: 0,
     enterAt: 0, enterTries: 0, depth: 0, resultSeen: null, closedUntil: 0, seen: new WeakSet(), warned: '', startAt: 0, noRunAt: 0, giveUp: false, portalNear: 0, capOk: 0,
-    reset() { Object.assign(this, { badAt: 0, badWarned: '', partyLv: 0, noRunAt: 0, giveUp: false, portalNear: 0, capOk: 0, inside: false, cap: 0, visited: new Set(), floorKey: '', patchAt: 0, descendAt: 0, leaveAt: 0, talkAt: 0, talkTries: 0, enterAt: 0, enterTries: 0, depth: 0, resultSeen: null, closedUntil: 0, warned: '', startAt: 0 }); },
+    reset() { Object.assign(this, { grindOff: null, grindFails: 0, grindFailD: 0, badAt: 0, badWarned: '', partyLv: 0, noRunAt: 0, giveUp: false, portalNear: 0, capOk: 0, inside: false, cap: 0, visited: new Set(), floorKey: '', patchAt: 0, descendAt: 0, leaveAt: 0, talkAt: 0, talkTries: 0, enterAt: 0, enterTries: 0, depth: 0, resultSeen: null, closedUntil: 0, warned: '', startAt: 0 }); },
   };
   const riftWarn = (why) => { if (rift.warned !== why) { rift.warned = why; logEvent('warn', `Rift: ${why}`); } };
+  // ---------- Grinden im Rift (3.2.52, Nutzer 22.11.: „Nur Rift-Leveln“) ----------
+  // Spieldaten (content 21.11., yc.first.depths): nur Tiefe 1–5 zahlen EXP, Monster-Level je Etage; ab Tiefe 6 zahlt der Rift Shards.
+  const RIFT_EXP_FLOORS = [[41, 49, 57], [65, 68, 72], [75, 83, 91], [99, 106, 113], [120, 123, 127]];
+  const RIFT_GRIND_MIN_FAC = 0.25; // bester Mittelwert-Faktor (expFac) darunter: keine passende Tiefe (etwa ab Lv 130)
+  const RIFT_GRIND_FAILS = 2;      // so viele gescheiterte Läufe hintereinander auf derselben Tiefe, dann eine Tiefe flacher
+  // Etagen-Level je EXP-Tiefe: bevorzugt aus der Server-View (depths[]: pays 'exp', level = erste Etage – die Etagen 2/3 im selben
+  // Abstand wie in der Tabelle); meldet die View eine Tiefe nicht als EXP-Tiefe, fällt sie weg. Ohne Eintrag bzw. ohne pays: eingebaute
+  // Tabelle. Freigeschaltet zählt nur deepest (open nicht – sonst hieße „Lv 90, bis Tiefe 2“ fälschlich „keine passende Tiefe“).
+  function riftExpFloors(depths) {
+    const vd = Array.isArray(depths) ? depths : [], out = new Map();
+    RIFT_EXP_FLOORS.forEach((base, i) => {
+      const v = vd.find((x) => Number(x?.depth) === i + 1);
+      if (v && v.pays != null && v.pays !== 'exp') return;
+      const L = Number(v?.level);
+      out.set(i + 1, L > 0 ? base.map((l) => l + L - base[0]) : base);
+    });
+    return out;
+  }
+  // Beste EXP-Tiefe fürs Partner-Level: je Tiefe Mittel über die Etagen von ml^1,1 · expFac(ml − Lv) (gemessene Feld-Formel, die
+  // Server-Rechnung im Rift ist unbekannt). Passend = Mittelwert-Faktor ≥ RIFT_GRIND_MIN_FAC; die beste gewinnt (etwa Lv 20–47 T1,
+  // 48–66 T2, 67–84 T3, 85–104 T4, ab 105 T5). Liegt das Level unter allen (Lv < 41, Faktor noch klein) -> Tiefe 1. Ist die beste
+  // nicht freigeschaltet (> deepest): die beste freigeschaltete (bei Gleichstand die tiefere). -> {depth, fac, val} oder null
+  function riftGrindBest(lv, deepest = 5, depths = null) {
+    const fl = riftExpFloors(depths);
+    const all = [...fl].map(([depth, ls]) => ({ depth, fac: ls.reduce((s, ml) => s + expFac(ml - lv), 0) / ls.length,
+      val: ls.reduce((s, ml) => s + Math.pow(ml, 1.1) * expFac(ml - lv), 0) / ls.length }));
+    const top = all.filter((c) => c.fac >= RIFT_GRIND_MIN_FAC).sort((a, b) => b.val - a.val)[0];
+    if (!top) return fl.has(1) && lv < fl.get(1)[0] ? { ...all.find((c) => c.depth === 1), low: true } : null;
+    if (top.depth <= deepest) return top;
+    return all.filter((c) => c.depth <= deepest).sort((a, b) => b.val - a.val || b.depth - a.depth)[0] || null;
+  }
+  const riftGrindFixed = () => Math.max(0, Math.min(RIFT_EXP_FLOORS.length, Math.round(Number(cfg.grindRiftDepth) || 0)));
+  // Mitläufer: der Leader meldet „Grinden im Rift“ (Gruppenmeldung riftGrind)
+  // Leader-Meldung kurz nicht frisch (Kartenwechsel, gedrosselter Tab): bis RIFT_GRIND_LEAD_MS nach der letzten Meldung gilt
+  // die letzte Angabe weiter, sonst kippte der Mitläufer bei jedem Hänger ins Feld-Grinden (Review 3.2.52)
+  const RIFT_GRIND_LEAD_MS = 20000;
+  const riftLeadGrind = (now = Date.now()) => {
+    const L = groupLeader(now);
+    if (L) return !!(L.bot && L.riftGrind);
+    const p = group.role() === 'follower' ? group.peers.get(accounts.leader) : null;
+    return !!(group.riftGrindFollow && p && p.role === 'leader' && p.bot && p.riftGrind && now - p.seen < RIFT_GRIND_LEAD_MS);
+  };
+  // Grinden im Rift aktiv? Betriebsart Grinden, Schalter an, Spiel kennt den Rift (window.dmo.rift), passende Tiefe fürs Level.
+  // Im Rift selbst immer (laufenden Lauf zu Ende spielen – gewechselt wird nur zwischen den Läufen), auch beim Mitläufer ohne
+  // frische Leader-Meldung: der spielt dann wie im Rift-Modus solo weiter und geht am Ende hinaus (Review 3.2.52). Draußen
+  // Mitläufer: wie der Leader. Leader/solo: in der Gruppe zählt das niedrigste Partner-Level (Review 3.2.52).
+  // Seiteneffekte (Rückfall, Logzeilen) nur bei laufendem Bot – das Panel ruft das auch bei ausgeschaltetem Bot auf (Review 3.2.52)
+  function riftGrindOn(st = getStore()?.getState?.()) {
+    if (modeOf() !== 'grind' || !window.dmo?.rift) return false;
+    const fol = group.role() === 'follower' && !accounts.mirror;
+    if (riftMap(st?.world?.mapId) && (cfg.grindRift !== false || (fol && (group.riftGrindFollow || riftLeadGrind())))) return true;
+    if (fol) return riftLeadGrind();
+    if (cfg.grindRift === false) return false;
+    const own = Number(st?.me?.partner?.level) || 0;
+    const lv = own && Math.min(own, ...groupMembers().map((p) => Number(p.lvl)).filter((x) => x > 0));
+    const who = lv < own ? `Party-Level ${lv}` : `Partner Lv ${lv}`;
+    if (rift.grindOff) {
+      if (!lv || rift.grindOff.lv === lv) return false;
+      if (!bot.on) return !!(riftGrindFixed() || riftGrindBest(lv, 5, rift.depths));
+      rift.grindOff = null; rift.enterTries = 0; rift.talkTries = 0; // neues Level: neu prüfen
+      logEvent('bot', `Rift-Grinden: ${who} – prüfe wieder den Rift`);
+    }
+    if (riftGrindFixed() || riftGrindBest(lv, 5, rift.depths)) return true;
+    if (bot.on) riftGrindStop(`keine passende EXP-Tiefe für ${who}`, lv);
+    return false;
+  }
+  // Einstellung fürs Rift-Grinden geändert (Häkchen, Regler EXP-Tiefe, anderes Fenster): Rückfall und Absenkung verwerfen, neu prüfen (Review 3.2.52)
+  function riftGrindRecheck() {
+    rift.grindOff = null; rift.enterTries = 0; rift.talkTries = 0; rift.cap = 0; rift.capOk = 0; rift.grindFails = 0;
+  }
+  // Rückfall statt Bot-Stopp (3.2.52): normal grinden (Feld/Lern-Route), bis sich das Partner-Level ändert (oder Neustart)
+  function riftGrindStop(why, lv = Number(getStore()?.getState?.()?.me?.partner?.level) || 0) {
+    rift.grindOff = { lv, why };
+    logEvent('warn', `Rift-Grinden: ${why} – grinde normal weiter`);
+    return `Rift-Grinden: ${why} – grinde normal weiter`;
+  }
+  // eine Prüfung für „Rift-Modus“: Dungeon-Modus Rift oder Grinden im Rift
+  const riftModeOn = (st) => (cfg.dungeon && cfg.dgMode === 'rift') || riftGrindOn(st);
+  // feste Tiefe? Dungeon: Panel „Tiefe“; Grinden: feste EXP-Tiefe
+  const riftFixedNow = () => (cfg.dungeon ? cfg.riftDepthMode === 'fixed' : riftGrindFixed() > 0);
+  // Grinden: gescheiterter Lauf auf Tiefe d – true beim RIFT_GRIND_FAILS-ten hintereinander (dann eine Tiefe flacher)
+  function riftGrindFail(d) {
+    if (rift.grindFailD !== d) { rift.grindFailD = d; rift.grindFails = 0; }
+    if (++rift.grindFails < RIFT_GRIND_FAILS) return false;
+    rift.grindFails = 0;
+    return true;
+  }
+  const fmtThou = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  // Messung (3.2.52): EXP je Lauf aus result.exp (das Spiel meldet die Summe am Laufende), Mittel je Tiefe im Speicher
+  function riftExpNote(res, d) {
+    const x = Number(res?.exp?.partner), t = Number(res?.timeMs) || 0;
+    if (!res?.exp || !Number.isFinite(x)) { logEvent('warn', `Rift-EXP: Tiefe ${d} – keine EXP gemeldet`); return; }
+    const m = (rift.expBy ||= {})[d] ||= { n: 0, exp: 0, ms: 0 };
+    m.n++; m.exp += x; m.ms += t; rift.expLast = d;
+    logEvent('kill', `Rift-EXP: Tiefe ${d}, +${fmtThou(x)} Partner-EXP${t ? ` in ${fmtClock(t)} (${fmtThou(x / (t / 60000))}/min)` : ''} · Ø Tiefe ${d}: ${fmtThou(m.exp / m.n)} je Lauf${m.ms ? `, ${fmtThou(m.exp / (m.ms / 60000))}/min` : ''} (${m.n} ${m.n === 1 ? 'Lauf' : 'Läufe'})`);
+  }
+  const riftExpAvg = () => { const d = rift.expLast, m = d && rift.expBy?.[d]; return m && m.ms ? ` · Ø Tiefe ${d}: ${fmtThou(m.exp / (m.ms / 60000))} EXP/min` : ''; };
   // Hinweise des Spiels (System-Chat, code rift_*) – eigene Merkliste, damit checkRefusals sie nicht verschluckt
   function riftNotices(st) {
     const chat = Array.isArray(st?.chat) ? st.chat : st?.chat?.messages || st?.chat?.lines || [], out = [];
@@ -10761,6 +10872,16 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const lvs = (view?.party || []).map((p) => Number(p?.level)).filter((n) => n > 0);
     const lv = lvs.length ? Math.min(...lvs) : Number(st?.me?.partner?.level) || 1;
     rift.partyLv = lv;
+    rift.depths = Array.isArray(view?.depths) ? view.depths : rift.depths;
+    // Grinden im Rift (3.2.52): passende EXP-Tiefe fürs niedrigste Partner-Level der Party (oder die feste EXP-Tiefe) – nie über
+    // deepest; nach gescheiterten Läufen höchstens rift.cap. Kein Ziel-Ei (das gehört zum Dungeon-Modus Rift).
+    if (!cfg.dungeon) {
+      const fx = riftGrindFixed();
+      if (fx) { if (fx > deepest) riftWarn(`feste EXP-Tiefe ${fx} ist noch nicht freigeschaltet – nehme Tiefe ${deepest}`); return { depth: Math.min(fx, deepest), why: '', targetOk: false, grind: true }; }
+      const b = riftGrindBest(lv, deepest, view?.depths);
+      if (!b) return { depth: 0, why: `keine passende EXP-Tiefe für Partner Lv ${lv}`, none: true, targetOk: false };
+      return { depth: Math.max(1, rift.cap ? Math.min(b.depth, rift.cap) : b.depth), why: '', targetOk: false, grind: true };
+    }
     let pick;
     if (cfg.riftDepthMode === 'fixed') {
       const d = Math.max(1, Math.round(Number(cfg.riftDepth) || 1));
@@ -10788,7 +10909,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (pick.depth < md) return { depth: md, why: '', targetOk: true };
     return { ...pick, targetOk: !pick.why };
   }
-  const riftTarget = () => DIGIBOT_RIFT_TARGETS[cfg.riftTarget] || null;
+  const riftTarget = () => (cfg.dungeon ? DIGIBOT_RIFT_TARGETS[cfg.riftTarget] : null) || null; // Ziel-Ei nur im Dungeon-Modus Rift (3.2.52)
   // Brot statt Pause (3.2.44, Nutzer 21.11.): in der Rift-Erholpause Guilmon Bread von F1–F3 essen, statt bis zu 25 s herumzustehen.
   // Abklingzeit des Spiels (cooldowns['item:…'], gilt für alle HP-Items) abwarten. -> Taste (1–3), wenn Brot da ist (auch in Abklingzeit), sonst 0
   function riftEatBread(st, hpPct, now) {
@@ -11027,9 +11148,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   // Gruppe im Rift (3.2.32): Mitläufer mit laufendem Leader-Bot im Rift-Modus folgen ihm statt selbst zu spielen
   function riftFollower(now = Date.now()) {
-    if (group.role() !== 'follower' || accounts.mirror || cfg.dgMode !== 'rift') return null;
+    if (group.role() !== 'follower' || accounts.mirror || !riftModeOn()) return null;
     const L = groupLeader(now);
-    return L && L.bot && L.mode === 'dungeon' ? L : null;
+    return L && L.bot && (L.mode === 'dungeon' || L.riftGrind) ? L : null; // Leader grindet im Rift (3.2.52)
   }
   // Position eines Gruppenfensters: Tamer in der eigenen Spielwelt (aktuell), sonst die gemeldete Position (bis 1 s alt)
   function riftAnchor(p) {
@@ -11067,24 +11188,28 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       riftTimeFlush(); // letzte Etage (Guardian) abschließen
       rift.resultSeen = res; rift.runs++; if (res.stable) rift.stable++;
       const d = Number(res.depth) || rift.depth || 0;
-      if (cfg.riftDepthMode !== 'fixed' && !res.stable && d > 1) { rift.cap = d - 1; rift.capOk = 0; logEvent('warn', `Rift: Tiefe ${d} nicht stabil geschafft – nächster Lauf höchstens Tiefe ${rift.cap}`); }
+      // Grinden im Rift (3.2.52): ein EXP-Ergebnis zählt als geschafft, auch ohne stable (das Spiel zeigt dort nur „expCleared“);
+      // erst RIFT_GRIND_FAILS gescheiterte Läufe hintereinander auf derselben Tiefe -> eine Tiefe flacher
+      const grindRun = !cfg.dungeon, ok = !!res.stable || (grindRun && !!res.exp);
+      if (grindRun) { if (ok) { rift.grindFails = 0; rift.ok = (rift.ok || 0) + 1; } riftExpNote(res, d); } // rift.ok: geschaffte EXP-Läufe fürs Label (Review 3.2.52)
+      if (!riftFixedNow() && !ok && d > 1 && (!grindRun || riftGrindFail(d))) { rift.cap = d - 1; rift.capOk = 0; logEvent('warn', `Rift: Tiefe ${d} nicht stabil geschafft – nächster Lauf höchstens Tiefe ${rift.cap}`); }
       // höhere Tiefe nur wieder versuchen, wenn alle Party-Level dafür reichen (Review 20.11., 3.2.36)
-      else if (rift.cap && res.stable && d >= rift.cap && ++rift.capOk >= RIFT_CAP_RETRY) { logEvent('bot', `Rift: ${rift.capOk}× stabil auf Tiefe ${d} – versuche wieder die höhere`); rift.cap = 0; rift.capOk = 0; }
+      else if (rift.cap && ok && d >= rift.cap && ++rift.capOk >= RIFT_CAP_RETRY) { logEvent('bot', `Rift: ${rift.capOk}× ${grindRun ? 'geschafft' : 'stabil'} auf Tiefe ${d} – versuche wieder die höhere`); rift.cap = 0; rift.capOk = 0; }
       const loot = res.loot || {}, t = Number(res.timeMs) || 0;
-      logEvent('kill', `Rift Tiefe ${d}: ${res.stable ? 'stabil geschafft' : 'geschafft, aber instabil'}${t ? ` in ${fmtClock(t)}` : ''}${loot.shards ? ` · ${loot.shards} Shards` : ''}${loot.bits ? ` · ${loot.bits} Bits` : ''} (Lauf ${rift.runs})`);
+      logEvent('kill', `Rift Tiefe ${d}: ${res.stable ? 'stabil geschafft' : ok ? 'geschafft (EXP-Tiefe)' : 'geschafft, aber instabil'}${t ? ` in ${fmtClock(t)}` : ''}${loot.shards ? ` · ${loot.shards} Shards` : ''}${loot.bits ? ` · ${loot.bits} Bits` : ''} (Lauf ${rift.runs})`);
       rift.leaveAt = now;
     }
     if (now - rift.leaveAt >= RIFT_LEAVE_MS) {
       rift.leaveAt = now + RIFT_LEAVE_MS;
       try { if (commands()?.raidLeave) commands().raidLeave(); else commands()?.command?.('raidLeave', {}); } catch { /* ignore */ }
     }
-    return `Rift geschafft (${res.stable ? 'stabil' : 'instabil'}) – verlasse den Rift…`;
+    return `Rift geschafft (${res.stable ? 'stabil' : !cfg.dungeon && res.exp ? 'EXP' : 'instabil'}) – verlasse den Rift…`;
   }
   function riftLeave(now, why, keepDepth = false) {
     if (!rift.giveUp) {
       rift.giveUp = true; rift.leaveAt = 0;
       const d = riftStore()?.run?.depth || rift.depth;
-      const lower = !keepDepth && cfg.riftDepthMode !== 'fixed' && d > 1;
+      const lower = !keepDepth && !riftFixedNow() && d > 1 && (cfg.dungeon || riftGrindFail(d)); // Grinden: erst beim 2. Fehlschlag hintereinander (3.2.52)
       if (lower) { rift.cap = d - 1; rift.capOk = 0; }
       logEvent(keepDepth ? 'bot' : 'warn', `Rift: ${why} – verlasse den Rift${lower ? `, nächster Lauf höchstens Tiefe ${d - 1}` : ''}`);
     }
@@ -11092,7 +11217,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return `Rift: ${why} – verlasse den Rift…`;
   }
   // Event im Rift-Modus (3.2.26): läuft die Jagd oder steht sie im Vorlauf an, den Rift verlassen – draußen übernimmt huntStep
-  const riftEvOn = () => !!(cfg.dungeon && cfg.dgMode === 'rift' && cfg.hunt);
+  const riftEvOn = () => !!(cfg.hunt && riftModeOn()); // auch Grinden im Rift (3.2.52)
   function riftEventDue(st, now) {
     huntChatNote(st, now);
     if (now - hunt.polledAt > HUNT_POLL_MS) huntPoll(now);
@@ -11132,7 +11257,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (!R) return 'Rift: Spiel kennt den Digital Rift nicht (Seite neu laden?)';
     for (const code of riftNotices(st)) {
       if (code === 'rift_closed') { rift.closedUntil = now + 60000; rift.enterTries = 0; riftWarn('Rifts gerade geschlossen – warte 1 min'); }
-      else if ((code === 'rift_level' || code === 'rift_depth_locked') && cfg.riftDepthMode !== 'fixed' && rift.depth > 1) { rift.cap = rift.depth - 1; logEvent('warn', `Rift: Tiefe ${rift.depth} geht nicht (${code === 'rift_level' ? 'Partner-Level' : 'nicht freigeschaltet'}) – nehme Tiefe ${rift.cap}`); rift.enterTries = 0; }
+      else if ((code === 'rift_level' || code === 'rift_depth_locked') && !riftFixedNow() && rift.depth > 1) { rift.cap = rift.depth - 1; logEvent('warn', `Rift: Tiefe ${rift.depth} geht nicht (${code === 'rift_level' ? 'Partner-Level' : 'nicht freigeschaltet'}) – nehme Tiefe ${rift.cap}`); rift.enterTries = 0; }
+      else if ((code === 'rift_level' || code === 'rift_depth_locked') && !cfg.dungeon) return riftGrindStop(`Tiefe ${rift.depth} geht nicht (${code === 'rift_level' ? 'Partner-Level zu niedrig' : 'nicht freigeschaltet'})`); // Grinden: Rückfall statt Stopp (3.2.52)
       else if (code === 'rift_level' || code === 'rift_depth_locked') { logEvent('warn', `Rift: feste Tiefe ${rift.depth} geht nicht (${code === 'rift_level' ? 'Partner-Level zu niedrig' : 'nicht freigeschaltet'}) – Bot gestoppt`); notify('Rift: Tiefe geht nicht – Bot gestoppt.', 'stop'); bot.toggle(true); return 'Rift: Tiefe geht nicht – Bot gestoppt'; }
     }
     if (st.me?.partner?.fainted) return 'Rift: Partner bewusstlos – warte';
@@ -11174,6 +11300,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const sc = riftScanCheck(R, now); if (sc) return sc; // Ziel-Scan bei 100 %: anhalten (3.2.31)
       if (FL) { rift.followScanDone = true; return `Rift: warte, bis ${FL.name || 'der Leader'} den Rift öffnet`; } // Mitläufer betritt nie selbst
       const v = R.view, pick = riftDepthPick(st, v);
+      if (pick.none) return riftGrindStop(pick.why); // Grinden: keine passende EXP-Tiefe (3.2.52)
       if (pick.why) {
         if (cfg.riftDepthMode === 'fixed') { logEvent('warn', `Rift: ${pick.why} – Bot gestoppt`); notify('Rift: Tiefe geht nicht – Bot gestoppt.', 'stop'); bot.toggle(true); return `Rift: ${pick.why}`; }
         riftWarn(pick.why); return `Rift: ${pick.why}`;
@@ -11185,7 +11312,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         const txt = bad.map((p) => `${p.name || '?'} ${p.problem === 'level' ? 'Level zu niedrig' : p.problem === 'far' ? 'zu weit weg' : p.problem}`).join(', ');
         rift.badAt ||= now;
         if (now - rift.badAt >= RIFT_BAD_WAIT_MS) {
-          if (cfg.riftDepthMode !== 'fixed' && bad.some((p) => p.problem === 'level') && pick.depth > 1) {
+          if (!riftFixedNow() && bad.some((p) => p.problem === 'level') && pick.depth > 1) {
             rift.cap = pick.depth - 1; rift.capOk = 0; rift.badAt = now;
             logEvent('warn', `Rift: ${txt} – nehme Tiefe ${rift.cap}`);
           } else if (rift.badWarned !== txt) {
@@ -11203,10 +11330,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const shopping = group.role() === 'leader' ? groupMembers(now).filter((m) => m.riftBusy) : [];
       if (shopping.length) { rift.shopWaitAt ||= now; if (now - rift.shopWaitAt < RIFT_SHOP_WAIT_MS) return `Rift: warte auf ${shopping.map((m) => m.name || '?').join(', ')} (kauft bei Clockmon ein)`; } else rift.shopWaitAt = 0;
       if (now - rift.enterAt > RIFT_ENTER_MS) {
+        if (rift.enterTries >= RIFT_ENTER_TRIES && !cfg.dungeon) { rift.enterTries = 0; return riftGrindStop(`Spiel lässt nicht hinein (Tiefe ${pick.depth})`); } // Grinden: Rückfall statt Stopp (3.2.52)
         if (rift.enterTries >= RIFT_ENTER_TRIES) { logEvent('warn', `Rift: Spiel lässt nicht hinein (Tiefe ${pick.depth}) – Bot gestoppt`); notify('Rift: Spiel lässt nicht hinein – Bot gestoppt.', 'stop'); bot.toggle(true); return 'Rift: Spiel lässt nicht hinein – Bot gestoppt'; }
         rift.enterAt = now; rift.enterTries++; rift.depth = pick.depth; rift.targetOk = !!pick.targetOk;
         try { commands()?.command?.('riftEnter', { depth: pick.depth }); } catch { /* ignore */ }
-        if (rift.enterTries === 1) logEvent('bot', `Rift: betrete Tiefe ${pick.depth} (Partner Lv ${st.me?.partner?.level ?? '?'}, freigeschaltet bis ${v.deepest ?? '?'})`);
+        if (rift.enterTries === 1) logEvent('bot', `Rift: betrete Tiefe ${pick.depth} (Partner Lv ${st.me?.partner?.level ?? '?'}, freigeschaltet bis ${v.deepest ?? '?'}${pick.grind ? `, Grinden: ${riftGrindFixed() ? 'feste' : 'passende'} EXP-Tiefe` : ''})`);
       }
       const tg = riftTarget();
       return `Rift: betrete Tiefe ${pick.depth}…${tg ? ` · Ziel ${tg.name}${rift.scanPct != null ? ` (Scan ${Math.floor(rift.scanPct)} %)` : ''}` : ''}`;
@@ -11264,7 +11392,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function riftLabel() {
     const run = riftStore()?.run;
     if (run) return `Rift: Tiefe ${run.depth ?? '?'} · Etage ${run.floor?.n ?? '?'}/${run.floor?.of ?? 3} · Signal ${Math.round(run.signal || 0)} %`;
-    return `Rift: zu Clockmon · ${rift.runs} Läufe (${rift.stable} stabil)`;
+    // Grinden (Review 3.2.52): EXP-Läufe zählen als geschafft (ohne stable) – und der EXP-Schnitt nur dort, nicht im Dungeon-Modus Rift
+    return cfg.dungeon ? `Rift: zu Clockmon · ${rift.runs} Läufe (${rift.stable} stabil)` : `Rift: zu Clockmon · ${rift.runs} Läufe (${rift.ok || 0} geschafft)${riftExpAvg()}`;
   }
 
   function dungeonLabel() {
@@ -11309,6 +11438,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function pullBlocked(st, sc, now) {
     if (!cfg.pull) return 'Pull aus';
     if (cfg.dungeon || dungeonLike(st)) return 'Dungeon/Raid';
+    if (riftGrindOn(st)) return 'Grinden im Rift'; // 3.2.52
     if (bot.resting) return 'Ruhemodus';
     if (group.role() === 'follower') return 'Mitläufer';
     // HP-Grenze auch hier (3.1.46): sonst hielt die Kampfbeginn-Pause die Skills an, obwohl gar nicht gesammelt wird
@@ -11451,7 +11581,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
 
   function pickTarget(sc, resting) {
     if (!sc) return null;
-    if (cfg.dungeon) { const att = sc.attackers.filter((m) => !safeHeld(m.id)); const hf0 = resting || !riftEvOn() ? null : huntFocus(sc); return (hf0 && !safeHeld(hf0.id) ? hf0 : null) || (resting ? null : dungeonFocus(sc)) || (riftTank() && riftMap(sc.mapId) ? att.find((m) => m.self) : att[0]) || null; } // Rift-Modus: Event-Boss (3.2.26)
+    if (cfg.dungeon || riftGrindOn()) { const att = sc.attackers.filter((m) => !safeHeld(m.id)); const hf0 = resting || !riftEvOn() ? null : huntFocus(sc); return (hf0 && !safeHeld(hf0.id) ? hf0 : null) || (resting ? null : dungeonFocus(sc)) || (riftTank() && riftMap(sc.mapId) ? att.find((m) => m.self) : att[0]) || null; } // Rift-Modus: Event-Boss (3.2.26); Grinden im Rift wie der Rift-Modus (3.2.52)
     const hf = resting ? null : huntFocus(sc) || wbFocus(sc) || digibotSharedFocus(sc); // Event-/Weltboss vor allem anderen
     if (hf && !safeHeld(hf.id)) return hf;
     const focus = resting ? null : focusAssist(sc);
@@ -11554,7 +11684,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Wechsel nur bei deutlich mehr EXP/min und frühestens nach LR_MIN_STAY_MS – sonst pendelt er.
   const LR_GAP_S = 1.3, LR_TOP_SHARE = 0.35, LR_SWITCH_GAIN = 1.15, LR_MIN_STAY_MS = 180000, LR_CALC_MS = 30000, LR_MAX_ABOVE = 12;
   const lr = { goal: null, since: 0, calcAt: 0, calcLv: 0, best: null, boss: null, scan: null };
-  const lrOn = () => cfg.levelRoute && !cfg.autopilot && !cfg.farm && !cfg.dungeon;
+  const lrOn = () => cfg.levelRoute && !cfg.autopilot && !cfg.farm && !cfg.dungeon && !riftGrindOn(); // ruht beim Grinden im Rift (3.2.52)
   // Zone am oder über der Level-Grenze: immer mindestens ihre untersten beiden Stufen erlauben (bzw. ihren ganzen niedrigsten
   // Level-Bereich, z. B. Lv 40–41), höchstens LR_MAX_ABOVE – sonst steht oft gerade keins im Suchradius (live: Lv 32 mit +8
   // nur Lv 40 erlaubt, Bot suchte lange)
@@ -12437,7 +12567,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       }
       // 1c) Event (Mega-Jagd/Alter Hunt): hinreisen, warten, suchen – geht jedem Modus vor (nicht im Dungeon; im Rift-Modus schon,
       // dann vorher hinaus – Nutzer 16.11., 3.2.26)
-      const riftEv = cfg.dungeon && cfg.dgMode === 'rift' && cfg.hunt;
+      const riftEv = riftEvOn(); // Dungeon-Modus Rift oder Grinden im Rift (3.2.52)
+      const dgLike = cfg.dungeon || riftGrindOn(st); // Grinden im Rift: dieselben Regeln wie der Rift-Modus (3.2.52)
       if (riftEv && world.state === 'ready' && riftMap(st.world?.mapId)) {
         const rs = riftEventDue(st, now);
         if (rs) { this.status = `Event: ${rs}`; return; }
@@ -12446,14 +12577,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         const rb = riftBiomeDue(st, now); // Ziel-Ei: falsches Biom -> Neustart (3.2.31)
         if (rb) { this.status = rb; return; }
       }
-      if ((!cfg.dungeon || riftEv) && world.state === 'ready' && !riftMap(st.world?.mapId)) {
+      if ((!dgLike || riftEv) && world.state === 'ready' && !riftMap(st.world?.mapId)) {
         const hv = huntStep(st, sc, now);
         // Event läuft oder steht an: das Feldboss-Ziel der Lern-Route verwerfen (sonst Boss-Tränke über das ganze Event und
         // danach erst die Fahrt zum veralteten Boss) und die Lern-Route pausieren – auch auf dem Weg zur Event-Map
         const huntOn = !!(cfg.hunt && hunt.goal);
         // Weltboss: nur, wenn kein Event läuft oder ansteht (das Event geht vor)
-        const wv = !huntOn && !cfg.dungeon ? wbStep(st, sc, now) : null; // Rift-Modus: nur das Event, kein Weltboss (Review 3.2.26)
-        const wbOn = !huntOn && !cfg.dungeon && !!(cfg.wboss && wb.goal);
+        const wv = !huntOn && !dgLike ? wbStep(st, sc, now) : null; // Rift-Modus: nur das Event, kein Weltboss (Review 3.2.26)
+        const wbOn = !huntOn && !dgLike && !!(cfg.wboss && wb.goal);
         if ((huntOn || wbOn) && lr.boss) { lr.boss = null; lr.chainAt = 0; }
         // Leader: ein altes „nicht kämpfen“ (Abgabe-Weg) nicht über Reise/Suche/Warten weitersenden (3.1.30)
         if ((hv || wv || hunt.selAt === now) && group.role() === 'leader') group.noFight = false;
@@ -12622,7 +12753,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           // Dungeon: vor dem Betreten (an der Tür) und zwischen den Kämpfen – z. B. nach einem Zurück-Digitieren durch Infermon
           // Event/Weltboss (3.0.5): in jedem Modus – auch Grinden und „Nur Event/WB“ – und auch, wenn der Autopilot gerade
           // keine Jagd-Aufgabe hat (das Event setzt sie zurück: vorher kämpfte er beim Event in der Grundform)
-          const eventEvo = (huntNow || (cfg.hunt && hunt.goal) || (cfg.wboss && wb.goal) || cfg.eventsOnly) && questMon && !cfg.dungeon;
+          const eventEvo = (huntNow || (cfg.hunt && hunt.goal) || (cfg.wboss && wb.goal) || cfg.eventsOnly) && questMon && !dgLike;
           // Grinden (3.2.0): dieselbe Map-Regel wie überall – die Lern-Route hat auf dem Weg schon abgebrochen, hier steht der Bot auf seiner Map
           const grindEvo = !cfg.farm && !cfg.autopilot && !cfg.dungeon && !cfg.foodBuy && !this.resting; // jedes aktive Digimon, nicht nur das Quest-Digimon
           if (!attackers.length && (eventEvo || farmEvo || grindEvo || (cfg.dungeon && questMon && !dgHerdLow()) || (!cfg.farm && cfg.autopilot && (folIdle || (at?.kind === 'hunt' && st.world?.mapId === at.loc.mapId && questMon))))) {
@@ -12645,6 +12776,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
             this.status = `${wbPresent(st, sc, now) ? 'Weltboss' : 'Event: Jagd-Boss'} gerade nicht angreifbar – warte`;
           } else if (cfg.dungeon) {
             this.status = `Dungeon: ${dungeonStep(st, sc, now)}`;
+          } else if (dgLike) { // Grinden im Rift (3.2.52): derselbe Ablauf wie der Rift-Modus (Clockmon, Betreten, Etagen, Ergebnis, von vorn)
+            this.status = `Grinden: ${riftMap(st.world?.mapId) ? riftStep(st, sc, now) : riftOutside(st, now)}`;
           } else if (cfg.farm && !this.resting) {
             this.status = `Bosse: ${farmStep(st, sc, now)}`;
           } else if (cfg.autopilot && (!this.resting || noFight)) {
@@ -13558,7 +13691,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     rows.push(row(bot.on ? '▶' : '■', `${MODE_NAMES[modeOf()]} · ${bot.on ? 'läuft' : 'aus'} · ${st?.world ? `${mapName(st.world.mapId)} Ch ${st.world.channel ?? 1}` : 'nicht in der Welt'}`));
     const t = st?.target;
     if (t && t.hp > 0) rows.push(row('🎯', `${t.name ?? '?'}${t.level ? ` Lv ${t.level}` : ''} · ${t.maxHp ? Math.round(t.hp / t.maxHp * 100) : '?'} %`));
-    const task = cfg.dungeon ? dungeonLabel() : cfg.farm ? (farm.goal ? `Boss: ${content()?.digimon?.[farm.goal.species]?.name || farm.goal.species} (${mapName(farm.goal.map)} Ch ${farm.goal.ch})` : '')
+    const task = cfg.dungeon ? dungeonLabel() : riftGrindOn(st) ? riftLabel() : cfg.farm ? (farm.goal ? `Boss: ${content()?.digimon?.[farm.goal.species]?.name || farm.goal.species} (${mapName(farm.goal.map)} Ch ${farm.goal.ch})` : '')
       : autopilot.mapTalk ? 'Abgeben & Annehmen auf dieser Map' : autopilot.task?.label || '';
     if (task) rows.push(row('📌', task));
     if (bot.status) rows.push(row('💬', bot.status));
@@ -13962,7 +14095,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const flag = e.target.dataset.apflag;
       if (flag) {
         cfg[flag] = e.target.checked; saveCfg(); e.target.blur(); if (!['soundOn', 'foodAuto', 'sellFull'].includes(flag)) autopilot.reset(); schedule();
-        if (flag === 'levelRoute' || flag === 'levelA2') { lr.goal = null; lr.calcAt = 0; }
+        if (flag === 'levelRoute' || flag === 'levelA2' || flag === 'grindRift') { lr.goal = null; lr.calcAt = 0; }
+        if (flag === 'grindRift') riftGrindRecheck(); // neu prüfen (3.2.52)
         if (flag === 'levelBoss') { lr.boss = null; lr.calcAt = 0; } // Bewertung rechnet die Bosse mit ein
         logEvent('auto', `Einstellung: ${e.target.nextElementSibling?.textContent} = ${e.target.checked ? 'an' : 'aus'}`);
         return;
@@ -14022,6 +14156,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       // – sonst schrieb jeder Pixel die Einstellungen und weckte alle anderen Fenster (Review 20.11., 3.2.36)
       syncRuntimeCfg();
       if (key === 'lvlDiff') lr.calcAt = 0; // Lern-Route gleich neu bewerten
+      if (key === 'grindRiftDepth') riftGrindRecheck(); // feste/automatische EXP-Tiefe: Rückfall aufheben, neu prüfen (Review 3.2.52)
     });
     // Regler nach dem Loslassen entfokussieren, damit Spieltasten wieder ans Spiel gehen
     panel.addEventListener('change', (e) => {

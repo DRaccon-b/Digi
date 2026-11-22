@@ -2,6 +2,31 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.52 – Grinden im Rift
+- **Nutzer 22.11.:** „Überarbeite den kompletten Grind-Modus hierfür“ – gewählt „Nur Rift-Leveln“. Neuer Schalter im Block
+  „Grinden & Lern-Route“: **Im Rift leveln (EXP-Tiefen 1–5)**, Standard an, dazu der Regler „Rift: EXP-Tiefe“ (automatisch oder fest 1–5).
+  Beim Grinden läuft der Bot dann den kompletten Rift-Ablauf wie im Dungeon-Modus „Rift“ (Clockmon, Betreten, Etagen, Guardian,
+  Ergebnis, hinaus, von vorn) – mit denselben Funktionen, keine Kopie. Eine Prüfung `riftModeOn()` ersetzt die verstreuten
+  `cfg.dungeon && cfg.dgMode === 'rift'`.
+- Tiefe automatisch nach Partner-Level (in der Gruppe das niedrigste): je EXP-Tiefe das Mittel über die drei Etagen
+  (Spieldaten: T1 41/49/57 … T5 120/123/127) von Lv^1,1 × gemessenem EXP-Faktor; die beste freigeschaltete gewinnt – etwa Lv 1–47 T1,
+  48–66 T2, 67–84 T3, 85–104 T4, ab 105 T5. Gewechselt wird nur zwischen zwei Läufen. Etagen-Level aus der Rift-Ansicht des Spiels,
+  sonst aus der Tabelle.
+- Passt keine Tiefe (etwa ab Lv 130), lehnt das Spiel Tiefe 1 bzw. die feste Tiefe ab oder lässt es nach 5 Versuchen nicht hinein:
+  einmal ins Log, dann normales Grinden (Feld/Lern-Route) – der Bot stoppt nicht mehr. Beim nächsten Level-Wechsel prüft er wieder.
+- Nach jedem Lauf: „Rift-EXP: Tiefe d, +X Partner-EXP in m:ss (Y/min)“ samt Mittel je Tiefe; im Panel steht das Mittel neben dem
+  Rift-Stand. Ein EXP-Ergebnis ohne „stabil“ gilt als geschafft; erst zwei gescheiterte Läufe hintereinander auf derselben Tiefe
+  machen eine Tiefe flacher.
+- Gruppe: Mitläufer behandeln „Leader grindet im Rift“ wie den Rift-Modus (warten am Clockmon, folgen im Rift). Event, Ausweichen,
+  Tank und Digitation wie im Rift-Modus, kein Weltboss; Lern-Route und Channel-Checker ruhen solange. Ziel-Ei gilt nur im Dungeon-Modus.
+- Review: Im Rift spielt ein Mitläufer den Lauf immer zu Ende und geht hinaus, auch wenn der Leader verstummt (kurze Aussetzer
+  bis 20 s überbrückt) oder das Rift-Grinden beendet – umgestellt wird erst draußen („Leader grindet nicht mehr im Rift – folge
+  wieder“); ein Modus-Klick im Mitläufer-Fenster wird wie beim Dungeon korrigiert. Die Freigabe rechnet in der Gruppe mit dem
+  niedrigsten Partner-Level. Regler „Rift: EXP-Tiefe“ (auch aus einem anderen Fenster) hebt einen Rückfall sofort auf. Bei
+  ausgeschaltetem Bot kein Rückfall und keine Logzeilen. Übersicht „n geschafft“ statt „0 stabil“, EXP-Schnitt nur beim Grinden;
+  Tooltip „Grinden“ nennt den Rift.
+- Test: grindrifttest (A–J, R, S, N, Gruppe K, K2, P).
+
 ## 3.2.51 – Fernkämpfer halten Abstand
 - **Nutzer 22.11.:** „Beelzemon rennt viel zu nah ran, um anzugreifen – er hat doch eine längere Auto-Attack-Range.“ Beelzebumon hat
   Grundangriff-Reichweite 192 (Blast Mode 208), stand live aber im Median 111 px, teils 24 px am Ziel. Das Spiel lief nicht zu nah –
