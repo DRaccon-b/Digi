@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.48
+// @version      3.2.49
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1847,7 +1847,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.48'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.49'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -8793,7 +8793,23 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return b;
   }
   // Fokus für den Kampf: der Jagd-Boss, sobald er in der Liste der Monster steht
-  const huntFocus = (sc) => (cfg.hunt && hunt.goal && sc ? sc.mobs.find((m) => isHuntDef(m.species, hunt.goal.boss) && !m.banned) || null : null);
+  // Zwei Event-Bosse gleichzeitig (Alter Hunt Sonntags-Paar): EINEN festhalten, bis er fällt/verschwindet – vorher nahm der Bot jeden
+  // Takt den nächsten und sprang zwischen beiden hin und her (Nutzer 22.11., 3.2.49). Erste Wahl: der, den ich schon angreife, dann wer
+  // mich angreift, sonst der nächste.
+  const huntFocus = (sc) => {
+    if (!(cfg.hunt && hunt.goal && sc)) return null;
+    const list = sc.mobs.filter((m) => isHuntDef(m.species, hunt.goal.boss) && !m.banned);
+    if (!list.length) return null;
+    const keep = list.find((m) => m.id === hunt.focusId);
+    if (keep) return keep;
+    const pick = list.find((m) => m.id === bot.attackedId) || list.find((m) => m.attacker) || list[0];
+    // gemerkter Boss lebt noch, ist nur kurz versteckt/unangreifbar/außer Liste (Schutzphase, Formwechsel): solange den anderen
+    // nehmen, den Fokus aber NICHT umschreiben – danach zurück zum ersten (Review 3.2.49)
+    const fe = hunt.focusId ? window.dmo?.net?.state?.entities?.get?.(hunt.focusId) : null;
+    if (fe && fe.hp > 0 && !(fe.flags & FLAG.Dead) && !sc.mobs.some((m) => m.id === hunt.focusId && m.banned)) return pick;
+    hunt.focusId = pick.id;
+    return pick;
+  };
   // Jagd-Boss lebt auf dieser Map (auch versteckt, unangreifbar oder gesperrt) – oder war es vor Kurzem: Event hat Vorrang,
   // Abgabe/Rotation/Autopilot dürfen den Bot nicht wegziehen (kurze Lücken im Fokus, z. B. beim Formwechsel)
   const HUNT_HOLD_MS = 5000;
@@ -8815,7 +8831,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // noch, den Kampf zu Ende bringen (sonst übernahm mitten im Kampf Route/Rotation/Abgabe oder die Reise zum nächsten)
     if (hunt.goal && hunt.goal.up && (!g || g.key !== hunt.goal.key)) {
       const hg = hunt.goal;
-      const still = st.world?.mapId === hg.mapId ? huntBossEnt(hg.boss, controlled(st)) : null;
+      const still0 = st.world?.mapId === hg.mapId ? huntBossEnt(hg.boss, controlled(st)) : null;
+      const hf0 = still0 ? huntFocus(sc) : null, still = (hf0 && window.dmo?.net?.state?.entities?.get?.(hf0.id)) || still0; // Paar: den festgehaltenen (Review 3.2.49)
       if (still) {
         hunt.seenAt=now; hg.overAt ||= now;
         if (hg.overAt === now) logEvent('auto', `Event-Fenster vorbei, ${C?.digimon?.[hg.boss]?.name || hg.boss} lebt noch – kämpfe weiter`);
@@ -8859,7 +8876,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // vor Reise, Warten und erstem Angriff in die Kampfform digitieren (nicht, solange ein Angreifer dran ist)
     { const ev = digibotEventEvolve(st, sc, now); if (ev !== true) return `${name}: ${ev}`; }
     const here = st.world?.mapId === g.mapId;
-    const b = here ? huntBossEnt(g.boss, controlled(st)) : null;
+    const b0 = here ? huntBossEnt(g.boss, controlled(st)) : null;
+    // zwei Bosse (Paar): den festgehaltenen aus huntFocus anvisieren, nicht den letzten der Liste (sonst wieder Hin und Her, 3.2.49)
+    const hf = b0 ? huntFocus(sc) : null, b = (hf && window.dmo?.net?.state?.entities?.get?.(hf.id)) || b0;
     if (b) { // in Sicht: anvisieren, den Kampf macht der normale Ablauf (huntFocus)
       if (st.target?.id !== b.id && !evAddFirst(st, sc, now) && bot.can('select', SELECT_GAP_MS, now)) { bot.lastPress.select = now; hunt.selAt = now; worldScene()?.select?.(b.id); }
       return null;

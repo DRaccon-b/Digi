@@ -2,6 +2,15 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.49 – Event: bei zwei Bossen gleichzeitig einen festhalten
+- **Nutzer 22.11.:** „Wenn zwei Event-Bosse gleichzeitig spawnen, einen fokussieren und nicht zwischen zwei hin und her springen.“
+  Beim Alter-Hunt-Paar (z. B. Goddramon + Holydramon) nahm der Bot jeden Takt den nächstgelegenen – bewegten sie sich, sprang das
+  Ziel hin und her. Jetzt merkt er sich einen (zuerst den schon angegriffenen, dann wer ihn angreift, sonst den nächsten) und bleibt
+  dabei, bis er fällt oder verschwindet; danach der zweite. Auch das Anvisieren beim Erscheinen nimmt den gemerkten.
+- Review: ist der gemerkte Boss nur kurz versteckt/unangreifbar (Schutzphase, Formwechsel), wird der Fokus nicht umgeschrieben –
+  danach geht es mit ihm weiter. Endet das Event-Fenster, während beide noch leben, bleibt es ebenfalls beim gemerkten.
+- Test: huntpairtest (P, P2, P3, P4, je in beiden Listen-Reihenfolgen).
+
 ## 3.2.48 – Ausweichen schneller (Rift)
 - **Nutzer 21.11.:** „Wie können wir das Ausweichen schneller machen?“ Messung Rift T15: ~100 s Ausweichen je Lauf (Hinauslaufen 47 s,
   Warten draußen 29 s, Rückweg 13 s). Ideen nach Code-Analyse und Gegenprüfung:
