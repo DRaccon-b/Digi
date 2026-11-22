@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.50
+// @version      3.2.51
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1847,7 +1847,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.50'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.51'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -3014,11 +3014,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   // fromStart: der Abstand zu blockierten Feldern wächst erst vom Startpunkt aus auf radius an – wer dicht an einer Wand
   // steht, darf von ihr weggehen (sonst fiel jede Strecke schon am Start durch: alles „nicht erreichbar“, 3.0.2)
-  function digibotDodgeGridClear(a,b,grid,radius=0,fromStart=false) {
+  // toEnd (3.2.51): ebenso zum Endpunkt hin auf 0 – ein Ziel dicht an einer Wand bleibt erreichbar (Boss-Anmarsch)
+  function digibotDodgeGridClear(a,b,grid,radius=0,fromStart=false,toEnd=false) {
     if(!grid?.blocked||!grid.w||!grid.h)return false;
     const len=Math.hypot(b.x-a.x,b.y-a.y),count=Math.max(1,Math.ceil(len/4)),tile=grid.tile||16,full=radius?radius+2:0;
     for(let i=0;i<=count;i++){
-      const x=a.x+(b.x-a.x)*i/count,y=a.y+(b.y-a.y)*i/count,pad=fromStart?Math.min(full,len*i/count):full;
+      const x=a.x+(b.x-a.x)*i/count,y=a.y+(b.y-a.y)*i/count,pad0=fromStart?Math.min(full,len*i/count):full,pad=toEnd?Math.min(pad0,len*(1-i/count)):pad0;
       for(let gy=Math.floor((y-pad)/tile);gy<=Math.floor((y+pad)/tile);gy++)for(let gx=Math.floor((x-pad)/tile);gx<=Math.floor((x+pad)/tile);gx++)if(gx<0||gy<0||gx>=grid.w||gy>=grid.h||grid.blocked[gy*grid.w+gx]===1)return false;
     }
     return true;
@@ -3070,6 +3071,24 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     dodgeState.basicTarget=null;dodgeState.chase=false;
   }
+  // Fernkämpfer (3.2.51): Digimon steht schon in Schlagweite des Ziels mit voller Reserve außerhalb aller Zonen – dann kein
+  // partnerFollow beim Anmarsch/Ring/Fächer (holte es sonst zum Tamer und zurück). Nahkampf: immer false (wie bisher)
+  function digibotPartnerInReach(st,target,partner,zones){
+    if(!target||!partner||digibotBasicRange(st)<=BASIC_RANGED_MIN)return false;
+    return Math.hypot(partner.x-target.x,partner.y-target.y)<=digibotRangeStand(st,target)&&!(zones||[]).some((z)=>!digibotDodgeZoneSafe(z,partner,DODGE_MARGIN));
+  }
+  // „ohne Annäherung“ (3.2.51): folgt das Digimon (Fernkämpfer) dem Tamer noch, einmal je Ziel anhalten, bevor die 1 geht – sonst lief
+  // es beim Angriff weiter. Nur wenn die 1 in diesem Takt wirklich durchgeht und das Digimon sicher steht; kein Cast (rangedUntil)
+  function digibotPreStop(st,target,partner,zones,now,plan){
+    if(!target||!partner||!plan||plan.walking||plan.chase||digibotBasicRange(st)<=BASIC_RANGED_MIN||dodgeState.rangedUntil>now)return false;
+    if(dodgeState.preStopId===target.id||partner.targetId===target.id)return false;
+    const pred=worldScene()?.ownPartner;
+    if(!((partner.flags&FLAG.Moving)||pred?.moving))return false;
+    if(!bot.can('Digit1',ATTACK_REPEAT_MS,now)||digibotCombat.waiting(target.id)||digibotCombatPolicy(st,'Digit1'))return false;
+    if((zones||[]).some((z)=>!digibotDodgeZoneSafe(z,partner,DODGE_MARGIN)))return false;
+    dodgeState.preStopId=target.id;commands()?.partnerStop?.();
+    return true;
+  }
   // Restzeit eines Warnkreises (ms) aus den Daten des Spiels – null, wenn unbekannt (Strahlen, Markierungen)
   function zoneLeftMs(z) {
     if(z?.end)return Math.max(0,z.end-performance.now());
@@ -3089,7 +3108,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     digibotOutsideStop(partner,now);
     // Stop short of the boss, letting nearestSafe choose the closest reachable
     // point if a warning covers this position. No attack order is used here.
-    const stand=96,ratio=Math.min(1,stand/(distance||1));
+    // Fernkämpfer (3.2.51): Warteplatz auf Reichweite (reach0 − 12) statt 96 px; der Tamer höchstens 175 px davor (sonst meldet
+    // digibotOutsideBasicPlan ab 180 px „walking“). Nahkampf: 96 px wie bisher
+    const reach0=digibotRangeStand(st,target),ranged=digibotBasicRange(st)>BASIC_RANGED_MIN;
+    const stand0=Math.max(96,reach0-12),stand=ranged&&tamer.id!==partner.id?Math.min(stand0+20,175):stand0,ratio=Math.min(1,stand/(distance||1));
     let goal=dodgeState.approachGoal;
     if(starting||!goal||Math.hypot(goal.tx-target.x,goal.ty-target.y)>24)goal=dodgeState.approachGoal={x:target.x+(tamer.x-target.x)*ratio,y:target.y+(tamer.y-target.y)*ratio,tx:target.x,ty:target.y};
     const companion=tamer.id!==partner.id?partner:null;
@@ -3102,7 +3124,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     dodgeState.approachStopped=false;
     const wp=autopilot.nav?.wp;
-    if(companion&&wp&&(starting||now-dodgeState.lastFollow>1500)&&digibotDodgeZonePath(partner,wp,zones)&&digibotDodgeGridClear(partner,wp,worldScene()?.map?.grid)){
+    // Fernkämpfer schon in Reichweite auf sicherem Boden: nicht zum Tamer zurückrufen (3.2.51)
+    if(companion&&wp&&(starting||now-dodgeState.lastFollow>1500)&&!digibotPartnerInReach(st,target,partner,zones)&&digibotDodgeZonePath(partner,wp,zones)&&digibotDodgeGridClear(partner,wp,worldScene()?.map?.grid)){
       dodgeState.lastFollow=now;commands()?.partnerFollow?.();
     }
     if(wp&&Math.hypot(tamer.x-wp.x,tamer.y-wp.y)<12)return 'Warte außerhalb – sicherer Platz nahe am Boss erreicht';
@@ -3206,7 +3229,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const from = partner || tamer;
       // Strahl/Ansturm, der am Boss beginnt: nicht der Boss zählt (der steht immer „in“ der Linie), sondern die
       // Angriffsposition seitlich davor – sonst griff der Bot bei jedem Folge-Stoß 1,2 s lang nicht an (3.0.5)
-      const basicRange = content()?.digimon?.[st?.me?.partner?.species]?.basic?.range;
+      const basicRange = content()?.digimon?.[partner?.defId || st?.me?.partner?.species]?.basic?.range; // Form auf dem Feld zuerst (3.2.51)
       const stand0 = Number.isFinite(basicRange) ? basicRange + 7 : 40;
       const attackPos = target && from ? (() => { const d = Math.hypot(from.x - target.x, from.y - target.y) || 1, k = Math.min(1, stand0 / d); return { x: target.x + (from.x - target.x) * k, y: target.y + (from.y - target.y) * k }; })() : target;
       const soonNear = !!target && zones.some((c) => {
@@ -3256,7 +3279,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           if(goal){
             dodgeState.basicTarget=target.id;dodgeState.active=true;
             if(Math.hypot(tamer.x-goal.x,tamer.y-goal.y)>DODGE_GOAL_REACHED && now-dodgeState.lastTap>DODGE_RETAP_MS){dodgeState.lastTap=now;autopilot.nav=null;autopilot.route=null;worldScene()?.tapGround?.(goal.x,goal.y);}
-            if(partner.id!==tamer.id && Math.hypot(partner.x-goal.x,partner.y-goal.y)>DODGE_GOAL_REACHED+8 && now-dodgeState.lastFollow>1500){dodgeState.lastFollow=now;commands()?.partnerFollow?.();}
+            if(partner.id!==tamer.id && Math.hypot(partner.x-goal.x,partner.y-goal.y)>DODGE_GOAL_REACHED+8 && now-dodgeState.lastFollow>1500 && !digibotPartnerInReach(st,target,partner,zones)){dodgeState.lastFollow=now;commands()?.partnerFollow?.();} // 3.2.51: Fernkämpfer in Reichweite nicht zurückrufen
             return why;
           }
         }
@@ -3268,7 +3291,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         if(q){
           dodgeState.basicTarget=target.id;dodgeState.active=true;
           if(Math.hypot(tamer.x-q.x,tamer.y-q.y)>DODGE_GOAL_REACHED && now-dodgeState.lastTap>DODGE_RETAP_MS){dodgeState.lastTap=now;autopilot.nav=null;autopilot.route=null;worldScene()?.tapGround?.(q.x,q.y);}
-          if(partner.id!==tamer.id && Math.hypot(partner.x-q.x,partner.y-q.y)>DODGE_GOAL_REACHED+8 && now-dodgeState.lastFollow>1500){dodgeState.lastFollow=now;commands()?.partnerFollow?.();}
+          if(partner.id!==tamer.id && Math.hypot(partner.x-q.x,partner.y-q.y)>DODGE_GOAL_REACHED+8 && now-dodgeState.lastFollow>1500 && !digibotPartnerInReach(st,target,partner,zones)){dodgeState.lastFollow=now;commands()?.partnerFollow?.();} // 3.2.51: Fernkämpfer in Reichweite nicht zurückrufen
           return 'Sicherer Weg um den Boss · Nahkampfposition außerhalb der Kreise';
         }
       }
@@ -3276,6 +3299,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if(near && plan && st.target?.id===target.id && !noFightEarly(st,now) && !farmShielded(target,now) && !mirrorActive(target.id)){
         if(dodgeState.approachTarget){autopilot.nav=null;autopilot.route=null;dodgeState.approachTarget=null;dodgeState.approachGoal=null;}
         dodgeState.active=true;dodgeState.basicTarget=target.id;dodgeState.chase=!!plan.chase;if(plan.chase){dodgeState.chaseId=target.id;dodgeState.chaseAt=now;}
+        digibotPreStop(st,target,partner,zones,now,plan); // Fernkämpfer: folgendes Digimon einmal anhalten, dann die 1 (3.2.51)
         if(bot.can('Digit1',ATTACK_REPEAT_MS,now))bot.hit('Digit1',now);
         const edgeSkill = !plan.walking && !soonNear ? skillsAtEdge(st, target, partner, now) : null; // 3.1.1: Skills auch von hier
         return (plan.walking?'Sicherer Weg zur Angriffsposition · normaler Angriff':'Außerhalb der Warnzone · normaler Angriff ohne Annäherung') + (edgeSkill ? ` · Skill: ${edgeSkill}` : '');
@@ -4011,27 +4035,174 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     return `Bosswechsel: Angreifer mit Taste 1 besiegen${blocked?` · ${blocked}`:''}`;
   }
+  // Fernkämpfer (3.2.51, live 22.11. Bauzel/Beelzebumon 192 px): Reichweite aus den Spieldaten der Form auf dem Feld – defId vor
+  // species (Blast Mode 208 statt 192), Rückfall 32. Nahkämpfer (32–36) behalten alle Werte wie bisher.
+  const BASIC_RANGED_MIN = 60; // ab dieser Grundangriff-Reichweite gilt das Digimon als Fernkämpfer
+  function digibotBasicRange(st) {
+    const id = st?.me?.partner?.entityId, e = id ? window.dmo?.net?.state?.entities?.get?.(id) : null;
+    const r = content()?.digimon?.[e?.defId || st?.me?.partner?.species]?.basic?.range;
+    return Number.isFinite(r) && r > 0 ? r : DODGE_BASIC_RANGE;
+  }
+  // Schlagweite bis zum Ziel wie reach0 beim Ausweichen: Reichweite + Körper des Ziels (≤ 7) − Reserve
+  function digibotRangeStand(st, target, pad = DODGE_BASIC_PAD) {
+    return digibotBasicRange(st) + Math.max(1, Math.min(content()?.digimon?.[target?.defId]?.radius ?? 7, 7)) - pad;
+  }
+  // Haltepunkt auf Reichweite (3.2.51): auf der Linie Ziel → from im Abstand max(32, stand − 16) + extra; liegt er in einer Warnzone,
+  // Schutzzone oder auf gesperrtem/unerreichbarem Boden, seitlich auf demselben Kreis suchen (bis ±90°). Ohne freien Punkt: der
+  // gerade Punkt mit safe=false – der Aufrufer läuft dann mit nearestSafe (nächster sicherer Platz)
+  function digibotRangeSpot(st, target, from, extra = 0) {
+    if (!target || !from || !Number.isFinite(target.x) || !Number.isFinite(from.x)) return null;
+    const want = Math.max(32, digibotRangeStand(st, target) - 16) + extra;
+    let zones = []; try { zones = dangerZones() || []; } catch { /* ignore */ }
+    const grid = worldScene()?.map?.grid, mapId = st?.world?.mapId, me = controlled(st);
+    let field = null; try { field = me ? pathField(st, me, Math.hypot(me.x - target.x, me.y - target.y) + want + 200) : null; } catch { /* ignore */ }
+    const ok = (q) => !zones.some((z) => !digibotDodgeZoneSafe(z, q, DODGE_MARGIN)) && !safeRectAt(mapId, q)
+      && (!grid?.blocked || digibotDodgeGridClear(q, q, grid, 5)) && (!field || pathFree(field, q))
+      && digibotRangeLineClear(q, target, grid); // Schussweg zum Ziel frei (Review: Säule zwischen Haltepunkt und Boss)
+    const a0 = Math.atan2(from.y - target.y, from.x - target.x);
+    for (const deg of [0, 15, -15, 30, -30, 45, -45, 60, -60, 75, -75, 90, -90]) {
+      const a = a0 + deg * Math.PI / 180, q = { x: target.x + Math.cos(a) * want, y: target.y + Math.sin(a) * want };
+      if (ok(q)) return { ...q, safe: true };
+    }
+    return { x: target.x + Math.cos(a0) * want, y: target.y + Math.sin(a0) * want, safe: false };
+  }
+  // Freie Linie für den Fernangriff (3.2.51): bis 24 px vor das Ziel, Polster zum Ende hin 0; ohne Raster frei
+  const BOSS_SPOT_WAIT_MS = 3000; // so lange am Haltepunkt ohne freien Zugang, dann wie bisher auf den Boss laufen (Review 3.2.51)
+  const BOSS_SPOT_STALL_MS = 6000; // so lange ohne Fortschritt des Tamers beim Anmarsch auf den Haltepunkt, dann ebenso (Review 2)
+  function digibotRangeLineClear(from, target, grid) {
+    if (!grid?.blocked) return true;
+    const d = Math.hypot(from.x - target.x, from.y - target.y);
+    const end = d > 24 ? { x: target.x + (from.x - target.x) * 24 / d, y: target.y + (from.y - target.y) * 24 / d } : from;
+    return digibotDodgeGridClear(from, end, grid, 5, false, true);
+  }
+  // Lauf beenden (3.2.51): ein laufender Klickweg läuft im Spiel sonst weiter (bis auf 4 px ans Ziel). Tamer-Steuerung: das Digimon
+  // zurückrufen – aber nicht, wenn es das Ziel schon angreift
+  function digibotStopRun(st, target) {
+    const me = controlled(st); if (!me) return;
+    worldScene()?.tapGround?.(me.x, me.y); autopilot.nav = null; autopilot.route = null;
+    const pe = window.dmo?.net?.state?.entities?.get?.(st?.me?.partner?.entityId);
+    if (pe && pe.id !== me.id && pe.targetId !== target?.id) commands()?.partnerFollow?.();
+  }
+  // Boss-Anmarsch nur für echte Bosse (3.2.51): Boss-Flag bzw. ein Fokus aus Event/Weltboss/Rotation/Quest-Boss/Bosse/Dungeon. Ein
+  // angesagtes Ziel (focusAssist/groupAssist) legt nur die Zielwahl fest – live liefen so normale Quest-Mobs
+  // „über Spiel-Wegfindung zum Boss“. 'shared' (gemeinsames Ziel der Gruppe) ist immer der Boss des Leader-Ziels (Event/Weltboss/Bosse)
+  const BOSS_WALK_FOCUS = new Set(['hunt', 'wb', 'shared', 'lrBoss', 'questBoss', 'farmBossNear', 'dungeon']);
+  function digibotBossLike(ent, info, src, onFocus) {
+    // angesagt (assist): nur normale Mobs ausgenommen – ein Elite-Kartenboss des Leaders (Bosse-Modus) läuft weiter über den Anmarsch (Review)
+    return !!(ent?.flags & FLAG.Boss) || info?.cat === 'boss' || (!!onFocus && (!!info?.mapBoss || BOSS_WALK_FOCUS.has(src) || (src === 'assist' && !!info?.cat && info.cat !== 'normal')));
+  }
+  // Quest-Jagd (3.2.51): Fernkämpfer laufen auf Reichweite vor die Beute (Tamer 20 px dahinter), nicht auf sie – der Klickweg lief
+  // sonst nach der Zielwahl bis an den Mob weiter. Nahkampf – und wer schon näher steht (Beute wird trotzdem nicht gewählt) – wie
+  // bisher auf die Beute (16er-Raster), sonst stünde der Bot dort für immer
+  function digibotPreyGoal(st, prey, me) {
+    if (!prey) return null;
+    const pe = window.dmo?.net?.state?.entities?.get?.(st?.me?.partner?.entityId), old = { x: Math.round(prey.x / 16) * 16, y: Math.round(prey.y / 16) * 16 };
+    if (!me || digibotBasicRange(st) <= BASIC_RANGED_MIN) return old;
+    const tgt = { x: prey.x, y: prey.y, defId: prey.defId || prey.species }, extra = pe && pe.id !== me.id ? 20 : 0;
+    if (Math.hypot(me.x - prey.x, me.y - prey.y) <= Math.max(32, digibotRangeStand(st, tgt) - 16) + extra + 8) return old;
+    return digibotRangeSpot(st, tgt, me, extra);
+  }
+  // „Nächstes Ziel“ (3.2.51): läuft der Tamer (Klickweg oder Bewegung) auf das eben gewählte Ziel zu, einmal anhalten – die 1 bringt
+  // das Digimon selbst auf Reichweite. Nicht während eines Ausweich-Laufs; nur Fernkämpfer (Nahkampf wie bisher)
+  function digibotNextStop(st, next, now) {
+    if (!next || digibotBasicRange(st) <= BASIC_RANGED_MIN || dodgeState.goal || dodgeState.approachTarget) return false;
+    const me = controlled(st), e = window.dmo?.net?.state?.entities?.get?.(next.id) || next;
+    if (!me || !Number.isFinite(e?.x)) return false;
+    const prev = digibotNextStop.prev, moved = prev && prev.id === me.id && now - prev.at < 1500 ? { x: me.x - prev.x, y: me.y - prev.y } : null;
+    digibotNextStop.prev = { id: me.id, x: me.x, y: me.y, at: now };
+    if (digibotNextStop.done === next.id && now - (digibotNextStop.at || 0) < 5000) return false;
+    const r = digibotRangeStand(st, { defId: e.defId || next.species }) + 40, nav = autopilot.nav;
+    let toward = !!nav && Number.isFinite(nav.tx) && Math.hypot(nav.tx - e.x, nav.ty - e.y) <= r;
+    const mv = moved && Math.hypot(moved.x, moved.y) >= 4 ? moved : null;
+    if (!toward && mv) { // Bewegungsrichtung (nativer Lauf ohne nav): führt der Strahl in r am Ziel vorbei?
+      const L = Math.hypot(mv.x, mv.y), ux = mv.x / L, uy = mv.y / L, k = (e.x - me.x) * ux + (e.y - me.y) * uy;
+      toward = k > 0 && Math.hypot(me.x + ux * k - e.x, me.y + uy * k - e.y) <= r;
+    }
+    if (!toward) return false;
+    digibotNextStop.done = next.id; digibotNextStop.at = now;
+    digibotStopRun(st, e);
+    return true;
+  }
+  // Tank-Sperre (3.2.51): ein DD (kein Heiler) läuft während des Wartens nicht weiter ans Ziel – live bis auf 4 px („Tank läuft hin“).
+  // Greift das eigene Digimon das Ziel schon an: zurückrufen (partnerStop, dann partnerFollow wie beim Opener). Fernkämpfer warten
+  // auf Reichweite (Warteplatz außerhalb der Warnzonen), Nahkämpfer halten nur an. w: Wartezustand je Ziel (bot.tankWait)
+  function digibotTankHold(st, t, now, w) {
+    const me = controlled(st), ents = window.dmo?.net?.state?.entities, pe = ents?.get?.(st?.me?.partner?.entityId), te = ents?.get?.(t?.id) || t;
+    if (!me || !w || !t) return;
+    if (pe?.targetId === t.id && now - (w.recallAt ?? -Infinity) >= 1000) {
+      w.recallAt = now; commands()?.partnerStop?.();
+      if (pe.id !== me.id) commands()?.partnerFollow?.();
+    }
+    if (digibotBasicRange(st) > BASIC_RANGED_MIN && Number.isFinite(te?.x)) {
+      const spot = digibotRangeSpot(st, te, me, pe && pe.id !== me.id ? 20 : 0);
+      if (spot && Math.hypot(me.x - spot.x, me.y - spot.y) > 16) {
+        if (walkTo(st, spot.x, spot.y, now, spot.safe ? {} : { nearestSafe: true }) === 'stuck') autopilot.nav = null;
+        w.stopped = false; return;
+      }
+    }
+    if (!w.stopped) { w.stopped = true; digibotStopRun(st, te); }
+  }
   function digibotBossWalkIn(st,target,now){
     const scene=worldScene(),ents=window.dmo?.net?.state?.entities,raw=ents?.get?.(target.id),partner=ents?.get?.(st.me?.partner?.entityId),me=controlled(st),grid=scene?.map?.grid;
     if(!raw||raw.hp<=0||!partner||!me){digibotBossWalk=null;return null;}
     const key=`${st.world?.mapId}|${st.world?.channel??1}|${target.id}`;
-    const range=content()?.digimon?.[st.me?.partner?.species]?.basic?.range;
+    // (3.2.51) Reichweite der Form auf dem Feld; Grenze stand + 24 wie digibotNativeAttackTravel – Nahkampf bleibt bei 160 px
+    const range=digibotBasicRange(st),stand=range+7,ranged=range>BASIC_RANGED_MIN;
     // A distant selected boss is not an attackable boss. Keep walking until
     // native attack approach only needs a short, unobstructed final stretch.
-    const distance=Math.hypot(partner.x-raw.x,partner.y-raw.y),limit=Math.max(160,Number(range)||0);
-    const ready=distance<=limit&&Math.hypot(me.x-raw.x,me.y-raw.y)<=180&&digibotDodgeGridClear(partner,raw,grid,5);
+    const distance=Math.hypot(partner.x-raw.x,partner.y-raw.y),limit=Math.max(160,stand+24);
+    // Zugang (3.2.51): Fernkämpfer prüfen die Linie bis 24 px vor das Ziel ohne Polster am Ende (er läuft ja nicht bis an den Boss);
+    // Nahkämpfer wie bisher die ganze Linie bis zum Boss (Review: Zaun direkt vor dem Boss)
+    const clear=ranged?digibotRangeLineClear(partner,raw,grid):digibotDodgeGridClear(partner,raw,grid,5);
+    const ready=distance<=limit&&Math.hypot(me.x-raw.x,me.y-raw.y)<=180&&clear;
+    const attacking=partner.targetId===target.id||bot.attackedId===target.id;
     if(ready){
-      if(digibotBossWalk?.key===key){scene?.tapGround?.(me.x,me.y);autopilot.nav=null;autopilot.route=null;digibotAttackTravel=null;}
+      if(digibotBossWalk?.key===key){
+        scene?.tapGround?.(me.x,me.y);autopilot.nav=null;autopilot.route=null;digibotAttackTravel=null;
+        if(ranged&&me.id!==partner.id&&!partner.targetId)commands()?.partnerStop?.(); // Fernkämpfer: Digimon nicht weiter mitlaufen lassen (3.2.51)
+      }
       digibotBossWalk=null;return null;
     }
-    const starting=digibotBossWalk?.key!==key;
-    digibotBossWalk={key,id:target.id,map:st.world?.mapId,channel:st.world?.channel??1,at:now,distance};
+    // Hysterese (3.2.51): greift das Digimon schon aus Reichweite an (live 199/203 px), keinen neuen Anmarsch samt partnerFollow
+    // – nur mit freier Linie und Tamer in der Nähe (Review: sonst hing das Digimon an einer Wand außer Reichweite)
+    const hold=Math.max(160,stand+64);
+    if(ranged&&digibotBossWalk?.key!==key&&attacking&&clear&&distance<=hold&&Math.hypot(me.x-raw.x,me.y-raw.y)<=hold)return null;
+    const starting=digibotBossWalk?.key!==key,prevWalk=starting?null:digibotBossWalk;
+    // Fortschritt (Review 2): Tamer seit BOSS_SPOT_STALL_MS keine 8 px weiter und nicht bereit -> Rückfall wie bisher auf den Boss
+    const moved=!prevWalk||Math.hypot(me.x-prevWalk.mx,me.y-prevWalk.my)>=8;
+    digibotBossWalk={key,id:target.id,map:st.world?.mapId,channel:st.world?.channel??1,at:now,distance,arrivedAt:prevWalk?.arrivedAt||0,fallback:!!prevWalk?.fallback,
+      mx:moved?me.x:prevWalk.mx,my:moved?me.y:prevWalk.my,movedAt:moved?now:prevWalk.movedAt};
+    const busy=ranged&&partner.targetId===target.id&&clear; // Fernkämpfer greift das Ziel schon frei an: nicht zurückrufen (3.2.51)
     if(starting){
       autopilot.nav=null;autopilot.route=null;
-      if(me.id===partner.id)commands()?.partnerStop?.();else commands()?.partnerFollow?.();
+      if(me.id===partner.id)commands()?.partnerStop?.();else if(!busy||Math.hypot(partner.x-me.x,partner.y-me.y)>limit)commands()?.partnerFollow?.();
     }
-    bot.attackedId=null;bot.engage=null;
-    const result=walkTo(st,raw.x,raw.y,now);
+    if(!busy){bot.attackedId=null;bot.engage=null;}
+    // Laufziel (3.2.51): Fernkämpfer auf Reichweite vor dem Boss statt auf ihn; der Tamer höchstens 170 px davor (Bereit-Grenze 180)
+    // Rückfall (Review): am Haltepunkt angekommen und nach BOSS_SPOT_WAIT_MS noch nicht bereit (Linie verbaut) – wie bisher auf den Boss
+    // selbst laufen, sonst stand der Bot dort für immer (Taste 1 bleibt während des Anmarschs gesperrt, keine Hängen-Erkennung)
+    let spot=ranged&&!digibotBossWalk.fallback?digibotRangeSpot(st,raw,partner):null;
+    // kein Haltepunkt mit freier Schusslinie (safe:false) oder kein Fortschritt: gleich auf den Boss – nearestSafe hätte dort kein
+    // 'stuck' und keine Ankunft am Punkt, also keinen Ausweg (Review 2)
+    if(spot&&(!spot.safe||now-digibotBossWalk.movedAt>=BOSS_SPOT_STALL_MS)){
+      digibotBossWalk.fallback=true;spot=null;logEvent('auto',`${target.name||raw.defId}: kein freier Haltepunkt – laufe auf den Boss`);
+      if(me.id!==partner.id)commands()?.partnerFollow?.();
+    }
+    if(spot&&me.id!==partner.id){const d=Math.hypot(spot.x-raw.x,spot.y-raw.y)||1,k=Math.min(d+20,170)/d;spot.x=raw.x+(spot.x-raw.x)*k;spot.y=raw.y+(spot.y-raw.y)*k;}
+    if(spot&&Math.hypot(me.x-spot.x,me.y-spot.y)<=16){
+      digibotBossWalk.arrivedAt||=now;
+      if(now-digibotBossWalk.arrivedAt>=BOSS_SPOT_WAIT_MS){
+        digibotBossWalk.fallback=true;logEvent('auto',`${target.name||raw.defId}: kein freier Schussweg vom Haltepunkt – laufe auf den Boss`);
+        if(me.id!==partner.id)commands()?.partnerFollow?.();
+        const result=walkTo(st,raw.x,raw.y,now);
+        if(result==='stuck'){blacklist.set(target.id,now+15000);autopilot.nav=null;autopilot.route=null;digibotBossWalk=null;return 'Boss-Anmarsch: Laufweg blockiert – plane neu';}
+        return `Laufe über Spiel-Wegfindung zum Boss (${Math.round(distance)} px) – Angriff erst bei freiem Zugang`;
+      }
+    }else if(digibotBossWalk)digibotBossWalk.arrivedAt=0;
+    // angreifendes Digimon ohne freie Linie (hängt an einer Wand): zum Tamer holen, höchstens alle 1,5 s (Review)
+    if(!starting&&ranged&&me.id!==partner.id&&partner.targetId===target.id&&!clear&&now-(prevWalk?.followAt||0)>=1500){digibotBossWalk.followAt=now;commands()?.partnerFollow?.();}
+    else digibotBossWalk.followAt=prevWalk?.followAt||0;
+    const result=spot?walkTo(st,spot.x,spot.y,now):walkTo(st,raw.x,raw.y,now);
     if(result==='stuck'){
       blacklist.set(target.id,now+15000);autopilot.nav=null;autopilot.route=null;digibotBossWalk=null;
       logEvent('warn',`${target.name||raw.defId}: Laufweg blockiert – kurz neu planen, kein erfolgloser Kampf`);
@@ -4048,7 +4219,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if(Math.hypot(partner.x-p.px,partner.y-p.py)>=4 || tamer&&Math.hypot(tamer.x-p.tx,tamer.y-p.ty)>=4){
       p.px=partner.x;p.py=partner.y;p.tx=tamer?.x;p.ty=tamer?.y;p.movedAt=now;
     }
-    const range=content()?.digimon?.[st.me?.partner?.species]?.basic?.range;
+    const range=content()?.digimon?.[partner.defId||st.me?.partner?.species]?.basic?.range; // Form auf dem Feld zuerst (Blast Mode, 3.2.51)
     const stand=Number.isFinite(range)?range+7:192;
     return Math.hypot(partner.x-target.x,partner.y-target.y)>stand+4 && now-p.movedAt<1000;
   }
@@ -5995,6 +6166,18 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       return false;
     }) || null;
   }
+  // Folgepunkt (3.2.51): auf der Linie Leader → ich im Abstand ¾ followDist (Puffer, damit nicht jeder Schritt des Leaders einen neuen
+  // Lauf auslöst); begehbar und im eigenen Bereich – sonst seitlich versetzt; ohne freien Punkt null (dann wie bisher zum Leader)
+  function digibotFollowPoint(st, L, me) {
+    if (!me || !Number.isFinite(L?.x) || !Number.isFinite(L?.y)) return null;
+    const r = followDist() * 0.75, a0 = Math.atan2(me.y - L.y, me.x - L.x);
+    let field = null; try { field = pathField(st, me, Math.hypot(me.x - L.x, me.y - L.y) + 300); } catch { /* ignore */ }
+    for (const deg of [0, 30, -30, 60, -60, 90, -90]) {
+      const a = a0 + deg * Math.PI / 180, q = { x: L.x + Math.cos(a) * r, y: L.y + Math.sin(a) * r };
+      if (!field || pathFree(field, q)) return q;
+    }
+    return null;
+  }
   function followLeader(st, sc, L, now) {
     const name = L.name || 'Leader';
     if (L.serve) {
@@ -6028,7 +6211,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const me = controlled(st);
     const d = me && L.x != null ? Math.hypot(me.x - L.x, me.y - L.y) : 0;
     if (d > followDist()) {
-      if (walkTo(st, L.x, L.y, now) === 'stuck') autopilot.nav = null;
+      // (3.2.51) Laufziel neben dem Leader im Gruppenabstand statt auf ihm – der Klickweg lief sonst bis an den Leader (und dessen Ziel)
+      // Nur Fernkämpfer (Review): Nahkämpfer laufen wie bisher auf den Leader. Kein Stopp-Tap beim Ankommen – der Klickweg endet am
+      // Folgepunkt von selbst; ein Stopp bei followDist ergab hinter einem laufenden Leader Stop/Go
+      const fp = (digibotBasicRange(st) > BASIC_RANGED_MIN && digibotFollowPoint(st, L, me)) || L;
+      if (walkTo(st, fp.x, fp.y, now) === 'stuck') autopilot.nav = null;
       return `Gruppe: folge ${name} (${Math.round(d)} px)`;
     }
     autopilot.nav = null;
@@ -8009,7 +8196,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const prey = (sc?.mobs || []).find((m) => t.species.has(m.species) && m.inLvl && !m.taken && !m.banned && m.reach !== false);
     if (prey) {
       autopilot.idleSince = 0;
-      const r = walkTo(st, Math.round(prey.x / 16) * 16, Math.round(prey.y / 16) * 16, now);
+      const pg = digibotPreyGoal(st, prey, me); // Fernkämpfer: auf Reichweite davor (3.2.51)
+      const r = walkTo(st, pg.x, pg.y, now, pg.safe === false ? { nearestSafe: true } : {});
       if (r === 'stuck') { blacklist.set(prey.id, now + BAN_MS); autopilot.nav = null; }
       return `${t.label} · laufe zu ${t.names} (${Math.round(prey.d)} px)`;
     }
@@ -12403,7 +12591,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       // Sonst wählt der Bot ein Ziel aus und verwirft es gleich wieder – endlos.
       const lvlOk = info ? info.inLvl : diff <= cfg.lvlDiff;
       const addTarget = !!add && alive && t.id === add.id; // Add des Bosses: immer bekämpfen, auch außerhalb der Level-/Monster-Auswahl
-      const focus = this.resting ? null : huntFocus(sc) || wbFocus(sc) || digibotSharedFocus(sc) || digibotQuestBossFocus(st,sc)?.mob || lrBossFocus(sc) || dungeonFocus(sc) || focusAssist(sc) || farmBossNear(sc); // Leader-Ziel bzw. Boss der Rotation zuerst
+      // Leader-Ziel bzw. Boss der Rotation zuerst; focusSrc (3.2.51): woher der Fokus kommt – nur Boss-Quellen lösen den Boss-Anmarsch aus
+      let focusSrc = null;
+      const focus = this.resting ? null : [['hunt', () => huntFocus(sc)], ['wb', () => wbFocus(sc)], ['shared', () => digibotSharedFocus(sc)], ['questBoss', () => digibotQuestBossFocus(st,sc)?.mob],
+        ['lrBoss', () => lrBossFocus(sc)], ['dungeon', () => dungeonFocus(sc)], ['assist', () => focusAssist(sc)], ['farmBossNear', () => farmBossNear(sc)]]
+        .reduce((f, [src, get]) => { if (f) return f; const m = get(); if (m) focusSrc = src; return m || null; }, null);
       const onFocus = !!focus && alive && t.id === focus.id, offFocus = !!focus && !onFocus && !addTarget; // anderes Ziel -> wechseln
       // ohne Weg zum Ziel (Insel, andere Klippenseite) nicht weiter draufhalten – außer Fokus (Boss/Leader-Ziel) und Adds
       const noPath = !!info && info.reach === false && !onFocus && !addTarget;
@@ -12444,6 +12636,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           if (!next && group.role() === 'leader' && group.call && !riftMap(st.world?.mapId)) group.call = null; // keine Ansage ohne Ziel (3.2.34)
           if (next) {
             if (this.can('select', SELECT_GAP_MS, now)) { this.lastPress.select = now; scene.select(next.id); kickTick(); } // gleich angreifen, nicht erst im nächsten Takt
+            digibotNextStop(st, next, now); // Fernkämpfer: laufenden Weg zum Ziel beenden, die 1 holt auf Reichweite (3.2.51)
             this.status = (pull.on || pull.refill) && !next.attacker ? `${pull.on ? 'Sammle' : 'Hole nach'} ${pull.count + 1}/${cfg.pullMax}: ${speciesName(next.species)}`
               : `${next.attacker ? 'Angreifer' : 'Nächstes Ziel'}: Lv ${next.level} · ${Math.round(next.d)} px`;
           } else if (defending) { // nicht zur alten Autopilot-Aufgabe weglaufen (3.1.30)
@@ -12529,6 +12722,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         if (!engaged && !netOver) {
           this.attackedId = null; this.engage = null;
           if (fightOf(group.slot()) === 'healer') { const hs = riftHealerSpot(st, tankG, t, now); if (hs) { this.status = hs; return; } }
+          else digibotTankHold(st, t, now, this.tankWait); // DD: nicht weiter ans Ziel laufen, Fernkämpfer auf Reichweite (3.2.51)
           this.status = `Gruppe: warte, bis ${t.name || 'das Ziel'} den Tank angreift${tankOn ? '' : ' (Tank läuft hin)'}`;
           return;
         }
@@ -12564,8 +12758,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
 
       // Rift: nur Guardian/markierte Alphas (Boss-Flag) per Anmarsch – normale Gegner greift die 1 direkt an (live 16.11.: lief
       // 250 px ohne Angriff „zum Boss“, während ihn 2–3 Gegner schlugen, 3.2.30)
-      const riftPlain=riftMap(st.world?.mapId)&&info?.cat!=='boss'&&!(window.dmo?.net?.state?.entities?.get?.(t.id)?.flags&FLAG.Boss);
-      if((onFocus||info?.cat==='boss')&&!riftPlain){
+      const tEnt0=window.dmo?.net?.state?.entities?.get?.(t.id);
+      const riftPlain=riftMap(st.world?.mapId)&&info?.cat!=='boss'&&!(tEnt0?.flags&FLAG.Boss);
+      // nur echte Bosse (3.2.51): ein angesagter normaler Mob (focusAssist) läuft über die native Annäherung bzw. „Zu weit weg“
+      if(digibotBossLike(tEnt0,info,focusSrc,onFocus)&&!riftPlain){
         const walking=digibotBossWalkIn(st,t,now);
         if(walking){this.status=walking;return;}
       }

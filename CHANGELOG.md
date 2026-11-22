@@ -2,6 +2,21 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.51 – Fernkämpfer halten Abstand
+- **Nutzer 22.11.:** „Beelzemon rennt viel zu nah ran, um anzugreifen – er hat doch eine längere Auto-Attack-Range.“ Beelzebumon hat
+  Grundangriff-Reichweite 192 (Blast Mode 208), stand live aber im Median 111 px, teils 24 px am Ziel. Das Spiel lief nicht zu nah –
+  der Bot zog ihn heran. Jetzt (nur Fernkämpfer, Reichweite > 60; Nahkämpfer wie bisher):
+  - Boss-Anmarsch nur noch für echte Bosse (Boss-Flag, Boss-Kategorie, Event/Weltboss/Rotation …); angesagte normale Quest-Mobs aus der
+    Gruppe laufen über die normale Annäherung. Elite-Bosse des Leaders zählen weiter als Boss.
+  - Der Anmarsch läuft auf einen Haltepunkt in Reichweite mit freier Schusslinie (sonst anderer Winkel) statt auf den Boss, mit
+    Hysterese; ohne freien Haltepunkt, nach 3 s am Haltepunkt ohne Bereitschaft oder 6 s ohne Fortschritt wie früher auf den Boss.
+  - Quest-Jagd, „Nächstes Ziel“ und Warten auf den Tank halten in Reichweite an; Warteplatz beim Ausweichen nach Reichweite; das Digimon
+    wird nicht zum Tamer zurückgeholt, wenn es schon in Reichweite sicher steht; Blast Mode rechnet mit seiner eigenen Reichweite.
+  - Gruppe folgen: Fernkämpfer laufen auf einen Punkt bei ¾ des Folgeabstands.
+- Zwei Review-Runden (10 Funde: Dauerhänger hinter Wänden/ohne Haltepunkt, Stop/Go beim Folgen, Nahkampf-Zugangsprüfung, Elite-Boss)
+  behoben.
+- Test: rangedrangetest (jeder Fall mit Fernkämpfer 192 und Nahkämpfer 32, dazu Spielwelt-Test hinter einer Wand).
+
 ## 3.2.50 – Rift: keine Level-Sperre je Tiefe mehr
 - **Nutzer 22.11.:** „Er sagt beim Rift, dass mein Partner ein bestimmtes Level braucht – das ist nicht notwendig, man kann mit jedem
   Level in das Rift rein.“ Der Bot rechnete mit einer alten Tabelle (Tiefe 1–5: Lv 41/65/75/99/120, ab 6: 130), stoppte bei fester
