@@ -2,6 +2,13 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.50 – Rift: keine Level-Sperre je Tiefe mehr
+- **Nutzer 22.11.:** „Er sagt beim Rift, dass mein Partner ein bestimmtes Level braucht – das ist nicht notwendig, man kann mit jedem
+  Level in das Rift rein.“ Der Bot rechnete mit einer alten Tabelle (Tiefe 1–5: Lv 41/65/75/99/120, ab 6: 130), stoppte bei fester
+  Tiefe („Tiefe X braucht Partner Lv …“) und wählte bei „höchstmöglich“ zu niedrig. Jetzt zählt nur noch, bis wohin freigeschaltet ist.
+  Meldet das Spiel doch ein Level-Problem, nimmt er wie bisher eine Tiefe weniger.
+- Tests: b3236_rifttiefetest (A, C, E neu), rifttest A, riftzieltest W angepasst.
+
 ## 3.2.49 – Event: bei zwei Bossen gleichzeitig einen festhalten
 - **Nutzer 22.11.:** „Wenn zwei Event-Bosse gleichzeitig spawnen, einen fokussieren und nicht zwischen zwei hin und her springen.“
   Beim Alter-Hunt-Paar (z. B. Goddramon + Holydramon) nahm der Bot jeden Takt den nächstgelegenen – bewegten sie sich, sprang das

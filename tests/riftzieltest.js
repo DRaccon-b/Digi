@@ -237,7 +237,7 @@ const check = (id, ok, okText, bad) => { res.push(ok); console.log(ok ? `OK     
   check('C2', WC2.sent.descendAt === 1 && WC2.sent.leave === 0, 'Ziel zu tief – kein Biom-Neustart', () => `Abstieg im Lauf ${WC2.sent.descendAt}, verlassen ${WC2.sent.leave}`);
   WC2.w.close();
   // W (Review 3.2.31): Partner Lv 30 – zwei Warnungen wechselten sich je Takt ab und fluteten das Log
-  const WW = await go({ cfg: { riftDepthMode: 'max', riftTarget: 'egg_gazimon' }, deepest: 10, level: 30, scans: [] }, null, 8000);
+  const WW = await go({ cfg: { riftDepthMode: 'max', riftTarget: 'egg_gazimon' }, deepest: 3, level: 130, scans: [] }, null, 8000); // 3.2.50: Level zählt nicht mehr – Ziel-Tiefe nicht freigeschaltet
   const nWarn = WW.w.document.querySelectorAll('.digibot__log div').length ? [...WW.w.document.querySelectorAll('.digibot__log div')].filter((d) => /braucht Tiefe 6/.test(d.textContent)).length : (WW.text().match(/braucht Tiefe 6/g) || []).length;
   check('W', nWarn === 1, 'Ziel-Warnung nur einmal im Log', () => `${nWarn}× „braucht Tiefe 6“`);
   WW.w.close();

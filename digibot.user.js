@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.49
+// @version      3.2.50
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1534,7 +1534,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     dungeon: false,       // Dungeon-Modus (Kera): betreten, Räume räumen, Boss, raus
     dgMode: 'easy',       // 'easy' = War Game, 'hard' = Revenge (allein kaum zu schaffen), 'apocalymon' / 'malomyotismon' / 'beelzemon' / 'd_reaper' = Raid
     dgBreak: true,        // Optionales Brechbares (Mail Server bei Diaboromon) zerstören – alle dasselbe Ziel; aus = nur der Boss (3.1.1).
-    riftDepthMode: 'max', // Digital Rift (3.2.19): 'max' = tiefste freigeschaltete, für die das Partner-Level reicht; 'fixed' = riftDepth
+    riftDepthMode: 'max', // Digital Rift (3.2.19): 'max' = tiefste freigeschaltete (Level egal, 3.2.50); 'fixed' = riftDepth
     riftBread: true,      // Digital Rift (3.2.44): in der Erholpause Guilmon Bread essen (F1–F3), statt bis zu 25 s zu warten
     riftMenderFirst: true, // Digital Rift (3.2.41): Heiler-Gegner zuerst, sobald er ein Monster heilt, das mit mir kämpft
     riftWarderFirst: false, // Digital Rift (3.2.44): Schildgeber-Gegner zuerst, sobald seine Gruppe mit mir kämpft
@@ -1847,7 +1847,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.49'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.50'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2036,8 +2036,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
             ${check('dgRepeat', '🔁 Nach geschafftem Lauf wiederholen', 'An: Nach dem Sieg (z. B. MaloMyotismon) geht der Bot hinaus und startet gleich den nächsten Lauf, bis die eingestellte Zahl Läufe seit dem Start erreicht ist (0 = unbegrenzt). Raids geben am Tag 1 Lauf mit voller Beute und 3 weitere mit Wiederholungsbeute – danach lohnt es sich kaum noch. Aus: Bot stoppt nach dem Lauf. Nicht fürs Digital Rift (das läuft ohnehin weiter).')}
             ${slider('dgRepeatN', 'Wiederholen: Läufe', 0, 20, (v) => (Number(v) ? `${v} Läufe` : 'unbegrenzt'))}
           </div>
-          <div data-dgmode="rift">${slider('riftDepth', 'Feste Tiefe', 1, 30, (v) => `Tiefe ${v} (Lv ${v <= 5 ? [41, 65, 75, 99, 120][v - 1] : 130})`, 0, 1)}
-            <div class="digibot__hint">Solo: Der Bot geht zu Clockmon (Primary Village), öffnet den Rift und läuft ihn ab – Gegner suchen und besiegen, bis das Signal das Portal öffnet, absteigen, auf der 3. Etage den Guardian besiegen, hinaus und von vorn, bis du stoppst. „höchstmögliche“: die tiefste freigeschaltete Tiefe, für die das Level des aktiven Digimons reicht (Tiefe 1–5: Lv 41/65/75/99/120, ab 6: Lv 130); nach einem instabilen Lauf (Uhr abgelaufen) eine Tiefe weniger. Patches: Angriff/Tempo zuerst. Ziel: mindestens dessen Tiefe; ein Lauf im falschen Biom wird sofort neu gestartet; hat ein passender Scan bei Clockmon 100 %, hält der Bot an – umwandeln musst du selbst.</div></div>
+          <div data-dgmode="rift">${slider('riftDepth', 'Feste Tiefe', 1, 30, (v) => `Tiefe ${v}`, 0, 1)}
+            <div class="digibot__hint">Solo: Der Bot geht zu Clockmon (Primary Village), öffnet den Rift und läuft ihn ab – Gegner suchen und besiegen, bis das Signal das Portal öffnet, absteigen, auf der 3. Etage den Guardian besiegen, hinaus und von vorn, bis du stoppst. „höchstmögliche“: die tiefste freigeschaltete Tiefe (das Partner-Level spielt keine Rolle); nach einem instabilen Lauf (Uhr abgelaufen) eine Tiefe weniger. Patches: Angriff/Tempo zuerst. Ziel: mindestens dessen Tiefe; ein Lauf im falschen Biom wird sofort neu gestartet; hat ein passender Scan bei Clockmon 100 %, hält der Bot an – umwandeln musst du selbst.</div></div>
           <div data-dgmode="beelzemon d_reaper"><div class="digibot__hint">Tamers-Raid, auch mit Fremden in der Party: Nur der Party-Leader kann ihn öffnen – ist das ein Mitspieler, wartet der Bot an der Tür, bis er offen ist. Ist der Bot Leader, wartet er, bis alle Mitspieler bereit an der Tür stehen (höchstens 20 min). Geteilte Treffer (mind. 3 im Kreis) nimmt er mit den Mitspielern zusammen, Adds und Greifhände zuerst. Voraussetzung: Beelzebumon – Quest „The Broken Promise“ angenommen, Mega; Mother D-Reaper – Quest des Raids angenommen. Nach dem Sieg geht der Bot hinaus und stoppt.</div></div>
           <div data-dgmode="hard">
             <div class="digibot__title">Hard – Diaboromon (Raum 3)</div>
@@ -10521,8 +10521,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // letzte Etage bei vollem Signal Guardian (run.guardian 'called'). Ende: result -> raidLeave -> zurück nach Primary Village.
   // Die Karte wird je Etage neu gebaut (scene.riftFog.rift.layout.cells) – world.maps['rift_sector'] ist nur ein Platzhalter.
   const RIFT_NPC = 'rift_warden';
-  const RIFT_LEVELS = [41, 65, 75, 99, 120]; // Partner-Level je Tiefe 1–5, ab Tiefe 6: 130
-  const riftNeedLv = (d) => (d >= 1 && d <= 5 ? RIFT_LEVELS[d - 1] : 130);
+  // Keine Level-Sperre je Tiefe (3.2.50, Nutzer 22.11.: „man kann mit jedem Level in das Rift rein“) – meldet das Spiel doch ein
+  // Level-Problem (rift_level / party problem 'level'), greifen die Rückfälle unten (eine Tiefe weniger).
   const riftMap = (mapId) => !!mapId && !!content()?.spawns?.[mapId]?.raid?.rift;
   const riftStore = () => { try { return window.dmo?.rift?.getState?.() || null; } catch { return null; } };
   const RIFT_FOCUS_R = 450;      // so weit (Weglänge) sucht der Rift-Modus Gegner höchstens; Angreifer immer
@@ -10565,8 +10565,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return out;
   }
   const riftLayout = () => worldScene()?.riftFog?.rift?.layout || null;
-  // Tiefe wählen: fest (Panel) oder die tiefste freigeschaltete, für die das Partner-Level reicht (nach einem instabilen Lauf
-  // höchstens eine weniger als dort)
+  // Tiefe wählen: fest (Panel) oder die tiefste freigeschaltete (nach einem instabilen Lauf oder einer Ablehnung höchstens eine weniger)
   function riftDepthPick(st, view) {
     const deepest = Math.max(1, Number(view?.deepest) || 1);
     // das Spiel prüft das Level aller Partner der Party (rift_level) – mit dem niedrigsten rechnen, nicht nur mit dem Leader; sonst
@@ -10577,13 +10576,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     let pick;
     if (cfg.riftDepthMode === 'fixed') {
       const d = Math.max(1, Math.round(Number(cfg.riftDepth) || 1));
-      const why = d > deepest ? `Tiefe ${d} ist noch nicht freigeschaltet (bis ${deepest})` : riftNeedLv(d) > lv ? `Tiefe ${d} braucht Partner Lv ${riftNeedLv(d)} (hast ${lv})` : '';
+      const why = d > deepest ? `Tiefe ${d} ist noch nicht freigeschaltet (bis ${deepest})` : '';
       pick = { depth: d, why };
     } else {
-      let d = 0;
-      for (let i = 1; i <= deepest; i++) if (riftNeedLv(i) <= lv) d = i;
+      let d = deepest;
       if (rift.cap) d = Math.min(d, rift.cap);
-      pick = d >= 1 ? { depth: d, why: '' } : { depth: 1, why: `Partner Lv ${lv} reicht für keine Tiefe (Tiefe 1 ab Lv ${RIFT_LEVELS[0]})` };
+      pick = { depth: Math.max(1, d), why: '' };
     }
     // Ziel-Ei (3.2.31): mindestens dessen Tiefe – geht die nicht (nicht freigeschaltet / Level), normal weiter und einmal warnen
     const tg = riftTarget();
@@ -10591,10 +10589,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const md = tg.minDepth || 1;
     // rift.cap: das Spiel hat die Tiefe abgelehnt (rift_level/rift_depth_locked) oder ein Lauf dort war instabil – dann nicht wieder
     // hinauf erzwingen (sonst endlos riftEnter auf dieselbe abgelehnte Tiefe, Review 3.2.31)
-    const no = md > deepest ? `nicht freigeschaltet, bis ${deepest}` : riftNeedLv(md) > lv ? `Partner Lv ${riftNeedLv(md)} nötig, hast ${lv}`
+    const no = md > deepest ? `nicht freigeschaltet, bis ${deepest}`
       : cfg.riftDepthMode !== 'fixed' && rift.cap && rift.cap < md ? `gerade höchstens Tiefe ${rift.cap}` : '';
     if (no) {
-      // eigenes Merkfeld: riftWarn kennt nur die letzte Meldung – abwechselnd mit „Partner Lv … reicht für keine Tiefe“ flutete es das Log
+      // eigenes Merkfeld: riftWarn kennt nur die letzte Meldung (sonst flutete es das Log)
       const w = `Ziel ${tg.name} braucht Tiefe ${md} (${no}) – spiele normal`;
       if (rift.targetWarned !== w) { rift.targetWarned = w; logEvent('warn', `Rift: ${w}`); }
       return { ...pick, targetOk: false };
@@ -10883,7 +10881,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const d = Number(res.depth) || rift.depth || 0;
       if (cfg.riftDepthMode !== 'fixed' && !res.stable && d > 1) { rift.cap = d - 1; rift.capOk = 0; logEvent('warn', `Rift: Tiefe ${d} nicht stabil geschafft – nächster Lauf höchstens Tiefe ${rift.cap}`); }
       // höhere Tiefe nur wieder versuchen, wenn alle Party-Level dafür reichen (Review 20.11., 3.2.36)
-      else if (rift.cap && res.stable && d >= rift.cap && riftNeedLv(rift.cap + 1) <= (rift.partyLv || Infinity) && ++rift.capOk >= RIFT_CAP_RETRY) { logEvent('bot', `Rift: ${rift.capOk}× stabil auf Tiefe ${d} – versuche wieder die höhere`); rift.cap = 0; rift.capOk = 0; }
+      else if (rift.cap && res.stable && d >= rift.cap && ++rift.capOk >= RIFT_CAP_RETRY) { logEvent('bot', `Rift: ${rift.capOk}× stabil auf Tiefe ${d} – versuche wieder die höhere`); rift.cap = 0; rift.capOk = 0; }
       const loot = res.loot || {}, t = Number(res.timeMs) || 0;
       logEvent('kill', `Rift Tiefe ${d}: ${res.stable ? 'stabil geschafft' : 'geschafft, aber instabil'}${t ? ` in ${fmtClock(t)}` : ''}${loot.shards ? ` · ${loot.shards} Shards` : ''}${loot.bits ? ` · ${loot.bits} Bits` : ''} (Lauf ${rift.runs})`);
       rift.leaveAt = now;

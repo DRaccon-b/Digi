@@ -1,16 +1,15 @@
 // Review 20.11. (3.2.36): Rift-Tiefe „höchstmöglich“ rechnete nur mit dem Level des Leaders (view.party.find(leader)).
 // Das Spiel prüft aber alle Partner der Party.
-// A: Leader Lv 99, Mitläufer Lv 80, freigeschaltet bis 5 -> erste Tiefe 3 (Lv 75), nicht 4 (Lv 99, vom Spiel abgelehnt).
-// C: mehrere stabile Läufe hintereinander -> nie Tiefe 4 (vorher: abgelehnt, eine tiefer, nach RIFT_CAP_RETRY stabilen
-//    Läufen wieder Tiefe 4 – ewiges Hin und Her mit abgelehnten Versuchen).
+// 3.2.50 (Nutzer 22.11.: „man kann mit jedem Level in das Rift rein“): keine Level-Sperre je Tiefe mehr im Bot.
+// A: Leader Lv 99, Mitläufer Lv 80, freigeschaltet bis 5 -> erste Tiefe 5 (die tiefste freigeschaltete, Level egal).
+// C: mehrere stabile Läufe hintereinander -> immer Tiefe 5, nichts abgelehnt.
+// E: feste Tiefe 5 mit Partner Lv 6 -> betritt Tiefe 5 (vorher: „braucht Partner Lv 120“ – Bot gestoppt).
 // B: view.party meldet beim Mitläufer problem 'level' (bleibt stehen) -> der Leader wartet nicht ewig stumm, sondern
-//    nimmt nach dem Zeitlimit eine Tiefe weniger (Logeintrag).
+//    nimmt nach dem Zeitlimit eine Tiefe weniger (Logeintrag) – Rückfall, falls das Spiel doch ein Level-Problem meldet.
 // D: problem 'far' bleibt stehen -> nach dem Zeitlimit genau eine Warnung im Log (nicht je Takt).
 const { JSDOM, VirtualConsole } = require('jsdom');
 const fs = require('fs');
 const script = fs.readFileSync(process.argv[2], 'utf8');
-const NEED = [41, 65, 75, 99, 120];
-const need = (d) => (d >= 1 && d <= 5 ? NEED[d - 1] : 130);
 
 function world({ cfg, deepest = 5, party, problem = '' }) {
   const dom = new JSDOM('<!doctype html><body></body>', { runScripts: 'outside-only', url: 'https://play.digimmo.com.br/', pretendToBeVisual: true, virtualConsole: new VirtualConsole() });
@@ -69,8 +68,8 @@ function world({ cfg, deepest = 5, party, problem = '' }) {
     command(name, args) {
       if (name === 'riftEnter') {
         sent.enter.push(args.depth);
-        // wie im Spiel: jeder Partner der Party braucht das Level der Tiefe
-        if (party.some((m) => m.level < need(args.depth))) { sent.refused.push(args.depth); store.setState({ chat: [...(state.chat || []), { kind: 'system', code: 'rift_level', ts: Date.now() }] }); return; }
+        // wie im Spiel (Nutzer 22.11.): jedes Partner-Level darf jede freigeschaltete Tiefe betreten
+        if (args.depth > deepest) { sent.refused.push(args.depth); store.setState({ chat: [...(state.chat || []), { kind: 'system', code: 'rift_depth_locked', ts: Date.now() }] }); return; }
         rs = { ...rs, warden: null, view: null };
         store.setState({ screen: 'loading' });
         // Kurzlauf: Rift betreten, gleich darauf stabil geschafft
@@ -111,17 +110,19 @@ const res = [];
 const check = (id, ok, okText, bad) => { res.push(ok); console.log(ok ? `OK     ${id}: ${okText}` : `FEHLER ${id}: ${bad()}`); };
 const PARTY = [{ name: 'Leader', level: 99 }, { name: 'Mate', level: 80 }];
 (async () => {
-  const [WA, WB, WD] = await Promise.all([
+  const [WA, WB, WD, WE] = await Promise.all([
     go({ cfg: { riftDepthMode: 'max' }, party: PARTY }, (W) => W.sent.enter.length - W.sent.refused.length >= 6, 90000),
     go({ cfg: { riftDepthMode: 'max' }, party: PARTY, problem: 'level' }, (W) => W.logLines().some((l) => /Level zu niedrig/.test(l)), 50000),
     go({ cfg: { riftDepthMode: 'max' }, party: PARTY, problem: 'far' }, null, 48000),
+    go({ cfg: { riftDepthMode: 'fixed', riftDepth: 5 }, party: [{ name: 'Leader', level: 6 }] }, (W) => W.sent.enter.length >= 1, 40000),
   ]);
-  check('A', WA.sent.enter[0] === 3, 'Tiefe nach dem niedrigsten Partner-Level (3)', () => `erste Tiefe ${WA.sent.enter[0]} (betreten ${WA.sent.enter.join(',')})`);
-  check('C', WA.sent.enter.length >= 6 && !WA.sent.refused.length && WA.sent.enter.every((d) => d === 3), 'mehrere stabile Läufe – nie die zu hohe Tiefe 4', () => `betreten ${WA.sent.enter.join(',')}, abgelehnt ${WA.sent.refused.join(',') || '–'}`);
+  check('A', WA.sent.enter[0] === 5, 'tiefste freigeschaltete Tiefe (5), Level egal', () => `erste Tiefe ${WA.sent.enter[0]} (betreten ${WA.sent.enter.join(',')})`);
+  check('C', WA.sent.enter.length >= 6 && !WA.sent.refused.length && WA.sent.enter.every((d) => d === 5), 'mehrere stabile Läufe – immer Tiefe 5, nichts abgelehnt', () => `betreten ${WA.sent.enter.join(',')}, abgelehnt ${WA.sent.refused.join(',') || '–'}`);
   const bl = WB.logLines().filter((l) => /Level zu niedrig/.test(l));
-  check('B', bl.length >= 1 && /Tiefe 2/.test(bl[0]), 'Partner-Level-Problem – nach Zeitlimit eine Tiefe weniger', () => `Log ${bl.join(' | ') || '–'}, Status ${WB.status()}`);
+  check('B', bl.length >= 1 && /Tiefe 4/.test(bl[0]), 'Partner-Level-Problem – nach Zeitlimit eine Tiefe weniger', () => `Log ${bl.join(' | ') || '–'}, Status ${WB.status()}`);
   const dl = WD.logLines().filter((l) => /zu weit weg/.test(l));
   check('D', dl.length === 1, 'Partner zu weit weg – nach Zeitlimit genau eine Warnung', () => `${dl.length}× im Log, Status ${WD.status()}`);
-  WA.w.close(); WB.w.close(); WD.w.close();
+  check('E', WE.sent.enter[0] === 5, 'feste Tiefe 5 mit Partner Lv 6: betritt sie', () => `betreten ${WE.sent.enter.join(',') || '–'}, Status ${WE.status()}`);
+  WA.w.close(); WB.w.close(); WD.w.close(); WE.w.close();
   process.exit(res.every(Boolean) ? 0 : 1);
 })();

@@ -3,7 +3,7 @@
 // warden/view) -> riftEnter{depth}. Im Rift 3 Etagen: Monster (erst in der Nähe sichtbar) füllen das Signal; Portal öffnet bei
 // n/3, riftDescend am Portal; Patch-Angebot bei 33 % -> riftPatch{offer,pick}; letzte Etage bei 100 % Guardian -> besiegen ->
 // riftResult -> raidLeave -> zurück in Primary Village -> nächster Lauf.
-// A: Tiefe „höchstmöglich“: freigeschaltet 5, Partner Lv 110 -> Tiefe 4 (Lv 99), nicht 5 (Lv 120).
+// A: Tiefe „höchstmöglich“: freigeschaltet 5, Partner Lv 110 -> Tiefe 5 (3.2.50: das Partner-Level zählt nicht).
 // B: Patch-Wahl nach Priorität (overclock vor data_mass/firewall).
 // C: drei Etagen, zweimal abgestiegen, Guardian besiegt, raidLeave gesendet.
 // D: danach zweiter Lauf gestartet.
@@ -209,7 +209,7 @@ function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = f
   const st1 = W.status(); W.w.close();
   console.log(JSON.stringify({ sent: W.sent, status: st1 }));
   if (!process.env.V) console.log(W.log.slice(-30).join('\n'));
-  const okA = W.sent.enter[0] === 4;
+  const okA = W.sent.enter[0] === 5; // 3.2.50: keine Level-Sperre
   const okB = W.sent.patch[0] === 'overclock';
   const okC = W.sent.descend === 2 && W.log.includes('Guardian besiegt') && W.sent.leave >= 1;
   const okD = W.sent.enter.length >= 2;
@@ -298,7 +298,7 @@ function world({ cfg, deepest = 5, level = 110, until, hunt = false, caution = f
   const okF = fsel[0] === 'a:att' && fsel.includes('h:heal');
   const gsel = W.sent.sel.filter((x) => x === 'a:att' || x === 'h:far');
   const okG = gsel[0] === 'a:att';
-  console.log(okA ? 'OK     A: höchstmögliche Tiefe nach Partner-Level (4)' : `FEHLER A: ${W.sent.enter[0]}`);
+  console.log(okA ? 'OK     A: höchstmögliche Tiefe (5), Level egal' : `FEHLER A: ${W.sent.enter[0]}`);
   console.log(okB ? 'OK     B: Patch overclock gewählt' : `FEHLER B: ${W.sent.patch.join(',')}`);
   console.log(okC ? 'OK     C: 3 Etagen, Guardian besiegt, Rift verlassen' : `FEHLER C: descend ${W.sent.descend} leave ${W.sent.leave}`);
   console.log(okD ? 'OK     D: zweiter Lauf gestartet' : 'FEHLER D');
