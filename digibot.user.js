@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.52
+// @version      3.2.53
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -743,6 +743,29 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return 'Gruppe: eigene Position am Boss';
   }
 
+  const tamerCleanseTried=new Map(); // eigene Sperrliste des Tamers (getrennt vom Skill-Planer, Nachprüfung 3.2.53): „ID|Debuff“ -> bis wann
+  const TAMER_NO_CLEANSE=new Set(['shared']); // Fadenkreuz eines geteilten Treffers: kein Grund für einen Reinigungs-Skill (3.2.53)
+  // Wunde (Darkness Claw u. a.: halbe Heilung, bis voll oder gereinigt): mit bereitem Reinigungs-Tamer (Hikari) erst reinigen,
+  // dann heilen – der HP-Trank wartet so lange, höchstens WOUND_HOLD_MS und nicht unter WOUND_HOLD_MIN_HP (Nutzer 23.11., 3.2.53)
+  const WOUND_HOLD_MS=3000, WOUND_HOLD_MIN_HP=30;
+  const woundState={since:0,logged:0};
+  function woundHold(st,now){
+    const p=st?.me?.partner,sk=content()?.tamers?.[st?.me?.tamerId]?.skill;
+    const wounded=!!p?.entityId&&(st.effects?.[p.entityId]||[]).some(e=>e.id==='wounded'&&(!e.end||e.end>performance.now()));
+    // nur warten, wenn der Tamer-Tick jetzt auch reinigen kann – das Zeitfenster beginnt erst dann (sonst war es abgelaufen,
+    // sobald Hikari aus der Abklingzeit kam, und Trank und Reinigung fielen in denselben Tick; Review 3.2.53)
+    const can=wounded&&cfg.tamerAuto&&!!sk?.cleanse&&bot.on&&digibotCore.allowed()&&!p.fainted&&!p.evolving&&p.maxHp>0&&p.hp/p.maxHp*100>=WOUND_HOLD_MIN_HP
+      &&(!((st.cooldowns?.tamer?.end||0)>performance.now())||now-(digibotTamer.cleanseAt||0)<WOUND_HOLD_MS) // eigener Druck: weiter warten, bis die Wunde weg ist (Abklingzeit kommt manchmal vor dem Effekt-Update)
+      &&!((tamerCleanseTried.get(`${p.entityId}|wounded`)??0)>now)
+      &&digibotTamer.retryAt-now<=3000; // nicht in der 30-s-Sperre nach 3 unbestätigten Versuchen
+    if(!can||now-(woundState.seen||0)>1000)woundState.since=0; // länger nicht gefragt (HP über der Schwelle): neues Fenster
+    woundState.seen=now;
+    if(!can)return false;
+    if(!woundState.since)woundState.since=now;
+    if(now-woundState.since>=WOUND_HOLD_MS)return false;
+    if(woundState.logged!==woundState.since){woundState.logged=woundState.since;logEvent('potion',`Wunde: Trank wartet auf ${sk.name||'Reinigung'} (halbe Heilung)`);}
+    return true;
+  }
   const digibotTamer={skill:'',want:false,since:0,last:0,cooldown:0,retryAt:0,attempts:0,holdSince:0,holdSeen:0};
   const TAMER_BOSS_NEAR=320, TAMER_HOLD_GRACE_MS=6000, DAVIS_BURST_LEFT_MS=10000; // Davis erst, wenn der stärkste Skill noch ≥ 10 s Abklingzeit hat (3.1.27) // Bosskampf: so nah am Boss zählt als Kampf; so lange darf „im Kampf“ wegfallen, ohne dass die Gate-Wartezeit neu beginnt (3.1.25)
   // Stärkster Angriffsskill auf der Leiste – Gate of Judgment hat Vorrang (Nutzer 28.10.: Crest „immer vor einem Gate of Judgment“)
@@ -754,10 +777,20 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if(!best||(gate&&!best.gate)||(gate===best.gate&&power>best.power))best={...s,gate,power};}
     return best;
   }
+  // Hat das Reinigen des Tamers gewirkt? (Review 3.2.53) Geprüft 1,5–5 s nach dem Druck und nur, wenn die Abklingzeit lief (vom
+  // Spiel bestätigt): ein Debuff, der dann noch da ist, lässt sich nicht entfernen (20 s nicht mehr dafür zünden). Unbestätigt
+  // (Druck verloren – der normale Wiederholversuch läuft) oder älter (eine neue Wunde wäre es nicht mehr): verwerfen, nichts sperren.
+  function tamerCleanseCheck(st,now){
+    const pd=digibotTamer.cleanse;if(!pd||now-pd.at<1500)return;
+    digibotTamer.cleanse=null;
+    if(now-pd.at>5000||!((st.cooldowns?.tamer?.end||0)>performance.now()))return;
+    for(const key of pd.keys){const [id,eid]=key.split('|');if((st.effects?.[id]||[]).some(e=>e.id===eid&&(!e.end||e.end>performance.now())))tamerCleanseTried.set(key,now+20000);}
+  }
   function digibotTamerTick(st,now) {
     const p=st?.me?.partner,C=content(),sk=C?.tamers?.[st?.me?.tamerId]?.skill;
     if(digibotTamer.skill!==sk?.id){Object.assign(digibotTamer,{skill:sk?.id||'',want:false,since:0,last:0,cooldown:sk?.cooldownMs||0,retryAt:0,attempts:0,holdSince:0});}
     digibotTamer.want=false;
+    tamerCleanseCheck(st,now);
     if(!cfg.tamerAuto||!bot.on||!digibotCore.allowed()||!sk||!p||p.fainted){digibotTamer.since=0;return;}
     const remaining=Math.max(0,(st.cooldowns?.tamer?.end||0)-performance.now());
     if(remaining>0){
@@ -773,7 +806,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const allies=(st.party?.members||[]).filter(m=>!m.me&&m.here&&m.online!==false&&m.partnerEntityId).map(m=>ents?.get?.(m.partnerEntityId)).filter(e=>e&&own&&Math.hypot(e.x-own.x,e.y-own.y)<=(sk.range||128));
     const effectsFor=id=>(st.effects?.[id]||[]).filter(e=>!e.end||e.end>performance.now());
     const affected=[p.entityId,...(sk.scope==='party'?allies.map(e=>e.id):[])];
-    const debuffed=affected.some(id=>effectsFor(id).some(isDebuff)); // Spiel-Status (wounded, silenced …) oder negativer Effekt (3.1.43)
+    // Spiel-Status (wounded, silenced …) oder negativer Effekt (3.1.43). Ohne das Fadenkreuz eines geteilten Treffers („shared“) –
+    // dagegen hilft kein Reinigen, und Hikari (60 s) fehlte dann für die Wunde danach (Nutzer 23.11., Beelzemon solo, 3.2.53);
+    // ohne Debuffs, die ein Reinigen des Tamers schon nicht entfernt hat (tamerCleanseTried)
+    const debuffed=affected.some(id=>effectsFor(id).some(e=>isDebuff(e)&&!(sk.cleanse&&(TAMER_NO_CLEANSE.has(e.id)||(tamerCleanseTried.get(`${id}|${e.id}`)??0)>now))));
     // Avoid renewing an already active copy of the same ability.
     if(!sk.healPct && !sk.resetCooldowns && !sk.cleanse && affected.some(id=>effectsFor(id).some(e=>e.id===sk.id||e.id===`${sk.id}:damageReduction`)))return;
     const target=ents?.get?.(st.target?.id);
@@ -830,6 +866,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const sentAt=now;
     digibotTamer.retryAt=now+3000;digibotTamer.want=false;digibotTamer.since=0;digibotTamer.holdSince=0;
     digibotTamer.attempts++;cmd.tamerSkill();
+    if(sk.cleanse)digibotTamer.cleanseAt=now;
+    if(sk.cleanse)digibotTamer.cleanse={at:now,keys:affected.flatMap(id=>effectsFor(id).filter(e=>isDebuff(e)&&!TAMER_NO_CLEANSE.has(e.id)).map(e=>`${id}|${e.id}`))};
     // Provisional claim covers propagation; server cooldown provides final confirmation.
     digibotTamer.last=sentAt;digibotTamer.cooldown=3000;
     groupPush(true);
@@ -1850,7 +1888,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.52'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.53'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -12492,7 +12530,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const prep = lrOn() && !!lr.boss && !(t?.kind === 'mob' && t.hp > 0 && this.attackedId === t.id && lrBossEnt(lr.boss.b)?.id === t.id);
       // Prozent-Lade-Treffer, der nicht bricht (Megiddo Flame, 90 %): HP immer darüber halten (3.1.33)
       const chargeNeed = Math.max(chargeTopup(st, now), a3Topup(st, now)); // + Schild/Puls der Tamers-Bosse (3.2.5)
-      potion(1, (cfg.hpPot > 0 && pct(p.hp, p.maxHp) < cfg.hpPot) || (shareIncoming(now) && pct(p.hp, p.maxHp) < SHARE_TOPUP)
+      // Wunde: nur die normale Schwelle wartet auf die Reinigung – Auffüllen vor einem angesagten Treffer nie (Review 3.2.53)
+      potion(1, (cfg.hpPot > 0 && pct(p.hp, p.maxHp) < cfg.hpPot && !woundHold(st, now)) || (shareIncoming(now) && pct(p.hp, p.maxHp) < SHARE_TOPUP)
         || (prep && pct(p.hp, p.maxHp) < LR_BOSS_PREP_HP) || (chargeNeed > 0 && pct(p.hp, p.maxHp) < chargeNeed));
       potion(2, (cfg.dsPot > 0 && pct(p.ds, p.maxDs) < cfg.dsPot) || (prep && pct(p.ds, p.maxDs) < LR_BOSS_PREP_DS));
       potion(3, tamerFoodNeeded(me, now));

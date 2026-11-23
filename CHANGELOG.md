@@ -2,6 +2,25 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.53 – Beelzemon solo: Hikari reinigt die Wunde vor dem Heilen
+- **Nutzer 23.11.:** Beelzemon-Raid solo klappt seit dem Spiel-Update (Schutz hilft jetzt gegen einen zu kleinen geteilten
+  Treffer): Piemon zündet Clown Trick kurz vor Heartbreak Shot (seit 3.2.15). Als Tamer **Hikari** (Crest of Light: Debuffs weg,
+  12 s Schutz vor neuen) statt Iori – erst die Wunde entfernen, dann heilen.
+- Wunde (Darkness Claw u. a.: halbe Heilung, bis voll oder gereinigt): Ist ein Reinigungs-Tamer bereit (Tamer-Skill automatisch an),
+  wartet der HP-Trank, bis gereinigt ist – höchstens 3 s, nie unter 30 % HP, nicht, wenn das Reinigen die Wunde schon einmal nicht
+  entfernt hat. Log: „Wunde: Trank wartet auf Crest of Light (halbe Heilung)“.
+- Ein Reinigungs-Tamer wird nicht mehr für das Fadenkreuz eines geteilten Treffers (Status „shared“) verbraucht – dagegen hilft
+  kein Reinigen, und Hikari (60 s) fehlte dann für die Wunde. Auch Debuffs, die ein Reinigen schon nicht entfernt hat, lösen ihn
+  20 s lang nicht mehr aus (wie beim Skill-Planer).
+- Review (unabhängige Prüfung, gegengeprüft): Ob das Reinigen gewirkt hat, prüft der Tamer-Tick jetzt selbst 1,5–5 s nach dem Druck
+  und nur, wenn das Spiel die Abklingzeit bestätigt – ein verlorener Druck sperrte die Wunde sonst 20 s (kein zweiter Versuch), und
+  eine alte Prüfung sperrte nach 60 s eine neue Wunde. Der Trank wartet nur an der normalen Schwelle (Auffüllen vor einem angesagten
+  Treffer nie), nur wenn der Tamer-Skill gerade wirklich gezündet werden kann, und das 3-s-Fenster beginnt erst dann.
+- Nachprüfung: Der Tamer führt eine eigene Sperrliste für nicht entfernbare Debuffs (der Skill-Planer konnte sonst mit seiner
+  älteren Prüfung Hikari für eine Wunde sperren). Nach dem eigenen Druck wartet der Trank weiter, bis die Wunde wirklich weg ist –
+  das Spiel meldet die Abklingzeit manchmal vor dem Entfernen.
+- Test: tests/hikariwoundtest.js (A–I).
+
 ## 3.2.52 – Grinden im Rift
 - **Nutzer 22.11.:** „Überarbeite den kompletten Grind-Modus hierfür“ – gewählt „Nur Rift-Leveln“. Neuer Schalter im Block
   „Grinden & Lern-Route“: **Im Rift leveln (EXP-Tiefen 1–5)**, Standard an, dazu der Regler „Rift: EXP-Tiefe“ (automatisch oder fest 1–5).
