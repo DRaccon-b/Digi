@@ -2,6 +2,20 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.56 – Deva-Runde: meiste Kills statt fester Reihe
+- **Nutzer 24.11.:** „mach es so, dass er die meisten Deva-Kills wie möglich macht“. Live (13 min beobachtet) stand die feste
+  Reihe (Ch 1 vorwärts, Ch 2 rückwärts) rund 64 % der Zeit an Pajramon/Sandiramon und wartete auf den Respawn, während auf
+  derselben Map andere Devas wieder lebten (Sinduramon neben Sandiramon, Vajramon/Indramon/Kumbhiramon neben Pajramon).
+- Neuer Planer: auf allen angehakten Kanälen immer der Deva, der – Weg eingerechnet – als Nächstes kämpfbar ist. Lebt einer:
+  hin. Sonst zu dem mit dem frühesten Respawn und dort warten; spawnt währenddessen ein anderer mindestens 10 s früher (oder
+  einer ist hier in Sicht), wechselt das Ziel. Schätzwerte wie live gemessen: Mapwechsel ~12 s (danach Ch 1), Kanalwechsel
+  ~5 s, Laufen 100 px/s; unbekannter Timer +15 s (nachschauen). Panel zeigt „Meiste Kills … · jetzt <Deva> Ch <n>“.
+- Review (unabhängige Prüfung, gegengeprüft): „prüfe Timer…“ hing endlos, wenn das Spiel für einen Deva keinen Timer schickt
+  (Frist lief an der alle 5 s neu gestellten Map-Abfrage statt ab Ankunft); ein nicht angreifbarer Deva wird 2 min gemieden,
+  auch wenn er wieder in Sicht kommt; „Portal nicht erreichbar“ meidet nur dieses Ziel statt die ganze Map auf allen Kanälen.
+- Tests: tests/devamaxtest.js (A–H, Spawnpunkte wie live außerhalb der Sichtweite); tests/devatest.js prüft nur noch, dass
+  dieselben Devas fallen (Reihenfolge frei).
+
 ## 3.2.55 – Rift: nur beim Guardian ausweichen (Option)
 - **Nutzer 24.11.:** „beim Rift-Endboss den Warnkreisen ausweichen, auch wenn wir das bei den normalen Mobs im Rift nicht tun“.
 - Neue Option **„Rift: nur beim Guardian ausweichen“** (Dungeon/Rift-Einstellungen, Standard aus): Im Digital Rift ignoriert der

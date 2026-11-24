@@ -1,4 +1,5 @@
-// 3.2.18 (Nutzer 10.11.): Deva-Runde. Ch 1 vorwärts Pajramon → Vajramon → Indramon → Kumbhiramon (West Shinjuku) →
+// 3.2.18 (Nutzer 10.11.): Deva-Runde. 3.2.56: Reihenfolge frei (Planer „meiste Kills“, siehe devamaxtest) – hier zählt nur, dass
+// dieselben Devas fallen und keiner verpasst wird. Ursprünglich: Ch 1 vorwärts Pajramon → Vajramon → Indramon → Kumbhiramon (West Shinjuku) →
 // Sinduramon → Sandiramon (Deva Transit), dort Kanal wechseln und die Reihe rückwärts, danach wieder Ch 1 vorwärts.
 // Ist einer nicht da: Wendepunkte (Pajramon, Sandiramon) bis 5 min warten, die anderen höchstens 1 min, sonst überspringen.
 // Erwartet (Ch 1, Ch 2):
@@ -165,13 +166,11 @@ const EXP = 'kumbhiramon#1,pajiramon#1,indramon#1,sinduramon#1,sandiramon#1,sand
   console.log('\nKills:', kills.join(', '), '| zurück auf Ch 1:', !!backAt);
   // Kampf nimmt Devas in Sicht unterwegs mit – darum Menge und Ablauf statt genauer Reihenfolge
   const exp = EXP.split(','), ch1 = kills.filter((k) => k.endsWith('#1')), ch2 = kills.filter((k) => k.endsWith('#2'));
-  const lastCh1 = kills.findIndex((k) => k.endsWith('#2'));
-  const okA = kills.length === exp.length && exp.every((k) => kills.includes(k)) && !kills.includes('vajramon#1')
-    && ch1.length === 5 && kills.slice(0, lastCh1).every((k) => k.endsWith('#1')) // erst Ch 1 ganz, dann Ch 2
-    && ch2.slice(0, 2).every((k) => /sandiramon|sinduramon/.test(k)); // Ch 2 rückwärts: erst Deva Transit, dann West Shinjuku
+  // 3.2.56: keine feste Reihe mehr (meiste Kills) – dieselben Kills, Reihenfolge frei
+  const okA = kills.length === exp.length && exp.every((k) => kills.includes(k)) && !kills.includes('vajramon#1') && ch1.length === 5 && ch2.length === 6;
   const okB = !!backAt;
   const okC = $('[data-apsel="farmMode"] option[value="deva"]') != null;
-  console.log(okA ? 'OK     A: Reihenfolge Ch 1 vorwärts, Ch 2 rückwärts, Warten/Überspringen wie verlangt' : 'FEHLER A: ' + kills.join(','));
+  console.log(okA ? 'OK     A: alle erreichbaren Devas beider Kanäle besiegt (Vajramon Ch 1 erst in 10 min – nicht gewartet)' : 'FEHLER A: ' + kills.join(','));
   console.log(okB ? 'OK     B: danach wieder Ch 1' : 'FEHLER B');
   console.log(okC ? 'OK     C: Art „Deva-Runde“ wählbar' : 'FEHLER C');
   process.exit(okA && okB && okC ? 0 : 1);

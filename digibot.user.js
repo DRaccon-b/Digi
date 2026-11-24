@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.55
+// @version      3.2.56
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1889,7 +1889,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.55'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.56'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2055,7 +2055,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
               <option value="boss">Boss-Rotation (ausgewählte Bosse)</option>
               <option value="named">Named-Elite-Runde (Map für Map)</option>
               <option value="cards">Kartenrotation (Karten farmen)</option>
-              <option value="deva">Deva-Runde (6 Devas, Kanal für Kanal hin und zurück)</option></select></label>
+              <option value="deva">Deva-Runde (6 Devas, meiste Kills)</option></select></label>
             <label data-farmmode="named">Start-Map<select data-apsel="routeStart"></select></label>
             <label data-farmmode="named">End-Map<select data-apsel="routeEnd"></select></label>
           </div>
@@ -2063,7 +2063,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           <div class="digibot__routeinfo" data-farmmode="deva" data-f="devainfo">–</div>
           <div class="digibot__title">Kanäle</div>
           <div class="digibot__farmch">${[1, 2, 3, 4].map((c) => `<label><input type="checkbox" data-farmch="${c}" ${(cfg.farmChannels || []).includes(c) ? 'checked' : ''}>Ch ${c}</label>`).join('')}</div>`, true,
-          'Gilt für den Modus Bosse. Boss-Rotation: reist zum ausgewählten Boss, der als Nächstes da ist. Named-Elite-Runde: Maps von Start bis Ende ablaufen, je Kanal prüfen (lebt → kämpfen, Respawn unter 2 min → warten, sonst weiter), danach per Digi-Phone zurück. Deva-Runde: auf dem ersten Kanal Pajramon → Vajramon → Indramon → Kumbhiramon → Sinduramon → Sandiramon, dort auf den nächsten Kanal und die Reihe rückwärts, dann der nächste Kanal wieder vorwärts. Nicht da: an Pajramon und Sandiramon bis 5 min auf den Respawn warten, bei den anderen höchstens 1 min, sonst weiter. Kanalwechsel nur außerhalb des Kampfes; das Level-Limit gilt für diese Bosse nicht.', 'data-modes="farm"')}
+          'Gilt für den Modus Bosse. Boss-Rotation: reist zum ausgewählten Boss, der als Nächstes da ist. Named-Elite-Runde: Maps von Start bis Ende ablaufen, je Kanal prüfen (lebt → kämpfen, Respawn unter 2 min → warten, sonst weiter), danach per Digi-Phone zurück. Deva-Runde: auf allen angehakten Kanälen immer der Deva, der (Weg eingerechnet) als Nächstes kämpfbar ist – lebende zuerst, sonst am frühesten Respawn warten; spawnt währenddessen ein anderer früher, geht er dorthin. Kanalwechsel nur außerhalb des Kampfes; das Level-Limit gilt für diese Bosse nicht.', 'data-modes="farm"')}
         ${grp('dungeon', 'Dungeon', `
           <div class="digibot__apcfg">
             <label>Modus<select data-apsel="dgMode"><option value="easy">Easy – War Game</option><option value="hard">Hard – Revenge (Gruppe)</option><option value="apocalymon">Apocalymon-Raid</option><option value="malomyotismon">MaloMyotismon-Raid</option><option value="beelzemon">Beelzebumon-Raid (Lv 121)</option><option value="d_reaper">Mother-D-Reaper-Raid (Lv 130)</option><option value="rift">Digital Rift (solo, endlos)</option></select></label>
@@ -9731,14 +9731,12 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const b = knownBosses.find(x=>farmKey(x.map,x.index,f.ch)===f.key);
       if (b && confirmed) {
         farm.known.set(f.key, { up: false, readyAt: now + b.respawnMs, at: now, killed: true });
-        if (f.engaged) farm.deva?.mine?.set(f.key, now); // Deva-Runde: eigener Kill (fremde Kills zählen dort nicht als erledigt)
         logEvent('kill', `Boss besiegt: ${b.name} (Ch ${f.ch}) – Respawn in ${Math.round(b.respawnMs / 60000)} min`);
         farm.fight = null; farm.goal = null;
       } else if (b && sameRoom) {
         if (!f.missingAt) { f.missingAt = now; logEvent('warn', `${b.name} (Ch ${f.ch}) bei ${f.pct ?? '?'} % aus der Sicht verloren – suche ihn`); }
         else if (now - f.missingAt > FARM_MISS_MS) {
           farm.known.set(f.key, { up: false, readyAt: now + FARM_MISS_READY_MS, at: now, killed: true });
-          if (f.engaged) farm.deva?.mine?.set(f.key, now);
           digibotCore.record('Boss verschwunden; Tod unbestätigt',{target:f.id,hp:f.pct,map:f.map,channel:f.ch});
           logEvent('kill', `${b.name} (Ch ${f.ch}) nicht wiedergefunden – vermutlich besiegt (Timer ${Math.round(FARM_MISS_READY_MS / 60000)} min)`);
           farm.fight = null; farm.goal = null;
@@ -10034,67 +10032,110 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     return `${tag} · prüfe…`;
   }
 
-  // ---------- Deva-Runde (3.2.18, Nutzer 10.11.) ----------
-  // Feste Reihe der sechs A3-Devas: auf dem ersten Kanal vorwärts, am Ende Kanal wechseln und rückwärts, dann der nächste
-  // Kanal wieder vorwärts (alle angehakten Kanäle der Reihe nach). Nicht da: an den Wendepunkten (erster/letzter) bis zum
-  // Respawn warten – dort liegt zwischen zwei Besuchen desselben Kanals am wenigsten Zeit –, sonst höchstens kurz.
+  // ---------- Deva-Runde (3.2.18, Nutzer 10.11.; 3.2.56 „meiste Kills“, Nutzer 24.11.) ----------
+  // Die sechs A3-Devas (Respawn je 5 min) auf allen angehakten Kanälen. Statt fester Reihe: immer der Deva, der – Weg
+  // eingerechnet – als Nächstes kämpfbar ist. Lebt einer: hin. Lebt keiner: zu dem mit dem frühesten Respawn und dort
+  // warten; spawnt währenddessen ein anderer früher (auch nebenan), wechselt das Ziel. Live (24.11.) stand die feste
+  // Reihe 64 % der Zeit an Pajramon/Sandiramon, während andere Devas daneben wieder lebten.
+  // Zeiten wie live gemessen: Mapwechsel West Shinjuku <-> Deva Transit ~8 s (danach immer Ch 1), Kanalwechsel ~2 s,
+  // Laufen ~100 px/s. Unbekannter Timer kostet einen Aufschlag (nachschauen; die Map-Info kommt nach der Ankunft).
   const DEVA_ORDER = ['pajiramon', 'vajramon', 'indramon', 'kumbhiramon', 'sinduramon', 'sandiramon'];
-  const DEVA_END_WAIT_MS = 300000; // Pajramon/Sandiramon: bis 5 min auf den Respawn warten (Respawn 5 min)
-  const DEVA_MID_WAIT_MS = 60000;  // die anderen: höchstens 1 min
-  const DEVA_STUCK_MS = 60000;     // in Sicht, aber die HP sinken so lange nicht: meiden und weiter
+  const DEVA_HOP_MS = 12000;       // Mapwechsel (inkl. Ladebild)
+  const DEVA_CH_MS = 5000;         // Kanalwechsel
+  const DEVA_WALK_PX_S = 100;      // Laufen
+  const DEVA_ARRIVE_PX = 600;      // nach Mapwechsel: geschätzter Weg vom Portal zum Spawnpunkt
+  const DEVA_UNKNOWN_MS = 15000;   // Timer unbekannt: Aufschlag fürs Nachschauen
+  const DEVA_KEEP_MS = 10000;      // laufendes Ziel nur für ein mindestens so viel früher kämpfbares aufgeben
+  const DEVA_STUCK_MS = 60000;     // in Sicht, aber die HP sinken so lange nicht: meiden
+  const DEVA_SEARCH_MS = 45000;    // am Spawnpunkt, „müsste da sein“, aber nicht zu sehen: so lange suchen …
+  const DEVA_SKIP_MS = 120000;     // … dann so lange nicht mehr ansteuern
   function devaList() {
     const all = farmBossList();
     return DEVA_ORDER.map((sp) => all.find((b) => b.species === sp && b.named)).filter((b) => b && mapWalkable(null, b.map));
   }
-  function devaNext(D, list, chs, why) {
-    const b = list[D.i];
-    if (b && why) logEvent('auto', `Deva-Runde Ch ${chs[D.ci]}: ${b.name} ${why} → weiter`);
-    const ni = D.i + D.dir;
-    if (ni < 0 || ni >= list.length) { // Wendepunkt: nächster Kanal, Richtung umkehren, derselbe Deva zuerst
-      const was = chs[D.ci], wk = b ? farmKey(b.map, b.index, was) : '', k = D.mine.get(wk) || 0;
-      D.ci = (D.ci + 1) % chs.length; D.dir = -D.dir;
-      // nur ein Kanal: derselbe Deva steht gleich wieder an – sein Kill aus dem GERADE beendeten Durchgang zählt mit (Review)
-      D.carry = chs[D.ci] === was && k >= D.passAt - 3000 ? wk : '';
-      D.passAt = Date.now();
-      logEvent('map', `Deva-Runde: Kanal fertig → Ch ${chs[D.ci]} ${D.dir > 0 ? 'vorwärts' : 'rückwärts'}`);
-    } else D.i = ni;
-    D.key = '';
-    return 'Deva-Runde: weiter…';
+  // Geschätzte Zeit, bis Deva b auf Kanal ch kämpfbar ist (Weg und Respawn), oder null (nicht erreichbar/gemieden)
+  function devaEta(st, sc, b, ch, now, D) {
+    const cur = st.world?.mapId, curCh = st.world?.channel ?? 1, k = farmKey(b.map, b.index, ch);
+    if ((farm.chBan.get(`${b.map}#${ch}`) || 0) > now) return null;
+    const here = b.map === cur && ch === curCh;
+    const seen = here ? farmBossMob(sc, b) : null, vis = seen && seen.reach !== false ? seen : null;
+    if ((D.stuck.get(k) || 0) > now) return null; // kein Kampf möglich: auch in Sicht meiden (Review)
+    if (!vis && (D.skip.get(k) || 0) > now) return null;
+    let travel;
+    if (b.map !== cur) {
+      const h = hops(cur, b.map);
+      if (h === Infinity) return null;
+      travel = h * DEVA_HOP_MS + (ch !== 1 ? DEVA_CH_MS : 0) + DEVA_ARRIVE_PX / DEVA_WALK_PX_S * 1000;
+    } else {
+      const me = controlled(st), p = vis || farmSpot(b);
+      const d = me && p ? Math.hypot(me.x - p.x, me.y - p.y) : 0;
+      travel = (ch !== curCh ? DEVA_CH_MS : 0) + d / DEVA_WALK_PX_S * 1000;
+    }
+    if (vis) return { eta: travel, s: { state: 'up' }, vis };
+    const s = farmState(b, ch, now);
+    const eta = s.state === 'up' ? travel : s.state === 'down' ? Math.max(travel, s.readyAt - now) : travel + DEVA_UNKNOWN_MS;
+    return { eta, s, vis: null };
+  }
+  // Ziel wählen: frühestes eta; ein laufendes Ziel nur für ein deutlich früheres aufgeben – außer ein Deva lebt hier in Sicht
+  function devaPlan(st, sc, now, list, chs, D) {
+    const opts = [];
+    for (const b of list) for (const ch of chs) {
+      const e = devaEta(st, sc, b, ch, now, D);
+      if (e) opts.push({ b, ch, key: farmKey(b.map, b.index, ch), ...e });
+    }
+    if (!opts.length) return null;
+    opts.sort((x, y) => x.eta - y.eta || (y.vis ? 1 : 0) - (x.vis ? 1 : 0));
+    const best = opts[0], g = opts.find((o) => o.key === D.goal);
+    const pick = g && g !== best && !(best.vis && !g.vis) && !(best.eta < g.eta - DEVA_KEEP_MS) ? g : best;
+    if (pick.key !== D.goal) {
+      const what = pick.vis || pick.s.state === 'up' ? 'lebt' : pick.s.state === 'down' ? `Respawn in ${fmtClock(pick.s.readyAt - now)}` : 'Timer unbekannt – schaue nach';
+      logEvent('auto', `Deva-Runde: nächstes Ziel ${pick.b.name} Ch ${pick.ch} (${what})`);
+      Object.assign(D, { goal: pick.key, zoneAt: 0, atkId: null });
+    }
+    return pick;
   }
   function devaStep(st, sc, now) {
     const list = devaList();
     if (!list.length) return 'Deva-Runde: keine Devas in den Spieldaten';
     const chs = farmChannels();
-    const D = farm.deva ||= { passAt: now, mine: new Map(), ci: 0, dir: 1, i: 0, key: '', zoneAt: 0, chKey: '', chSince: 0 };
-    if (D.ci >= chs.length) D.ci = 0;
-    D.i = Math.max(0, Math.min(D.i, list.length - 1));
-    const ch = chs[D.ci], b = list[D.i], end = D.i === 0 || D.i === list.length - 1;
-    const label = `Deva-Runde Ch ${ch} ${D.dir > 0 ? '→' : '←'} ${D.i + 1}/${list.length} ${b.name}`;
-    const key = `${b.id}#${ch}#${D.dir}`;
-    if (D.key !== key) { Object.assign(D, { key, zoneAt: 0, atkId: null }); logEvent('map', `${label} (${b.mapName})`); }
-    if ((farm.chBan.get(`${b.map}#${ch}`) || 0) > now) return devaNext(D, list, chs, `Ch ${ch} gemieden`);
-    // 1) Map, 2) Kanal
+    if (!chs.length) return 'Deva-Runde: keine Kanäle angehakt';
+    const D = farm.deva ||= { goal: '', zoneAt: 0, atkId: null, atkHp: 0, atkAt: 0, skip: new Map(), stuck: new Map() };
+    const o = devaPlan(st, sc, now, list, chs, D);
+    if (!o) return 'Deva-Runde: kein Deva erreichbar (Kanäle gemieden?)';
+    const { b, ch } = o;
+    const label = `Deva-Runde: ${b.name} Ch ${ch}`;
+    // 1) Map
     if (st.world?.mapId !== b.map) {
       const tr = travel(st, b.map, now);
-      if (tr === 'Keine Route' || tr === 'Portal nicht erreichbar') return devaNext(D, list, chs, `nicht erreichbar (${tr})`);
-      if (tr !== true) return `${label} · ${tr}`;
+      if (tr === 'Keine Route') { // Map (noch) nicht erreichbar: alle Kanäle dort 5 min meiden
+        for (const c of chs) farm.chBan.set(`${b.map}#${c}`, now + TASK_BAN_MS);
+        logEvent('warn', `Deva-Runde: ${b.mapName} nicht erreichbar (${tr}) – 5 min gemieden`);
+        D.goal = '';
+      } else if (tr === 'Portal nicht erreichbar') { // vorübergehend (Review): nur dieses Ziel kurz meiden
+        D.skip.set(o.key, now + DEVA_SKIP_MS); D.goal = '';
+        logEvent('warn', `${label}: Portal nicht erreichbar – ${Math.round(DEVA_SKIP_MS / 60000)} min übersprungen`);
+      }
+      return tr === true ? `${label} · angekommen` : `${label} · ${tr}`;
     }
+    // 2) Kanal
     const curCh = st.world?.channel ?? 1;
     if (curCh !== ch) {
       const sw = farmSwitch(st, sc, b.map, b.mapName, ch, now);
-      if (sw.failed) return devaNext(D, list, chs, `Ch ${ch} nicht verfügbar`);
+      if (sw.failed) D.goal = '';
       return `${label} · ${sw.status}`;
     }
-    const chKey = `${b.map}#${curCh}`;
-    if (D.chKey !== chKey) { D.chKey = chKey; D.chSince = now; farm.waitAt = 0; }
-    // 3) sichtbar -> hin und angreifen
-    const seen = farmBossMob(sc, b), boss = seen && seen.reach !== false ? seen : null; // unerreichbar: wie nicht da (Review)
-    if (boss) {
+    // 3) in Sicht -> hin und angreifen
+    if (o.vis) {
+      const boss = o.vis;
       D.zoneAt = 0;
-      // in Sicht, aber kein Fortschritt (Kampf lehnt das Ziel ab o. Ä.): nach DEVA_STUCK_MS meiden und weiter (Review)
+      // in Sicht, aber kein Fortschritt (Kampf lehnt das Ziel ab o. Ä.): nach DEVA_STUCK_MS meiden
       if (D.atkId !== boss.id || boss.hp < D.atkHp) { D.atkId = boss.id; D.atkHp = boss.hp; D.atkAt = now; }
-      else if (now - D.atkAt > DEVA_STUCK_MS) { blacklist.set(boss.id, now + BAN_MS); return devaNext(D, list, chs, 'kein Kampf möglich – gemieden'); }
-      if (farm.fight?.id !== boss.id) farm.fight = { key: farmKey(b.map, b.index, ch), id: boss.id, ch, map: b.map, pct: Math.round(boss.hp / (boss.maxHp || boss.hp || 1) * 100) };
+      else if (now - D.atkAt > DEVA_STUCK_MS) {
+        blacklist.set(boss.id, now + DEVA_SKIP_MS); D.stuck.set(o.key, now + DEVA_SKIP_MS); D.goal = '';
+        logEvent('warn', `${label}: kein Kampf möglich – ${Math.round(DEVA_SKIP_MS / 60000)} min gemieden`);
+        return `${label} · kein Kampf möglich`;
+      }
+      if (farm.fight?.id !== boss.id) farm.fight = { key: o.key, id: boss.id, ch, map: b.map, pct: Math.round(boss.hp / (boss.maxHp || boss.hp || 1) * 100) };
       if (boss.d > 180) {
         if (walkTo(st, boss.x, boss.y, now) === 'stuck') blacklist.set(boss.id, now + BAN_MS);
         return `${label} · laufe hin (${Math.round(boss.d)} px)`;
@@ -10103,32 +10144,30 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (scene && bot.can('select', SELECT_GAP_MS, now)) { bot.lastPress.select = now; scene.select(boss.id); }
       return `${label} · greife an`;
     }
-    const s = farmState(b, ch, now);
-    // in diesem Kanal-Durchgang schon selbst besiegt (auch unterwegs von der Kampfroutine mitgenommen) – sonst wartete die
-    // Runde am Wendepunkt bis 5 min auf den Respawn eines gerade besiegten Devas. Nur eigene Kills (Review: fremde Kills
-    // im Timer sahen genauso aus und hoben das Warten auf)
-    const mk = farmKey(b.map, b.index, ch), mt = D.mine.get(mk) || 0;
-    if (mt >= D.passAt - 3000 || (mt && mk === D.carry)) return devaNext(D, list, chs, 'besiegt');
-    // sonst wie immer: zum Spawnpunkt und dort suchen/warten (auch nach Ohnmacht oder aus der Sicht verloren)
-    const wait = end ? DEVA_END_WAIT_MS : DEVA_MID_WAIT_MS;
-    if (s.state === 'down' && s.readyAt - now > wait) return devaNext(D, list, chs, `Respawn in ${fmtClock(s.readyAt - now)} – nicht warten`);
-    if (s.state === 'unknown' && now - D.chSince < NAMED_INFO_WAIT_MS) return `${label} · prüfe Timer…`;
-    // 4) zum Spawnpunkt
+    // 4) zum Spawnpunkt und dort warten/suchen
     const p = farmSpot(b), me = controlled(st);
-    if (!p) return devaNext(D, list, chs, 'Spawnpunkt unbekannt');
+    if (!p) { D.skip.set(o.key, now + DEVA_SKIP_MS); D.goal = ''; return `${label} · Spawnpunkt unbekannt`; }
     const d = me ? Math.hypot(me.x - p.x, me.y - p.y) : 0;
     if (d > FARM_NEAR) {
-      if (walkTo(st, p.x, p.y, now) === 'stuck') return devaNext(D, list, chs, 'Spawnpunkt nicht erreichbar');
+      D.zoneAt = 0;
+      if (walkTo(st, p.x, p.y, now) === 'stuck') {
+        D.skip.set(o.key, now + DEVA_SKIP_MS); D.goal = '';
+        logEvent('warn', `${label}: Spawnpunkt nicht erreichbar – ${Math.round(DEVA_SKIP_MS / 60000)} min gemieden`);
+      }
       return `${label} · laufe hin (${Math.round(d)} px)`;
     }
+    const s = o.s;
+    if (s.state === 'down' && s.readyAt > now) { D.zoneAt = 0; return `${label} · warte – Respawn in ${fmtClock(s.readyAt - now)}`; }
+    // lebt laut Timer / müsste gleich da sein / unbekannt – aber nicht zu sehen: eine Weile suchen, dann meiden. Die Frist
+    // läuft ab Ankunft am Spawnpunkt (Review: an der alle 5 s neu gestellten Map-Abfrage gemessen lief sie nie ab)
     D.zoneAt ||= now;
-    if (s.state === 'down') { D.zoneAt = now; return `${label} · warte – Respawn in ${fmtClock(s.readyAt - now)}`; }
-    if (s.state === 'up') {
-      if (now - D.zoneAt > NAMED_SEARCH_MS) return devaNext(D, list, chs, 'lebt laut Timer, aber nicht zu finden');
-      return `${label} · lebt laut Timer – suche…`;
+    if (s.state === 'unknown' && now - D.zoneAt < NAMED_INFO_WAIT_MS) return `${label} · prüfe Timer…`;
+    if (now - D.zoneAt > (s.state === 'unknown' ? NAMED_INFO_WAIT_MS + NAMED_UNKNOWN_MS : DEVA_SEARCH_MS)) {
+      D.skip.set(o.key, now + DEVA_SKIP_MS); D.goal = '';
+      logEvent('warn', `${label}: ${s.state === 'unknown' ? 'kein Timer, nicht zu sehen' : 'laut Timer da, aber nicht zu finden'} – ${Math.round(DEVA_SKIP_MS / 60000)} min übersprungen`);
+      return `${label} · nicht zu finden`;
     }
-    if (now - D.zoneAt > NAMED_UNKNOWN_MS) return devaNext(D, list, chs, 'nicht da');
-    return `${label} · prüfe…`;
+    return `${label} · ${s.state === 'up' ? 'lebt laut Timer – suche…' : s.state === 'down' ? 'müsste gleich da sein…' : 'prüfe…'}`;
   }
 
   function farmStep(st, sc, now) {
@@ -13599,7 +13638,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (!pageOn('farm')) return;
     const mode = cfg.farmMode === 'named' || cfg.farmMode === 'cards' || cfg.farmMode === 'deva' ? cfg.farmMode : 'boss';
     panelQA('[data-farmmode]').forEach((el) => el.classList.toggle('hide', el.dataset.farmmode !== mode));
-    fillSelect('farmMode', [['boss', 'Boss-Rotation (ausgewählte Bosse)'], ['named', 'Named-Elite-Runde (Map für Map)'], ['cards', 'Kartenrotation (Karten farmen)'], ['deva', 'Deva-Runde (6 Devas, Kanal für Kanal hin und zurück)']]);
+    fillSelect('farmMode', [['boss', 'Boss-Rotation (ausgewählte Bosse)'], ['named', 'Named-Elite-Runde (Map für Map)'], ['cards', 'Kartenrotation (Karten farmen)'], ['deva', 'Deva-Runde (6 Devas, meiste Kills)']]);
     if (mode === 'cards') renderCards(st);
     const rmAll = routeMaps(), rm = [...new Set(rmAll.map((r) => r.id))].map((id) => { const rs = rmAll.filter((r) => r.id === id); return [id, `${rs[0].name} (${rs[0].range.join('–')}) · ${rs.map((r) => r.boss.name).join(', ')}`]; });
     fillSelect('routeStart', [['', 'niedrigste'], ...rm]);
@@ -13612,8 +13651,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     if (mode === 'deva') {
       const list = devaList(), D = farm.deva, chs = farmChannels(), el = panelQ('[data-f="devainfo"]');
-      const txt = !list.length ? 'Keine Devas in den Spieldaten.' : `Runde: ${list.map((b) => b.name).join(' → ')} · Kanäle ${chs.join(', ') || '–'}`
-        + (bot.on && cfg.farm && D && list[D.i] ? ` · jetzt Ch ${chs[D.ci] ?? '?'} ${D.dir > 0 ? 'vorwärts' : 'rückwärts'} · ${list[D.i].name}` : '');
+      const g = D?.goal && list.flatMap((b) => chs.map((ch) => ({ b, ch }))).find((x) => farmKey(x.b.map, x.b.index, x.ch) === D.goal);
+      const txt = !list.length ? 'Keine Devas in den Spieldaten.' : `Meiste Kills: immer der Deva, der als Nächstes kämpfbar ist (${list.map((b) => b.name).join(', ')}) · Kanäle ${chs.join(', ') || '–'}`
+        + (bot.on && cfg.farm && g ? ` · jetzt ${g.b.name} Ch ${g.ch}` : '');
       if (el && el.textContent !== txt) el.textContent = txt;
     }
     const all = farmBossList();
@@ -13631,7 +13671,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const now = Date.now(), sel = farmSelected(), chs = farmChannels();
     const curMap = st?.world?.mapId, curCh = st?.world?.channel ?? 1;
     panelQ('[data-f="timers"]').innerHTML = sel.length ? sel.map((b) => {
-      const goal = cfg.farm && bot.on && (cfg.farmMode === 'deva' ? farm.deva && devaList()[farm.deva.i]?.id === b.id : cfg.farmMode === 'named'
+      const goal = cfg.farm && bot.on && (cfg.farmMode === 'deva' ? !!farm.deva?.goal && chs.some((c) => farmKey(b.map, b.index, c) === farm.deva.goal) : cfg.farmMode === 'named'
         ? farm.route?.map === b.map && (!farm.route?.bossId || farm.route.bossId === b.id) // aktueller Halt, nicht alle Named der Map (3.2.9)
         : farm.goal && farm.goal.map === b.map && farm.goal.index === b.index);
       const rows = chs.map((ch) => {
@@ -13639,7 +13679,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         const banUntil = farm.chBan.get(`${b.map}#${ch}`) || 0, banned = banUntil > now;
         const txt = banned ? `gemieden (noch ${fmtClock(banUntil - now)})` : s.state === 'up' ? `lebt${s.hp != null ? ` (${s.hp} %)` : ''}`
           : s.state === 'down' ? (s.readyAt > now ? `Respawn in ${fmtClock(s.readyAt - now)}` : 'müsste gleich da sein') : 'unbekannt';
-        const mark = (goal && (cfg.farmMode === 'deva' ? farmChannels()[farm.deva?.ci] === ch : cfg.farmMode === 'named' ? curMap === b.map && curCh === ch : farm.goal?.ch === ch) ? ' ★' : '') + (curMap === b.map && curCh === ch ? ' · hier' : '');
+        const mark = (goal && (cfg.farmMode === 'deva' ? farmKey(b.map, b.index, ch) === farm.deva?.goal : cfg.farmMode === 'named' ? curMap === b.map && curCh === ch : farm.goal?.ch === ch) ? ' ★' : '') + (curMap === b.map && curCh === ch ? ' · hier' : '');
         return `<div><span>Ch ${ch}</span><span class="${s.state === 'up' ? 'up' : s.state === 'down' ? 'down' : 'unk'}">${txt}${mark}</span></div>`;
       }).join('');
       return `<div class="digibot__timer${goal ? ' goal' : ''}"><b>${esc(b.name)} Lv ${b.level} · ${esc(b.mapName)}</b>${rows}</div>`;
