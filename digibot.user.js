@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.56
+// @version      3.2.57
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1889,7 +1889,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.56'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.57'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -10839,6 +10839,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const RIFT_PORTAL_NEAR = 80;   // so nah ans Portal (Spiel: „at“ bis 112 px)
   const RIFT_CELL_NEAR = 70;     // Zelle gilt als abgesucht, wenn man so nah an ihrer Mitte war
   const RIFT_STEP_MS = 1500, RIFT_ENTER_MS = 4000, RIFT_ENTER_TRIES = 5, RIFT_TALK_TRIES = 8, RIFT_LEAVE_MS = 2500;
+  const RIFT_FAINT_LEAVE = 3;       // so oft im selben Lauf bewusstlos: hinaus, draußen digitieren, neuer Lauf (3.2.57, Nutzer 24.11.)
+  const RIFT_EVO_WAIT_MS = 120000;  // draußen höchstens so lange auf die Zielform warten, dann trotzdem der neue Lauf
   const RIFT_GIVEUP_MS = 20 * 60000; // so lange darf ein Lauf dauern (Uhr 12 min), dann hinaus – z. B. Guardian solo zu stark (Review)
   const RIFT_NORUN_MS = 60000;       // im Rift ohne Laufzustand so lange warten, dann hinaus (Review)
   const RIFT_CAP_RETRY = 3;          // nach so vielen stabilen Läufen an der Grenze wieder die höhere Tiefe versuchen
@@ -10849,7 +10851,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const rift = {
     inside: false, cap: 0, runs: 0, stable: 0, visited: new Set(), floorKey: '', patchAt: 0, descendAt: 0, leaveAt: 0, talkAt: 0, talkTries: 0,
     enterAt: 0, enterTries: 0, depth: 0, resultSeen: null, closedUntil: 0, seen: new WeakSet(), warned: '', startAt: 0, noRunAt: 0, giveUp: false, portalNear: 0, capOk: 0,
-    reset() { Object.assign(this, { grindOff: null, grindFails: 0, grindFailD: 0, badAt: 0, badWarned: '', partyLv: 0, noRunAt: 0, giveUp: false, portalNear: 0, capOk: 0, inside: false, cap: 0, visited: new Set(), floorKey: '', patchAt: 0, descendAt: 0, leaveAt: 0, talkAt: 0, talkTries: 0, enterAt: 0, enterTries: 0, depth: 0, resultSeen: null, closedUntil: 0, warned: '', startAt: 0 }); },
+    faints: 0, wasFainted: false, reEvo: false, reEvoAt: 0, // Ohnmachten im Lauf, danach draußen digitieren (3.2.57)
+    reset() { Object.assign(this, { faints: 0, reEvo: false, reEvoAt: 0, grindOff: null, grindFails: 0, grindFailD: 0, badAt: 0, badWarned: '', partyLv: 0, noRunAt: 0, giveUp: false, portalNear: 0, capOk: 0, inside: false, cap: 0, visited: new Set(), floorKey: '', patchAt: 0, descendAt: 0, leaveAt: 0, talkAt: 0, talkTries: 0, enterAt: 0, enterTries: 0, depth: 0, resultSeen: null, closedUntil: 0, warned: '', startAt: 0 }); },
   };
   const riftWarn = (why) => { if (rift.warned !== why) { rift.warned = why; logEvent('warn', `Rift: ${why}`); } };
   // ---------- Grinden im Rift (3.2.52, Nutzer 22.11.: „Nur Rift-Leveln“) ----------
@@ -11178,6 +11181,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // aufgeben: Lauf zu lang (z. B. Guardian heilt sich bei jeder Ohnmacht) oder kein Laufzustand – hinaus, nächster Lauf eine Tiefe flacher
     if (!run) rift.noRunAt ||= now; else rift.noRunAt = 0;
     const FL = riftFollower(now); // Mitläufer mit Leader: nicht allein aufgeben (3.2.32)
+    // zu oft bewusstlos (3.2.57): hinaus, draußen digitieren, neuer Lauf (nur Leader/allein – Mitläufer folgen dem Leader)
+    if (!FL && rift.faints >= RIFT_FAINT_LEAVE) { rift.reEvo = true; return riftLeave(now, `${rift.faints}× bewusstlos`); }
     // Leader ist draußen (Biom-Neustart, Aufgeben, Ohnmacht) – nach RIFT_FOLLOW_AWAY_MS ebenfalls hinaus, sonst wartete der Mitläufer
     // ohne Ende im alten Lauf und der Leader draußen auf ihn (Review 3.2.32)
     if (FL && FL.mapId !== st.world?.mapId) {
@@ -11398,6 +11403,31 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     return `Rift geschafft (${res.stable ? 'stabil' : !cfg.dungeon && res.exp ? 'EXP' : 'instabil'}) – verlasse den Rift…`;
   }
+  // Ohnmacht im Rift zählen (3.2.57): einmal je Ohnmacht, nur in einem laufenden Lauf
+  function riftFaintNote(st) {
+    if (rift.wasFainted) return;
+    rift.wasFainted = true;
+    if (!riftModeOn(st) || !riftMap(st?.world?.mapId) || riftStore()?.result) return;
+    rift.faints = (rift.faints || 0) + 1;
+    const out = rift.faints >= RIFT_FAINT_LEAVE;
+    logEvent('warn', `Rift: ${rift.faints}. Ohnmacht in diesem Lauf${out ? ' – verlasse den Rift, digitiere draußen und starte neu' : ` (beim ${RIFT_FAINT_LEAVE}. hinaus)`}`);
+  }
+  // Lauf wird wegen der Ohnmachten verlassen: im Rift nicht mehr digitieren (das geschieht draußen) – nur Leader/allein
+  const riftFaintOut = (st) => rift.faints >= RIFT_FAINT_LEAVE && riftMap(st?.world?.mapId) && !riftFollower(Date.now());
+  // Draußen nach dem Verlassen wegen Ohnmacht: bis zur Zielform digitieren (eingestellte Form, sonst die höchste), dann weiter.
+  // null = fertig (oder aufgegeben), sonst Statustext
+  function riftReEvolve(st, sc, now) {
+    const p = st?.me?.partner;
+    if (!p || sc?.attackers?.length) return null;
+    const tgt = mapEvoTarget(st) || maxEvolution(p) || p.species;
+    if (!tgt || p.species === tgt) { rift.reEvo = false; rift.reEvoAt = 0; logEvent('bot', `Rift: ${speciesName(p.species)} wieder digitiert – neuer Lauf`); return null; }
+    rift.reEvoAt ||= now;
+    if (now - rift.reEvoAt > RIFT_EVO_WAIT_MS) { rift.reEvo = false; rift.reEvoAt = 0; logEvent('warn', `Rift: Digitation zu ${speciesName(tgt)} klappt nicht – neuer Lauf trotzdem`); return null; }
+    const ev = evolveVia(st, tgt, now);
+    if (ev !== true) return `Rift: ${ev}`;
+    const cd = evoCooldownLeft(st);
+    return `Rift: digitiere zu ${speciesName(tgt)}${p.evolving ? '…' : cd > 0 ? ` (Abklingzeit ${Math.ceil(cd / 1000)} s)` : ' – warte…'}`;
+  }
   function riftLeave(now, why, keepDepth = false) {
     if (!rift.giveUp) {
       rift.giveUp = true; rift.leaveAt = 0;
@@ -11442,7 +11472,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   // Außerhalb: zu Clockmon, Rift-Fenster öffnen, Tiefe wählen, betreten
   function riftOutside(st, now) {
-    if (rift.inside) { rift.inside = false; rift.talkTries = 0; rift.enterTries = 0; rift.talkAt = 0; rift.enterAt = 0; rift.warned = ''; rift.breadTries = 0; rift.breadAt = 0; rift.scanFresh = false; rift.followScanDone = false; }
+    if (rift.inside) { rift.inside = false; rift.faints = 0; rift.talkTries = 0; rift.enterTries = 0; rift.talkAt = 0; rift.enterAt = 0; rift.warned = ''; rift.breadTries = 0; rift.breadAt = 0; rift.scanFresh = false; rift.followScanDone = false; }
     const R = riftStore();
     // Scan-Stand (3.2.31): das Spiel holt ihn beim Öffnen des Clockmon-Fensters (riftScans) – vorher den alten Stand verwerfen,
     // sonst hielte ein schon umgewandelter 100-%-Scan den Bot an
@@ -11463,6 +11493,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (a) { if (Math.hypot(me.x - a.x, me.y - a.y) > followDist() && walkTo(st, a.x, a.y, now) === 'stuck') autopilot.nav = null; return `Rift: Event – folge ${FE.name || 'dem Leader'}`; }
       return 'Rift: Event läuft – danach weiter';
     }
+    // nach dem Verlassen wegen Ohnmacht (3.2.57): erst bis zur Zielform digitieren, dann der neue Lauf
+    if (rift.reEvo && !riftFollower(now)) { const ev = riftReEvolve(st, null, now); if (ev) return ev; }
     if (rift.closedUntil > now) return `Rift geschlossen – nächster Versuch in ${fmtClock(rift.closedUntil - now)}`;
     if (R.result && !R.warden && typeof R.set === 'function') R.set({ result: null }); // altes Ergebnisfenster („Stay“) – sonst öffnet das Rift-Fenster nicht
     const loc = (world.npcAt.get(RIFT_NPC) || [])[0];
@@ -12636,6 +12668,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         }
       }
       if (p.fainted) {
+        riftFaintNote(st); // Rift: Ohnmachten im Lauf zählen (3.2.57)
         if (this.status !== 'Digimon ist bewusstlos') { logEvent('warn', 'Digimon ist bewusstlos – Bot pausiert'); notify('Digimon ist bewusstlos.', 'faint'); }
         pullReset(); // gesammelte Runde ist vorbei
         // Lern-Route: im Kampf mit einem Feldboss umgehauen -> diesen Boss eine Weile auslassen (keine Level-Grenze, aber
@@ -12672,6 +12705,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         this.status = 'Digimon ist bewusstlos';
         return;
       }
+      rift.wasFainted = false;
 
       // 1) Tränke
       const potion = (fKey, below) => {
@@ -12770,6 +12804,14 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (cfg.dungeon && cfg.dgMode === 'rift' && cfg.riftTarget !== 'none' && world.state === 'ready' && riftMap(st.world?.mapId)) {
         const rb = riftBiomeDue(st, now); // Ziel-Ei: falsches Biom -> Neustart (3.2.31)
         if (rb) { this.status = rb; return; }
+      }
+      // zu oft bewusstlos (3.2.57): vor der Zielwahl hinaus – sonst kämpfte er mit Angreifern am Landepunkt in der Grundform weiter
+      // (das Digitieren im Rift ist dann ausgesetzt) und riftStep kam erst ohne jedes Ziel dran (Review)
+      if (riftModeOn(st) && world.state === 'ready' && riftFaintOut(st) && !riftStore()?.result) {
+        rift.reEvo = true;
+        if (this.can('follow', 1500, now)) { this.lastPress.follow = now; commands()?.partnerFollow?.(); } // Digimon hört auf und kommt mit
+        this.status = `${cfg.dungeon ? 'Dungeon' : 'Grinden'}: ${riftLeave(now, `${rift.faints}× bewusstlos`)}`;
+        return;
       }
       if ((!dgLike || riftEv) && world.state === 'ready' && !riftMap(st.world?.mapId)) {
         const hv = huntStep(st, sc, now);
@@ -12953,7 +12995,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
           const eventEvo = (huntNow || (cfg.hunt && hunt.goal) || (cfg.wboss && wb.goal) || cfg.eventsOnly) && questMon && !dgLike;
           // Grinden (3.2.0): dieselbe Map-Regel wie überall – die Lern-Route hat auf dem Weg schon abgebrochen, hier steht der Bot auf seiner Map
           const grindEvo = !cfg.farm && !cfg.autopilot && !cfg.dungeon && !cfg.foodBuy && !this.resting; // jedes aktive Digimon, nicht nur das Quest-Digimon
-          if (!attackers.length && (eventEvo || farmEvo || grindEvo || (cfg.dungeon && questMon && !dgHerdLow()) || (!cfg.farm && cfg.autopilot && (folIdle || (at?.kind === 'hunt' && st.world?.mapId === at.loc.mapId && questMon))))) {
+          if (!attackers.length && !riftFaintOut(st) && (eventEvo || farmEvo || grindEvo || (cfg.dungeon && questMon && !dgHerdLow()) || (!cfg.farm && cfg.autopilot && (folIdle || (at?.kind === 'hunt' && st.world?.mapId === at.loc.mapId && questMon))))) {
             const ev = eventEvo ? digibotEventEvolve(st, sc, now) : farmEvo && cfg.farmMode === 'cards' ? cardEvolution(st, now) : autopilotEvolution(st, now);
             if (ev !== true) { this.status = `${eventEvo ? 'Event/Weltboss' : cfg.farm ? 'Bosse' : cfg.dungeon ? 'Dungeon' : cfg.autopilot ? 'Autopilot' : 'Digitation'}: ${ev}`; return; }
           }

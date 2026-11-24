@@ -2,6 +2,19 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.57 – Rift: nach 3 Ohnmachten hinaus, draußen digitieren, neu starten
+- **Nutzer 24.11.:** „wenn er drei Mal stirbt, das Rift verlassen, dann draußen wieder bis zum Ende digitieren und dann ein neues
+  Rift starten“.
+- Der Bot zählt die Ohnmachten des Partners je Lauf (im Spiel: Prompt „fainted“, Wiederbeleben am Landepunkt in der Grundform,
+  der Guardian heilt sich dabei um 25 %). Beim 3. Mal: nach dem Wiederbeleben sofort raidLeave – im Rift wird dann nicht mehr
+  digitiert. Draußen digitiert er bis zur eingestellten Zielform (Standard „höchstmögliche“) und betritt erst danach den neuen
+  Lauf; klappt die Digitation 2 min lang nicht, startet er trotzdem. Jeder neue Lauf zählt von vorn.
+- Tiefe wie bei anderen abgebrochenen Läufen: bei fester Tiefe bleibt sie, sonst greift die bekannte Regel (Dungeon: eine Tiefe
+  flacher; Grinden: erst beim 2. Fehlschlag hintereinander). Mitläufer einer Gruppe gehen nicht allein – sie folgen dem Leader.
+- Review (unabhängige Prüfung, gegengeprüft): die Prüfung läuft jetzt vor der Zielwahl – sonst kämpfte er mit Angreifern am
+  Landepunkt in der Grundform weiter, bis kein Ziel mehr da war.
+- Test: tests/riftfainttest.js (A–D, B2).
+
 ## 3.2.56 – Deva-Runde: meiste Kills statt fester Reihe
 - **Nutzer 24.11.:** „mach es so, dass er die meisten Deva-Kills wie möglich macht“. Live (13 min beobachtet) stand die feste
   Reihe (Ch 1 vorwärts, Ch 2 rückwärts) rund 64 % der Zeit an Pajramon/Sandiramon und wartete auf den Respawn, während auf
