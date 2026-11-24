@@ -2,6 +2,27 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.54 – Rift: Route nach der Uhr planen
+- **Nutzer 23.11.:** Live T21 brauchte Etage 1 5:50 von 12:00 – der Bot nahm unterwegs jede Gruppe und jeden Angreifer mit, der
+  Abstand zum markierten Alpha wuchs (657 → 1114 px), Etage 3 und der Guardian reichten nicht mehr. Wunsch: „die Route immer so
+  planen, dass er pünktlich beim Portal oder am Ende beim Boss ist“.
+- **Zeitplan:** Die Uhr gilt für den ganzen Lauf. Der Bot rechnet laufend die Restarbeit dagegen – Weg zum Ziel (Alpha, offenes
+  Portal oder Guardian), Alpha-Kampf, restliche Etagen, Guardian – und bekommt daraus einen Puffer:
+  - Puffer über 90 s: wie bisher (vorsichtig, Gruppe für Gruppe).
+  - Puffer unter 90 s („knapp“): nur Gegner auf dem Weg zum Ziel und Angreifer direkt an ihm; keine Gruppen abseits.
+  - kein Puffer („Eile“): direkt zum Ziel, unterwegs nichts anfangen – am Ziel (220 px) wird gekämpft, das Ziel selbst zuerst.
+    Angreifer direkt an ihm wehrt er erst unter 50 % HP ab; keine Erholpause mehr.
+  - Purge-Etagen (Signal über Kills) bleiben unverändert – dort sind die Kills der Fortschritt.
+- Startwerte: Etage 3 min, Alpha 1 min, Guardian 2 min, Laufen ~100 px/s. Gemessen wird je Tiefe (nur ganz erlebte Etagen, Alpha
+  vom Anvisieren bis zum Fall, Guardian vom Rufen bis zum Ergebnis), gemischt mit dem Startwert und auf ½–1½ davon begrenzt.
+- Status zeigt den Plan: „Zeitplan: Puffer 40 s – knapp, nur Gegner am Weg“ bzw. „– Eile, direkt zum Ziel“.
+- Review (unabhängige Prüfung, gegengeprüft): Ohne markierten Alpha wehrt er Angreifer immer ab (kein Weg, an dem man sparen
+  könnte); in der Eile unter 50 % HP auch Angreifer direkt an ihm; ein wegen Eile fallen gelassenes Ziel ruft das Digimon zurück
+  (es kämpfte sonst weiter, während der Tamer loslief); auch die Tank-Gruppe macht in der Eile keine Pause; die Stufe sinkt je
+  Schritt höchstens um eins; Zeitmessungen nur aus ganz erlebten Etagen bzw. gesehenem Guardian-Ruf, alte Alpha-Messungen werden
+  beim Laufende verworfen; der Zeitplan-Hinweis zählt nicht in die Zeitsparten der Etagen-Auswertung.
+- Test: tests/rifttakttest.js (A–K).
+
 ## 3.2.53 – Beelzemon solo: Hikari reinigt die Wunde vor dem Heilen
 - **Nutzer 23.11.:** Beelzemon-Raid solo klappt seit dem Spiel-Update (Schutz hilft jetzt gegen einen zu kleinen geteilten
   Treffer): Piemon zündet Clown Trick kurz vor Heartbreak Shot (seit 3.2.15). Als Tamer **Hikari** (Crest of Light: Debuffs weg,

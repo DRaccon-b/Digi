@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.53
+// @version      3.2.54
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1888,7 +1888,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.53'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.54'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -10985,6 +10985,77 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   // Zielwahl im Rift: Guardian, markierter Alpha (nah), Heiler (mender), Angreifer, Schildgeber (warder), dann der nächste Gegner. Steht das
   // Portal offen (nicht letzte Etage), nur noch Angreifer – dann geht es nach unten.
+  // Rift-Zeitplan (3.2.54, Nutzer 23.11.: „die Route so planen, dass er pünktlich beim Portal oder am Ende beim Boss ist“ – live T21
+  // brauchte Etage 1 5:50 von 12:00, weil er unterwegs jede Gruppe mitnahm). Die Uhr gilt für den ganzen Lauf; gerechnet wird gegen die
+  // geschätzte Restarbeit: Weg zum Ziel (Alpha/Portal/Guardian), Alpha-Kampf, restliche Etagen, Guardian. Puffer groß (0): wie bisher,
+  // vorsichtig Gruppe für Gruppe. Puffer knapp (1): nur Gegner auf dem Weg und Angreifer direkt an mir. Kein Puffer (2): direkt zum Ziel,
+  // erst am Ziel kämpfen. Purge-Etagen (Signal über Kills) ohne offenes Portal/Guardian: kein Zeitplan – dort sind Kills der Fortschritt.
+  // Etagen-, Alpha- und Guardian-Zeiten werden je Tiefe gemessen (Startwerte RIFT_EST0).
+  const RIFT_WALK_PX_S = 100, RIFT_PATH_FAC = 1.3;  // Laufgeschwindigkeit (live ~100 px/s), Umweg-Aufschlag auf die Luftlinie
+  const RIFT_EST0 = { floor: 180000, alpha: 60000, guardian: 120000 }; // live T21: Etage 2 in 160 s, Alpha ~55 s
+  const RIFT_EXPLORE_MS = 30000;   // Alpha noch nicht markiert: so viel Suchzeit einplanen
+  const RIFT_TIGHT_MS = 90000, RIFT_HYST_MS = 20000; // Puffer darunter: knapp; Stufe sinkt erst, wenn der Puffer so viel darüber liegt
+  const RIFT_LANE_PX = 110, RIFT_NEAR_PX = 70, RIFT_GOAL_R = 220; // Weg-Korridor / Angreifer direkt an mir / am Ziel wird gekämpft
+  const RIFT_RUSH_HP = 50;         // Eile: darunter Angreifer direkt an mir doch abwehren (Review 3.2.54: sonst Tod auf dem Weg)
+  const riftEst = (d, k) => rift.est?.[d]?.[k] || RIFT_EST0[k];
+  function riftEstNote(d, k, ms) {
+    if (!(ms > 0) || !d) return;
+    rift.est ||= {}; const e = rift.est[d] ||= {};
+    // mit dem Startwert mischen und auf ½–1½ davon begrenzen – eine einzelne Ausreißer-Etage wirft den Plan nicht um (Review 3.2.54)
+    const base = RIFT_EST0[k];
+    e[k] = Math.round(Math.max(base * 0.5, Math.min(base * 1.5, (e[k] || base) * 0.5 + ms * 0.5)));
+  }
+  function riftPlan(st, now = Date.now()) {
+    if (rift.plan && now - rift.plan.at < 250) return rift.plan;
+    const R = riftStore(), run = R?.run, me = controlled(st);
+    const p = { at: now, level: 0, goal: null, goalId: null, kind: '', slack: Infinity };
+    rift.plan = p;
+    if (!run || R.result || !me || !(run.clockMs >= 0) || !riftMap(st?.world?.mapId) || riftFollower(now)) return p;
+    const fl = run.floor || { n: 1, of: 3 }, last = fl.n >= fl.of, d = run.depth, rest = Math.max(0, fl.of - fl.n);
+    const after = rest * riftEst(d, 'floor') + riftEst(d, 'guardian'); // nach dieser Etage: restliche Etagen + Guardian
+    const travel = (g) => Math.hypot(me.x - g.x, me.y - g.y) * RIFT_PATH_FAC / RIFT_WALK_PX_S * 1000;
+    let need;
+    if (last && run.guardian === 'called') {
+      const g = riftLayout()?.guardian || worldScene()?.map?.spawns?.guardian;
+      p.kind = 'guardian'; p.goal = g && Number.isFinite(g.x) ? { x: g.x, y: g.y } : null;
+      need = (p.goal ? travel(p.goal) : 0) + riftEst(d, 'guardian');
+    } else if (!last && run.portal?.open && run.portal.x != null) {
+      p.kind = 'portal'; p.goal = { x: run.portal.x, y: run.portal.y };
+      need = travel(p.goal) + after;
+    } else if (run.objective === 'hunt') {
+      const mark = (run.alphaMarks || []).filter((a) => a?.x != null).sort((a, b) => Math.hypot(me.x - a.x, me.y - a.y) - Math.hypot(me.x - b.x, me.y - b.y))[0];
+      p.kind = 'alpha';
+      if (mark) { p.goal = { x: mark.x, y: mark.y }; p.goalId = mark.id || null; }
+      need = (mark ? travel(mark) : RIFT_EXPLORE_MS) + riftEst(d, 'alpha') + (last ? riftEst(d, 'guardian') : after);
+    } else return p; // Purge: Kills sind der Fortschritt
+    p.slack = run.clockMs - need;
+    let lv = p.slack < 0 ? 2 : p.slack < RIFT_TIGHT_MS ? 1 : 0;
+    const key = `${d}|${fl.n}`, prev = rift.planLv?.key === key ? rift.planLv.lv : 0;
+    // nicht hin und her: eine höhere Stufe bleibt, bis der Puffer RIFT_HYST_MS über ihrer Grenze liegt
+    if (prev > lv) lv = p.slack < (prev === 2 ? 0 : RIFT_TIGHT_MS) + RIFT_HYST_MS ? prev : Math.max(lv, prev - 1); // je Takt höchstens eine Stufe zurück
+    rift.planLv = { key, lv };
+    p.level = lv;
+    return p;
+  }
+  // Zeitplan: diesen Gegner jetzt nicht anfangen (zu weit vom Weg zum Ziel) – Ziel selbst und Gegner am Ziel immer
+  function riftHurrySkip(m, st = getStore()?.getState?.(), now = Date.now()) {
+    if (!m || !st) return false;
+    const P = riftPlan(st, now);
+    if (!P.level) return false;
+    if (P.goalId && m.id === P.goalId) return false;
+    if (P.kind === 'guardian' && (m.cat === 'boss' || !!(window.dmo?.net?.state?.entities?.get?.(m.id)?.flags & FLAG.Boss))) return false;
+    if (P.goal && Math.hypot(m.x - P.goal.x, m.y - P.goal.y) <= RIFT_GOAL_R) return false;
+    // Angreifer: ohne bekanntes Ziel (Alpha noch nicht markiert) immer abwehren – es gibt keinen Weg, an dem man sparen könnte;
+    // sonst nur direkt an mir, in der Eile erst bei wenig HP (Review 3.2.54)
+    const pp = st.me?.partner, hp = pp?.maxHp ? pp.hp / pp.maxHp * 100 : 100;
+    if (m.attacker && (!P.goal || ((m.pd ?? m.d) <= RIFT_NEAR_PX && (P.level < 2 || hp < RIFT_RUSH_HP)))) return false;
+    const me = controlled(st);
+    if (P.level >= 2 || !P.goal || !me) return true;
+    const dx = P.goal.x - me.x, dy = P.goal.y - me.y, L2 = dx * dx + dy * dy || 1;
+    const u = Math.max(0, Math.min(1, ((m.x - me.x) * dx + (m.y - me.y) * dy) / L2));
+    const lane = Math.hypot(m.x - (me.x + dx * u), m.y - (me.y + dy * u));
+    return !(lane <= RIFT_LANE_PX && Math.hypot(m.x - P.goal.x, m.y - P.goal.y) < Math.sqrt(L2) + 40);
+  }
   function riftFocus(sc) {
     const st = getStore()?.getState?.(), R = riftStore(), run = R?.run;
     if (!st || !run || R.result) return sc.attackers.find((m) => !safeHeld(m.id)) || null;
@@ -11002,9 +11073,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // Gruppe des Rollen-Gegners kämpft mit mir: ein Monster seiner Reihe (RIFT_MENDER_R) greift mich/die Gruppe an oder ist mein Ziel (3.2.41)
     const packFighting = (m) => sc.mobs.some((x) => x.id !== m.id && (x.attacker || x.id === curT) && Math.hypot(x.x - m.x, x.y - m.y) <= RIFT_MENDER_R);
     const healingMine = (m) => sc.mobs.some((x) => x.id !== m.id && (x.attacker || x.id === curT) && hasRole(x, 'rift_mended') && Math.hypot(x.x - m.x, x.y - m.y) <= RIFT_MENDER_R);
+    const plan = riftPlan(st);
     const score = (m) => {
       const boss = !!(ents?.get?.(m.id)?.flags & FLAG.Boss) || m.cat === 'boss';
       const dist = m.pd ?? m.d;
+      // Zeitplan knapp/leer (3.2.54): Ziel (Alpha/Guardian) in Reichweite zuerst, Gegner abseits des Wegs gar nicht
+      if (plan.level && (marks.has(m.id) || (boss && last && run.guardian === 'called'))) return m.attacker || dist <= riftFocusR() ? 40 + dist / 100 : Infinity;
+      if (riftHurrySkip(m, st)) return Infinity;
       // markierter Alpha (Alpha-Jagd, Boss-Flag) und gerufener Guardian: erst, wenn im Suchradius kein anderer Gegner mehr steht –
       // „er soll sich immer zuerst um die anderen Mobs kümmern“ (Nutzer 16.11., 3.2.25); weiter weg läuft riftStep hin und
       // kämpft sich dabei Gruppe für Gruppe durch
@@ -11026,7 +11101,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     };
     // erholen (riftStep): wenig HP, niemand greift an – keinen neuen, ruhigen Gegner anfangen (Review 3.2.26)
     const pp0 = st.me?.partner, hp0 = pp0?.maxHp ? pp0.hp / pp0.maxHp * 100 : 100, now0 = Date.now();
-    if (hp0 < RIFT_REST_HP && !att.length && (run.clockMs ?? Infinity) > RIFT_REST_CLOCK_MS && (!rift.restAt || now0 - rift.restAt < RIFT_REST_MS) && !(st.target && sc.mobs.some((m) => m.id === st.target.id))) return null;
+    if (hp0 < RIFT_REST_HP && !att.length && (run.clockMs ?? Infinity) > RIFT_REST_CLOCK_MS && plan.level < 2 && (!rift.restAt || now0 - rift.restAt < RIFT_REST_MS) && !(st.target && sc.mobs.some((m) => m.id === st.target.id))) return null;
     const list = sc.mobs.filter((m) => !m.banned && m.reach !== false && !safeHeld(m.id) && score(m) < Infinity).sort((a, b) => score(a) - score(b));
     const cur = st.target, keep = cur && list.find((m) => m.id === cur.id);
     // behalten nur, wenn es nicht deutlich weiter weg ist (≤ 120 px mehr) – sonst lief er einem fernen Angreifer hinterher, während
@@ -11068,11 +11143,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const fk = `${run.depth}|${fl.n}|${lay?.cells?.length || 0}`;
     if (rift.floorKey !== fk) { rift.floorKey = fk; rift.visited = new Set(); rift.descendAt = 0; logEvent('map', `Rift: Etage ${fl.n}/${fl.of}${run.objective === 'hunt' ? ' (Alpha-Jagd)' : ''}`); }
     const clock = run.clockMs != null ? ` · Uhr ${fmtClock(Math.max(0, run.clockMs))}` : '';
-    const tag = `Rift T${run.depth ?? '?'} · Etage ${fl.n}/${fl.of} · Signal ${Math.round(run.signal || 0)} %${clock}`;
+    const plan = riftPlan(st, now);
+    const planTxt = plan.level ? ` · Zeitplan: Puffer ${plan.slack < 0 ? '−' : ''}${Math.round(Math.abs(plan.slack) / 1000)} s – ${plan.level >= 2 ? 'Eile, direkt zum Ziel' : 'knapp, nur Gegner am Weg'}` : '';
+    const tag = `Rift T${run.depth ?? '?'} · Etage ${fl.n}/${fl.of} · Signal ${Math.round(run.signal || 0)} %${clock}${planTxt}`;
     // feststecken: Weg neu planen (sonst meldet walkTo für dasselbe Ziel dauerhaft „stuck“, Review)
     // erholen: wenig HP und niemand greift an – nicht in die nächste Gruppe laufen
     const pp = st.me?.partner, hpPct = pp?.maxHp ? pp.hp / pp.maxHp * 100 : 100;
-    if (hpPct < RIFT_REST_HP && !(sc?.attackers?.length) && (run.clockMs ?? Infinity) > RIFT_REST_CLOCK_MS) {
+    if (hpPct < RIFT_REST_HP && !(sc?.attackers?.length) && (run.clockMs ?? Infinity) > RIFT_REST_CLOCK_MS && plan.level < 2) { // Zeitplan leer: keine Pause (3.2.54)
       rift.restAt ||= now;
       if (now - rift.restAt < RIFT_REST_MS) {
         const bk = riftEatBread(st, hpPct, now);
@@ -11161,7 +11238,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Erholfenster (rift.restAt setzt riftStep beim Warten)
   function riftRestNow(st, sc, now) {
     const pp = st?.me?.partner, hp = pp?.maxHp ? pp.hp / pp.maxHp * 100 : 100, run = riftStore()?.run;
-    return hp < RIFT_REST_HP && !(sc?.attackers?.length) && (run?.clockMs ?? Infinity) > RIFT_REST_CLOCK_MS && (!rift.restAt || now - rift.restAt < RIFT_REST_MS);
+    return hp < RIFT_REST_HP && !(sc?.attackers?.length) && (run?.clockMs ?? Infinity) > RIFT_REST_CLOCK_MS && riftPlan(st, now).level < 2 && (!rift.restAt || now - rift.restAt < RIFT_REST_MS);
   }
   // Leader: der Tank (anderes Fenster) hat wenig HP und niemand greift an – warten, bis er sich erholt hat (höchstens RIFT_REST_MS)
   function riftTankResting(st, sc, now) {
@@ -11201,20 +11278,37 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     ['Erholen', /erhole mich|esse Brot|Erholung/], ['Warten', /[Ww]arte|am markierten Alpha/], ['Laufen', /erkunde|Portal|laufe|[Ff]olge|Weg|Alpha|Guardian|steige ab|Zelle/]];
   function riftClock(status, now) {
     const R = riftStore(), run = R?.run;
-    if (!run || R.result || !riftMap(getStore()?.getState?.()?.world?.mapId)) { if (rift.tm) riftTimeFlush(); return; }
+    if (!run || R.result || !riftMap(getStore()?.getState?.()?.world?.mapId)) { if (rift.tm) riftTimeFlush(); rift.alphaT = null; rift.gArm = null; return; }
     const fl = run.floor || { n: 1, of: 3 }, key = `${run.depth}|${fl.n}`;
-    if (rift.tm?.key !== key) { riftTimeFlush(); rift.tm = { key, n: fl.n, of: fl.of, at: now, last: now, by: {} }; }
+    if (rift.tm?.key !== key) {
+      // Zeitplan (3.2.54, Review): nur ganz erlebte Etagen messen – Etagenwechsel n-1 -> n gesehen, oder Etage 1 gleich zu Laufbeginn
+      const adv = !!rift.tm && rift.tm.depth === run.depth && fl.n === rift.tm.n + 1;
+      riftTimeFlush(adv);
+      const fresh = fl.n === 1 && (Number(run.clockTotalMs) || 720000) - (run.clockMs ?? 0) < 15000;
+      rift.tm = { key, n: fl.n, of: fl.of, at: now, last: now, by: {}, full: adv || fresh };
+    }
     const gap = Math.max(0, now - rift.tm.last), dt = Math.min(2000, gap); rift.tm.last = now;
     if (gap > dt) rift.tm.at += gap - dt; // Bot pausiert/gestoppt: diese Zeit nicht als Etagenzeit zählen (Review 3.2.44)
-    const cat = (RIFT_TIME_CATS.find(([, re]) => re.test(String(status || ''))) || ['sonst'])[0];
+    // Zeitplan (3.2.54): Alpha-Kampf (erster Anvisieren bis die Markierung fällt) und Guardian (gerufen bis Ergebnis) messen
+    rift.tm.depth = run.depth;
+    const marks = new Set((run.alphaMarks || []).map((a) => a?.id).filter(Boolean)), tid = getStore()?.getState?.()?.target?.id;
+    const am = rift.alphaT ||= new Map();
+    if (tid && marks.has(tid) && !am.has(tid)) am.set(tid, now);
+    for (const [id, at] of am) if (!marks.has(id)) { am.delete(id); if (now - at < 600000) riftEstNote(run.depth, 'alpha', now - at); }
+    // Guardian nur messen, wenn das Rufen selbst gesehen wurde (Review 3.2.54)
+    if (fl.n >= fl.of && run.guardian === 'called') { if (!rift.guardT && rift.gArm === key) rift.guardT = { at: now, depth: run.depth }; }
+    else { rift.guardT = null; rift.gArm = fl.n >= fl.of ? key : null; }
+    const stTxt = String(status || '').replace(/ · Zeitplan: [^·]*/, ''); // Zeitplan-Hinweis zählt nicht für die Sparten
+    const cat = (RIFT_TIME_CATS.find(([, re]) => re.test(stTxt)) || ['sonst'])[0];
     rift.tm.by[cat] = (rift.tm.by[cat] || 0) + dt;
     rift.tm.signal = run.signal;
   }
-  function riftTimeFlush() {
+  function riftTimeFlush(adv = false) {
     const m = rift.tm; rift.tm = null;
     if (!m) return;
     const tot = Math.round((m.last - m.at) / 1000);
     if (tot < 2) return;
+    if (adv && m.full && m.n < m.of) riftEstNote(m.depth, 'floor', m.last - m.at); // Zeitplan (3.2.54): ganze Etage ohne Guardian
     const parts = [...RIFT_TIME_CATS.map(([k]) => k), 'sonst'].filter((k) => m.by[k] >= 500).map((k) => `${k} ${Math.round(m.by[k] / 1000)} s`);
     const ct = circleTail, tail = ct.n ? ` · Kreis-Nachlauf ${ct.n}× Σ ${(ct.sum / 1000).toFixed(1)} s (max ${Math.round(ct.max)} ms, Einschlag spätestens ${Math.round(ct.relLate)} ms nach Ende)` : '';
     ct.n = 0; ct.sum = 0; ct.max = 0; ct.relLate = 0;
@@ -11224,6 +11318,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function riftAfter(st, res, now) {
     if (rift.resultSeen !== res) {
       riftTimeFlush(); // letzte Etage (Guardian) abschließen
+      if (rift.guardT) { riftEstNote(rift.guardT.depth, 'guardian', now - rift.guardT.at); rift.guardT = null; } // Zeitplan (3.2.54)
+      rift.alphaT = null; rift.gArm = null;
       rift.resultSeen = res; rift.runs++; if (res.stable) rift.stable++;
       const d = Number(res.depth) || rift.depth || 0;
       // Grinden im Rift (3.2.52): ein EXP-Ergebnis zählt als geschafft, auch ohne stable (das Spiel zeigt dort nur „expCleared“);
@@ -11619,7 +11715,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
 
   function pickTarget(sc, resting) {
     if (!sc) return null;
-    if (cfg.dungeon || riftGrindOn()) { const att = sc.attackers.filter((m) => !safeHeld(m.id)); const hf0 = resting || !riftEvOn() ? null : huntFocus(sc); return (hf0 && !safeHeld(hf0.id) ? hf0 : null) || (resting ? null : dungeonFocus(sc)) || (riftTank() && riftMap(sc.mapId) ? att.find((m) => m.self) : att[0]) || null; } // Rift-Modus: Event-Boss (3.2.26); Grinden im Rift wie der Rift-Modus (3.2.52)
+    if (cfg.dungeon || riftGrindOn()) { const att = sc.attackers.filter((m) => !safeHeld(m.id) && !(riftMap(sc.mapId) && riftHurrySkip(m))); const hf0 = resting || !riftEvOn() ? null : huntFocus(sc); return (hf0 && !safeHeld(hf0.id) ? hf0 : null) || (resting ? null : dungeonFocus(sc)) || (riftTank() && riftMap(sc.mapId) ? att.find((m) => m.self) : att[0]) || null; } // Rift-Modus: Event-Boss (3.2.26); Grinden im Rift wie der Rift-Modus (3.2.52)
     const hf = resting ? null : huntFocus(sc) || wbFocus(sc) || digibotSharedFocus(sc); // Event-/Weltboss vor allem anderen
     if (hf && !safeHeld(hf.id)) return hf;
     const focus = resting ? null : focusAssist(sc);
@@ -12775,12 +12871,15 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       // Pull-Modus: Ziel greift schon an und ein weiteres Monster in der Leine wartet -> zu dem wechseln
       const pullNext = alive && sc && !noFight && !onFocus && !addTarget && !this.resting ? pullPick(st, sc, now) : null;
       const pullSwitch = !!pullNext && pullNext.id !== t.id;
-      const valid = !noFight && !dup && !offFocus && !noPath && !pullSwitch && !(defendOnly && !isAttacker) && !(alive && safeHeld(t.id, now)) && (isAttacker || addTarget || onFocus || (!blocked && (this.resting ? fighting : alive && lvlOk)));
+      // Rift-Zeitplan (3.2.54): auch ein Angreifer abseits des Wegs wird nicht weiter bekämpft – er läuft hinterher, am Ziel wird gekämpft
+      const riftSkip = alive && !onFocus && riftMap(st.world?.mapId) && riftHurrySkip(sc?.mobs?.find((m) => m.id === t.id), st, now);
+      const valid = !noFight && !dup && !offFocus && !noPath && !pullSwitch && !riftSkip && !(defendOnly && !isAttacker) && !(alive && safeHeld(t.id, now)) && (isAttacker || addTarget || onFocus || (!blocked && (this.resting ? fighting : alive && lvlOk)));
       // Kampf gegen gesuchte Beute: Gebiet ist nicht leer (die 90-s-Leerlaufuhr lief sonst während der Kämpfe weiter)
       if (valid && alive && cfg.autopilot && autopilot.task?.kind === 'hunt' && autopilot.task.species?.has?.(info?.species)) autopilot.idleSince = 0;
       if (!valid) {
         this.attackedId = null;
         this.engage = null;
+        if (riftSkip && this.can('follow', 1500, now)) { this.lastPress.follow = now; commands()?.partnerFollow?.(); } // Digimon hört auf und kommt mit (Review 3.2.54)
         const scene = worldScene();
         if (scene && sc) {
           // Autopilot: vor dem Jagen erst in die gewünschte Form digitieren. Boss-Rotation genauso, zwischen den Kämpfen
