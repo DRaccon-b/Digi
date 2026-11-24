@@ -2,6 +2,19 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.55 – Rift: nur beim Guardian ausweichen (Option)
+- **Nutzer 24.11.:** „beim Rift-Endboss den Warnkreisen ausweichen, auch wenn wir das bei den normalen Mobs im Rift nicht tun“.
+- Neue Option **„Rift: nur beim Guardian ausweichen“** (Dungeon/Rift-Einstellungen, Standard aus): Im Digital Rift ignoriert der
+  Bot die Warnflächen normaler Gegner und Alphas und weicht nur denen des Endbosses (Guardian) aus – auch wenn „Ausweichen“ aus
+  ist. Außerhalb des Rifts gilt „Ausweichen“ wie bisher.
+- Guardian = gerufen (nicht mehr „hidden“), Quelle der Fläche trägt das Boss-Flag und steht höchstens 600 px von seinem
+  Arena-Punkt; Flächen ohne bekannte Quelle (Markierungen u. a.) zählen, sobald der Guardian da ist. Linien und Fächer tragen
+  jetzt ihre Quelle mit.
+- Review (unabhängige Prüfung, gegengeprüft): gefiltert wird nur fürs Ausweichen und die Wegwahl dabei – die übrigen Nutzer der
+  Warnflächen (Heiler-Platz im Rift, Fernkampf-Halt, Tamer-Skill-Prüfung) sehen weiter alle; Alphas mit Boss-Flag weit weg von
+  der Arena zählen nicht als Guardian; fehlt die Etagenangabe des Spiels, wird trotzdem ausgewichen.
+- Test: tests/riftguarddodgetest.js (A–H).
+
 ## 3.2.54 – Rift: Route nach der Uhr planen
 - **Nutzer 23.11.:** Live T21 brauchte Etage 1 5:50 von 12:00 – der Bot nahm unterwegs jede Gruppe und jeden Angreifer mit, der
   Abstand zum markierten Alpha wuchs (657 → 1114 px), Etage 3 und der Guardian reichten nicht mehr. Wunsch: „die Route immer so

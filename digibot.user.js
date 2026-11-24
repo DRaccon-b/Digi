@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.54
+// @version      3.2.55
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1581,6 +1581,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     riftBackOnlyCrowd: false, // Digital Rift (3.2.48): beim Ausweichen nur dann nach hinten, wenn vorne ruhige Gegner stehen
     riftCallerFirst: false, // … Rufer (ruft Verstärkung) zuerst, sobald seine Gruppe mit mir kämpft
     riftArtilleryFirst: false, // … Artillerie (beschießt alle 6 s) zuerst, sobald ihre Gruppe mit mir kämpft
+    riftDodgeGuardian: false, // Digital Rift (3.2.55): im Rift nur den Flächen des Guardians ausweichen (auch wenn „Ausweichen“ aus ist)
     riftAoeOpen: false,   // Digital Rift (3.2.40): Kampf mit einem AoE-Skill auf die beste Mitte der Gruppe eröffnen
     riftTarget: 'none',   // Digital Rift (3.2.31): Ziel-Ei/-Code (DIGIBOT_RIFT_TARGETS) – Mindesttiefe, Biom-Neustart, Halt bei 100 % Scan
     riftDepth: 1,
@@ -1888,7 +1889,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.54'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.55'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2074,6 +2075,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
             ${check('riftWarderFirst', 'Rift: Schildgeber zuerst', 'Ein Schildgeber (Warder) gibt seiner Gruppe im Umkreis +80 % Verteidigung, solange er steht. An: sobald seine Gruppe mit dir kämpft, greift der Bot ihn vor den Angreifern an (nach Heiler, Rufer und Artillerie). Aus: erst die Angreifer, dann der Schildgeber.')}
             ${check('riftBackOnlyCrowd', 'Rift: nach hinten ausweichen nur, wenn vorne Gruppen stehen', 'Seit 3.2.40 weicht der Bot im Rift immer bevorzugt nach hinten aus (dorthin, wo er herkommt). An: nur noch, wenn vor ihm ruhige Gegner stehen – sonst nimmt er den kürzesten sicheren Ausgang (spart den Rückweg). Ruhige Gegner im Umkreis von 120 px meidet er weiter immer. Aus: immer nach hinten wie bisher.')}
             ${check('riftBread', 'Rift: Brot statt Erholpause', 'Fällt die HP im Rift unter 60 % und greift niemand an, macht der Bot eine Erholpause (bis 25 s). An: liegt Guilmon Bread auf F1–F3, isst er es dabei sofort und geht schneller weiter. Kostet Brot (der Bot kauft es im Lager nach).')}
+            ${check('riftDodgeGuardian', 'Rift: nur beim Guardian ausweichen', 'Nur im Digital Rift: Warnflächen normaler Gegner und Alphas werden ignoriert, denen des Endbosses (Guardian, letzte Etage) weicht der Bot aus – auch wenn „Ausweichen“ aus ist. Außerhalb des Rifts gilt „Ausweichen“ wie bisher.')}
             ${check('riftAoeOpen', 'Rift: Kampf mit AoE-Skill eröffnen', 'Nur im Digital Rift: Vor dem ersten Schlag auf eine noch ruhige Gruppe nimmt der Bot einen bereiten Flächen-Skill (Rolle AoE oder Angriff mit Trefferkreis um das Ziel) und zielt auf das Monster, um das die Fläche die meisten trifft – Monster einer anderen Gruppe dürfen nicht im Kreis sein. Ist kein Flächen-Skill bereit, zieht er normal. Nicht bei Guardian/Alpha.')}
             ${check('dgRetry', 'Nach gescheitertem Lauf neu betreten (bis 3×)', 'Aus: Der Bot stoppt nach einem gescheiterten Lauf, Neustart über den Leader. Nach einem Rauswurf wartet er ohnehin 15 min (manueller Start hebt das auf).')}
             ${check('dgRepeat', '🔁 Nach geschafftem Lauf wiederholen', 'An: Nach dem Sieg (z. B. MaloMyotismon) geht der Bot hinaus und startet gleich den nächsten Lauf, bis die eingestellte Zahl Läufe seit dem Start erreicht ist (0 = unbegrenzt). Raids geben am Tag 1 Lauf mit voller Beute und 3 weitere mit Wiederholungsbeute – danach lohnt es sich kaum noch. Aus: Bot stoppt nach dem Lauf. Nicht fürs Digital Rift (das läuft ohnehin weiter).')}
@@ -2806,6 +2808,24 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     for (const [k, v] of circleTail.live) if (pn - v.seen > 400) { circleTail.live.delete(k); const over = v.seen - v.end; if (over > 250) { circleTail.n++; circleTail.sum += over; circleTail.max = Math.max(circleTail.max, over); } }
   }
   const circleTailSkip = (z, pn) => cfg.dodgeCircleTail && z.end > 0 && pn > z.end + CIRCLE_TAIL_MS && !z.chargeRing && !z.innerRadius && !z.islands && !(z.holes?.length); // Inseln: Merkmal der Fähigkeit (die Liste ist zum Ende hin leer, Review)
+  // Rift: nur beim Guardian ausweichen (3.2.55, Nutzer 24.11.: „beim Rift-Endboss den Warnkreisen ausweichen, auch wenn wir das bei
+  // den normalen Mobs im Rift nicht tun“). Im Rift zählen dann nur Flächen des Guardians (letzte Etage, gerufen) – auch wenn
+  // „Ausweichen“ aus ist; Flächen normaler Gegner und Alphas nicht. Außerhalb des Rifts gilt „Ausweichen“ wie bisher.
+  const riftDodgeOnly = (st = getStore()?.getState?.()) => !!cfg.riftDodgeGuardian && riftMap(st?.world?.mapId);
+  const RIFT_ARENA_R = 600; // Guardian: Boss-Flag-Quelle höchstens so weit von seinem Arena-Punkt (Alphas tragen auch das Boss-Flag)
+  function riftGuardianSrc(src) {
+    const run = riftStore()?.run;
+    // gerufen wird der Guardian nur auf der letzten Etage – keine Etagenprüfung (fehlt run.floor, nimmt das Spiel die letzte an; Review)
+    if (!run || !run.guardian || run.guardian === 'hidden') return false;
+    if (src == null) return true; // Quelle unbekannt, Guardian ist da: lieber ausweichen
+    const e = window.dmo?.net?.state?.entities?.get?.(src);
+    if (!(e?.flags & FLAG.Boss)) return false;
+    const g = riftLayout()?.guardian;
+    return !(g && Number.isFinite(g.x) && Math.hypot(e.x - g.x, e.y - g.y) > RIFT_ARENA_R);
+  }
+  const dodgeOn = (st) => !!cfg.dodge || riftDodgeOnly(st);
+  // nur fürs Ausweichen filtern – dangerZones() selbst bleibt vollständig (Heiler-Platz, Fernkampf-Halt, Tamer-Skill …; Review 3.2.55)
+  const dodgeZones = (list) => (riftDodgeOnly() ? list.filter((z) => riftGuardianSrc(z.src)) : list);
   function dangerZones() {
     const sc = worldScene(), zones = [];
     const tank = tankNow(Date.now());
@@ -2854,11 +2874,11 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         const len = Math.hypot(l.tx - l.fx, l.ty - l.fy);
         if (l.skill?.sweep) {
           zones.push({ kind: 'fan', x: l.fx, y: l.fy, len: len + (l.r || 16), dir: Math.atan2(l.ty - l.fy, l.tx - l.fx),
-            half: (l.skill.sweep.arc || 90) * Math.PI / 360, end: l.end || 0, sweep: true,
+            half: (l.skill.sweep.arc || 90) * Math.PI / 360, end: l.end || 0, sweep: true, src: l.src,
             cover: l.skill.cover || content()?.skills?.[l.skill.id]?.cover || null });
         } else {
           // grab: Greifarm/Ansturm – daneben gilt nie die Kantenreserve (Packen = 24 s hilflos, 3.1.51)
-          zones.push({ kind: 'line', x: l.fx, y: l.fy, tx: l.tx, ty: l.ty, len, r: l.r || 16, end: l.end || 0, grab: !!(l.skill?.grab || l.skill?.dash) });
+          zones.push({ kind: 'line', x: l.fx, y: l.fy, tx: l.tx, ty: l.ty, len, r: l.r || 16, end: l.end || 0, grab: !!(l.skill?.grab || l.skill?.dash), src: l.src });
         }
       }
     } catch { /* ignore */ }
@@ -3224,13 +3244,13 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function dodge(st, now) {
     riftTrailNote(st, now);
     const walkSpeed=digibotDodgeSpeed(st);
-    if (!cfg.dodge) return null;
-    const zones = dangerZones().filter((z) => !kohCovered(z, st, now) && !kohZonePlanned(z, st, now)); // unter (geplantem) Key of Hope: nicht ausweichen (3.1.26)
+    if (!dodgeOn(st)) return null;
+    const zones = dodgeZones(dangerZones()).filter((z) => !kohCovered(z, st, now) && !kohZonePlanned(z, st, now)); // unter (geplantem) Key of Hope: nicht ausweichen (3.1.26)
     const ents = window.dmo?.net?.state?.entities;
     const tamer = controlled(st), partner = ents?.get?.(st?.me?.partner?.entityId);
     const me0 = tamer || partner;
     // Lade-Treffer ohne Prozentwert, der nicht bricht (Spirytus Breath): auch wenn es knapp wird, nicht wieder hinein (3.1.33)
-    if (me0) for (const h of hugeZones()) if ([tamer,partner].some(p=>p && hugeCounts(h,p,walkSpeed)) || (h.chargeRing && !(h.hpDamagePct>0) && chargeUnbreakable(h.skillId))) zones.push(h);
+    if (me0) for (const h of dodgeZones(hugeZones())) if ([tamer,partner].some(p=>p && hugeCounts(h,p,walkSpeed)) || (h.chargeRing && !(h.hpDamagePct>0) && chargeUnbreakable(h.skillId))) zones.push(h);
     // Hinter einer Deckung (Platte bei der Ultimate Flare) gilt man in deren Zone als sicher
     const cmap = st?.world?.mapId;
     const tEnt = st?.target?.id ? ents?.get?.(st.target.id) : null;
@@ -3579,7 +3599,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // verschlucken)
   const zoneSig = () => { try { const sc = worldScene(); return `${sc?.telegraphs?.active?.length || 0}|${sc?.telegraphs?.circles?.length || 0}|${sc?.mechB?.lines?.length || 0}`; } catch { return ''; } };
   function dodgeKick() {
-    if (!bot.on || !cfg.dodge) return;
+    if (!bot.on || !dodgeOn()) return;
     const sig0 = zoneSig(); let n = 0;
     const look = () => { if (!bot.on) return; if (zoneSig() !== sig0) { kickTick(); return; } if (++n < 6) digibotCore.defer(look, 25); };
     digibotCore.defer(look, 0);
@@ -4043,7 +4063,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if(digibotBossWalk&&digibotBossWalk.id===st.target?.id&&digibotBossWalk.map===st.world?.mapId&&digibotBossWalk.channel===(st.world?.channel??1)&&Date.now()-digibotBossWalk.at<1000&&(k===1||!s||digibotOffensiveSkill({...content()?.skills?.[s.skill.id],...s.skill})))return 'Boss-Anmarsch: zuerst den Laufweg beenden';
     const defend=digibotTargetAttacksMe(st)&&digibotAtBossSpawn(st); // am Boss-Spawn: Angreifer abwehren
     if(!defend && digibotBossPeace(st) && (k===1?!digibotChannelBasicAllowed(st):!s || digibotOffensiveSkill({...content()?.skills?.[s.skill.id],...s.skill})))return 'Bosswechsel: keine Angriffe zwischen Bossen';
-    if(k===1&&digibotBossPeace(st)&&digibotChannelBasicAllowed(st)&&cfg.dodge){
+    if(k===1&&digibotBossPeace(st)&&digibotChannelBasicAllowed(st)&&dodgeOn(st)){
       const zones=dangerZones(),ents=window.dmo?.net?.state?.entities;
       if(zones.length&&!digibotOutsideBasicPlan(st,ents?.get?.(st.target?.id),ents?.get?.(st.me?.partner?.entityId),controlled(st),zones,false))return 'Bosswechsel: Angriffsweg durch Warnfläche gesperrt';
     }
@@ -7478,7 +7498,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     }
     return {...grid,blocked};
   }
-  function digibotNavigationZones(){return cfg.dodge?dangerZones():[];}
+  function digibotNavigationZones(){return dodgeOn()?dodgeZones(dangerZones()):[];}
   function digibotNavigationZoneKey(zones){
     return zones.map(z=>[z.kind,z.x,z.y,z.r,z.tx,z.ty,z.len,z.dir,z.half,z.innerRadius,(z.holes||[]).map(h=>`${h.x},${h.y},${h.r}`).join(';')].join(',')).sort().join('|');
   }
