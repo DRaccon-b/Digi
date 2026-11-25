@@ -2,6 +2,16 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.58 – Rift: nach einer Ohnmacht erst fertig digitieren
+- **Nutzer 25.11.** (live beobachtet, Tiefe 25): nach der Ohnmacht digitierte der Bot nur bis XV-mon (Abklingzeit je Schritt,
+  „Cannot Digivolve right now“), kämpfte so weiter und lag 10 s später wieder am Boden – jede Ohnmacht heilt den Guardian um 25 %.
+- Jetzt: nach dem Wiederbeleben im Rift bleibt er am Landepunkt und digitiert bis zur Zielform (Standard „höchstmögliche“), auch
+  über die Abklingzeiten; kein neues Ziel, nur Angreifer wehrt er ab. Danach geht der Lauf normal weiter. Höchstens 90 s.
+- Review (unabhängige Prüfung, gegengeprüft): er wartet nur, solange die Digitation wirklich vorankommt (läuft, Abklingzeit,
+  Befehl eben gesendet) – ist die Zielform gerade nicht erreichbar (gesperrt, Level, kein Tamer-DS, aufgegeben), geht es sofort
+  weiter statt 90 s zu stehen. Gilt genauso draußen vor dem neuen Lauf (3.2.57).
+- Test: tests/riftfainttest.js F, G.
+
 ## 3.2.57 – Rift: nach 3 Ohnmachten hinaus, draußen digitieren, neu starten
 - **Nutzer 24.11.:** „wenn er drei Mal stirbt, das Rift verlassen, dann draußen wieder bis zum Ende digitieren und dann ein neues
   Rift starten“.

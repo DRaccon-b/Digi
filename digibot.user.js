@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.57
+// @version      3.2.58
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1889,7 +1889,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.57'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.58'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -10841,6 +10841,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const RIFT_STEP_MS = 1500, RIFT_ENTER_MS = 4000, RIFT_ENTER_TRIES = 5, RIFT_TALK_TRIES = 8, RIFT_LEAVE_MS = 2500;
   const RIFT_FAINT_LEAVE = 3;       // so oft im selben Lauf bewusstlos: hinaus, draußen digitieren, neuer Lauf (3.2.57, Nutzer 24.11.)
   const RIFT_EVO_WAIT_MS = 120000;  // draußen höchstens so lange auf die Zielform warten, dann trotzdem der neue Lauf
+  const RIFT_FAINT_EVO_MS = 90000;  // nach einer Ohnmacht im Rift höchstens so lange am Landepunkt digitieren (3.2.58)
   const RIFT_GIVEUP_MS = 20 * 60000; // so lange darf ein Lauf dauern (Uhr 12 min), dann hinaus – z. B. Guardian solo zu stark (Review)
   const RIFT_NORUN_MS = 60000;       // im Rift ohne Laufzustand so lange warten, dann hinaus (Review)
   const RIFT_CAP_RETRY = 3;          // nach so vielen stabilen Läufen an der Grenze wieder die höhere Tiefe versuchen
@@ -10852,7 +10853,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     inside: false, cap: 0, runs: 0, stable: 0, visited: new Set(), floorKey: '', patchAt: 0, descendAt: 0, leaveAt: 0, talkAt: 0, talkTries: 0,
     enterAt: 0, enterTries: 0, depth: 0, resultSeen: null, closedUntil: 0, seen: new WeakSet(), warned: '', startAt: 0, noRunAt: 0, giveUp: false, portalNear: 0, capOk: 0,
     faints: 0, wasFainted: false, reEvo: false, reEvoAt: 0, // Ohnmachten im Lauf, danach draußen digitieren (3.2.57)
-    reset() { Object.assign(this, { faints: 0, reEvo: false, reEvoAt: 0, grindOff: null, grindFails: 0, grindFailD: 0, badAt: 0, badWarned: '', partyLv: 0, noRunAt: 0, giveUp: false, portalNear: 0, capOk: 0, inside: false, cap: 0, visited: new Set(), floorKey: '', patchAt: 0, descendAt: 0, leaveAt: 0, talkAt: 0, talkTries: 0, enterAt: 0, enterTries: 0, depth: 0, resultSeen: null, closedUntil: 0, warned: '', startAt: 0 }); },
+    postFaint: false, postFaintAt: 0, // nach einer Ohnmacht im Rift erst fertig digitieren (3.2.58)
+    reset() { Object.assign(this, { faints: 0, reEvo: false, reEvoAt: 0, postFaint: false, postFaintAt: 0, grindOff: null, grindFails: 0, grindFailD: 0, badAt: 0, badWarned: '', partyLv: 0, noRunAt: 0, giveUp: false, portalNear: 0, capOk: 0, inside: false, cap: 0, visited: new Set(), floorKey: '', patchAt: 0, descendAt: 0, leaveAt: 0, talkAt: 0, talkTries: 0, enterAt: 0, enterTries: 0, depth: 0, resultSeen: null, closedUntil: 0, warned: '', startAt: 0 }); },
   };
   const riftWarn = (why) => { if (rift.warned !== why) { rift.warned = why; logEvent('warn', `Rift: ${why}`); } };
   // ---------- Grinden im Rift (3.2.52, Nutzer 22.11.: „Nur Rift-Leveln“) ----------
@@ -11409,6 +11411,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     rift.wasFainted = true;
     if (!riftModeOn(st) || !riftMap(st?.world?.mapId) || riftStore()?.result) return;
     rift.faints = (rift.faints || 0) + 1;
+    rift.postFaint = true; rift.postFaintAt = 0; // nach dem Wiederbeleben erst digitieren (3.2.58)
     const out = rift.faints >= RIFT_FAINT_LEAVE;
     logEvent('warn', `Rift: ${rift.faints}. Ohnmacht in diesem Lauf${out ? ' – verlasse den Rift, digitiere draußen und starte neu' : ` (beim ${RIFT_FAINT_LEAVE}. hinaus)`}`);
   }
@@ -11416,6 +11419,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const riftFaintOut = (st) => rift.faints >= RIFT_FAINT_LEAVE && riftMap(st?.world?.mapId) && !riftFollower(Date.now());
   // Draußen nach dem Verlassen wegen Ohnmacht: bis zur Zielform digitieren (eingestellte Form, sonst die höchste), dann weiter.
   // null = fertig (oder aufgegeben), sonst Statustext
+  // Kommt die Digitation gerade voran? Befehl/Trank eben gesendet (Text), Digitation läuft, Abklingzeit oder Befehl vor < 6 s.
+  // Sonst (gesperrt, Level, kein DS, aufgegeben …) nicht warten (Review 3.2.58: stand sonst bis zur Frist herum)
+  const riftEvoBusy = (st, p, ev, now) => ev !== true || !!p.evolving || evoCooldownLeft(st) > 0 || now - (autopilot.lastEvolve || 0) < 6000;
   function riftReEvolve(st, sc, now) {
     const p = st?.me?.partner;
     if (!p || sc?.attackers?.length) return null;
@@ -11424,9 +11430,25 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     rift.reEvoAt ||= now;
     if (now - rift.reEvoAt > RIFT_EVO_WAIT_MS) { rift.reEvo = false; rift.reEvoAt = 0; logEvent('warn', `Rift: Digitation zu ${speciesName(tgt)} klappt nicht – neuer Lauf trotzdem`); return null; }
     const ev = evolveVia(st, tgt, now);
+    if (!riftEvoBusy(st, p, ev, now)) { rift.reEvo = false; rift.reEvoAt = 0; logEvent('warn', `Rift: Digitation zu ${speciesName(tgt)} geht gerade nicht – neuer Lauf`); return null; }
     if (ev !== true) return `Rift: ${ev}`;
     const cd = evoCooldownLeft(st);
     return `Rift: digitiere zu ${speciesName(tgt)}${p.evolving ? '…' : cd > 0 ? ` (Abklingzeit ${Math.ceil(cd / 1000)} s)` : ' – warte…'}`;
+  }
+  // Nach einer Ohnmacht im Rift (3.2.58, Nutzer 25.11.; live T25: als XV-mon weitergekämpft, 10 s später wieder umgefallen):
+  // am Landepunkt bis zur Zielform digitieren, auch über die Abklingzeit je Schritt; Angreifer wehrt er ab (null = normal weiter).
+  function riftPostFaint(st, sc, now) {
+    const p = st?.me?.partner;
+    if (!p || p.fainted) return null;
+    const tgt = mapEvoTarget(st) || maxEvolution(p) || p.species;
+    if (!tgt || p.species === tgt) { rift.postFaint = false; rift.postFaintAt = 0; logEvent('bot', `Rift: nach der Ohnmacht wieder ${speciesName(p.species)} – weiter`); return null; }
+    rift.postFaintAt ||= now;
+    if (now - rift.postFaintAt > RIFT_FAINT_EVO_MS) { rift.postFaint = false; rift.postFaintAt = 0; logEvent('warn', `Rift: Digitation zu ${speciesName(tgt)} nach der Ohnmacht klappt nicht – kämpfe so weiter`); return null; }
+    if (sc?.attackers?.length) return null; // angegriffen: normal abwehren (Digitieren geht danach weiter)
+    const ev = evolveVia(st, tgt, now);
+    if (!riftEvoBusy(st, p, ev, now)) { rift.postFaint = false; rift.postFaintAt = 0; logEvent('warn', `Rift: Digitation zu ${speciesName(tgt)} geht gerade nicht – kämpfe so weiter`); return null; }
+    const cd = evoCooldownLeft(st);
+    return ev !== true ? `Rift: nach der Ohnmacht – ${ev}` : `Rift: nach der Ohnmacht – digitiere zu ${speciesName(tgt)}${p.evolving ? '…' : cd > 0 ? ` (Abklingzeit ${Math.ceil(cd / 1000)} s)` : ' – warte…'}`;
   }
   function riftLeave(now, why, keepDepth = false) {
     if (!rift.giveUp) {
@@ -11472,7 +11494,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   // Außerhalb: zu Clockmon, Rift-Fenster öffnen, Tiefe wählen, betreten
   function riftOutside(st, now) {
-    if (rift.inside) { rift.inside = false; rift.faints = 0; rift.talkTries = 0; rift.enterTries = 0; rift.talkAt = 0; rift.enterAt = 0; rift.warned = ''; rift.breadTries = 0; rift.breadAt = 0; rift.scanFresh = false; rift.followScanDone = false; }
+    if (rift.inside) { rift.inside = false; rift.faints = 0; rift.postFaint = false; rift.postFaintAt = 0; rift.talkTries = 0; rift.enterTries = 0; rift.talkAt = 0; rift.enterAt = 0; rift.warned = ''; rift.breadTries = 0; rift.breadAt = 0; rift.scanFresh = false; rift.followScanDone = false; }
     const R = riftStore();
     // Scan-Stand (3.2.31): das Spiel holt ihn beim Öffnen des Clockmon-Fensters (riftScans) – vorher den alten Stand verwerfen,
     // sonst hielte ein schon umgewandelter 100-%-Scan den Bot an
@@ -12812,6 +12834,15 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         if (this.can('follow', 1500, now)) { this.lastPress.follow = now; commands()?.partnerFollow?.(); } // Digimon hört auf und kommt mit
         this.status = `${cfg.dungeon ? 'Dungeon' : 'Grinden'}: ${riftLeave(now, `${rift.faints}× bewusstlos`)}`;
         return;
+      }
+      // nach einer Ohnmacht im Rift erst fertig digitieren, dann weiter (3.2.58) – kein neues Ziel, nur Angreifer abwehren
+      if (riftModeOn(st) && world.state === 'ready' && rift.postFaint && riftMap(st.world?.mapId) && !riftStore()?.result) {
+        const pf = riftPostFaint(st, sc, now);
+        if (pf) {
+          if (st.target && this.can('follow', 1500, now)) { this.lastPress.follow = now; commands()?.partnerFollow?.(); } // nicht weiter auf ein ruhiges Ziel einschlagen
+          this.status = `${cfg.dungeon ? 'Dungeon' : 'Grinden'}: ${pf}`;
+          return;
+        }
       }
       if ((!dgLike || riftEv) && world.state === 'ready' && !riftMap(st.world?.mapId)) {
         const hv = huntStep(st, sc, now);
