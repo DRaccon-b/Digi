@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.59
+// @version      3.2.60
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1889,7 +1889,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.59'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.60'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -5606,7 +5606,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     world.state = 'loading';
     world.error = '';
     const base = sc.deps.assetsBase || '/assets/';
-    const ids = Object.keys(list);
+    // Varianten-Dateien (z. B. primary_village.xmas, content.maps[...].variants) sind keine eigenen Maps: nicht laden – sonst stand Clockmon
+    // je nach Ladereihenfolge in der Variante und der Bot wollte endlos dorthin reisen (3.2.60, Nutzer 26.11.)
+    const ids = Object.keys(list).filter((id) => !id.includes('.') || content()?.maps?.[id]);
     world.total = ids.length; world.loaded = ids.filter((id) => Object.hasOwn(world.maps, id)).length;
     let failures = 0;
     const prop = (o, n) => (o.properties || []).find((p) => p.name === n)?.value;

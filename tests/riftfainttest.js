@@ -22,13 +22,15 @@ const EVOS = [
 ].map((e) => ({ ...e, level: 1, unlocked: true, canEvolveNow: true, dsCost: 10 }));
 const MAX = 'imperialdramon_dragon';
 
-function world({ faintsRun1 = 3, faintsRun2 = 1, evoCd = 0, calm = false, cfgExtra = {}, evos = EVOS } = {}) {
+function world({ faintsRun1 = 3, faintsRun2 = 1, evoCd = 0, calm = false, cfgExtra = {}, evos = EVOS, xmas = false } = {}) {
   const dom = new JSDOM('<!doctype html><body></body>', { runScripts: 'outside-only', url: 'https://play.digimmo.com.br/', pretendToBeVisual: true, virtualConsole: new VirtualConsole() });
   const w = dom.window;
   w.HTMLCanvasElement.prototype.getContext = () => null;
   const tmj = (objs) => ({ layers: [{ type: 'objectgroup', name: 'objects', objects: objs }] });
   const P = (k, v) => ({ name: k, type: 'string', value: v });
   const MAPS = {
+    // V: Variante des Spiels (Weihnachten) als eigene Map-Datei, im Manifest zuerst und schneller geladen
+    ...(xmas ? { 'primary_village.xmas': tmj([{ type: 'npc', name: 'rift_warden', x: 200, y: 200, properties: [P('npcId', 'rift_warden')] }, { type: 'spawn', name: 'default', x: 200, y: 240 }]) } : {}),
     [PV]: tmj([{ type: 'npc', name: 'rift_warden', x: 808, y: 792, properties: [P('npcId', 'rift_warden')] }, { type: 'spawn', name: 'from_rift', x: 808, y: 824 }]),
     [RS]: tmj([{ type: 'spawn', name: 'camp', x: 584, y: 904 }]),
   };
@@ -126,7 +128,11 @@ function world({ faintsRun1 = 3, faintsRun2 = 1, evoCd = 0, calm = false, cfgExt
     async requestEvents() { return []; },
   };
   scene.deps.commands = commands;
-  w.fetch = async (url) => ({ ok: true, status: 200, json: async () => MAPS[url.match(/maps\/(\w+)\.tmj/)[1]] });
+  w.fetch = async (url) => {
+    const id = url.match(/maps\/([\w.]+)\.tmj/)[1];
+    if (xmas && id !== 'primary_village.xmas') await new Promise((r) => setTimeout(r, 150)); // Variante kommt zuerst an
+    return { ok: true, status: 200, json: async () => MAPS[id] };
+  };
   w.dmo = { store, rift, net: { state: { entities: ents }, connected: true, transferring: false }, game: { scene: { getScene: (k) => (k === 'world' ? scene : null) } } };
   store.setState({ screen: 'world', inputFocus: 'game', cooldowns: {}, chat: [], world: { mapId: PV, channel: 1, roomId: `${PV}-1` }, target: null, prompt: null,
     me: { tamerEntityId: 't:me', tamerDs: 300, tamerMaxDs: 360, hotbar: ['cmd:attack'], inventory: [], quests: {}, bits: 5000,
@@ -147,7 +153,11 @@ function world({ faintsRun1 = 3, faintsRun2 = 1, evoCd = 0, calm = false, cfgExt
   // G: eingestellte Zielform Paildramon ist gesperrt -> Digitieren geht nicht weiter: nicht 90 s warten, gleich weiterkämpfen
   const Z = world({ faintsRun1: 1, faintsRun2: 0, calm: true, cfgExtra: { levelEvoForm: 'paildramon' }, evos: EVOS.map((e) => (e.species === 'paildramon' ? { ...e, unlocked: false, canEvolveNow: false } : e)) });
   await wait(800);
+  // V (Nutzer 26.11.: „geht nicht mehr zu Clockmon“): Variante primary_village.xmas lädt zuerst – der Bot muss trotzdem in Primary Village
+  //    zu Clockmon und den Rift betreten (vorher: „Reise nach primary_village.xmas“ ohne Ende)
+  const V = world({ faintsRun1: 0, faintsRun2: 0, xmas: true });
   X.start(); Y.start(); Z.start();
+  await wait(1000); V.start();
   // bis zum zweiten Lauf plus dessen Ohnmacht (oder Zeitlimit)
   const end = Date.now() + 60000;
   let afterTwo = null;
@@ -171,6 +181,7 @@ function world({ faintsRun1 = 3, faintsRun2 = 1, evoCd = 0, calm = false, cfgExt
   const ySel = Y.sent.sel.filter((x) => x.id === 'n:1');
   ck('F', Y.sent.faints.length === 1 && !!yMax && ySel.length > 0 && ySel.every((x) => x.sp === MAX), 'nach Ohnmacht erst fertig digitieren, dann weiterkämpfen', { ...Y, sent: { ...Y.sent, enter: Y.sent.enter, leave: Y.sent.leave, evolve: Y.sent.evolve, faints: Y.sent.faints, sel: ySel.slice(0, 4) } });
   const zSel = Z.sent.sel.find((x) => x.id === 'n:1');
+  ck('V', V.sent.enter.length > 0 && !/xmas/.test(V.status()), 'Map-Variante (xmas) wird nicht als Map geführt – Clockmon in Primary Village', V);
   ck('G', Z.sent.faints.length === 1 && Z.sent.calmAt != null && !!zSel && zSel.t - Z.sent.calmAt < 15000, 'Zielform nicht erreichbar: nach der Ohnmacht nicht 90 s warten (Review)', Z);
   console.log(res.every(Boolean) ? 'ALLES OK' : 'FEHLER');
   process.exit(res.every(Boolean) ? 0 : 1);

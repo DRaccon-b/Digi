@@ -2,6 +2,14 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.60 – Fix: Bot lief nicht mehr zu Clockmon
+- **Nutzer 26.11.:** „geht nicht mehr zu Clockmon“ – Status „Rift: Reise nach primary_village.xmas · Digi-Phone: Abklingzeit“.
+- Ursache (nicht 3.2.59): Das Spiel liefert die Weihnachts-Variante von Primary Village als eigene Map-Datei (primary_village.xmas,
+  in den Spieldaten nur eine Variante von primary_village). Der Bot lud sie als eigene Map; kam sie beim gleichzeitigen Laden vor der
+  echten an, stand Clockmon „dort“ und der Bot wollte endlos dorthin reisen. Je nach Ladereihenfolge trat das nur manchmal auf.
+- Jetzt: Varianten-Dateien (Name mit Punkt, keine eigene Map in den Spieldaten) werden nicht geladen.
+- Test: tests/riftfainttest.js V.
+
 ## 3.2.59 – Rift: große Packs, Ausweichen bei wenig HP, Omega Blade öfter
 - **Nutzer 26.11.** (live 22 min beobachtet, Tiefe 25, Imperialdramon Paladin Mode): beide Ohnmachten gegen 6–8 Angreifer
   gleichzeitig; das Ziel sprang zwischen vollen Angreifern („AoE: wechsle auf die Gruppe“), der Flächen-Skill traf ruhige Monster
