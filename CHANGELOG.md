@@ -2,6 +2,25 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.59 – Rift: große Packs, Ausweichen bei wenig HP, Omega Blade öfter
+- **Nutzer 26.11.** (live 22 min beobachtet, Tiefe 25, Imperialdramon Paladin Mode): beide Ohnmachten gegen 6–8 Angreifer
+  gleichzeitig; das Ziel sprang zwischen vollen Angreifern („AoE: wechsle auf die Gruppe“), der Flächen-Skill traf ruhige Monster
+  daneben; mit „nur beim Guardian ausweichen“ stand das Digimon fast 2 min in Warnkreisen; Omega Blade wurde am Guardian rund
+  40 s zurückgehalten, weil Gaia Force/Seven Heavens nur „möglich“ war.
+- **Unter Druck im Rift** (mind. 4 Angreifer oder unter 60 % HP mit einem Angreifer): den Angreifer mit den wenigsten HP zuerst
+  (Wechsel erst ab ~30 % Unterschied), kein AoE-Zielwechsel auf die „beste Gruppe“, kein Flächen-Skill, der ruhige Monster trifft,
+  keine AoE-Eröffnung auf eine neue Gruppe.
+- **Ausweichen:** mit „Rift: nur beim Guardian ausweichen“ unter 60 % HP auch den Kreisen normaler Gegner ausweichen.
+- **Zurückhalten:** im Rift hält eine nur mögliche (nicht angesagte) Boss-Attacke einen Skill höchstens 4 s zurück, danach wird er
+  gewirkt; nach jeder Abklingzeit beginnen die 4 s neu (Review).
+- **Omega Blade & Co.:** ein großer Einzelangriff (≥ 20 s Abklingzeit) wird nicht an einen fast toten schwachen Gegner (< 25 % HP)
+  verschwendet, wenn ein starker (Boss oder ≥ 2× Max-HP) in 300 px steht – aufgehoben für den starken.
+- **Starke Gegner im Rift** (Nutzer 26.11.: „bei solchen Gegnern sämtliche Attack-Skills permanent auf CD“, nur im Rift): Guardian,
+  Alpha oder mind. 2× die mittleren Max-HP der Gegner ringsum (z. B. Lamortmon 382 000 gegen 150 000) – kein Zurückhalten wegen
+  einer nur möglichen Attacke (auch nicht 4 s), Flächen-Skills zählen als Angriff (auch allein im Kreis), keine Aggro-Bremse,
+  Angriffs-Buffs wie gegen Bosse. Spiegel/Reflexion und das DS-Polster für Schutz-Skills bleiben.
+- Test: tests/riftpacktest.js (A–H).
+
 ## 3.2.58 – Rift: nach einer Ohnmacht erst fertig digitieren
 - **Nutzer 25.11.** (live beobachtet, Tiefe 25): nach der Ohnmacht digitierte der Bot nur bis XV-mon (Abklingzeit je Schritt,
   „Cannot Digivolve right now“), kämpfte so weiter und lag 10 s später wieder am Boden – jede Ohnmacht heilt den Guardian um 25 %.

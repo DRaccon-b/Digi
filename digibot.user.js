@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.58
+// @version      3.2.59
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1889,7 +1889,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.58'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.59'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -2825,7 +2825,10 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   }
   const dodgeOn = (st) => !!cfg.dodge || riftDodgeOnly(st);
   // nur fürs Ausweichen filtern – dangerZones() selbst bleibt vollständig (Heiler-Platz, Fernkampf-Halt, Tamer-Skill …; Review 3.2.55)
-  const dodgeZones = (list) => (riftDodgeOnly() ? list.filter((z) => riftGuardianSrc(z.src)) : list);
+  // wenig HP (3.2.59, Nutzer 26.11.): auch mit „nur beim Guardian“ allen Kreisen ausweichen
+  const RIFT_DODGE_HP = 60;
+  const riftDodgeLow = () => { const p = getStore()?.getState?.()?.me?.partner; return !!p?.maxHp && p.hp / p.maxHp * 100 < RIFT_DODGE_HP; };
+  const dodgeZones = (list) => (riftDodgeOnly() && !riftDodgeLow() ? list.filter((z) => riftGuardianSrc(z.src)) : list);
   function dangerZones() {
     const sc = worldScene(), zones = [];
     const tank = tankNow(Date.now());
@@ -3718,6 +3721,57 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Cooldown läuft vorher ab). Spiegel: der Treffer muss vor Beginn der Reflexion landen.
   // Reaktion + gemessener Ping werden pro Prüfung über digibotLatency berechnet.
   const DEFAULT_MOVE = 90;       // px/s, falls die Laufgeschwindigkeit unbekannt ist
+  // Rift (3.2.59, live T25: Omega Blade am Guardian 40 s zurückgehalten, weil Seven Heavens „möglich“ war): derselbe Grund hält einen
+  // Skill höchstens RIFT_HOLD_MAX_MS zurück, danach wird er trotzdem gewirkt; ein anderer Grund oder kein Grund setzt die Uhr zurück
+  // Fenster neu, wenn derselbe Grund länger als RIFT_HOLD_GAP_MS nicht abgefragt wurde – der Skill war gewirkt und in der Abklingzeit
+  // (Review 3.2.59: sonst ab dem zweiten Einsatz gar kein Zurückhalten mehr)
+  const RIFT_HOLD_MAX_MS = 4000, RIFT_HOLD_GAP_MS = 1500, riftHold = new Map();
+  function riftHoldCap(key, reason, now) {
+    if (!reason) { riftHold.delete(key); return null; }
+    const h = riftHold.get(key);
+    if (!h || h.reason !== reason || now - h.seen > RIFT_HOLD_GAP_MS) { riftHold.set(key, { reason, at: now, seen: now }); return reason; }
+    h.seen = now;
+    return now - h.at > RIFT_HOLD_MAX_MS ? null : reason;
+  }
+  // Starker Gegner im Rift (3.2.59, Nutzer 26.11.: „bei solchen Gegnern sämtliche Attack-Skills permanent auf CD“): Boss-Flag (Guardian,
+  // Alpha) oder mindestens RIFT_STRONG_FAC × die mittleren Max-HP der übrigen Gegner in RIFT_STRONG_R (Rift-Gegner haben keine Elite-Kennung)
+  const RIFT_STRONG_FAC = 2, RIFT_STRONG_R = 600;
+  function riftStrong(st, te) {
+    if (!te || !riftMap(st?.world?.mapId)) return false;
+    if (te.flags & FLAG.Boss) return true;
+    if (!(te.maxHp > 0)) return false;
+    const hp = [];
+    window.dmo?.net?.state?.entities?.forEach?.((e) => {
+      if (e.id === te.id || e.kind !== KIND.Mob || e.hp <= 0 || (e.flags & (FLAG.Dead | FLAG.Boss)) || !(e.maxHp > 0)) return;
+      if (Math.hypot(e.x - te.x, e.y - te.y) <= RIFT_STRONG_R) hp.push(e.maxHp);
+    });
+    if (hp.length < 2) return false;
+    hp.sort((a, b) => a - b);
+    return te.maxHp >= hp[hp.length >> 1] * RIFT_STRONG_FAC;
+  }
+  // Zurückhalte-Grund im Rift: gegen starke Gegner nie wegen einer nur möglichen Attacke, sonst höchstens RIFT_HOLD_MAX_MS; andere Gründe
+  // (Spiegel, Mahlzeit, Aggro) bleiben
+  function riftHoldFilter(st, te, key, why, now) {
+    if (!riftMap(st?.world?.mapId)) return why;
+    if (!/keine Zeit zum Ausweichen$/.test(why || '')) { riftHoldCap(key, null, now); return why; }
+    if (riftStrong(st, te)) { riftHoldCap(key, null, now); return null; }
+    return riftHoldCap(key, why, now);
+  }
+  // Großen Einzelangriff (≥ RIFT_BIG_CD_MS Abklingzeit, z. B. Omega Blade) im Rift nicht an einen fast toten schwachen Gegner verschwenden,
+  // wenn ein starker (Boss oder ≥ 2× Max-HP des Ziels) in der Nähe steht (3.2.59, Nutzer 26.11.: „Omega Blade öfter gegen stärkere Gegner“)
+  const RIFT_BIG_CD_MS = 20000, RIFT_SAVE_HP = 25, RIFT_SAVE_R = 300;
+  function riftSaveBig(st, te, def, s) {
+    if (!riftMap(st?.world?.mapId) || !te?.maxHp || (te.flags & FLAG.Boss)) return false;
+    if ((s.skill.cooldownMs ?? def.cooldownMs ?? 0) < RIFT_BIG_CD_MS || (def.shape && def.shape !== 'single')) return false;
+    if (te.hp / te.maxHp * 100 >= RIFT_SAVE_HP) return false;
+    let strong = false;
+    window.dmo?.net?.state?.entities?.forEach?.((e) => {
+      if (strong || e.id === te.id || e.kind !== KIND.Mob || e.hp <= 0 || (e.flags & (FLAG.Dead | FLAG.Hidden | FLAG.Untargetable))) return;
+      if (Math.hypot(e.x - te.x, e.y - te.y) > RIFT_SAVE_R) return;
+      if ((e.flags & FLAG.Boss) || e.maxHp >= te.maxHp * 2) strong = true;
+    });
+    return strong;
+  }
   function skillUnsafe(st, t, skill, now, slot) {
     const aggro=digibotSkillAggroReason(st,t,skill);if(aggro)return aggro;
     if (!cfg.safeCast || !t || mealOn(t.id)) return null;
@@ -4027,6 +4081,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   function digibotSkillAggroReason(st,target,skill){
     if(!bot.on || !skill)return null;
     if(SKILL_KEYS.some(k=>skillOnKey(st,k)?.skill?.id===skill.id&&skillRole(st,k).role==='aoe'))return null; // „AoE ab N“ soll mehrere treffen (3.1.43)
+    if(riftStrong(st,window.dmo?.net?.state?.entities?.get?.(target?.id)||target))return null; // Rift: gegen starke Gegner keine Aggro-Bremse (3.2.59)
     const def=content()?.skills?.[skill.id]||{},sk={...def,...skill};
     if(!digibotOffensiveSkill(sk))return null;
     // Dungeon: jedes Monster im Raum ist ohnehin ein Ziel – Flächenskills nie zurückhalten (Kuramon-Herde, 3.1.34)
@@ -4440,6 +4495,26 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Gegner um (x, y), die mich, meinen Tamer oder ein Gruppenmitglied angreifen – plus das Ziel selbst (incl)
   const AOE_HIT_PAD = 8, AOE_RETARGET_MS = 1500;
   let aoeRetargetAt = 0;
+  // Rift unter Druck (3.2.59, Nutzer 26.11.; live T25: beide Ohnmachten gegen 6–8 Angreifer): mindestens RIFT_PACK_N Angreifer oder
+  // bei einem Angreifer weniger als RIFT_PACK_HP % HP. Dann: schwächsten Angreifer zuerst, kein AoE-Zielwechsel, keine Fläche, die ruhige
+  // Monster trifft, keine AoE-Eröffnung auf eine neue Gruppe
+  const RIFT_PACK_N = 4, RIFT_PACK_HP = 60;
+  function riftPressure(st) {
+    if (!riftMap(st?.world?.mapId)) return false;
+    const p = st.me?.partner, hp = p?.maxHp ? p.hp / p.maxHp * 100 : 100;
+    const n = hostileNear(st, 0, 0, Infinity, null);
+    return n >= RIFT_PACK_N || (n >= 1 && hp < RIFT_PACK_HP);
+  }
+  // ruhige Monster (greifen weder mich noch die Gruppe an) im Umkreis r
+  function calmNear(st, x, y, r) {
+    const mine = new Set([st?.me?.partner?.entityId, st?.me?.tamerEntityId, ...groupEntityIds()].filter(Boolean));
+    let n = 0;
+    window.dmo?.net?.state?.entities?.forEach?.((e) => {
+      if (e.kind !== KIND.Mob || e.hp <= 0 || (e.flags & (FLAG.Dead | FLAG.Hidden | FLAG.Untargetable)) || mine.has(e.targetId)) return;
+      if (Math.hypot(e.x - x, e.y - y) <= r) n++;
+    });
+    return n;
+  }
   function hostileNear(st, x, y, r, incl) {
     const mine = new Set([st?.me?.partner?.entityId, st?.me?.tamerEntityId, ...groupEntityIds()].filter(Boolean));
     let n = 0;
@@ -4476,7 +4551,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // trifft, scheiden aus (keine zweite Gruppe mitziehen). Nicht bereit oder nichts passt: normal ziehen. -> { pk, centerId, n } | null
   const RIFT_AOE_PACK_R = 160, RIFT_AOE_WALK_MS = 6000, RIFT_AOE_SWITCH_MS = 1500; // … / Mitte als Ziel nehmen: höchstens so lange je Ziel // Gruppe / höchstens so lange in Reichweite laufen // so nah am Ziel zählt ein ruhiges Monster zu seiner Gruppe
   function riftAoeOpen(st, t, now) {
-    if (!cfg.riftAoeOpen || !riftMap(st?.world?.mapId) || !t?.id) return null;
+    if (!cfg.riftAoeOpen || !riftMap(st?.world?.mapId) || !t?.id || riftPressure(st)) return null; // unter Druck keine neue Gruppe (3.2.59)
     const ents = window.dmo?.net?.state?.entities, te = ents?.get?.(t.id), p = st.me?.partner, own = ents?.get?.(p?.entityId);
     if (!te || !own || (te.flags & FLAG.Boss) || te.targetId) return null; // Boss/Guardian aus; schon im Kampf: nichts zu eröffnen
     const basicRange = content()?.digimon?.[p.species]?.basic?.range, reach = (Number.isFinite(basicRange) ? basicRange : 33) + 12;
@@ -4530,7 +4605,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       }
     }
     if (path === 'ranged') return !selfCast && (digibotSkillAggroReason(st, t, s.skill) || digibotBossPeace(st)) ? true : null;
-    const why = skillUnsafe(st, t, s.skill, now, Number(String(s.ref).slice(6))); // zu langer Cast vor einer möglichen Boss-Attacke
+    let why = skillUnsafe(st, t, s.skill, now, Number(String(s.ref).slice(6))); // zu langer Cast vor einer möglichen Boss-Attacke
+    why = riftHoldFilter(st, window.dmo?.net?.state?.entities?.get?.(t?.id) || t, s.skill.id || k, why, now); // Rift: „möglich“-Gründe deckeln, gegen starke Gegner gar nicht (3.2.59)
     return why ? `${s.skill.name} zurückgehalten: ${why}` : null;
   }
   const PICK_ROLES = new Set(['attack', 'aoe', 'atkbuff', 'atksup', 'defsup']);
@@ -4541,6 +4617,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (!p || !t?.id) return null;
     const ents = window.dmo?.net?.state?.entities, te = ents?.get?.(t.id) || t, own = ents?.get?.(p.entityId);
     const boss = !!((te.flags ?? 0) & FLAG.Boss), fm = fightStart(t, now), since = now - fm.at;
+    const strongR = !boss && riftStrong(st, te); // Rift: starker Gegner wie ein Boss – alle Angriffs-Skills sofort (3.2.59)
     // Pull-Modus: DS und AoE fürs Gesammelte aufheben (Heals/Buffs: skillCare) – auch beim ersten Treffer, bis die Runde läuft
     // selbstbegrenzend: nie im Ruhemodus, nie gegen einen Boss, nie länger als die Notbremse
     if ((pull.on && !bot.resting && !boss && now - pull.startAt <= PULL_MAX_MS) || (cfg.pull && !bot.resting && !pull.anchor && !pull.done && !boss && since < PULL_START_MS && !pullBlocked(st, null, now) && pullChance(st, t))) return { held: 'Sammle Monster – Skills warten' };
@@ -4561,21 +4638,23 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       const sup = ro.role === 'atksup' || ro.role === 'defsup';
       if (sup && def.target !== 'enemy') continue; // Selbst-/Gruppen-Support: skillCare
       if (ro.role === 'atkbuff') {
-        if (!boss) continue; // nur bei Bossen (Spieler, 01.11.)
+        if (!boss && !strongR) continue; // nur bei Bossen (Spieler, 01.11.); im Rift auch gegen starke Gegner (3.2.59)
         if (effectLeft(p.entityId, def.id) >= KEEP_LEFT_MS) { fm.buffed = true; continue; }
         // Angriffe warten auf den Buff, wenn er rechtzeitig bereit ist – höchstens ATKBUFF_HOLD_MS über die 3 s hinaus
         if (!fm.buffed && s.cdLeft <= Math.max(0, ATKBUFF_DELAY_MS - since) && since < ATKBUFF_DELAY_MS + ATKBUFF_HOLD_MS) buffWait = true;
         if (since < ATKBUFF_DELAY_MS) { held ||= `Angriffs-Buff in ${Math.ceil((ATKBUFF_DELAY_MS - since) / 1000)} s`; continue; }
         if (mirror) { held ||= 'Spiegel – Angriffs-Buff wartet'; continue; }
       }
-      if (ro.role === 'aoe' && !boss) { // gegen einen Boss zählt er wie ein Angriff
+      if (ro.role === 'aoe' && !boss && !strongR) { // gegen einen Boss (im Rift: starken Gegner, 3.2.59) zählt er wie ein Angriff
         const n = pull.done && pull.anchor ? Math.max(2, Math.min(ro.n, pull.count)) : ro.n; // Pull: höchstens die Zahl der gesammelten
         // 3.1.49: nur Gegner im echten Trefferradius, die mich/die Gruppe angreifen (plus das Ziel) – und auf das Monster mit
         // den meisten Nachbarn wechseln (live: nach dem Sammeln stand das Ziel abseits, die Gruppe auf der anderen Seite)
         const r = (Number(def.radius) || 32) + AOE_HIT_PAD;
-        if (def.origin === 'caster') { if (!own || hostileNear(st, own.x, own.y, r, null) < n) continue; }
+        const press = riftPressure(st); // Rift unter Druck (3.2.59): Fokus halten, keine weiteren Monster mitziehen
+        if (def.origin === 'caster') { if (!own || hostileNear(st, own.x, own.y, r, null) < n || (press && calmNear(st, own.x, own.y, r))) continue; }
         else {
-          const here = hostileNear(st, te.x, te.y, r, te.id), best = path === 'main' ? aoeBestCenter(st, own, def, r) : null;
+          if (press && calmNear(st, te.x, te.y, r)) continue;
+          const here = hostileNear(st, te.x, te.y, r, te.id), best = path === 'main' && !press ? aoeBestCenter(st, own, def, r) : null;
           if (best && best.id !== t.id && best.n >= n && best.n > here) {
             if (now - aoeRetargetAt > AOE_RETARGET_MS && bot.can('select', SELECT_GAP_MS, now)) { aoeRetargetAt = now; bot.lastPress.select = now; worldScene()?.select?.(best.id); }
             held ||= `AoE: wechsle auf die Gruppe (${best.n})`;
@@ -4585,6 +4664,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
         }
       }
       if (sup && effectLeft(t.id, def.id) >= KEEP_LEFT_MS) continue; // wirkt noch auf dem Gegner
+      if (ro.role === 'attack' && riftSaveBig(st, te, def, s)) { held ||= `${s.skill.name} für den starken Gegner aufgehoben`; continue; }
       const why = pickBlock(st, now, path, t, k, s, def, ro.role, d, reach);
       if (why === true) continue;
       if (why?.stop) return { held: why.stop };
@@ -11137,7 +11217,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     // Gruppe des Rollen-Gegners kämpft mit mir: ein Monster seiner Reihe (RIFT_MENDER_R) greift mich/die Gruppe an oder ist mein Ziel (3.2.41)
     const packFighting = (m) => sc.mobs.some((x) => x.id !== m.id && (x.attacker || x.id === curT) && Math.hypot(x.x - m.x, x.y - m.y) <= RIFT_MENDER_R);
     const healingMine = (m) => sc.mobs.some((x) => x.id !== m.id && (x.attacker || x.id === curT) && hasRole(x, 'rift_mended') && Math.hypot(x.x - m.x, x.y - m.y) <= RIFT_MENDER_R);
-    const plan = riftPlan(st);
+    const plan = riftPlan(st), press = riftPressure(st);
     const score = (m) => {
       const boss = !!(ents?.get?.(m.id)?.flags & FLAG.Boss) || m.cat === 'boss';
       const dist = m.pd ?? m.d;
@@ -11161,6 +11241,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       // Schildgeber (warder: +80 % Verteidigung für seine Gruppe im Umkreis 192 px) – eigener Haken, nur wenn seine Gruppe mit mir kämpft (3.2.44)
       if (cfg.riftWarderFirst && warder(m) && (m.attacker || packFighting(m))) return (marks.has(m.id) ? 16 : 80) + dist / 100;
       if (!m.attacker && !(dist <= riftFocusR())) return Infinity;
+      // unter Druck (3.2.59): unter den Angreifern den mit den wenigsten HP zuerst – je 25 % HP eine Stufe (Wechsel erst ab ~30 % Unterschied)
+      if (press && m.attacker) { const e = ents?.get?.(m.id), pct = e?.maxHp ? e.hp / e.maxHp * 100 : 100; return 100 + pct / 25 + dist / 10000; }
       return (m.attacker ? 100 : warder(m) ? 200 : 300) + dist / 100; // ferner markierter Alpha: wie jeder andere (3.2.23)
     };
     // erholen (riftStep): wenig HP, niemand greift an – keinen neuen, ruhigen Gegner anfangen (Review 3.2.26)
