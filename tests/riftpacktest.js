@@ -112,6 +112,13 @@ const calm = (F, id, x, y) => F.E({ id, kind: 2, defId: 'mushroomon', level: 4, 
   ck('F0', F0.k2 > 0, 'ohne starken Gegner: Omega wie bisher', F0);
   const F2 = await runBot('F2', [W_('s:1', 440, 330, 300000, 380000), W_('w:1', 470, 340, 150000, 150000)], 2500, { skill: 'x.omega', role: 'attack' });
   ck('F2', F2.k2 > 0, 'Omega auf den starken Gegner', F2);
+  // F3 (Nutzer 28.11.: Kumbhiramon ruft Kuramon-Adds, Omega ging auf ein volles Add – „waste“): Ziel ist ein Add mit vollen HP
+  //    (51 000 Max-HP), daneben kämpft der Guardian (Boss, 3,4 Mio.) -> Omega für den Guardian aufheben
+  const F3 = await runBot('F3', [W_('k:1', 440, 330, 51000, 51000), W_('g:1', 480, 345, 3375000, 3375000, 16 | 32)], 2500, { skill: 'x.omega', role: 'attack' });
+  ck('F3', F3.k2 === 0, 'Omega nicht auf ein volles Add, wenn der Guardian mitkämpft', F3);
+  // F4: starker Gegner steht nur ruhig daneben (greift nicht an, kein Boss) -> Omega wie bisher auf das Ziel (sonst läge sie brach)
+  const F4 = await runBot('F4', [W_('w:1', 440, 330, 150000, 150000), { ...W_('s:1', 480, 345, 400000, 400000), targetId: '' }], 2500, { skill: 'x.omega', role: 'attack' });
+  ck('F4', F4.k2 > 0, 'starker Gegner kämpft nicht mit: Omega normal', F4);
 
   // D/D0: Kreis eines normalen Gegners, Option „nur beim Guardian“ an
   const dodgeRun = async (hp) => {

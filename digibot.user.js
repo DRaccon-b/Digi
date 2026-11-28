@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.60
+// @version      3.2.61
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1889,7 +1889,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.60'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.61'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -3757,18 +3757,22 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     if (riftStrong(st, te)) { riftHoldCap(key, null, now); return null; }
     return riftHoldCap(key, why, now);
   }
-  // Großen Einzelangriff (≥ RIFT_BIG_CD_MS Abklingzeit, z. B. Omega Blade) im Rift nicht an einen fast toten schwachen Gegner verschwenden,
-  // wenn ein starker (Boss oder ≥ 2× Max-HP des Ziels) in der Nähe steht (3.2.59, Nutzer 26.11.: „Omega Blade öfter gegen stärkere Gegner“)
-  const RIFT_BIG_CD_MS = 20000, RIFT_SAVE_HP = 25, RIFT_SAVE_R = 300;
+  // Großen Einzelangriff (≥ RIFT_BIG_CD_MS Abklingzeit, z. B. Omega Blade) im Rift nicht an einen schwachen Gegner (z. B. Add)
+  // verschwenden, wenn ein starker (Boss oder ≥ 2× Max-HP des Ziels) in der Nähe mitkämpft (3.2.59, Nutzer 26.11.: „Omega Blade öfter gegen stärkere Gegner“)
+  const RIFT_BIG_CD_MS = 20000, RIFT_SAVE_R = 300;
   function riftSaveBig(st, te, def, s) {
     if (!riftMap(st?.world?.mapId) || !te?.maxHp || (te.flags & FLAG.Boss)) return false;
     if ((s.skill.cooldownMs ?? def.cooldownMs ?? 0) < RIFT_BIG_CD_MS || (def.shape && def.shape !== 'single')) return false;
-    if (te.hp / te.maxHp * 100 >= RIFT_SAVE_HP) return false;
+    // 3.2.61 (Nutzer 28.11.: Omega ging auf ein volles Kuramon-Add, während Kumbhiramon mitkämpfte): unabhängig von den HP des Ziels –
+    // zählt nur ein starker Gegner, der mit mir kämpft (greift mich/die Gruppe an) oder ein Boss (Guardian/Alpha); ruhig daneben stehend
+    // nicht (sonst läge der Skill brach)
+    const mine = new Set([st?.me?.partner?.entityId, st?.me?.tamerEntityId, ...groupEntityIds()].filter(Boolean));
     let strong = false;
     window.dmo?.net?.state?.entities?.forEach?.((e) => {
       if (strong || e.id === te.id || e.kind !== KIND.Mob || e.hp <= 0 || (e.flags & (FLAG.Dead | FLAG.Hidden | FLAG.Untargetable))) return;
       if (Math.hypot(e.x - te.x, e.y - te.y) > RIFT_SAVE_R) return;
-      if ((e.flags & FLAG.Boss) || e.maxHp >= te.maxHp * 2) strong = true;
+      const boss = !!(e.flags & FLAG.Boss);
+      if ((boss || mine.has(e.targetId)) && (boss || e.maxHp >= te.maxHp * 2)) strong = true;
     });
     return strong;
   }

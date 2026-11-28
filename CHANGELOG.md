@@ -2,6 +2,13 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.61 – Rift: Omega Blade nicht auf Adds
+- **Nutzer 28.11.:** Am Guardian Kumbhiramon (3,4 Mio. HP) ging Omega Blade auf ein Kuramon-Add (51 000 HP, volle HP) – „waste of time“,
+  dafür hätte Invincible Sword gereicht.
+- Ein großer Einzelangriff (≥ 20 s Abklingzeit) wird jetzt unabhängig von den HP des Ziels aufgehoben, wenn in 300 px ein starker
+  Gegner mitkämpft (Guardian/Alpha oder ein Angreifer mit ≥ 2× Max-HP). Steht der starke nur ruhig daneben, wird er normal eingesetzt.
+- Test: tests/riftpacktest.js F3, F4.
+
 ## 3.2.60 – Fix: Bot lief nicht mehr zu Clockmon
 - **Nutzer 26.11.:** „geht nicht mehr zu Clockmon“ – Status „Rift: Reise nach primary_village.xmas · Digi-Phone: Abklingzeit“.
 - Ursache (nicht 3.2.59): Das Spiel liefert die Weihnachts-Variante von Primary Village als eigene Map-Datei (primary_village.xmas,
