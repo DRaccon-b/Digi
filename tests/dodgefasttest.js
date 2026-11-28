@@ -113,7 +113,10 @@ async function world({ rift = true } = {}) {
     const t0 = R.w.performance.now();
     R.scene.telegraphs.active = [{ x: 500, y: 500, r: 40 }]; R.scene.telegraphs.circles = [{ x: 500, y: 500, r: 40, end: t0 + 6000 }];
     R.start();
-    for (let i = 0; i < 20 && !R.taps.length; i++) await wait(100);
+    // ab dem Moment messen, in dem das Digimon wirklich draußen steht (3.2.63: vorher ab dem ersten Klick – der war je nach Tempo ein
+    // Klick, der das Digimon nicht bewegte, und der Test lief 0,9 s zu früh los)
+    const outside = () => Math.hypot(p.x - 500, p.y - 500) > 40 + dx - 1;
+    for (let i = 0; i < 60 && !outside(); i++) await wait(50);
     const out = R.w.performance.now();
     await wait(900);
     const k = R.keys.find((x) => x > out), st = R.status(); R.w.close();
