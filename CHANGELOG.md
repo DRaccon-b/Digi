@@ -2,6 +2,17 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.63 – Rift: Buffs dauerhaft, Boss-Zone, Omega unter Druck
+- **Nutzer 28.11.** (live T25: 3 Ohnmachten am markierten Alpha Andromon 3,2 Mio. HP und seinem Pack, 5–6 Angreifer): Paladin Guard
+  kam erst 3,5 s nach dem ersten Treffer, Omega Blade wurde 13× „für den starken Gegner aufgehoben“, Ziele weit weg gingen vor den Alpha.
+- **Buffs:** Im Rift gelten Dauer-Buffs/Support während eines Laufs immer als „im Kampf“ – Paladin Guard (Tank-Buff) wird vor dem ersten
+  Schlag gezündet und gehalten (DS reicht dort).
+- **Boss-Zone:** Ist ein markierter Alpha bzw. der gerufene Guardian nah (in Suchweite) oder greift an, zählen nur Gegner bis 200 px um den
+  Boss oder 120 px um das Digimon, dazu Angreifer bis 320 px (Fernkämpfer/Artillerie). Darunter zuerst die mit den wenigsten Rest-HP –
+  nur solche, die weniger Rest-HP als der Boss haben –, danach der Boss. Heiler/Rufer/Artillerie/Schildgeber-Vorrang gilt weiter (Review).
+- **Omega Blade:** unter Druck (≥ 4 Angreifer oder < 60 % HP) nie aufheben; ein Boss gilt nur mit mehr Max-HP als das Ziel als „stärker“.
+- Test: tests/riftpacktest.js I, J, J2, J3, K, L, M.
+
 ## 3.2.62 – Rift: bei Zeitdruck am offenen Portal nur noch Angreifer
 - Bei offenem Portal und knapper/abgelaufener Zeitplanung griff der Bot einen ruhigen Gegner (z. B. einen nicht markierten Alpha)
   neben dem Portal an, statt abzusteigen. Jetzt nimmt er unterwegs dorthin nur noch Angreifer.

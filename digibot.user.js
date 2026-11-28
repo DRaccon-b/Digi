@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.62
+// @version      3.2.63
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1889,7 +1889,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.62'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.63'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -3761,7 +3761,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // verschwenden, wenn ein starker (Boss oder ≥ 2× Max-HP des Ziels) in der Nähe mitkämpft (3.2.59, Nutzer 26.11.: „Omega Blade öfter gegen stärkere Gegner“)
   const RIFT_BIG_CD_MS = 20000, RIFT_SAVE_R = 300;
   function riftSaveBig(st, te, def, s) {
-    if (!riftMap(st?.world?.mapId) || !te?.maxHp || (te.flags & FLAG.Boss)) return false;
+    if (!riftMap(st?.world?.mapId) || !te?.maxHp || (te.flags & FLAG.Boss) || riftPressure(st)) return false; // unter Druck nie aufheben (3.2.63)
     if ((s.skill.cooldownMs ?? def.cooldownMs ?? 0) < RIFT_BIG_CD_MS || (def.shape && def.shape !== 'single')) return false;
     // 3.2.61 (Nutzer 28.11.: Omega ging auf ein volles Kuramon-Add, während Kumbhiramon mitkämpfte): unabhängig von den HP des Ziels –
     // zählt nur ein starker Gegner, der mit mir kämpft (greift mich/die Gruppe an) oder ein Boss (Guardian/Alpha); ruhig daneben stehend
@@ -3772,7 +3772,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (strong || e.id === te.id || e.kind !== KIND.Mob || e.hp <= 0 || (e.flags & (FLAG.Dead | FLAG.Hidden | FLAG.Untargetable))) return;
       if (Math.hypot(e.x - te.x, e.y - te.y) > RIFT_SAVE_R) return;
       const boss = !!(e.flags & FLAG.Boss);
-      if ((boss || mine.has(e.targetId)) && (boss || e.maxHp >= te.maxHp * 2)) strong = true;
+      if ((boss || mine.has(e.targetId)) && (boss ? e.maxHp > te.maxHp : e.maxHp >= te.maxHp * 2)) strong = true; // Boss nur mit mehr Max-HP (3.2.63)
     });
     return strong;
   }
@@ -4503,6 +4503,8 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // bei einem Angreifer weniger als RIFT_PACK_HP % HP. Dann: schwächsten Angreifer zuerst, kein AoE-Zielwechsel, keine Fläche, die ruhige
   // Monster trifft, keine AoE-Eröffnung auf eine neue Gruppe
   const RIFT_PACK_N = 4, RIFT_PACK_HP = 60;
+  const RIFT_BOSS_ZONE = 200, RIFT_BOSS_NEAR_ME = 120, RIFT_BOSS_HP_STEP = 250000; // Boss-Zone: Umkreis Boss / Digimon, Rest-HP-Stufe (3.2.63)
+  const RIFT_BOSS_ATT_R = 320; // Angreifer bis zu so weit zählen in der Boss-Zone mit (Fernkämpfer/Artillerie, Review 3.2.63)
   function riftPressure(st) {
     if (!riftMap(st?.world?.mapId)) return false;
     const p = st.me?.partner, hp = p?.maxHp ? p.hp / p.maxHp * 100 : 100;
@@ -4723,6 +4725,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   // Kampf: wie inCombat, dazu ein kämpfender Boss in der Nähe (wie beim Tamer-Skill)
   function careFighting(st) {
     if (inCombat(st)) return true;
+    // Rift (3.2.63, Nutzer 28.11.: „Buffs direkt zünden und up halten“): während eines Laufs immer – DS reicht dort (Median 98 %);
+    // live kam Paladin Guard erst 3,5 s nach dem ersten Treffer des Alpha-Packs
+    { const R = riftStore(); if (riftMap(st?.world?.mapId) && R?.run && !R.result) return true; }
     const ents = window.dmo?.net?.state?.entities, t = ents?.get?.(st?.target?.id), own = ents?.get?.(st?.me?.partner?.entityId);
     return !!t && !!own && t.hp > 0 && !!(t.flags & FLAG.Boss) && !!(t.flags & FLAG.InCombat) && Math.hypot(t.x - own.x, t.y - own.y) <= TAMER_BOSS_NEAR;
   }
@@ -11224,7 +11229,35 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
     const packFighting = (m) => sc.mobs.some((x) => x.id !== m.id && (x.attacker || x.id === curT) && Math.hypot(x.x - m.x, x.y - m.y) <= RIFT_MENDER_R);
     const healingMine = (m) => sc.mobs.some((x) => x.id !== m.id && (x.attacker || x.id === curT) && hasRole(x, 'rift_mended') && Math.hypot(x.x - m.x, x.y - m.y) <= RIFT_MENDER_R);
     const plan = riftPlan(st), press = riftPressure(st);
+    // Boss-Zone (3.2.63, Nutzer 28.11.): markierter Alpha bzw. gerufener Guardian in Sicht – nur Gegner nahe am Boss oder direkt am
+    // Digimon zählen (keine Ausflüge); unter ihnen zuerst die, die am schnellsten fallen (absolute Rest-HP), und nur, wenn sie weniger
+    // Rest-HP haben als der Boss – sonst gleich der Boss
+    const bossM = sc.mobs.find((m) => !m.banned && (marks.has(m.id) || (last && run.guardian === 'called' && !!(ents?.get?.(m.id)?.flags & FLAG.Boss))));
+    // nur, wenn der Boss nah ist (in Suchweite) oder selbst angreift – sonst bleibt alles wie bisher (erst die Gegner auf dem Weg; Review)
+    const bossM0 = bossM && (bossM.attacker || (bossM.pd ?? bossM.d) <= riftFocusR()) ? bossM : null;
+    const bossE = bossM0 && ents?.get?.(bossM0.id), meP = ents?.get?.(st.me?.partner?.entityId);
+    const hpOf = (m) => { const e = ents?.get?.(m.id); return e ? e.hp : Infinity; };
+    const bossZone = (m) => {
+      if (!bossE || m.id === bossM0.id) return null;
+      const e = ents?.get?.(m.id); if (!e) return Infinity;
+      const nearBoss = Math.hypot(e.x - bossE.x, e.y - bossE.y) <= RIFT_BOSS_ZONE, nearMe = !!meP && Math.hypot(e.x - meP.x, e.y - meP.y) <= RIFT_BOSS_NEAR_ME;
+      // kein Ausflug – außer ein Angreifer in Suchweite (Fernkämpfer/Artillerie beschießen mich auch von außerhalb, Review)
+      if (!nearBoss && !nearMe && !(m.attacker && (m.pd ?? m.d) <= Math.max(riftFocusR(), RIFT_BOSS_ATT_R))) return Infinity;
+      if (!(e.hp < bossE.hp)) return Infinity;   // fällt nicht schneller als der Boss
+      return 20 + Math.min(3.9, e.hp / RIFT_BOSS_HP_STEP) + (m.pd ?? m.d) / 100000;
+    };
+    // Rollen-Vorrang gilt auch am Boss (Review): Heiler, der ein Monster heilt, das mit mir kämpft; Rufer/Artillerie/Schildgeber je Haken
+    const rolePri = (m) => {
+      if (cfg.riftMenderFirst !== false && mender(m) && healingMine(m)) return 10;
+      if (cfg.riftCallerFirst && caller(m) && (m.attacker || packFighting(m))) return 12;
+      if (cfg.riftArtilleryFirst && artillery(m) && (m.attacker || packFighting(m))) return 14;
+      if (cfg.riftWarderFirst && warder(m) && (m.attacker || packFighting(m))) return 16;
+      return null;
+    };
     const score = (m) => {
+      if (bossM0 && m.id !== bossM0.id) { const rp = rolePri(m); if (rp != null) return rp + (m.pd ?? m.d) / 100000; }
+      const bz = bossZone(m); if (bz != null) return bz;
+      if (bossM0 && m.id === bossM0.id) return 30 + (m.pd ?? m.d) / 100000; // nach den schnellen Begleitern der Boss
       const boss = !!(ents?.get?.(m.id)?.flags & FLAG.Boss) || m.cat === 'boss';
       const dist = m.pd ?? m.d;
       // Zeitplan knapp/leer (3.2.54): Ziel (Alpha/Guardian) in Reichweite zuerst, Gegner abseits des Wegs gar nicht

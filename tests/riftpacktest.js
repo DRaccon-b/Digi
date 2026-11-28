@@ -69,7 +69,8 @@ const calm = (F, id, x, y) => F.E({ id, kind: 2, defId: 'mushroomon', level: 4, 
       quests: { q00_meet_gennai: { state: 3, counters: [] }, q02_first_steps: { state: 3, counters: [] } },
       setup({ content }) { content.digimon.etemon = { name: 'Etemon', skills: [] }; content.spawns.native_forest.raid = { id: 'rift', rift: true };
         content.skills = { ...(content.skills || {}), 'x.aoe': { id: 'x.aoe', name: 'Area', kind: 'damage', target: 'enemy', shape: 'circle', radius: 56, power: 200, dsCost: 5, cooldownMs: 1500, castMs: 0, range: 128 },
-          'x.omega': { id: 'x.omega', name: 'Omega', kind: 'damage', target: 'enemy', shape: 'single', power: 1600, dsCost: 5, cooldownMs: 36000, castMs: 0, range: 64 } }; },
+          'x.omega': { id: 'x.omega', name: 'Omega', kind: 'damage', target: 'enemy', shape: 'single', power: 1600, dsCost: 5, cooldownMs: 36000, castMs: 0, range: 64 },
+          'x.guard': { id: 'x.guard', name: 'Guard', kind: 'buff', target: 'self', shape: 'single', dsCost: 5, cooldownMs: 30000, castMs: 0, effects: [{ stat: 'de', pct: 60, durationMs: 30000 }, { stat: 'bl', pct: 50, durationMs: 30000 }] } }; },
       extraEnts: () => ents });
     const scene = G.w.dmo.game.scene.getScene('world');
     scene.telegraphs = { active: [], marksActive: [], circles: [], mirrors: [] }; scene.mechB = { lines: [] };
@@ -77,7 +78,7 @@ const calm = (F, id, x, y) => F.E({ id, kind: 2, defId: 'mushroomon', level: 4, 
     G.w.dmo.rift = { getState: () => ({ run, result: null, patch: null, floorUi: { going: null } }) };
     const t1 = ents[0];
     const st0 = G.store.getState();
-    G.store.setState({ target: { id: t1.id, kind: 'mob', name: 'Etemon', level: 5, hp: t1.hp, maxHp: t1.maxHp },
+    G.store.setState({ target: t1 ? { id: t1.id, kind: 'mob', name: 'Etemon', level: 5, hp: t1.hp, maxHp: t1.maxHp } : null,
       me: { ...st0.me, hotbar: ['cmd:attack', 'skill:0'], partner: { ...st0.me.partner, species: 'gabumon', ds: 5000, maxDs: 5000, ...(o.partnerHp ? { hp: Math.round(st0.me.partner.maxHp * o.partnerHp / 100) } : {}), skills: [{ id: skId, name: skId, dsCost: 5, unlocked: true }] } } });
     const keys = [], sel = [];
     G.w.addEventListener('keydown', (e) => { keys.push(e.code); if (e.code === 'Digit2') { const s2 = G.store.getState(); G.store.setState({ cooldowns: { ...s2.cooldowns, 'skill:0': { start: G.w.performance.now(), end: G.w.performance.now() + 1500 } } }); } }, true);
@@ -170,6 +171,39 @@ const calm = (F, id, x, y) => F.E({ id, kind: 2, defId: 'mushroomon', level: 4, 
   }
   Y.w.close();
   ck('H', H, 'starker Gegner: nie wegen „möglich“ zurückhalten; Spiegel bleibt; normaler Gegner: Deckel', hinfo);
+
+  // 3.2.63 (Nutzer 28.11., live T25: 3 Ohnmachten am Alpha-Pack Andromon 3,2 Mio.; Paladin Guard kam 3,5 s nach dem ersten Treffer,
+  // Omega 13× „aufgehoben“, Ziele weit weg vor dem Alpha)
+  // I: Tank-Buff im Rift ohne Kampf (kein Gegner, kein Ziel) wird gezündet und gehalten – vorher nur im Kampf
+  const I = await runBot('I', [], 2500, { skill: 'x.guard', role: 'tankbuff' });
+  ck('I', I.k2 > 0, 'Tank-Buff im Rift auch vor dem Kampf', I);
+  // J: Alpha (Boss, 3,2 Mio.) in Sicht mit Begleitern: erst der Begleiter mit den wenigsten Rest-HP nahe am Boss (238k vor 921k);
+  //    ein Angreifer weit weg (600 px) wird ignoriert
+  const bossWorld = (extra) => (F, scene, run) => {
+    run.objective = 'hunt'; run.alphaMarks = [{ id: 'al:1', x: 560, y: 500 }]; run.floor = { n: 3, of: 3 }; run.clockMs = 700000; // viel Zeit: kein Eile-Modus
+    F.E({ id: 'al:1', kind: 2, defId: 'kunemon', level: 4, x: 560, y: 500, targetId: 'p:me', flags: 16 | 32, hp: 3200000, maxHp: 3200000 });
+    extra(F);
+  };
+  const J = await focusOf({ setup: bossWorld((F) => { att(F, 'b:921', 590, 520); F.ents.get('b:921').hp = 921000; F.ents.get('b:921').maxHp = 921000; att(F, 'b:238', 580, 470); F.ents.get('b:238').hp = 238000; F.ents.get('b:238').maxHp = 238000; att(F, 'f:far', 1100, 500); F.store.setState({ target: F.toTarget('b:921') }); }) });
+  ck('J', J === 'b:238', 'am Boss: Begleiter mit den wenigsten Rest-HP zuerst', { J });
+  const J2 = await focusOf({ setup: bossWorld((F) => { att(F, 'f:far', 900, 500); F.store.setState({ target: F.toTarget('f:far') }); }) });
+  ck('J2', J2 === 'al:1', 'Alpha in Sicht: Angreifer weit weg wird ignoriert, Alpha statt Ausflug', { J2 });
+  // J3: Begleiter mit mehr Rest-HP als der Boss (Boss schon angeschlagen) -> Boss zuerst
+  const J3 = await focusOf({ setup: bossWorld((F) => { F.ents.get('al:1').hp = 300000; att(F, 'b:921', 590, 520); F.ents.get('b:921').hp = 921000; F.ents.get('b:921').maxHp = 921000; F.store.setState({ target: F.toTarget('b:921') }); }) });
+  ck('J3', J3 === 'al:1', 'Begleiter fällt langsamer als der Boss: Boss zuerst', { J3 });
+  // L (Review): Fernkämpfer greift aus 290 px vom Boss an (außerhalb der Zone, aber in Suchweite) und hat die wenigsten Rest-HP -> zuerst
+  const L = await focusOf({ setup: bossWorld((F) => { att(F, 'b:238', 580, 470); F.ents.get('b:238').hp = 238000; F.ents.get('b:238').maxHp = 238000; att(F, 'r:1', 560, 720); F.ents.get('r:1').hp = 150000; F.ents.get('r:1').maxHp = 150000; F.store.setState({ target: F.toTarget('al:1') }); }) }); // Ziel gerade der Boss
+  ck('L', L === 'r:1', 'Boss-Zone: Angreifer in Suchweite zählt mit (Fernkämpfer)', { L });
+  // M (Review): Heiler außerhalb der Zone heilt einen Begleiter, der mit mir kämpft -> Heiler zuerst (Rollen-Vorrang gilt am Boss)
+  const M = await focusOf({ setup: bossWorld((F) => {
+    att(F, 'b:921', 590, 520); F.ents.get('b:921').hp = 921000; F.ents.get('b:921').maxHp = 921000;
+    F.E({ id: 'm:h', kind: 2, defId: 'kunemon', level: 4, x: 700, y: 650, targetId: '', flags: 32, hp: 400000, maxHp: 400000 });
+    F.store.setState({ target: F.toTarget('b:921'), effects: { 'm:h': [{ id: 'rift_role_mender' }], 'b:921': [{ id: 'rift_mended' }] } });
+  }) });
+  ck('M', M === 'm:h', 'Boss-Zone: Heiler, der einen Begleiter heilt, zuerst', { M });
+  // K: unter Druck (4 Angreifer) Omega nicht aufheben, auch wenn ein Boss daneben steht
+  const K = await runBot('K', [W_('t:1', 440, 330, 900000, 900000), W_('g:1', 470, 345, 3200000, 3200000, 16 | 32), W_('a:2', 450, 340, 900000, 900000), W_('a:3', 430, 345, 900000, 900000)], 2500, { skill: 'x.omega', role: 'attack' });
+  ck('K', K.k2 > 0, 'unter Druck: Omega sofort, nicht für den Boss aufheben', K);
   console.log(res.every(Boolean) ? 'ALLES OK' : 'FEHLER');
   process.exit(res.every(Boolean) ? 0 : 1);
 })();
