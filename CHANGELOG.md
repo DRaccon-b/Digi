@@ -2,6 +2,12 @@
 
 Alle Änderungen an DigiBot, neueste zuerst.
 
+## 3.2.62 – Rift: bei Zeitdruck am offenen Portal nur noch Angreifer
+- Bei offenem Portal und knapper/abgelaufener Zeitplanung griff der Bot einen ruhigen Gegner (z. B. einen nicht markierten Alpha)
+  neben dem Portal an, statt abzusteigen. Jetzt nimmt er unterwegs dorthin nur noch Angreifer.
+- Aufgefallen, weil tests/rifttakttest.js (Fall H) je nach Rechner-Tempo rot wurde: kam der Bot in den 2,5 s Testzeit nah genug an
+  den Alpha, griff er ihn an.
+
 ## 3.2.61 – Rift: Omega Blade nicht auf Adds
 - **Nutzer 28.11.:** Am Guardian Kumbhiramon (3,4 Mio. HP) ging Omega Blade auf ein Kuramon-Add (51 000 HP, volle HP) – „waste of time“,
   dafür hätte Invincible Sword gereicht.

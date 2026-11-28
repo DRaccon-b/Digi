@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DigiBot – Status-Anzeige
 // @namespace    digibot
-// @version      3.2.61
+// @version      3.2.62
 // @description  Status-Anzeige (HP/DS/EXP, Ziel) plus Bot: Ziel per Tab suchen, mit 1 angreifen, Skills 2–6, Tränke mit F1–F3.
 // @match        https://play.digimmo.com.br/*
 // @run-at       document-idle
@@ -1889,7 +1889,7 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
   const check = (flag, label, tip = '') => `<label class="digibot__skill digibot__chk"${tip ? ` title="${escAttr(tip)}"` : ''}><input type="checkbox" data-apflag="${flag}" ${cfg[flag] ? 'checked' : ''}><span>${label}</span>${tip ? '<i class="info">ⓘ</i>' : ''}</label>`;
 
   const HTML = `
-    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.61'}</span>
+    <div class="digibot__head"><span>DigiBot</span><span class="ver">v${typeof GM_info !== 'undefined' ? GM_info.script?.version || '' : '3.2.62'}</span>
       <span class="digibot__gchip" data-f="gchip"></span>
       <span class="digibot__prof" data-f="prof" title="Die Einstellungen (Skills, Bosse, Quests …) gelten für alle Fenster und Accounts. Die Betriebsart eines laufenden Bots oder Gruppenfensters bleibt bei diesem Fenster."></span>
       <button class="digibot__btn" data-act="compact" title="Kompakt: nur Start, Status und Aufgabe">▭</button>
@@ -11236,7 +11236,9 @@ function digibotDesktopBarrier(plan,members,now,{party=true,armed=false}={}){
       if (marks.has(m.id) || (boss && last && run.guardian === 'called')) return m.attacker || dist <= riftFocusR() ? 400 + dist / 100 : Infinity;
       // andere Boss-Flag-Gegner (Alphas außerhalb der Jagd) wie normale Gegner – vorher nie angegriffen
       // Portal offen: Angreifer und alle Gegner im Suchradius erst erledigen, dann hin (vorher rannte er durch und zog alles mit)
-      if (portalOpen) return m.attacker ? 100 + dist / 100 : dist <= riftFocusR() ? 300 + dist / 100 : Infinity;
+      // Zeitplan knapp/leer (3.2.62): nur noch Angreifer, keine ruhigen Gegner am Portal (vorher griff er einen ruhigen Boss-Gegner neben dem
+      // Portal an, statt abzusteigen)
+      if (portalOpen) return m.attacker ? 100 + dist / 100 : dist <= riftFocusR() && !plan.level ? 300 + dist / 100 : Infinity;
       // Heiler (mender, heilt die Frontreihe 4,5 %/s) vor allen Angreifern – aber erst, wenn er gerade ein Monster heilt, das mit mir
       // kämpft (Nutzer 20.11.: „langsam zu der Gruppe mit dem Heiler vorarbeiten und erst wenn der Heiler anfängt zu heilen, diesen
       // fokussieren“ – vorher rannte er zwei Gruppen weiter und zog mehr als nötig). Vorher ist er ein normaler Gegner.
